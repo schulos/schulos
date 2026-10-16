@@ -59,7 +59,8 @@ Pflicht-Checks; GHCR-Pakete öffentlich; Release und PR-CI auf GitHub-Runnern, s
    expose my email“ an). Auch künftige Commits nur mit dieser Adresse (`git config user.email` im Repo setzen).
    Der Update-Test vor einem Release braucht einen Vorgänger-Commit bzw. -Tag (`scripts/update-test.sh`): das erste
    Release also erst nach mindestens einem weiteren Commit taggen.
-7. **Repo-Einstellungen:** Issues, Discussions, Wiki, Projects **aus**; „Private vulnerability reporting“ **an**;
+7. **Repo-Einstellungen:** Discussions und Wiki **aus**; Issues **an** nur mit Formular (`.github/ISSUE_TEMPLATE`, keine leeren
+   Issues – Projektleitung 2026-10-16), Board als privates GitHub Project der Organisation; „Private vulnerability reporting“ **an**;
    Dependabot-Alerts und -Sicherheitsupdates an; Secret Scanning + Push Protection an; Merge nur per Merge-Commit
    (wie `scripts/pr-merge.sh`), Head-Branches nach dem Merge löschen.
 8. **Secrets/Variablen** neu setzen (werden nicht mitkopiert): `COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`
@@ -97,7 +98,7 @@ Gesteuert über die Repo-Variable **`SCHULOS_RUNNER`** (Settings → Secrets and
 13. 🔓 **GHCR-Pakete** `schulos`, `schulos-backup`, `schulos-agent` der Organisation: Package settings → mit dem Repo
     verknüpfen, Sichtbarkeit **öffentlich**. Probe ohne Anmeldung: `docker pull ghcr.io/<org>/schulos:<version>`.
 14. 🔓 **Repo öffentlich** schalten (Settings → General → Danger Zone). Danach prüfen: README wird angezeigt,
-    „Report a vulnerability“ ist sichtbar, Issues/Discussions sind aus.
+    „Report a vulnerability“ ist sichtbar, Issues nur per Formular, Discussions aus.
 15. **`schulosctl update` ohne Token** auf einem Testserver: `unset SCHULOS_GITHUB_TOKEN; schulosctl update --check` →
     Liste der Releases, Signatur geprüft. (Ohne Token zählt GitHub 60 API-Aufrufe je Stunde und Adresse; `schulosctl`
     lädt die Release-Dateien deshalb ohne Token über die normalen Download-Links, die nicht mitzählen.)

@@ -1,7 +1,8 @@
 # Mitwirken
 
 Danke für das Interesse an SchulOS. Bitte vorab lesen: SchulOS ist ein **Vorschau-Projekt ohne Support**
-(`README.md`). Issues und Diskussionen sind bewusst ausgeschaltet.
+(`README.md`). **Fehler** bitte über das Formular unter „Issues“ melden (keine echten Daten, ohne Anspruch auf Antwort);
+Diskussionen sind ausgeschaltet.
 
 - **Sicherheitslücken:** nie öffentlich – Weg in `SECURITY.md`.
 - **Pull Requests aus Forks** sind willkommen, werden aber erst **nach Freigabe** durch die Betreuenden geprüft:
