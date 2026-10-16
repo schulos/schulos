@@ -55,3 +55,25 @@ test("Q-4E-31: Link zum Quellcode auf der Anmeldeseite und im Benutzermenü", as
   await expect(page.getByRole("menuitem", { name: /^Quellcode \(AGPL\)/ })).toHaveAttribute("href", /^https:\/\/github\.com\/schulos\/schulos/);
   expect(errors).toEqual([]);
 });
+
+// „Problem melden“ (Projektleitung 2026-10-16): nur Verwaltung/Admin, vorausgefülltes Formular ohne IDs/Namen im Bereich
+test("Problem melden: Formular mit Version und Bereich, nur für Verwaltung und Admin", async ({ page, browser }) => {
+  const errors = collectErrors(page);
+  await login(page, "admin");
+  await page.goto("/verwaltung/benutzer/u-lea.schaefer");
+  await page.getByRole("button", { name: "Profilmenü öffnen" }).click();
+  const link = page.getByRole("menuitem", { name: "Problem melden" });
+  await expect(link).toHaveAttribute("href", /^https:\/\/github\.com\/schulos\/schulos\/issues\/new\?template=fehler\.yml&version=[^&]+&bereich=%2Fverwaltung%2Fbenutzer$/);
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  expect(errors).toEqual([]);
+
+  for (const user of ["lea.schaefer", "jana.brandt"]) {
+    const ctx = await browser.newContext();
+    const p = await ctx.newPage();
+    await login(p, user);
+    await p.getByRole("button", { name: "Profilmenü öffnen" }).click();
+    await expect(p.getByRole("menuitem", { name: /^Quellcode \(AGPL\)/ })).toBeVisible();
+    await expect(p.getByRole("menuitem", { name: "Problem melden" }), user).toHaveCount(0);
+    await ctx.close();
+  }
+});

@@ -6,7 +6,8 @@ Kommunikation, Organisation und Unterricht – selbst betrieben auf einem Server
 > **Status: Vorschau (Versionen 0.x) – ohne Gewähr, ohne Support.**
 > SchulOS ist als Lern- und Homelab-Projekt entstanden und bisher **an keiner Schule im Echtbetrieb**. Es wird ohne
 > Gewährleistung und Haftung bereitgestellt (AGPL-3.0, §§ 15–16). Es gibt keinen Support, keine Hotline und keine
-> zugesagten Reaktionszeiten; Issues und Diskussionen sind ausgeschaltet.
+> zugesagten Reaktionszeiten. **Fehlermeldungen sind willkommen** – über das Formular unter „Issues“ (ohne Anspruch auf
+> Antwort, keine echten Daten); in SchulOS selbst führt „Problem melden“ im Benutzermenü (Verwaltung/Admin) dorthin.
 >
 > **Verantwortlich für die Daten ist die Schule**, die SchulOS betreibt (Verantwortliche nach DSGVO). SchulOS liefert
 > Vorgaben (z. B. Löschfristen, Voreinstellungen) und Vorlagen (Datenschutzhinweise, Verzeichnis der

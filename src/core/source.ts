@@ -35,3 +35,36 @@ export function sourceLink(env: Record<string, string | undefined> = process.env
   const { href, version } = sourceInfo(env);
   return { href, label: `Quellcode (AGPL) · ${version}` };
 }
+
+/** Rollen, die „Problem melden“ sehen (Projektleitung 2026-10-16) – Schüler:innen und Eltern wenden sich an die Schule. */
+export const ISSUE_ROLES = ["verwaltung", "admin"];
+
+/**
+ * „Problem melden“: öffnet ein vorausgefülltes Formular im Tracker des Projekts – nichts wird automatisch gesendet, kein
+ * Token und keine Mailadresse im Code. Vorgabe: Fehler-Formular im öffentlichen Repo mit Version; eigene Fassungen tragen
+ * ihren Tracker in SCHULOS_ISSUE_URL ein (nur https, wird unverändert verlinkt). `bereich` hängt die Shell an (issueHref).
+ */
+export function issueLink(env: Record<string, string | undefined> = process.env): { base: string; withArea: boolean } {
+  const own = validUrl(env.SCHULOS_ISSUE_URL);
+  if (own) return { base: own, withArea: false };
+  const { version } = sourceInfo(env);
+  return { base: `${DEFAULT_SOURCE_URL}/issues/new?template=fehler.yml&version=${encodeURIComponent(version)}`, withArea: true };
+}
+
+/**
+ * Bereich für die Meldung aus dem Seitenpfad: höchstens zwei Segmente aus Kleinbuchstaben (z. B. „/stundenplan“,
+ * „/verwaltung/benutzer“). Ab dem ersten Segment mit Ziffern, Punkt o. Ä. ist Schluss – das sind IDs und Namen
+ * (z. B. „u-vorname.nachname“, „g-7b“), die nicht in ein öffentliches Formular gehören.
+ */
+export function issueArea(pathname: string): string {
+  const parts: string[] = [];
+  for (const seg of pathname.split("/").filter(Boolean)) {
+    if (parts.length === 2 || !/^[a-z]+(?:-[a-z]+)*$/.test(seg)) break;
+    parts.push(seg);
+  }
+  return `/${parts.join("/")}`;
+}
+
+export function issueHref(link: { base: string; withArea: boolean }, pathname: string): string {
+  return link.withArea ? `${link.base}&bereich=${encodeURIComponent(issueArea(pathname))}` : link.base;
+}

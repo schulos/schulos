@@ -1139,6 +1139,7 @@ Läuft vor jedem getaggten Release (`release.yml`) und von Hand (`ci.yml`, workf
 | `SCHULOS_JOBS` | Hintergrundjobs (Löschlauf 02:30, Ferienabruf 03:30): im Container automatisch an, `0` = aus |
 | `SCHULOS_HOLIDAYS_URL` | andere Ferien-Quelle mit derselben Schnittstelle (Spiegel/offline), Vorgabe OpenHolidays API |
 | `SCHULOS_SOURCE_URL` | Ziel des Links „Quellcode (AGPL)“ auf der Anmeldeseite und im Benutzermenü (AGPL § 13) – **Pflicht für veränderte Fassungen**: das eigene Repo (nur `https://`). Vorgabe: der Stand der laufenden Version in `schulos/schulos` |
+| `SCHULOS_ISSUE_URL` | Ziel von „Problem melden“ im Benutzermenü (nur Verwaltung/Admin, nur `https://`). Vorgabe: Fehler-Formular in `schulos/schulos` mit Version und Bereich (Seitenpfad ohne IDs/Namen); ein eigener Tracker wird unverändert verlinkt. Es wird nichts automatisch gesendet |
 
 **Backupserver (Stand B-22):** Image `docker build -f apps/backup/Dockerfile -t schulos-backup .` (aus dem Repo-Root), Port 3100,
 Daten unter `/srv/schulos-backup/{db,config}`. Konfiguration `backup.env` im Config-Verzeichnis mit denselben `SCHULOS_ADMIN_*`-Variablen

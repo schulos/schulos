@@ -533,6 +533,12 @@ INST-09 und INST-10 (oben bei 4e) plus:
 - [x] **Q5-29** (S) Prüfarten: Hinweis am Intervall, dass es ab der nächsten erfassten Prüfung gilt (offene behalten ihren Termin); Hinweis für die Hausmeisterei unter „Prüfung planen“, wo Intervalle gepflegt werden
 - [x] **R-0.5.1** Release v0.5.1 (Notizen `release/notes/0.5.1.json`)
 
+### Nach der Veröffentlichung (Projektleitung 2026-10-16)
+- [x] **REPO-04** (S) Fehler melden: Issues an, nur per Formular (`.github/ISSUE_TEMPLATE/fehler.yml`, keine leeren Issues,
+  Sicherheitslücken weiter vertraulich), Labels und privates Board (GitHub Project der Organisation); in SchulOS „Problem
+  melden“ im Benutzermenü für Verwaltung/Admin – vorausgefülltes Formular mit Version und Bereich (Seitenpfad ohne IDs/Namen),
+  nichts wird automatisch gesendet, kein Token/keine Mailadresse im Code; eigener Tracker per `SCHULOS_ISSUE_URL`
+
 ## Technische Schulden / Folgepunkte
 - [x] **TD-01** Deutsche Sortierung in DB-Listen (Benutzer, Adressbuch, Gruppen): PGlite sortiert per C-Collation (ä hinter z). Entweder ICU-Collation prüfen oder Sortierschlüssel-Spalte (umlaut-normalisiert). In der Aufgaben-Matrix bereits per Intl.Collator gelöst.
 - [x] **TD-02** Formulare verlieren nach einem Validierungsfehler die Eingaben (React 19 setzt Formulare nach einer Action zurück). In der Stundenplan-Pflege per `FormState.values` + `key` gelöst; Kalender-, Benutzer-, Gruppen- und News-Formulare prüfen und ggf. gleich lösen.

@@ -14,7 +14,7 @@ import { Gong } from "./_shell/gong";
 import { LiveEvents } from "./_shell/live";
 import { SearchButton } from "./_shell/topbar";
 import { UserMenu } from "./_shell/user-menu";
-import { sourceLink } from "@/core/source";
+import { ISSUE_ROLES, issueLink, sourceLink } from "@/core/source";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +63,9 @@ export default async function ShellLayout({ children }: { children: React.ReactN
             <SearchButton />
             <div className="ml-auto flex items-center gap-2">
               <Gong initialUnread={shell.unread} />
-              <UserMenu user={shell.user} userId={current.perms.userId} demoAccounts={demoAccounts} source={sourceLink()} />
+              <UserMenu user={shell.user} userId={current.perms.userId} demoAccounts={demoAccounts} source={sourceLink()}
+                issue={ISSUE_ROLES.includes(current.user.role) ? issueLink() : undefined}
+              />
             </div>
           </header>
           <div id="inhalt" tabIndex={-1} className="flex-1 px-4 pt-6 pb-28 outline-none sm:px-6 lg:px-10 lg:pb-12">

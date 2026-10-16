@@ -1,0 +1,83 @@
+name: Fehler melden
+description: Etwas funktioniert nicht wie erwartet
+title: "[Fehler] "
+labels: ["fehler", "neu"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke fürs Melden! SchulOS ist eine **Vorschau ohne Support** – wir schauen uns jede Meldung an, versprechen aber
+        keine Antwortzeit.
+
+        ⚠️ **Keine echten Daten:** keine Namen, Noten, Klassenlisten, Zugangsdaten oder Screenshots mit Personendaten.
+        Diese Meldung ist **öffentlich**. Sicherheitslücken bitte nie hier, sondern vertraulich über
+        [„Report a vulnerability“](https://github.com/schulos/schulos/security/advisories/new).
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Steht im Benutzermenü bei „Quellcode (AGPL)“ bzw. unter Verwaltung → System
+      placeholder: "0.5.3"
+    validations:
+      required: true
+  - type: input
+    id: bereich
+    attributes:
+      label: Bereich
+      description: Seite oder Modul, z. B. /stundenplan oder /verwaltung/benutzer
+      placeholder: "/stundenplan"
+    validations:
+      required: true
+  - type: dropdown
+    id: rolle
+    attributes:
+      label: Angemeldet als
+      options:
+        - Verwaltung
+        - Admin
+        - Lehrkraft
+        - Schüler:in
+        - Eltern
+        - Personal
+        - nicht angemeldet
+        - Installation/Server (kein Konto)
+    validations:
+      required: true
+  - type: textarea
+    id: schritte
+    attributes:
+      label: Schritte zum Nachstellen
+      placeholder: |
+        1. Stundenplan öffnen
+        2. Klasse 7b wählen, „Anzeigen“
+        3. Lehrkraft wählen, „Anzeigen“
+    validations:
+      required: true
+  - type: textarea
+    id: erwartet
+    attributes:
+      label: Erwartet
+    validations:
+      required: true
+  - type: textarea
+    id: tatsaechlich
+    attributes:
+      label: Tatsächlich
+      description: Fehlermeldung im Wortlaut, falls vorhanden (ohne Personendaten)
+    validations:
+      required: true
+  - type: dropdown
+    id: umgebung
+    attributes:
+      label: Installation
+      options:
+        - ISO auf eigener Hardware
+        - ISO in einer VM (Hyper-V, Proxmox, …)
+        - Docker Compose
+        - Demo/Entwicklung
+        - weiß nicht
+  - type: textarea
+    id: sonstiges
+    attributes:
+      label: Sonstiges
+      description: Browser, Gerät, wie oft es auftritt, …

@@ -1,12 +1,14 @@
 "use client";
 
-import { Accessibility, AppWindow, ChevronDown, Clock, Code, Download, ImageIcon, KeyRound, LogOut, Mail, MonitorSmartphone, ShieldCheck, Users } from "lucide-react";
+import { Accessibility, AppWindow, Bug, ChevronDown, Clock, Code, Download, ImageIcon, KeyRound, LogOut, Mail, MonitorSmartphone, ShieldCheck, Users } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useRef } from "react";
 import { DropdownMenu } from "radix-ui";
 import { demoLoginAction } from "@/app/(auth)/login/demo-actions";
 import { logoutWithOfflineCheck } from "./abmelden";
 import type { DemoAccount } from "@/core/auth/demo";
+import { issueHref } from "@/core/source";
 import { Avatar } from "@schulos/ui/misc";
 import { ThemeMenuRadio } from "@schulos/ui/theme";
 
@@ -27,6 +29,7 @@ export function UserMenu({
   userId,
   demoAccounts = [],
   source,
+  issue,
 }: {
   user: ShellUser;
   userId: string;
@@ -34,8 +37,11 @@ export function UserMenu({
   /** AGPL § 13 (Q-4E-31): Link zum Quellcode, src/core/source.ts – fertige Beschriftung statt Feld „version“ (der
    * Notenbuch-Test sucht in Antworten nach Notenbuch-Feldnamen wie „version“) */
   source?: { href: string; label: string };
+  /** „Problem melden“ (nur Verwaltung/Admin) – Bereich aus dem Pfad ohne IDs/Namen, src/core/source.ts */
+  issue?: { base: string; withArea: boolean };
 }) {
   const exportForm = useRef<HTMLFormElement>(null);
+  const pathname = usePathname() ?? "/";
   return (
     // A11Y-01e: nicht modal – sonst versteckt Radix den Rest der Seite per aria-hidden, obwohl er fokussierbar bleibt (axe
     // „aria-hidden-focus“); Tab schließt das Menü wie im Menü-Muster vorgesehen
@@ -136,6 +142,13 @@ export function UserMenu({
             <DropdownMenu.Item asChild className="flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg px-2 text-sm outline-none data-highlighted:bg-surface-2">
               <a href={source.href} rel="noopener noreferrer" target="_blank">
                 <Code className="size-4" aria-hidden /> {source.label}
+              </a>
+            </DropdownMenu.Item>
+          )}
+          {issue && (
+            <DropdownMenu.Item asChild className="flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg px-2 text-sm outline-none data-highlighted:bg-surface-2">
+              <a href={issueHref(issue, pathname)} rel="noopener noreferrer" target="_blank">
+                <Bug className="size-4" aria-hidden /> Problem melden
               </a>
             </DropdownMenu.Item>
           )}
