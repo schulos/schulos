@@ -1,0 +1,7 @@
+{
+  "minVersion": "0.4.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "behoben", "text": "Abnahmetest der Installations-ISO schlug kurz vor Ferien fälschlich fehl – das Programm selbst ist unverändert gegenüber 0.5.2" }
+  ]
+}

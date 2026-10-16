@@ -29,7 +29,12 @@ test.describe("Demo-Schule @iso", () => {
 
   test("Schülerin sieht ihre Tagesleiste, Lehrkraft das Klassenbuch der 7b", async ({ page }) => {
     await login(page, "lea.schaefer");
-    await expect(page.getByRole("region", { name: "Tagesleiste" })).toHaveAttribute("data-day", /^\d{4}-\d{2}-\d{2}$/);
+    // Tag der Leiste: heute bzw. der nächste Tag mit Unterricht in den kommenden 8 Tagen. Nach Schulschluss vor Ferien gibt es
+    // keinen (Lauf Fr 16.10.2026 abends, Herbstferien ab 17.10.) – dann fehlt das Attribut, die Leiste ist trotzdem da.
+    const leiste = page.getByRole("region", { name: "Tagesleiste" });
+    await expect(leiste).toBeVisible();
+    const tag = await leiste.getAttribute("data-day");
+    if (tag !== null) expect(tag).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     await page.goto("about:blank");
     await page.context().clearCookies();
     await login(page, "jana.brandt");
