@@ -51,7 +51,7 @@ export function grubPbkdf2(
  * nur Zeichen, die auf deutscher und US-Tastatur an derselben Stelle liegen (Kleinbuchstaben ohne y/z, Ziffern), ohne
  * leicht verwechselbare (i, l, o, 0, 1). 16 Zeichen aus 29 ≈ 77 Bit.
  */
-export const GRUB_PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwx23456789";
+export const GRUB_PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwx23456789"; // gitleaks:allow – Zeichenvorrat, kein Geheimnis
 export const GRUB_PASSWORD_LENGTH = 16;
 /** Mindestlänge eines eigenen Bootmenü-Passworts (`schulosctl sicherheit-nachruesten --passwort-stdin`) */
 export const GRUB_PASSWORD_MIN = 12;

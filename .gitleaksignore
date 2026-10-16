@@ -1,5 +1,4 @@
 # Einzelne, geprüfte Fehlalarme von gitleaks (Fingerprint = Commit:Datei:Regel:Zeile). Nur echte Fehlalarme eintragen,
-# jeweils mit Begründung; Testdaten-Ausnahmen stehen in .gitleaks.toml.
-# Gate 4e (2026-10-14): Zeichenvorrat für das Bootmenü-Passwort (G4E-O04/O05), kein Geheimnis – generic-api-key schlägt
-# nur wegen der Entropie der Buchstabenfolge an.
-804e681c9d2b5dfb8bed241fe46c80f8f8d7126e:packages/server/src/boot-hardening.ts:generic-api-key:54
+# jeweils mit Begründung; Testdaten-Ausnahmen stehen in .gitleaks.toml. Fingerprints hängen an der Commit-ID – dauerhafte
+# Fehlalarme lieber direkt an der Zeile mit `gitleaks:allow` markieren (z. B. der Zeichenvorrat des Bootmenü-Passworts in
+# packages/server/src/boot-hardening.ts, Gate 4e).
