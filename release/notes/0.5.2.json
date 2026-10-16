@@ -1,0 +1,8 @@
+{
+  "minVersion": "0.4.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Link „Quellcode (AGPL)“ mit Versionsnummer auf der Anmeldeseite und im Benutzermenü; veränderte Fassungen tragen ihr eigenes Repository ein (SCHULOS_SOURCE_URL)" },
+    { "kind": "sicherheit", "text": "SchulOS ist jetzt öffentlich (github.com/schulos/schulos): Releases kommen von dort und sind mit einem neuen Schlüssel signiert. Installationen bis 0.5.1 brauchen einmalig ein neues schulosctl (Anleitung in der Installationsdoku)" }
+  ]
+}
