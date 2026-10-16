@@ -55,7 +55,8 @@ jobs:
     needs: aenderungen
     if: needs.aenderungen.outputs.voll == 'true'
     runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","schulos-iso"]') }}
-    timeout-minutes: 30
+    # GitHub-Runner brauchen für Build + 262 E2E-Tests deutlich länger als die Build-VM (Lauf 2026-10-16: nach 30 min erst Test 11)
+    timeout-minutes: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 90 || 30 }}
     env:
       TZ: Europe/Berlin
       NEXT_TELEMETRY_DISABLED: "1"
