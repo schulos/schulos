@@ -1,0 +1,1 @@
+ALTER TABLE "anmeldung_antraege" ADD COLUMN "parent2_email" text;

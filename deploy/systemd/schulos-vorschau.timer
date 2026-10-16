@@ -1,0 +1,9 @@
+# nach dem Wartungsfenster (02:30–03:00) – nie gleichzeitig mit einem Update des Hauptsystems
+[Unit]
+Description=SchulOS: Vorschau nachts um 04:15
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+
+[Install]
+WantedBy=timers.target

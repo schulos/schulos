@@ -1,0 +1,11 @@
+# Test-Override für compose.yaml (scripts/backup-stack-test.sh): der Backup-Agent erreicht den Backupserver über das gemeinsame Netz.
+services:
+  backup-agent:
+    environment:
+      SCHULOS_SCHOOL_NAME: CI-Schule
+    networks: [edge, db, verbund]
+
+networks:
+  verbund:
+    external: true
+    name: schulos-verbund

@@ -1,0 +1,10 @@
+{
+  "minVersion": "0.4.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "behoben", "text": "Hauptsystem und Backupserver lassen sich wieder über die IP-Adresse oder einen anderen Rechnernamen aufrufen (vorher blieb die Seite weiß)" },
+    { "kind": "behoben", "text": "Stundenplan: Beim Wechsel zwischen Klasse, Lehrkraft und Raum wird jetzt immer der gewählte Plan angezeigt" },
+    { "kind": "verbessert", "text": "Installation: Die Abfrage am Schlüssel-Bildschirm sagt klar, dass Block 8 des Wiederherstellungsschlüssels einzutippen ist" },
+    { "kind": "verbessert", "text": "Gebäude & Technik: Hinweis, dass ein geändertes Prüfintervall ab der nächsten erfassten Prüfung gilt und wo Intervalle gepflegt werden" }
+  ]
+}

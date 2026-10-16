@@ -1,0 +1,9 @@
+{
+  "minVersion": "0.2.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "behoben", "text": "Konsole am Server: Umlaute, Sonderzeichen und QR-Code werden wieder richtig angezeigt (vorher Zeichensalat)" },
+    { "kind": "verbessert", "text": "Konsole am Server: Anmelden einfach mit Enter direkt am Statusbildschirm – nach dem Abmelden erscheint wieder der Status" },
+    { "kind": "behoben", "text": "Wiederherstellungsschlüssel erneuern (schulosctl): QR-Code auf der Konsole lesbar" }
+  ]
+}

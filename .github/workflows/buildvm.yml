@@ -1,0 +1,49 @@
+# Build-VM (self-hosted Runner „schulos-iso“) einstellen – von Hand, nach dem Neuaufsetzen der VM wiederholbar.
+# Docker: BuildKit-Speicherbereinigung mit Obergrenze für den Build-Cache (die VM lief am 2026-10-07 voll, ~26 GB Cache);
+# zweite Sicherung neben dem Platzwächter (.github/actions/platz). Docker startet nur neu, wenn sich etwas ändert – auf der
+# VM läuft nur ein Runner, während dieses Jobs also kein anderer.
+name: Build-VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      grenze:
+        description: "Obergrenze für den Docker-Build-Cache"
+        type: choice
+        options: [20GB, 10GB, 30GB]
+        default: 20GB
+
+concurrency:
+  group: buildvm
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  einstellen:
+    runs-on: [self-hosted, schulos-iso]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Docker – Build-Cache begrenzen
+        env:
+          GRENZE: ${{ inputs.grenze }}
+        run: |
+          echo "vorher:"; sudo cat /etc/docker/daemon.json 2>/dev/null || echo "(keine daemon.json)"
+          result="$(sudo "$(command -v node)" scripts/ci/buildvm-docker.mjs --grenze "$GRENZE")"
+          echo "daemon.json: $result"
+          if [ "$result" = geändert ]; then
+            sudo systemctl restart docker
+            for i in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
+          fi
+          echo "nachher:"; sudo cat /etc/docker/daemon.json
+          docker info --format 'Docker {{.ServerVersion}}, Speicher {{.Driver}}'
+          docker system df
+          df -h /

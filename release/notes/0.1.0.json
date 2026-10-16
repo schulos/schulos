@@ -1,0 +1,9 @@
+{
+  "minVersion": "0.0.0",
+  "changes": [
+    { "kind": "neu", "text": "Erste Version von SchulOS: Anmeldung mit Zwei-Faktor, Benutzer und Gruppen, News, Messenger, Kalender, Dateien, Aufgaben, Adressbuch und Raumbuchungen" },
+    { "kind": "neu", "text": "Stundenplan mit Raumplanung und automatischer Erstellung, Vertretungen, Klassenbuch, Klausurplan, Abwesenheiten, Elternbriefe und Statusmonitore für Foyer und Lehrerzimmer" },
+    { "kind": "neu", "text": "Schuljahreswechsel, Ferien und Feiertage für NRW, Datenschutz-Auskunft und automatische Löschfristen" },
+    { "kind": "neu", "text": "SchulOS Backup: eigener Backupserver mit Web-Oberfläche, verschlüsselte tägliche Sicherung, regelmäßige Prüfung und Wiederherstellung auf Knopfdruck" }
+  ]
+}

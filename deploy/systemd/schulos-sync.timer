@@ -1,0 +1,11 @@
+# alle 5 Minuten (und kurz nach dem Start): Verwaltung → System bleibt aktuell, Freigaben werden zeitnah ausgeführt
+[Unit]
+Description=SchulOS: Abgleich mit Verwaltung → System alle 5 Minuten
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

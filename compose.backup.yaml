@@ -1,0 +1,177 @@
+# SchulOS Backup – Backupserver (INSTALLATION.md §4): Caddy (TLS) · Backup-App (Web-UI, API, Aufräumen/Prüfung/Test-Restore) ·
+# restic rest-server (append-only) · Test-Postgres für den Test-Restore
+#   cp .env.backup.example .env.backup && cp backup.env.example backup.env   # anpassen
+#   docker compose -f compose.backup.yaml --env-file .env.backup up -d --build
+# Nur Caddy ist von außen erreichbar: /restic/* → rest-server (Zugang je Instanz), alles andere → Backup-App.
+name: schulos-backup
+
+# SEC-13: wie compose.yaml – Image-Dateisystem nur lesbar, keine Capabilities, keine Rechteausweitung; Abweichungen beim Dienst
+x-haertung: &haertung
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:mode=1777,size=256m
+
+services:
+  caddy:
+    <<: *haertung
+    image: ${SCHULOS_CADDY_IMAGE:-caddy:2}
+    # Ausnahme SEC-13: root (Volumes bestehender Installationen gehören root), nur mit dem Recht, 80/443 zu binden
+    cap_add: [NET_BIND_SERVICE]
+    restart: unless-stopped
+    depends_on:
+      backup:
+        condition: service_healthy
+      rest-server:
+        condition: service_started
+    ports:
+      - "${SCHULOS_HTTP_PORT:-80}:80"
+      - "${SCHULOS_HTTPS_PORT:-443}:443"
+    environment:
+      SCHULOS_BACKUP_DOMAIN: ${SCHULOS_BACKUP_DOMAIN:-localhost}
+      # „internal“ = eigene CA (das Hauptsystem pinnt sie bei der Kopplung) · E-Mail-Adresse = Let's Encrypt
+      SCHULOS_TLS: ${SCHULOS_TLS:-internal}
+    # Ausnahme SEC-13 (read_only): Compose kopiert den Inhalt von „configs“ beim Anlegen in das Dateisystem des Containers –
+    # das geht nur, wenn es beschreibbar ist (sonst „container rootfs is marked read-only“). Übrige Härtung bleibt.
+    read_only: false
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    # Caddys PKI-Ordner ist nur für root lesbar und enthält den privaten CA-Schlüssel. Deshalb wird nur das öffentliche
+    # root.crt in ein eigenes Volume kopiert – das Hauptsystem pinnt diese CA bei der Kopplung (bei Let's Encrypt gibt es keine).
+    command:
+      - sh
+      - -c
+      - |
+        caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
+        for i in $$(seq 1 120); do
+          if [ -f /data/caddy/pki/authorities/local/root.crt ]; then
+            cp /data/caddy/pki/authorities/local/root.crt /ca/root.crt && chmod 644 /ca/root.crt && break
+          fi
+          sleep 1
+        done
+        wait
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ca:/ca
+    networks:
+      edge:
+        # gleicher Name im Netz wie draußen – das Hauptsystem erreicht den Server unter seiner Domain
+        aliases: ["${SCHULOS_BACKUP_DOMAIN:-localhost}"]
+      # intern: Weg zum rest-server (der selbst nicht nach außen erreichbar ist)
+      intern:
+
+  backup:
+    <<: *haertung
+    image: ${SCHULOS_BACKUP_IMAGE:-schulos-backup:dev}
+    # SEC-13: Benutzer node; /tmp als Volume (Test-Restore entpackt dort die Sicherung, dazu der restic-Cache)
+    tmpfs: []
+    build:
+      context: .
+      dockerfile: apps/backup/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      restore-db:
+        condition: service_healthy
+    env_file:
+      - path: ./backup.env
+        required: false
+    environment:
+      BETTER_AUTH_URL: https://${SCHULOS_BACKUP_DOMAIN:-localhost}${SCHULOS_PUBLIC_PORT:-}
+      # Caddys eigene CA, öffentlicher Teil (bei Let's Encrypt fehlt die Datei → öffentliches Zertifikat)
+      SCHULOS_TLS_CA_FILE: /ca/root.crt
+      SCHULOS_RESTORE_TEST_DB: postgres://postgres:${RESTORE_TEST_DB_PASSWORD:-restore-test}@restore-db:5432/postgres
+      XDG_CACHE_HOME: /tmp/.cache
+      # G4E-O18: Reste abgebrochener Dumps/Test-Restores unter /tmp (Volume) nach 24 h löschen (@schulos/server/tmp-aufraeumen)
+      SCHULOS_TMP_AUFRAEUMEN: "1"
+    volumes:
+      - backup_tmp:/tmp
+      # SEC-14/Q5-18: Status des Hosts (Neustart nötig, Passphrase) – schreibt schulos-hoststatus.timer, nur lesend
+      - /run/schulos-host:/host:ro
+      - config:/srv/schulos-backup/config
+      - db:/srv/schulos-backup/db
+      # Repositories + .htpasswd, geteilt mit dem rest-server
+      - rest:/srv/schulos-backup/rest
+      - ca:/ca:ro
+    networks: [edge, intern]
+
+  rest-server:
+    <<: *haertung
+    image: ${SCHULOS_REST_IMAGE:-restic/rest-server:0.14.0}
+    restart: unless-stopped
+    # gleicher Benutzer wie die Backup-App: deren Aufräumen (prune) muss die Repository-Dateien löschen können
+    user: "1000:1000"
+    # startet nach der App: sie legt den Ordner (uid 1000) und die .htpasswd an
+    depends_on:
+      backup:
+        condition: service_healthy
+    command: ["rest-server", "--path", "/data", "--append-only", "--private-repos"]
+    volumes:
+      - rest:/data
+    networks: [intern]
+
+  # Wegwerf-Datenbanken für den monatlichen Test-Restore – nichts davon wird gespeichert
+  restore-db:
+    <<: *haertung
+    image: ${SCHULOS_POSTGRES_IMAGE:-postgres:18}
+    # SEC-13: als postgres statt root + gosu; Daten, Socket und /tmp nur im Speicher
+    user: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${RESTORE_TEST_DB_PASSWORD:-restore-test}
+    tmpfs:
+      - /var/lib/postgresql:mode=1777
+      - /var/run/postgresql:mode=1777,size=16m
+      - /tmp:mode=1777,size=256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [intern]
+
+configs:
+  caddyfile:
+    content: |
+      {
+        # Clients ohne SNI (Aufruf über die IP-Adresse) bekommen das Zertifikat der Backup-Domain statt eines TLS-Fehlers
+        default_sni {$$SCHULOS_BACKUP_DOMAIN}
+        # INST-10: auch bei unbekanntem Namen (z. B. Rechnername.local) das Zertifikat der Backup-Domain statt TLS-Fehler
+        fallback_sni {$$SCHULOS_BACKUP_DOMAIN}
+      }
+      # INST-10: „https://“ ohne Namen = auch Aufrufe über die IP bzw. einen anderen Namen (sonst passt der Host-Header auf
+      # keinen Block und Caddy antwortet mit einer leeren Seite)
+      {$$SCHULOS_BACKUP_DOMAIN}, https:// {
+        tls {$$SCHULOS_TLS}
+        # Interne API nur für die Kommandozeile im Container (127.0.0.1:3100 direkt, src/intern.ts) – über Caddy nie,
+        # auch nicht mit „Host: 127.0.0.1“ über den Catch-all
+        @intern path /api/intern /api/intern/*
+        handle @intern {
+          respond 403
+        }
+        # restic rest-server: /restic/<instanz>/… → /<instanz>/…
+        handle_path /restic/* {
+          reverse_proxy rest-server:8000
+        }
+        handle {
+          reverse_proxy backup:3100
+        }
+        header -Server
+      }
+
+volumes:
+  ca:
+  config:
+  db:
+  rest:
+  # SEC-13: Arbeitsordner der Backup-App (Test-Restore, restic-Cache)
+  backup_tmp:
+  caddy_data:
+  caddy_config:
+
+networks:
+  edge:
+  intern:
+    internal: true

@@ -1,0 +1,13 @@
+{
+  "minVersion": "0.2.0",
+  "betaDays": 3,
+  "changes": [
+    { "kind": "sicherheit", "text": "Rechte: Verwaltungskonten können sich selbst oder anderen keine Admin-Rechte mehr geben und keine Rechte vergeben, die sie selbst nicht haben" },
+    { "kind": "sicherheit", "text": "Anmeldung: Sperre nach Fehlversuchen gilt für alle Anmeldewege, keine Weiterleitung auf fremde Seiten nach dem Login, Namen lassen sich nicht mehr selbst ändern, Live-Benachrichtigungen enden sofort bei Sperre oder Passwortwechsel" },
+    { "kind": "sicherheit", "text": "Datenschutz-Auskunft enthält nur noch eigene Daten – keine Fotos oder Abwesenheiten von Kindern, die eine Verwaltungskraft bearbeitet hat; Exporte sind begrenzt und lassen sich nicht mehr über eingebettete Bilder auslösen" },
+    { "kind": "sicherheit", "text": "Backup: Wiederherstellung nur mit Freigabe im Hauptsystem, Prüfung der Sicherung vor jedem Einspielen, Probewiederherstellung ohne Administratorrechte in der Datenbank" },
+    { "kind": "sicherheit", "text": "Heruntergeladene Dateien und Profilbilder werden wieder mit der vorgesehenen Schutz-Kopfzeile ausgeliefert, damit sie im Browser keine Skripte ausführen können" },
+    { "kind": "behoben", "text": "Anhänge von Elternbriefen wurden vom nächtlichen Aufräumen gelöscht" },
+    { "kind": "behoben", "text": "Statusmonitore zeigen Pinnwände nur noch mit Freigabe durch die Leitung" }
+  ]
+}

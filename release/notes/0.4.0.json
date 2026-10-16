@@ -1,0 +1,14 @@
+{
+  "minVersion": "0.2.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Texte und Tafeln: gemeinsam schreiben und zeichnen im Gruppenordner, live für alle Beteiligten (getestet mit 30 Personen gleichzeitig)" },
+    { "kind": "neu", "text": "Elternsprechtag: Lehrkräfte geben Zeiten frei, Eltern buchen selbst, Erinnerung per Gong/Mail, Druck und Anzeige auf dem Monitor" },
+    { "kind": "neu", "text": "Kurswahl: Verfahren mit Angeboten, Wahl mit 1.–3. Wunsch, Wahlbogen auf Papier, nachvollziehbare Zuteilung (Erstwunsch zuerst, sonst Los) und Übernahme in Gruppen" },
+    { "kind": "neu", "text": "Sitzplan je Lerngruppe: per Ziehen oder Tastatur, Vorlagen, Druck ohne Fotos; im Klassenbuch Fehlzeiten per Klick am Platz – sichtbar nur für Lehrkräfte der Gruppe, Klassenleitung und Vertretung" },
+    { "kind": "neu", "text": "Schulanmeldung: Spam zweistufig ablehnen – das Sekretariat markiert, die Schulleitung lehnt gesammelt ab (nur Anträge ohne Elternkonto)" },
+    { "kind": "verbessert", "text": "Volljährige Schüler:innen melden Abwesenheiten selbst; Eltern sehen ab der Volljährigkeit nichts mehr, auch keine Sprechtag-Erinnerungen" },
+    { "kind": "verbessert", "text": "Entschuldigungen werden erst gelöscht, wenn der Archivexport ihrer Klasse übergeben ist; Hinweis nach Art. 13 im Melde- und Beurlaubungsformular" },
+    { "kind": "sicherheit", "text": "Abhängigkeiten der Tafel-Bibliothek auf Versionen ohne bekannte Lücken festgelegt" }
+  ]
+}

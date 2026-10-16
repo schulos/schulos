@@ -1,0 +1,39 @@
+{
+  "name": "@schulos/ui",
+  "version": "0.1.0",
+  "description": "Gemeinsame UI-Bausteine und Design-Tokens von SchulOS und SchulOS Backup (Quellcode, wird von Next mitkompiliert)",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./auth-forms": "./src/auth-forms.tsx",
+    "./auto-refresh": "./src/auto-refresh.tsx",
+    "./passive": "./src/passive.ts",
+    "./badge": "./src/badge.tsx",
+    "./button": "./src/button.tsx",
+    "./card": "./src/card.tsx",
+    "./cn": "./src/cn.ts",
+    "./field": "./src/field.tsx",
+    "./icons": "./src/icons.tsx",
+    "./markdown": "./src/markdown.tsx",
+    "./misc": "./src/misc.tsx",
+    "./print-button": "./src/print-button.tsx",
+    "./table": "./src/table.tsx",
+    "./theme": "./src/theme.tsx",
+    "./theme.css": "./src/theme.css"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.52.0",
+    "next-themes": "^0.4.6",
+    "radix-ui": "^1.6.7",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.7.0"
+  },
+  "peerDependencies": {
+    "next": "^16.3.8",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

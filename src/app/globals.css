@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@import "@schulos/ui/theme.css";
+
+/* SchulOS-eigene Ergänzungen; Tokens, Dark-Mode und Grundstile kommen aus packages/ui/src/theme.css. */
+@theme inline {
+  /* Laufband der Statusmonitore */
+  --animate-ticker: ticker 45s linear infinite;
+  @keyframes ticker {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+}
+
+/* Druckansichten (/druck/…): A4 quer, schmaler Rand, Hintergründe mitdrucken (Fachfarben) */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+  html,
+  body {
+    background: #fff;
+    print-color-adjust: exact;
+  }
+}
+
+/* Schullogo (P4-04, src/ui/school-logo.tsx): Umschalten nach dem nächsten data-theme – Variablen erben, deshalb
+   gewinnt auch eine helle Insel (Druckansicht, Vorschau) in dunkler Umgebung. Ohne Dunkel-Variante: helle Platte. */
+:root,
+[data-theme="light"] {
+  --school-logo-light: inline-block;
+  --school-logo-dark: none;
+  --school-logo-plate: transparent;
+  --school-logo-plate-pad: 0px;
+}
+[data-theme="dark"] {
+  --school-logo-light: none;
+  --school-logo-dark: inline-block;
+  --school-logo-plate: #fff;
+  --school-logo-plate-pad: 4px;
+}
+.school-logo-light {
+  display: var(--school-logo-light);
+}
+.school-logo-dark {
+  display: var(--school-logo-dark);
+}
+.school-logo-plate {
+  background: var(--school-logo-plate);
+  padding: var(--school-logo-plate-pad);
+  border-radius: 8px;
+}

@@ -1,0 +1,40 @@
+# B-42: Systemschritte des Installers echt ausführen (privilegierter Container, Loop-Geräte als Platten, debootstrap).
+# Variante „spiegel“ (zwei Platten, mdadm + LUKS) braucht md und dm-crypt im Kernel – der GitHub-Runner kann das, Docker
+# Desktop nicht. ~10 min, deshalb nur von Hand (B-13: teure Läufe nicht bei jedem Push).
+name: Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      variante:
+        description: "spiegel (Backupserver: 2 Platten, mdadm, LUKS) oder einfach (Demo: 1 Platte, unverschlüsselt)"
+        type: choice
+        options: [spiegel, einfach]
+        default: spiegel
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  systemschritte:
+    runs-on: ${{ vars.SCHULOS_RUNNER == 'github' && 'ubuntu-24.04' || fromJSON('["self-hosted","schulos-iso"]') }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/platz
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Kernel-Module für Spiegel und Verschlüsselung
+        run: sudo modprobe md_mod raid1 dm_crypt loop
+      - name: Systemschritte (${{ inputs.variante }})
+        # Eingabe nur über env: (über die API ist die Auswahl nicht erzwungen)
+        env:
+          VARIANTE: ${{ inputs.variante }}
+        run: bash scripts/installer-system-test.sh "$VARIANTE"

@@ -1,0 +1,19 @@
+/*
+ * Tafeln (P312-01): Werkzeug „Web-Einbettung“ ausblenden – eingebettete Webseiten sind auf Tafeln aus (der Server verwirft
+ * sie). Excalidraw 0.18 vergibt die data-testid „toolbar-embeddable“ auch an „Mermaid zu Excalidraw“; gemeint ist nur der
+ * Eintrag direkt nach „Rahmen“. Prüft e2e/tafeln.spec.ts – ändert sich der Aufbau mit einem Update, wird der Test rot.
+ */
+[data-testid="toolbar-frame"] + [data-testid="toolbar-embeddable"] {
+  display: none !important; /* Excalidraw setzt .excalidraw .dropdown-menu-item { display: flex } und lädt danach */
+}
+
+/*
+ * Bibliothek (G3B-05, Q-P312-5): der Knopf „Bibliothek“ und die eigene Bibliothek (nur im Browser) bleiben. Ausgeblendet:
+ * „Bibliotheken durchsuchen“ – ein Link auf die externe Bibliotheksseite, der die Adresse der Schule als `referrer` mitgibt –
+ * und „Veröffentlichen“ (schickt ausgewählte Elemente an den externen Bibliotheksdienst; Kennung in 0.18 „lib-dropdown--remove“).
+ * Prüft e2e/tafeln.spec.ts.
+ */
+.excalidraw .library-menu-browse-button,
+.excalidraw .library-menu [data-testid="lib-dropdown--remove"] {
+  display: none !important;
+}

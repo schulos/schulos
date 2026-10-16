@@ -1,0 +1,583 @@
+# SchulOS – Hauptsystem (INSTALLATION.md §5): Caddy (TLS, Reverse Proxy mit SSE) · App · PostgreSQL 18
+#   cp .env.example .env && cp schulos.env.example schulos.env   # anpassen
+#   docker compose up -d --build
+# Nur Caddy ist von außen erreichbar; App und Datenbank hängen im internen Netz.
+name: schulos
+
+# SEC-13: Härtung für jeden Dienst – Dateisystem des Images nur lesbar (beschreibbar nur Volumes und /tmp), keine
+# Linux-Capabilities, keine Rechteausweitung (setuid). Abweichungen stehen beim Dienst; geprüft am laufenden Stack
+# (scripts/haertung-pruefen.sh, CI-Job „stack“) und statisch (apps/installer/src/compose-haertung.test.ts).
+x-haertung: &haertung
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs:
+    - /tmp:mode=1777,size=256m
+
+services:
+  caddy:
+    <<: *haertung
+    image: ${SCHULOS_CADDY_IMAGE:-caddy:2}
+    # Ausnahme SEC-13: Caddy läuft als root – die Volumes caddy_data/caddy_config bestehender Installationen gehören root
+    # (Zertifikate, Schlüssel der eigenen CA). Ohne Capabilities außer dem Binden von 80/443 darf root dort nur, was jedem
+    # Dateieigentümer erlaubt ist.
+    cap_add: [NET_BIND_SERVICE]
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "${SCHULOS_HTTP_PORT:-80}:80"
+      - "${SCHULOS_HTTPS_PORT:-443}:443"
+    environment:
+      SCHULOS_DOMAIN: ${SCHULOS_DOMAIN:-localhost}
+      # „internal“ = eigene CA (nur Schulnetz) · E-Mail-Adresse = Let's Encrypt (öffentliche Domain)
+      SCHULOS_TLS: ${SCHULOS_TLS:-internal}
+      # P4-40 Außenzugang (INSTALLATION.md „Außenzugang“): keiner = nur Schulnetz · oeffentliche-seiten = aus dem Internet nur
+      # Schulanmeldung, Impressum, Datenschutzhinweise · alles = ganz SchulOS
+      SCHULOS_PUBLIC_ACCESS: ${SCHULOS_PUBLIC_ACCESS:-keiner}
+      # „Schulnetz“ = diese Absender (Caddy-Schreibweise, durch Leerzeichen getrennt); Vorgabe alle privaten Bereiche
+      SCHULOS_INTERNAL_NETS: ${SCHULOS_INTERNAL_NETS:-private_ranges}
+      # Proxy des Schulträgers (web.tls = proxy): nur dessen X-Forwarded-For zählt; ohne Angabe niemand
+      SCHULOS_TRUSTED_PROXIES: ${SCHULOS_TRUSTED_PROXIES:-127.0.0.1/32}
+      # P4-40b Gerätezertifikate (INSTALLATION.md „Gerätezertifikate“): an = Client-Zertifikate der Schul-CA annehmen
+      SCHULOS_DEVICE_CERTS: ${SCHULOS_DEVICE_CERTS:-aus}
+      # SEC-15: 1 = Zugriffsprotokoll für CrowdSec schreiben (Profil „crowdsec“), sonst kein Protokoll
+      SCHULOS_CROWDSEC: ${SCHULOS_CROWDSEC:-0}
+    # Ausnahme SEC-13 (read_only): Compose kopiert den Inhalt von „configs“ beim Anlegen in das Dateisystem des Containers –
+    # das geht nur, wenn es beschreibbar ist (sonst „container rootfs is marked read-only“). Übrige Härtung bleibt.
+    read_only: false
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      # SEC-15: Zugriffsprotokoll (nur mit SCHULOS_CROWDSEC=1, 48 h)
+      - caddy_logs:/var/log/caddy
+      # zusätzliche Sites, z. B. die Vorschau-Instanz (schulosctl vorschau an/aus schreibt bzw. löscht sie)
+      - caddy_sites:/etc/caddy/sites
+      # P4-40b: Wurzel- und Zwischenzertifikat der Schul-CA (schreibt step-ca; leer, solange die CA nicht läuft)
+      - geraete_ca:/etc/caddy/geraete-ca:ro
+    networks: [edge]
+
+  app:
+    <<: *haertung
+    image: ${SCHULOS_IMAGE:-schulos:dev}
+    build: .
+    # Benutzer node (Dockerfile), kein docker.sock
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: ./schulos.env
+        required: false
+    environment:
+      DATABASE_URL: postgres://schulos:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}@postgres:5432/schulos
+      # Port nur bei abweichendem HTTPS-Port nötig (Test/Entwicklung)
+      BETTER_AUTH_URL: https://${SCHULOS_DOMAIN:-localhost}${SCHULOS_PUBLIC_PORT:-}
+      # P4-40b: Schul-CA für Gerätezertifikate (Verwaltung → System → Gerätezertifikate stellt über step-ca aus)
+      SCHULOS_DEVICE_CERTS: ${SCHULOS_DEVICE_CERTS:-aus}
+      SCHULOS_DEVICE_CA_URL: https://step-ca:9000
+      SCHULOS_DEVICE_CA_DIR: /srv/schulos/geraete-ca
+      SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD: ${SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD:-}
+      # SEC-01: Schulnetz wie bei Caddy (Installer „Schulnetz-Bereiche“) – leer = Vorgabe der App (private Bereiche)
+      SCHULOS_INTERNAL_NETS: ${SCHULOS_INTERNAL_NETS:-}
+      # P4-72: Virenscan der Uploads (Profil „clamav“), z. B. clamav:3310 – leer = aus
+      SCHULOS_CLAMAV: ${SCHULOS_CLAMAV:-}
+      # SEC-15: Sperren von CrowdSec (Profil „crowdsec“) – leer = aus
+      SCHULOS_CROWDSEC_URL: ${SCHULOS_CROWDSEC_URL:-}
+      SCHULOS_CROWDSEC_BOUNCER_KEY: ${SCHULOS_CROWDSEC_BOUNCER_KEY:-}
+    volumes:
+      - config:/srv/schulos/config
+      - files:/srv/schulos/files
+      - geraete_ca:/srv/schulos/geraete-ca:ro
+    # ca: nur der Weg zur Schul-CA (Profil „geraete“)
+    networks: [edge, db, ca]
+
+  # P4-40b: Schul-CA für Gerätezertifikate (step-ca, Apache-2.0) – nur mit Profil:
+  #   docker compose --profile geraete up -d   (vorher in .env: SCHULOS_DEVICE_CA_PASSWORD, SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD)
+  # Beim ersten Start legt step-ca Wurzel, Zwischen-CA und den JWK-Provisioner „schulos“ an (Laufzeit bis 731 Tage) und
+  # kopiert die öffentlichen Zertifikate ins Volume geraete_ca (Caddy, App). Die Schlüssel bleiben im Volume step_ca.
+  # Nur im internen Netz „ca“ erreichbar – ACME/SCEP für MDM sind eine Folgeaufgabe (docs/QUESTIONS.md P4-40b).
+  geraete-ca-init:
+    <<: *haertung
+    profiles: [geraete]
+    image: ${SCHULOS_STEP_CA_IMAGE:-smallstep/step-ca:0.30.2}
+    # das leere Volume gehört sonst root – step-ca läuft als step (uid 1000)
+    # Ausnahme SEC-13: einmaliger Lauf als root, nur mit dem Recht, Eigentümer zu ändern, ohne Netz
+    user: root
+    cap_add: [CHOWN]
+    # erst chmod (gehört noch root), dann chown – sonst bräuchte chmod FOWNER (SEC-13: nur CHOWN); gehört der Ordner schon
+    # step (zweiter Lauf), darf chmod scheitern – die Rechte stimmen dann schon
+    entrypoint: ["sh", "-c", "chmod 0755 /export 2>/dev/null; chown 1000:1000 /export"]
+    volumes:
+      - geraete_ca:/export
+    network_mode: none
+
+  step-ca:
+    <<: *haertung
+    profiles: [geraete]
+    image: ${SCHULOS_STEP_CA_IMAGE:-smallstep/step-ca:0.30.2}
+    # Benutzer step (Image); beschreibbar nur step_ca, geraete_ca und /tmp
+    # Ausnahme SEC-13: das Programm step-ca trägt im Image eine Datei-Capability (setcap NET_BIND_SERVICE). Ohne diese
+    # Capability bzw. mit no-new-privileges verweigert der Kernel den Start (EPERM) – der Dienst war sofort „unhealthy“.
+    # Daher hier ohne no-new-privileges und mit NET_BIND_SERVICE; alle anderen Capabilities bleiben weg, Benutzer step.
+    # Ausdrücklich „:false“ statt einer leeren Liste: mit einer zweiten Compose-Datei (-f …, Backup-Stack-Test) lehnte
+    # Compose die leere Liste ab („services.step-ca.security_opt must be a list“).
+    security_opt: ["no-new-privileges:false"]
+    cap_add: [NET_BIND_SERVICE]
+    restart: unless-stopped
+    depends_on:
+      geraete-ca-init:
+        condition: service_completed_successfully
+    entrypoint: ["bash", "/etc/schulos/step-ca-start.sh"]
+    # Ausnahme SEC-13 (read_only): Compose kopiert den Inhalt von „configs“ beim Anlegen in das Dateisystem des Containers –
+    # das geht nur, wenn es beschreibbar ist (sonst „container rootfs is marked read-only“). Übrige Härtung bleibt.
+    read_only: false
+    configs:
+      - source: step-ca-start
+        target: /etc/schulos/step-ca-start.sh
+    environment:
+      SCHULOS_DEVICE_CA_PASSWORD: ${SCHULOS_DEVICE_CA_PASSWORD:-}
+      SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD: ${SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD:-}
+      SCHULOS_DEVICE_CA_NAME: ${SCHULOS_DEVICE_CA_NAME:-}
+    volumes:
+      - step_ca:/home/step
+      - geraete_ca:/export
+    healthcheck:
+      test: ["CMD", "step", "ca", "health", "--ca-url", "https://localhost:9000", "--root", "/home/step/certs/root_ca.crt"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [ca]
+
+  # P4-72: Virenscan der Uploads (ClamAV, GPL-2.0, eigener Container) – nur mit Profil:
+  #   docker compose --profile clamav up -d   (in .env: SCHULOS_CLAMAV=clamav:3310)
+  # Beim ersten Start lädt freshclam die Signaturen (~300 MB, Internet nötig), danach täglich neu; clamd braucht ~1,5 GB RAM.
+  # Die App schickt jede hochgeladene Datei vor dem Speichern per INSTREAM (src/core/files/virus-scan.ts).
+  clamav:
+    <<: *haertung
+    profiles: [clamav]
+    image: ${SCHULOS_CLAMAV_IMAGE:-clamav/clamav:1.5.4}
+    # Ausnahme SEC-13: das Image startet als root und gibt die Rechte an den Benutzer clamav ab (freshclam/clamd) – dafür
+    # braucht es CHOWN/SETUID/SETGID sowie DAC_OVERRIDE/FOWNER für seine Ordner; Signaturen im Volume, Laufzeitdateien im tmpfs
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+    # G4E-O09: strenge Einstellungen (configs clamd-schulos) vor dem Start an die clamd.conf des Images anhängen – einmal je
+    # Container; danach startet das Startskript des Images (/init) wie bisher
+    entrypoint: ["sh", "-c", "grep -q '^# SchulOS (G4E-O09)' /etc/clamav/clamd.conf || cat /etc/schulos/clamd-schulos.conf >> /etc/clamav/clamd.conf; exec /init"]
+    # Ausnahme SEC-13 (read_only): Compose kopiert „configs“ beim Anlegen hinein, und clamd.conf wird ergänzt
+    read_only: false
+    configs:
+      - source: clamd-schulos
+        target: /etc/schulos/clamd-schulos.conf
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+      - /run/clamav:mode=1777,size=16m
+      # das Startskript des Images legt `ln -f -s /run/lock /var/lock` an (Alpine: /var/lock → /run/lock) – ohne
+      # beschreibbares /run/lock scheiterte das am nur lesbaren Dateisystem („ln: /var/lock/lock: Read-only file system“)
+      - /run/lock:mode=1777,size=1m
+      - /var/log/clamav:mode=1777,size=32m
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+    # edge: Signaturen aus dem Internet laden, App erreicht clamd unter clamav:3310
+    networks: [edge]
+
+  # SEC-15: Angriffserkennung (CrowdSec, MIT) – nur mit Profil, Vorgabe aus:
+  #   in .env: SCHULOS_CROWDSEC=1, SCHULOS_CROWDSEC_URL=http://crowdsec:8080, SCHULOS_CROWDSEC_BOUNCER_KEY=<zufällig>
+  #   docker compose --profile crowdsec up -d
+  # Liest Caddys Zugriffsprotokoll (Szenarien für Caddy/HTTP aus dem Hub, beim ersten Start aus dem Internet) und entscheidet
+  # über Sperren; die App setzt sie durch (src/core/crowdsec.ts). Ohne Online-API: keine Weitergabe von Adressen an die
+  # Community-Liste (Datenschutz, INSTALLATION.md §5).
+  crowdsec:
+    <<: *haertung
+    profiles: [crowdsec]
+    image: ${SCHULOS_CROWDSEC_IMAGE:-crowdsecurity/crowdsec:v1.8.1}
+    # Ausnahme SEC-13: läuft als root (Konfiguration und Hub-Dateien gehören root), aber ohne jede Capability
+    restart: unless-stopped
+    environment:
+      COLLECTIONS: crowdsecurity/caddy crowdsecurity/base-http-scenarios crowdsecurity/http-cve
+      DISABLE_ONLINE_API: "true"
+      BOUNCER_KEY_schulos: ${SCHULOS_CROWDSEC_BOUNCER_KEY:-}
+    # Ausnahme SEC-13 (read_only): Compose kopiert den Inhalt von „configs“ beim Anlegen in das Dateisystem des Containers –
+    # das geht nur, wenn es beschreibbar ist (sonst „container rootfs is marked read-only“). Übrige Härtung bleibt.
+    read_only: false
+    configs:
+      - source: crowdsec-acquis
+        target: /etc/crowdsec/acquis.d/caddy.yaml
+    volumes:
+      - crowdsec_config:/etc/crowdsec
+      - crowdsec_data:/var/lib/crowdsec/data
+      - caddy_logs:/var/log/caddy:ro
+    networks: [edge]
+
+  # Backup-Agent (B-24/B-27): sichert Datenbank, Dateien und Konfiguration auf den gekoppelten Backupserver; ohne Kopplung wartet er.
+  # Dateien schreibend – eine Wiederherstellung spielt sie zurück. Koppeln: Verwaltung → Backup oder
+  #   docker compose run --rm backup-agent node /opt/schulos-agent/agent.mjs koppeln https://backup.schule.de K7Q2-9MXA-4RT1
+  backup-agent:
+    <<: *haertung
+    image: ${SCHULOS_AGENT_IMAGE:-schulos-agent:dev}
+    build:
+      context: .
+      dockerfile: apps/agent/Dockerfile
+    # SEC-13: /tmp als Volume statt im Speicher – dort liegt der Datenbank-Dump (kann groß sein) und der restic-Cache
+    tmpfs: []
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: ./schulos.env
+        required: false
+    environment:
+      DATABASE_URL: postgres://schulos:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}@postgres:5432/schulos
+      BETTER_AUTH_URL: https://${SCHULOS_DOMAIN:-localhost}${SCHULOS_PUBLIC_PORT:-}
+      # restic-Cache neben dem Arbeitsordner (Image-Dateisystem nur lesbar)
+      XDG_CACHE_HOME: /tmp/.cache
+      # G4E-O18: Reste abgebrochener Dumps/Test-Restores unter /tmp (Volume) nach 24 h löschen (@schulos/server/tmp-aufraeumen)
+      SCHULOS_TMP_AUFRAEUMEN: "1"
+    volumes:
+      - config:/srv/schulos/config
+      - files:/srv/schulos/files
+      - agent_tmp:/tmp
+    # db: Datenbank (intern) · edge: Weg zum Backupserver
+    networks: [edge, db]
+
+  postgres:
+    <<: *haertung
+    image: ${SCHULOS_POSTGRES_IMAGE:-postgres:18}
+    # SEC-13: gleich als postgres (uid 999) statt root + gosu – das Datenverzeichnis gehört ihm schon (auch in bestehenden
+    # Installationen); Socket und Sperrdatei im tmpfs
+    user: postgres
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+      - /var/run/postgresql:mode=1777,size=16m
+    restart: unless-stopped
+    # B-51: Speicher-Einstellungen beim Start aus dem RAM der Maschine (postgres-start unten), Abfragestatistik an
+    entrypoint: ["sh", "/etc/schulos/postgres-start.sh"]
+    # parallele Abfragen legen Zwischenergebnisse in /dev/shm ab – Docker gibt sonst nur 64 MB
+    shm_size: 256mb
+    # Ausnahme SEC-13 (read_only): Compose kopiert den Inhalt von „configs“ beim Anlegen in das Dateisystem des Containers –
+    # das geht nur, wenn es beschreibbar ist (sonst „container rootfs is marked read-only“). Übrige Härtung bleibt.
+    read_only: false
+    configs:
+      - source: postgres-start
+        target: /etc/schulos/postgres-start.sh
+      # SEC-07: legt beim ersten Start die App-Rolle „schulos“ ohne Superuser-Recht an (nur bei leerem Datenverzeichnis)
+      - source: postgres-init
+        target: /docker-entrypoint-initdb.d/10-schulos-rolle.sh
+    environment:
+      POSTGRES_DB: schulos
+      # SEC-07: Wartungsrolle (Superuser) für Rollen, Erweiterungen und schulosctl – die App meldet sich als „schulos“ an.
+      # Bestehende Installationen (Superuser hieß „schulos“) stellt `schulosctl update` einmalig um (INSTALLATION.md §5a.2).
+      # Ohne Passwort verweigert das Postgres-Image die Einrichtung einer leeren Datenbank; vorhandene Daten brauchen es nicht.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-}
+      SCHULOS_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}
+      # feste Werte statt der Berechnung (in .env, z. B. SCHULOS_PG_SHARED_BUFFERS=2GB)
+      SCHULOS_PG_SHARED_BUFFERS: ${SCHULOS_PG_SHARED_BUFFERS:-}
+      SCHULOS_PG_EFFECTIVE_CACHE_SIZE: ${SCHULOS_PG_EFFECTIVE_CACHE_SIZE:-}
+      SCHULOS_PG_WORK_MEM: ${SCHULOS_PG_WORK_MEM:-}
+      SCHULOS_PG_MAINTENANCE_WORK_MEM: ${SCHULOS_PG_MAINTENANCE_WORK_MEM:-}
+    volumes:
+      - db:/var/lib/postgresql
+    healthcheck:
+      # über TCP: der Einrichtungs-Server beim ersten Start lauscht nur am Socket – gesund erst nach dem Init-Skript (SEC-07)
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U schulos -d schulos"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [db]
+
+configs:
+  # G4E-O09 (P4-72, Q-4E-57 „streng“): ohne diese Zeilen meldet clamd verschlüsselte Archive/Dokumente, kaputte Programme und
+  # Dateien über den Grenzen als „OK“ – so käme ein verschlüsseltes ZIP (Passwort im Text) durch. Jetzt: Fund (FOUND), Upload
+  # abgelehnt. StreamMaxLength über der Upload-Grenze der App (25 MiB).
+  clamd-schulos:
+    content: |
+      # SchulOS (G4E-O09): streng – verschlüsselt, beschädigt oder über den Grenzen gilt als Fund
+      AlertEncrypted yes
+      AlertEncryptedArchive yes
+      AlertEncryptedDoc yes
+      AlertBrokenExecutables yes
+      AlertExceedsMax yes
+      HeuristicAlerts yes
+      StreamMaxLength 30M
+      MaxFileSize 30M
+      MaxScanSize 120M
+      MaxRecursion 16
+      MaxFiles 10000
+  caddyfile:
+    content: |
+      {
+        # Clients ohne SNI (Aufruf über die IP-Adresse, Java bei „localhost“ – ZAP in der CI) bekommen das Zertifikat der
+        # Domain statt eines TLS-Fehlers
+        default_sni {$$SCHULOS_DOMAIN}
+        # INST-10: auch bei unbekanntem Namen (z. B. Rechnername.local) das Zertifikat der Domain statt TLS-Fehler
+        fallback_sni {$$SCHULOS_DOMAIN}
+        # P4-40: X-Forwarded-For nur von eingetragenen Proxys glauben und von rechts lesen (der Client kann links beliebig
+        # vorschreiben); daraus ergibt sich {client_ip} für die Unterscheidung Schulnetz/Internet
+        servers {
+          trusted_proxies static {$$SCHULOS_TRUSTED_PROXIES:127.0.0.1/32}
+          trusted_proxies_strict
+        }
+      }
+      # B-56: Kompression im Proxy statt im Node-Prozess der App (next.config.ts: compress: false) – Caddy verteilt sie auf
+      # alle Kerne, die App hat nur einen. Live-Verbindungen (text/event-stream) bleiben unkomprimiert (encode puffert sonst).
+      (kompression) {
+        encode {
+          zstd
+          gzip
+          match {
+            header Content-Type text/html*
+            header Content-Type text/css*
+            header Content-Type text/plain*
+            header Content-Type text/x-component*
+            header Content-Type application/javascript*
+            header Content-Type application/json*
+            header Content-Type image/svg+xml*
+          }
+        }
+      }
+      (app) {
+        # SSE (Gong, Messenger): sofort weiterreichen, nicht puffern
+        reverse_proxy app:3000 {
+          flush_interval -1
+          # Rate-Limits der App lesen die erste Adresse – hier steht nur die von Caddy ermittelte
+          header_up X-Forwarded-For {client_ip}
+        }
+      }
+      # P4-40 Außenzugang – je Wert von SCHULOS_PUBLIC_ACCESS ein Snippet; ein unbekannter Wert lässt den Import und damit
+      # Caddy scheitern (geschlossen statt offen). „Schulnetz“ = SCHULOS_INTERNAL_NETS (Vorgabe: private Adressbereiche).
+      # P4-40b: von außen mit verifiziertem Gerätezertifikat (@geraet, nur mit SCHULOS_DEVICE_CERTS=an möglich) geht es in
+      # jedem Modus zur App – gekennzeichnet mit X-SchulOS-Extern (Wert = Argument) und dem Fingerabdruck in X-SchulOS-Geraet.
+      # Ob das Zertifikat freigegeben (nicht gesperrt) ist und die Rolle von außen darf, entscheidet die App
+      # (src/core/device-certs, SICHERHEIT.md S27/S28).
+      (extern-mit-geraet) {
+        handle @geraet {
+          request_header X-SchulOS-Extern {args[0]}
+          request_header X-SchulOS-Geraet {http.request.tls.client.fingerprint}
+          import app
+        }
+      }
+      # „alles“: von außen ganz SchulOS, gekennzeichnet – die App lässt Personal nur mit Gerätezertifikat (Schuleinstellung)
+      # und Verwaltung/Admin per Vorgabe gar nicht herein
+      (zugang-alles) {
+        @extern not client_ip {$$SCHULOS_INTERNAL_NETS:private_ranges}
+        handle @extern {
+          import extern-mit-geraet alles
+          handle {
+            request_header X-SchulOS-Extern alles
+            import app
+          }
+        }
+        handle {
+          import app
+        }
+      }
+      (zugang-keiner) {
+        @extern not client_ip {$$SCHULOS_INTERNAL_NETS:private_ranges}
+        handle @extern {
+          import extern-mit-geraet geraet
+          handle {
+            respond "SchulOS ist nur im Schulnetz erreichbar." 403
+          }
+        }
+        handle {
+          import app
+        }
+      }
+      # Allowlist: dieselbe Liste wie CADDY_PUBLIC_PATHS in src/core/external-access.ts (Test vergleicht). Die App prüft
+      # gekennzeichnete Anfragen ein zweites Mal (genauer: Groß/Klein, kodierte Zeichen) und verwirft Cookies.
+      (zugang-oeffentliche-seiten) {
+        @extern not client_ip {$$SCHULOS_INTERNAL_NETS:private_ranges}
+        @oeffentlich path /anmeldung /impressum /datenschutzhinweise /barrierefreiheit /api/schule/logo /icon.png /favicon.ico /anmeldung/* /_next/static/*
+        # Punkt-Segmente, Backslash, doppelte Schrägstriche – von außen gar nicht erst weiterreichen (kodierte Zeichen prüft die
+        # App: Next-Dateinamen enthalten %5B…%5D)
+        @unsicher path_regexp `(\.\.|\\|//)`
+        handle @extern {
+          import extern-mit-geraet geraet
+          handle {
+            request_header X-SchulOS-Extern 1
+            request_header -Cookie
+            request_header -Authorization
+            handle @unsicher {
+              respond 400
+            }
+            handle @oeffentlich {
+              import app
+            }
+            handle {
+              respond "Diese Seite ist nur im Schulnetz erreichbar." 403
+            }
+          }
+        }
+        handle {
+          import app
+        }
+      }
+      # P4-40b Gerätezertifikate: mit SCHULOS_DEVICE_CERTS=an fragt Caddy nach einem Client-Zertifikat der Schul-CA
+      # (verify_if_given: ohne Zertifikat geht es normal weiter, ein abgelaufenes oder fremdes bricht den Handshake ab).
+      # Die Wurzel legt step-ca (Profil „geraete“) ins Volume geraete_ca. Ein unbekannter Wert lässt Caddy nicht starten.
+      (tls-geraete-aus) {
+      }
+      # SEC-15: Zugriffsprotokoll nur für CrowdSec (SCHULOS_CROWDSEC=1) – JSON, höchstens 48 h, dann gelöscht.
+      # G4E-O11: zeitbasiert drehen (alle 24 h; roll_keep_for zählt in ganzen Tagen und gilt nur für gedrehte Dateien) – so ist
+      # nichts älter als 48 h, auch an kleinen Schulen, wo 20 MiB Wochen dauern. Tokens in Pfaden und Parametern (Kalender-Abo,
+      # Monitor, Passwort-Reset: lange Zeichenketten) werden vor dem Schreiben maskiert; Cookies/Authorization lässt Caddy ohnehin weg.
+      (crowdsec-0) {
+      }
+      (crowdsec-1) {
+        log {
+          output file /var/log/caddy/access.log {
+            roll_interval 24h
+            roll_size 20MiB
+            roll_keep 3
+            roll_keep_for 24h
+          }
+          format filter {
+            wrap json
+            fields {
+              request>uri regexp `[A-Za-z0-9_-]{20,}` ***
+            }
+          }
+        }
+      }
+      (tls-geraete-an) {
+        client_auth {
+          mode verify_if_given
+          trust_pool file /etc/caddy/geraete-ca/root_ca.crt /etc/caddy/geraete-ca/intermediate_ca.crt
+        }
+      }
+      # INST-10: „https://“ ohne Namen = auch Aufrufe über die IP bzw. einen anderen Namen (sonst passt der Host-Header auf
+      # keinen Block und Caddy antwortet mit einer leeren Seite). Zugang (Schulnetz/außen) richtet sich nach der Client-IP und
+      # gilt so für beide Adressen gleich; eigene Blöcke aus sites/*.caddy mit festem Namen haben Vorrang.
+      {$$SCHULOS_DOMAIN}, https:// {
+        tls {$$SCHULOS_TLS} {
+          import tls-geraete-{$$SCHULOS_DEVICE_CERTS:aus}
+        }
+        import kompression
+        import crowdsec-{$$SCHULOS_CROWDSEC:0}
+        # Sicherheits-Header setzt die App (CSP mit Nonce)
+        header -Server
+        # P4-73: Service Worker nie zwischenspeichern – sonst bliebe ein alter Worker nach einem Update hängen
+        # „>“ = nach der Antwort der App setzen (überschreibt deren Header)
+        header /sw.js >Cache-Control "no-cache, no-store, must-revalidate"
+        # „von außen“ und den Fingerabdruck kennzeichnet nur Caddy selbst – mitgeschickte Header werden immer verworfen
+        request_header -X-SchulOS-Extern
+        request_header -X-SchulOS-Geraet
+        # verifiziertes Client-Zertifikat (gibt es nur mit tls-geraete-an). Achtung: ohne Zertifikat ist der Fingerabdruck
+        # NICHT leer, sondern SHA-256 über null Bytes (e3b0…b855, Caddy 2.11) – daher am DER-Platzhalter erkennen (ohne
+        # Zertifikat leer) und den Leer-Hash zusätzlich ausschließen (P4-40b-Fix: sonst galt jede Anfrage als „mit Gerät“)
+        @geraet {
+          vars_regexp {http.request.tls.client.certificate_der_base64} ^[A-Za-z0-9+/]+=*$$
+          not vars {http.request.tls.client.fingerprint} e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        }
+        import zugang-{$$SCHULOS_PUBLIC_ACCESS:keiner}
+      }
+      import /etc/caddy/sites/*.caddy
+  # B-51: Postgres nach dem RAM einstellen – die Maschine gehört SchulOS allein, App und Caddy brauchen daneben ~1 GB.
+  # shared_buffers 20 % (128 MB – 4 GB), effective_cache_size 50 %, work_mem RAM/256 (4 – 32 MB), maintenance_work_mem
+  # RAM/16 (64 MB – 1 GB); SSD-Annahmen; pg_stat_statements für „langsame Abfragen“ unter Verwaltung → System.
+  # Mehr RAM für die VM → beim nächsten Start gelten die neuen Werte. Geprüft in src/core/db/postgres-start.test.ts.
+  postgres-start:
+    content: |
+      mem_kb=$${SCHULOS_PG_MEMTOTAL_KB:-$$(awk '/^MemTotal:/ { print $$2 }' /proc/meminfo)}
+      mb=$$((mem_kb / 1024))
+      clamp() { v=$$1; [ "$$v" -lt "$$2" ] && v=$$2; [ "$$v" -gt "$$3" ] && v=$$3; echo "$$v"; }
+      set -- postgres
+      set -- "$$@" -c shared_buffers=$${SCHULOS_PG_SHARED_BUFFERS:-$$(clamp $$((mb / 5)) 128 4096)MB}
+      set -- "$$@" -c effective_cache_size=$${SCHULOS_PG_EFFECTIVE_CACHE_SIZE:-$$(clamp $$((mb / 2)) 256 65536)MB}
+      set -- "$$@" -c work_mem=$${SCHULOS_PG_WORK_MEM:-$$(clamp $$((mb / 256)) 4 32)MB}
+      set -- "$$@" -c maintenance_work_mem=$${SCHULOS_PG_MAINTENANCE_WORK_MEM:-$$(clamp $$((mb / 16)) 64 1024)MB}
+      set -- "$$@" -c random_page_cost=1.1 -c effective_io_concurrency=200
+      set -- "$$@" -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=top
+      if [ -n "$${SCHULOS_PG_DRY_RUN:-}" ]; then echo "$$@"; exit 0; fi
+      echo "[schulos] Postgres mit $$mb MB RAM: $$*" >&2
+      exec docker-entrypoint.sh "$$@"
+  # SEC-07: App-Rolle ohne Superuser (nur beim ersten Start, vom Postgres-Image als Wartungsrolle ausgeführt): „schulos“ ist
+  # Eigentümerin der Datenbank (und damit des Schemas public), darf aber keine Rollen/Datenbanken anlegen; pg_stat_statements
+  # braucht Superuser-Recht und entsteht darum hier statt beim App-Start. Geprüft im CI-Job „stack“ (rolsuper = false).
+  # GATE-031 (S-03): Passwort nicht als Argument (\getenv liest es in psql aus der Umgebung) und das CREATE ROLE nicht in
+  # pg_stat_statements (Statistik für diese Sitzung aus).
+  postgres-init:
+    content: |
+      psql -v ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname "$$POSTGRES_DB" <<'SQL'
+      set pg_stat_statements.track = 'none';
+      \getenv app_pw SCHULOS_DB_PASSWORD
+      create role schulos login nosuperuser nocreatedb nocreaterole noreplication nobypassrls password :'app_pw';
+      reset pg_stat_statements.track;
+      alter database schulos owner to schulos;
+      create extension if not exists pg_stat_statements;
+      SQL
+      echo "[schulos] App-Rolle schulos ohne Superuser-Recht angelegt (SEC-07)" >&2
+  # SEC-15: CrowdSec liest Caddys Zugriffsprotokoll
+  # GATE-4e (CI-Befund): force_inotify – ohne das beobachtet CrowdSec den Ordner nur, wenn die Datei beim Start schon da ist
+  # (pkg/acquisition/modules/file, v1.8). Caddy legt access.log aber erst mit SCHULOS_CROWDSEC=1 und der ersten Anfrage an –
+  # CrowdSec las dann nie eine Zeile (keine Akquisitions-Metriken, nur manuelle Sperren wirkten). Auch neue Dateien nach dem
+  # Drehen (roll_interval) kommen so sicher an. Lesen darf CrowdSec die Datei (0600, root) als root-Eigentümer ohne Capability.
+  crowdsec-acquis:
+    content: |
+      filenames:
+        - /var/log/caddy/access.log
+      force_inotify: true
+      labels:
+        type: caddy
+  # P4-40b: Start der Schul-CA. Erster Start: `step ca init` (Wurzel + Zwischen-CA, Schlüssel mit SCHULOS_DEVICE_CA_PASSWORD
+  # verschlüsselt; JWK-Provisioner „schulos“ mit eigenem Passwort, das nur App und CA kennen) und Laufzeiten 1 h … 731 Tage.
+  # Jeder Start kopiert die öffentlichen Zertifikate nach /export (Volume geraete_ca → Caddy trust_pool, App).
+  step-ca-start:
+    content: |
+      set -eu
+      if [ -z "$${SCHULOS_DEVICE_CA_PASSWORD:-}" ] || [ -z "$${SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD:-}" ]; then
+        echo "[schulos] SCHULOS_DEVICE_CA_PASSWORD und SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD in der .env setzen" >&2
+        exit 1
+      fi
+      export STEPPATH=/home/step
+      umask 077
+      pw=$$(mktemp)
+      prov=$$(mktemp)
+      printf '%s' "$$SCHULOS_DEVICE_CA_PASSWORD" > "$$pw"
+      printf '%s' "$$SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD" > "$$prov"
+      if [ ! -f "$$STEPPATH/config/ca.json" ]; then
+        step ca init --deployment-type standalone --name "$${SCHULOS_DEVICE_CA_NAME:-SchulOS Geraete-CA}" \
+          --dns step-ca --dns localhost --address :9000 --provisioner schulos \
+          --password-file "$$pw" --provisioner-password-file "$$prov"
+        step ca provisioner update schulos --x509-min-dur 1h --x509-default-dur 8784h --x509-max-dur 17544h
+        echo "[schulos] Schul-CA angelegt" >&2
+      fi
+      rm -f "$$prov"
+      umask 022
+      for f in root_ca.crt intermediate_ca.crt; do
+        cp "$$STEPPATH/certs/$$f" "/export/$$f.neu" && mv "/export/$$f.neu" "/export/$$f"
+      done
+      exec step-ca --password-file "$$pw" "$$STEPPATH/config/ca.json"
+
+volumes:
+  db:
+  files:
+  config:
+  # SEC-13: Arbeitsordner des Backup-Agenten (Dump, restic-Cache) – nicht im Speicher, nicht gesichert
+  agent_tmp:
+  # P4-72: Virensignaturen (lädt freshclam neu, nicht gesichert)
+  clamav_db:
+  # SEC-15: Zugriffsprotokoll von Caddy (nur mit SCHULOS_CROWDSEC=1) und Zustand von CrowdSec
+  caddy_logs:
+  crowdsec_config:
+  crowdsec_data:
+  caddy_data:
+  caddy_config:
+  caddy_sites:
+  # P4-40b: Schlüssel der Schul-CA (nur step-ca) bzw. ihre öffentlichen Zertifikate (step-ca schreibt, Caddy/App lesen)
+  step_ca:
+  geraete_ca:
+
+networks:
+  edge:
+  db:
+    internal: true
+  # P4-40b: App ↔ Schul-CA
+  ca:
+    internal: true

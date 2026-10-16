@@ -1,0 +1,2 @@
+ALTER TABLE "pairing_codes" ADD COLUMN "replaces_instance_id" text;--> statement-breakpoint
+ALTER TABLE "pairing_codes" ADD CONSTRAINT "pairing_codes_replaces_instance_id_instances_id_fk" FOREIGN KEY ("replaces_instance_id") REFERENCES "public"."instances"("id") ON DELETE cascade ON UPDATE no action;

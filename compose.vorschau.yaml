@@ -1,0 +1,42 @@
+# SchulOS – Vorschau-Instanz (B-35, INSTALLATION.md §5a.3): die nächste Version mit der Demo-Schule zum Ausprobieren
+# für Kollegium und Schulleitung. Keine echten Daten, Band „VORSCHAU“, nachts zurückgesetzt, ~1 GB RAM, abschaltbar.
+# Nicht von Hand starten – `schulosctl vorschau an|aus|aktualisieren|reset` setzt Image und Adresse (.env) und
+# hängt die Subdomain in den Caddy des Hauptsystems (Site-Datei im Volume caddy_sites).
+name: schulos-vorschau
+
+services:
+  app:
+    image: ${SCHULOS_VORSCHAU_IMAGE:-schulos:dev}
+    # SEC-13: wie die App des Hauptsystems (Benutzer node aus dem Image)
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+    restart: unless-stopped
+    environment:
+      SCHULOS_INSTANCE: demo
+      SCHULOS_PREVIEW: "1"
+      # keine Hintergrundjobs (Löschlauf, Ferienabruf) – der nächtliche Reset ersetzt sie
+      SCHULOS_JOBS: "0"
+      BETTER_AUTH_URL: https://${SCHULOS_VORSCHAU_DOMAIN:-vorschau.localhost}${SCHULOS_PUBLIC_PORT:-}
+    # eigene Daten (PGlite statt PostgreSQL – spart Speicher), getrennt vom Hauptsystem
+    volumes:
+      - config:/srv/schulos/config
+      - files:/srv/schulos/files
+      - db:/srv/schulos/db
+    mem_limit: 1g
+    networks:
+      edge:
+        aliases: [schulos-vorschau]
+
+volumes:
+  config:
+  files:
+  db:
+
+networks:
+  # Netz des Haupt-Caddy (Projekt „schulos“) – nur darüber ist die Vorschau erreichbar, kein Zugang zur Datenbank
+  edge:
+    external: true
+    name: ${SCHULOS_EDGE_NETWORK:-schulos_edge}

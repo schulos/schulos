@@ -1,0 +1,18 @@
+#!/bin/sh
+# SchulOS – Bootmenü-Eintrag „Stand vor dem Debian-Versionswechsel“ (schulosctl os-upgrade legt Schnappschuss und Kernelversion an)
+set -e
+S=/.snapshots/vor-os-upgrade
+[ -d "$S" ] && [ -f "$S.kernel" ] || exit 0
+K=$(cat "$S.kernel")
+[ -f "/boot/vmlinuz-$K" ] || exit 0
+ROOT=$(grep -o 'root=[^ ]*' /proc/cmdline | head -n 1)
+[ -n "$ROOT" ] || exit 0
+# GRUB_CMDLINE_LINUX (von grub-mkconfig übergeben) wie im normalen Eintrag: rd.md.uuid=… (sonst findet die Initramfs den
+# Spiegel nicht) und die Konsolen (Passphrase auch seriell)
+cat <<EOF
+menuentry 'SchulOS – Stand vor dem Debian-Versionswechsel (danach: schulosctl os-rollback)' {
+  search --no-floppy --label schulos-boot --set=root
+  linux /vmlinuz-$K $ROOT $GRUB_CMDLINE_LINUX rootflags=subvol=@snapshots/vor-os-upgrade ro quiet
+  initrd /initrd.img-$K
+}
+EOF

@@ -1,0 +1,608 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791021652005,
+      "tag": "0000_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791026471851,
+      "tag": "0001_news",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791026818456,
+      "tag": "0002_kalender",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791027279708,
+      "tag": "0003_dateien",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791027877075,
+      "tag": "0004_aufgaben",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791028608180,
+      "tag": "0005_messenger",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791044269996,
+      "tag": "0006_stundenplan",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791045983488,
+      "tag": "0007_vertretungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791046939090,
+      "tag": "0008_klassenbuch",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791047686492,
+      "tag": "0009_abwesenheiten",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791048195433,
+      "tag": "0010_elternbriefe",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791048764949,
+      "tag": "0011_buchungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791049323638,
+      "tag": "0012_klausurplan",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791051930855,
+      "tag": "0013_jahrgaenge",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791058119771,
+      "tag": "0014_faecher",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791058672392,
+      "tag": "0015_raeume_schuljahre",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791059567749,
+      "tag": "0016_ferien",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791064867995,
+      "tag": "0017_stundentafel",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791089754397,
+      "tag": "0018_monitor",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791090728080,
+      "tag": "0019_unterrichtsverteilung",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791091485391,
+      "tag": "0020_deputate",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791091954926,
+      "tag": "0021_kopplungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791093049353,
+      "tag": "0022_stammraeume",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791098557057,
+      "tag": "0023_raumsperrungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791099156401,
+      "tag": "0024_abwesenheiten_lehrkraefte_gruppen",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791100602700,
+      "tag": "0025_pausenaufsichten",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791101243802,
+      "tag": "0026_zeitwuensche",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791106895035,
+      "tag": "0027_solver_laeufe",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791110881205,
+      "tag": "0028_datenschutz_loeschlauf",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791111724085,
+      "tag": "0029_konto_lebenszyklus",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791116594330,
+      "tag": "0030_audit_pseudonym",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791117129830,
+      "tag": "0031_profilbilder",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791117899349,
+      "tag": "0032_schuljahreswechsel",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791129020044,
+      "tag": "0033_zwei_faktor",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791130098438,
+      "tag": "0034_anmeldesperre",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791130806389,
+      "tag": "0035_passwort_wechsel",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791137462003,
+      "tag": "0036_hintergrundjobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791140721800,
+      "tag": "0037_ferien_abruf",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791436585299,
+      "tag": "0038_td01_sortierung",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791524012519,
+      "tag": "0039_umfragen",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791526377894,
+      "tag": "0040_schnellumfrage",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791527559874,
+      "tag": "0041_foren",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791528834511,
+      "tag": "0042_foren_meldungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791530028329,
+      "tag": "0043_pinnwaende",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791531071969,
+      "tag": "0044_pinnwand_monitor",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791616526676,
+      "tag": "0045_umfragen_reihenfolge",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791631355707,
+      "tag": "0046_gebaeude_personal",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791633967311,
+      "tag": "0047_gebaeude_pruefungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791641369262,
+      "tag": "0048_mail_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791641839289,
+      "tag": "0049_rate_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791642049551,
+      "tag": "0050_anmeldung",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791646607018,
+      "tag": "0051_anmeldung_konto",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1791650641277,
+      "tag": "0052_schuljahreswechsel_neuaufnahmen",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791658097616,
+      "tag": "0053_geraetezertifikate",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791723453527,
+      "tag": "0054_rolle_beratung",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791732332297,
+      "tag": "0055_gong_buendel",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1791734568526,
+      "tag": "0056_neuaufnahmen_konten",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1791737561168,
+      "tag": "0057_elternteil2_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1791771973067,
+      "tag": "0058_homework_due",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1791774008855,
+      "tag": "0059_timepref_submissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1791774615090,
+      "tag": "0060_vertretungsplan_freigabe",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1791777958425,
+      "tag": "0061_beurlaubung",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1791780782751,
+      "tag": "0062_kalender_abo",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1791790976562,
+      "tag": "0063_zeitwunsch_quelle",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1791829729714,
+      "tag": "0064_texte",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1791875911755,
+      "tag": "0065_volljaehrig",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1791875913486,
+      "tag": "0066_anmeldung_spam",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1791875915217,
+      "tag": "0067_sprechtag",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1791875917064,
+      "tag": "0068_monitor_sprechtag",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1791875918848,
+      "tag": "0069_kurswahl",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1791877379262,
+      "tag": "0070_anmeldung_spam_verdacht",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1791879417911,
+      "tag": "0071_sitzplan",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1791886530831,
+      "tag": "0072_abwesenheit_archiv",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1791914731329,
+      "tag": "0073_notenbuch",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1791916280985,
+      "tag": "0074_notenbuch_sitzung",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1791922166515,
+      "tag": "0075_notenbuch_hinweis",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1791924267337,
+      "tag": "0076_notenbuch_offline",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1791933612076,
+      "tag": "0077_gate5a_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1791959019813,
+      "tag": "0078_zwei_faktor_pflicht",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1791960312479,
+      "tag": "0079_zwei_faktor_codeliste",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1791961939196,
+      "tag": "0080_sitzungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1791968048623,
+      "tag": "0081_passkeys",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1791968878439,
+      "tag": "0082_kurswahl_auto_erinnerung",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1791970029168,
+      "tag": "0083_kurswahl_mehrfachwahl",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1791970834281,
+      "tag": "0084_lehrkraft_selbstmeldung",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1791982319101,
+      "tag": "0085_gate4e_ohne_geraet_vertrauen",
+      "breakpoints": true
+    }
+  ]
+}

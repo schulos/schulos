@@ -1,0 +1,5 @@
+Schriften der Tafeln (P3-12), kopiert aus @excalidraw/excalidraw (MIT) per scripts/excalidraw-fonts.mjs.
+Copyright-Hinweise und vollständige Lizenztexte je Familie: lizenzen/<Familie>.txt
+  Excalifont, Virgil, Nunito, Lilita One, Cascadia Code, Liberation Sans, Assistant – SIL Open Font License 1.1
+  Comic Shanns – MIT
+Nicht enthalten: Xiaolai (CJK, ~13 MB).

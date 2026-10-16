@@ -1,0 +1,2 @@
+ALTER TABLE "timetable_time_prefs" ADD COLUMN "source" text DEFAULT 'planung' NOT NULL;--> statement-breakpoint
+ALTER TABLE "timetable_time_prefs" ADD CONSTRAINT "timetable_time_prefs_source" CHECK ("timetable_time_prefs"."source" in ('planung', 'lehrkraft'));

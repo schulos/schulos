@@ -1,0 +1,1 @@
+ALTER TABLE "classbook_entries" ADD COLUMN "homework_due" date;

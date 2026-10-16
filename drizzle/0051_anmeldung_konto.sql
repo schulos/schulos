@@ -1,0 +1,3 @@
+ALTER TABLE "anmeldung_antraege" ADD COLUMN "parent_user_id" text;--> statement-breakpoint
+ALTER TABLE "anmeldung_antraege" ADD CONSTRAINT "anmeldung_antraege_parent_user_id_users_id_fk" FOREIGN KEY ("parent_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "anmeldung_antraege_parent_idx" ON "anmeldung_antraege" USING btree ("parent_user_id");

@@ -1,0 +1,19 @@
+{
+  "minVersion": "0.2.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Schulanmeldung: Eltern melden ihr Kind online an – ohne Konto mit Bestätigung per E-Mail oder mit Elternkonto –, wählen einen Termin und können ihn ändern oder den Antrag zurückziehen" },
+    { "kind": "neu", "text": "Sekretariat und Schulleitung: Anmeldeverfahren mit Terminen anlegen, Anträge prüfen, Unterlagen abhaken, einzeln oder als Liste entscheiden, Export für die Schulverwaltungssoftware und für Serienbriefe" },
+    { "kind": "neu", "text": "Schuljahreswechsel: neuer Schritt „Neuaufnahmen“ – aufgenommene Kinder in Klassen einteilen, Konten für Kind und Elternteil anlegen, Zugangsdaten drucken" },
+    { "kind": "neu", "text": "Elternkonten in der Benutzerverwaltung anlegen, mit Kindern verknüpfen und Verknüpfungen lösen" },
+    { "kind": "neu", "text": "Schullogo hochladen – erscheint in Kopfzeile, Anmeldeseite, als Browser-Symbol, auf Ausdrucken und auf den Statusmonitoren" },
+    { "kind": "neu", "text": "Gebäude & Technik: Schäden und Mängel melden, Tickets mit Zuständigkeit und Raumsperre, Anlagen und Geräte mit Prüffristen und Wartungsterminen, Prüfliste zum Drucken für den Schulträger; neue Rolle für Hausmeister und technisches Personal" },
+    { "kind": "neu", "text": "Außenzugang: einstellbar, was von außerhalb des Schulnetzes erreichbar ist (nichts, nur öffentliche Seiten wie die Schulanmeldung, oder alles); Personal von außen nur mit Gerätezertifikat, Verwaltung und Admin von außen gesperrt" },
+    { "kind": "neu", "text": "Gerätezertifikate für Dienstgeräte ausstellen, herunterladen und sperren (Verwaltung → System)" },
+    { "kind": "verbessert", "text": "Installation: Wiederherstellungsschlüssel der Platte mit QR-Code und Bestätigung, das Startmedium kann nach der Installation eingelegt bleiben; neuer Befehl zum Erneuern des Schlüssels" },
+    { "kind": "verbessert", "text": "Installer mit neuer Oberfläche: Schrittleiste, Fortschrittsbalken, gut lesbare Konsolenschrift" },
+    { "kind": "verbessert", "text": "Vorschau-Instanz ist nur noch aus dem Schulnetz erreichbar (von außen nur auf ausdrücklichen Wunsch)" },
+    { "kind": "sicherheit", "text": "Von außen sind nur noch IPv4-Verbindungen erlaubt, damit IPv6-Anfragen nicht als Schulnetz gelten – bei bestehenden Installationen bitte den Hinweis in „schulosctl status“ beachten" },
+    { "kind": "sicherheit", "text": "Schutz der öffentlichen Seiten gegen Missbrauch: Begrenzung der Anfragen, einmalig gültige Formulare, Freitext wird nie als Code angezeigt" }
+  ]
+}

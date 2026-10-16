@@ -1,0 +1,1 @@
+ALTER TABLE "kurswahl_verfahren" ADD COLUMN "auto_reminded_on" date;

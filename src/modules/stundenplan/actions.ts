@@ -1,0 +1,570 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { moduleActions } from "@/core/modules/guard";
+import { getDb } from "@/core/db/client";
+import { toBerlinDate } from "@/core/time";
+import { formValues } from "@/core/form-values";
+import type { FormState } from "@/modules/verwaltung/actions";
+import { ValidationError } from "@/modules/verwaltung/users";
+import { createLesson, deleteCoupling, deleteLesson, saveCoupling, updateLesson, type CouplingInput, type LessonInput } from "./manage";
+import { ABSENCE_LABELS, createAbsence, deleteAbsence, needsOn } from "./abwesenheit";
+import { addDuty, clearDutyChange, createArea, deleteArea, removeDuty, setDutyChange } from "./aufsichten";
+import { copyPeriod } from "./periode";
+import { applyRun, createRun, executeRunExclusive, setFixed } from "./solverlauf";
+import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
+import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenster";
+import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
+import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
+import { deleteSubstitution, publishDay, saveSubstitution, type SubstitutionInput } from "./vertretung";
+import { addReduction, deleteReduction, setObligation } from "./deputate";
+import { assignmentsFromTimetable, createAssignment, deleteAssignment, planningYear, updateAssignment, type AssignmentInput } from "./verteilung";
+
+const { requirePermission, requireUser } = moduleActions("stundenplan");
+
+function readInput(form: FormData): LessonInput {
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  return {
+    groupId: str("groupId"),
+    weekday: Number(str("weekday")),
+    periodNr: Number(str("periodNr")),
+    subjectId: str("subjectId"),
+    teacherId: str("teacherId") || null,
+    roomId: str("roomId") || null,
+    week: (str("week") || "all") as LessonInput["week"],
+    validFrom: str("validFrom"),
+    validUntil: str("validUntil") || null,
+  };
+}
+
+/** Pflege-Seite der Gruppe; liegt `from` in der Zukunft (neue Periode), bleibt dieser Planungsstand eingestellt. */
+const pageOf = (groupId: string, from?: string | null) =>
+  `/verwaltung/stundenplan?gruppe=${encodeURIComponent(groupId)}${from && from > toBerlinDate(new Date()) ? `&stand=${from}` : ""}`;
+
+export async function saveLessonAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const input = readInput(form);
+  try {
+    if (id) await updateLesson(await getDb(), user.id, id, input);
+    else await createLesson(await getDb(), user.id, input);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(pageOf(input.groupId, input.validFrom));
+}
+
+/** Kopplung speichern: Zeilen kommen als `part`=<Schlüssel> mit Feldern `p<Schlüssel>-<feld>`. */
+export async function saveCouplingAction(couplingId: string | null, groupId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  const keys = form.getAll("part").map(String);
+  const input: CouplingInput = {
+    weekday: Number(str("weekday")),
+    periodNr: Number(str("periodNr")),
+    week: (str("week") || "all") as CouplingInput["week"],
+    validFrom: str("validFrom"),
+    validUntil: str("validUntil") || null,
+    parts: keys.map((k) => ({
+      id: str(`p${k}-id`) || undefined,
+      groupId: str(`p${k}-groupId`),
+      subjectId: str(`p${k}-subjectId`),
+      teacherId: str(`p${k}-teacherId`) || null,
+      roomId: str(`p${k}-roomId`) || null,
+    })),
+  };
+  try {
+    await saveCoupling(await getDb(), user.id, couplingId, input);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      // Fehler je Teil (p<Index>-feld) auf die Zeilenschlüssel des Formulars umschreiben
+      const fieldErrors = Object.fromEntries(Object.entries(err.fieldErrors).map(([k, v]) => [k.replace(/^p(\d+)-/, (_, i: string) => `p${keys[Number(i)]}-`), v]));
+      return { error: Object.values(fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors, values: { ...formValues(form), parts: keys.join(",") } };
+    }
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(pageOf(groupId, input.validFrom));
+}
+
+export async function deleteCouplingAction(couplingId: string, groupId: string, stand: string | null): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteCoupling(await getDb(), user.id, couplingId);
+  revalidatePath("/", "layout");
+  redirect(pageOf(groupId, stand));
+}
+
+export async function deleteLessonAction(id: string, groupId: string, stand: string | null): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteLesson(await getDb(), user.id, id);
+  revalidatePath("/", "layout");
+  redirect(pageOf(groupId, stand));
+}
+
+// ---------------------------------------------------------------- Periode
+
+/** Halbjahreswechsel: laufende Stunden ab Stichtag kopieren (P2b-14). */
+export async function copyPeriodAction(cutoff: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  let n: number;
+  try {
+    n = await copyPeriod(await getDb(), user.id, cutoff, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`/verwaltung/stundenplan?periode=${encodeURIComponent(cutoff)}&fehler=${encodeURIComponent(firstError(err))}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(`/verwaltung/stundenplan?kopiert=${n}&ab=${cutoff}`);
+}
+
+// ---------------------------------------------------------------- Setzhilfe
+
+const firstError = (err: ValidationError) => Object.values(err.fieldErrors)[0] ?? "Das ging nicht";
+
+/** Eine offene Stunde eines Lehrauftrags setzen; solange noch Stunden offen sind, bleibt der Setzmodus an. */
+export async function placeAssignmentAction(assignmentId: string, groupId: string, stand: string | null, weekday: number, periodNr: number): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const today = toBerlinDate(new Date());
+  const from = stand && stand > today ? stand : undefined;
+  const back = `${pageOf(groupId, from)}&setzen=${encodeURIComponent(assignmentId)}`;
+  try {
+    await placeAssignment(db, user.id, assignmentId, groupId, weekday, periodNr, today, from);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${back}&fehler=${encodeURIComponent(firstError(err))}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  const stillOpen = (await openAssignments(db, groupId, from ?? today)).some((a) => a.id === assignmentId);
+  redirect(stillOpen ? back : pageOf(groupId, from));
+}
+
+/** Stunde/Kopplung in einen freien Slot verschieben oder mit der Stunde dort tauschen. */
+export async function moveLessonAction(lessonId: string, groupId: string, stand: string | null, weekday: number, periodNr: number): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await moveLesson(await getDb(), user.id, lessonId, groupId, weekday, periodNr);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${pageOf(groupId, stand)}&verschieben=${encodeURIComponent(lessonId)}&fehler=${encodeURIComponent(firstError(err))}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(pageOf(groupId, stand));
+}
+
+export async function saveSubstitutionAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  const input: SubstitutionInput = {
+    lessonId: str("lessonId"),
+    date: str("date"),
+    kind: str("kind") as SubstitutionInput["kind"],
+    substituteId: str("substituteId") || null,
+    roomId: str("roomId") || null,
+    note: str("note") || null,
+  };
+  try {
+    await saveSubstitution(await getDb(), user.id, input);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function deleteSubstitutionAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteSubstitution(await getDb(), user.id, id);
+  revalidatePath("/", "layout");
+}
+
+/** Q5-11: Entwurf eines Tages veröffentlichen (Gong je betroffener Person). */
+export async function publishDayAction(date: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  let n: number | null;
+  try {
+    n = await publishDay(await getDb(), user.id, date);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`/verwaltung/vertretungen?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(`/verwaltung/vertretungen?datum=${date}&veroeffentlicht=${n ?? "0"}`);
+}
+
+// ---------------------------------------------------------------- Unterrichtsverteilung
+
+/** nur interne Rücksprünge auf die Verteilungsseite */
+function backTo(raw: string): string {
+  return raw.startsWith("/verwaltung/unterricht") ? raw : "/verwaltung/unterricht";
+}
+
+export async function saveAssignmentAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  const all = (k: string) => form.getAll(k).map((v) => String(v).trim()).filter(Boolean);
+  const db = await getDb();
+  const year = await planningYear(db);
+  const input: AssignmentInput = {
+    schoolYearId: year?.id ?? "",
+    groupIds: [str("groupId"), ...all("coupledGroupIds")].filter(Boolean),
+    subjectId: str("subjectId"),
+    hours: Number(str("hours")),
+    teacherIds: [str("teacherId"), str("teacher2Id")].filter(Boolean),
+    doubleLessons: Number(str("doubleLessons") || "0"),
+    roomId: str("roomId") || null,
+    note: str("note") || null,
+  };
+  try {
+    if (id) await updateAssignment(db, user.id, id, input);
+    else await createAssignment(db, user.id, input);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      const values = { ...formValues(form), coupledGroupIds: all("coupledGroupIds").join(",") };
+      return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values };
+    }
+    throw err;
+  }
+  revalidatePath("/verwaltung/unterricht");
+  redirect(backTo(str("back")));
+}
+
+export async function deleteAssignmentAction(id: string, back: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteAssignment(await getDb(), user.id, id);
+  revalidatePath("/verwaltung/unterricht");
+  redirect(backTo(back));
+}
+
+export async function importAssignmentsAction(): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const year = await planningYear(db);
+  const n = year ? await assignmentsFromTimetable(db, user.id, year, toBerlinDate(new Date())) : 0;
+  revalidatePath("/verwaltung/unterricht");
+  redirect(`/verwaltung/unterricht?uebernommen=${n}`);
+}
+
+// ---------------------------------------------------------------- Deputate
+
+const hoursOf = (raw: string) => Number(raw.replace(",", "."));
+const teacherPage = (teacherId: string) => `/verwaltung/unterricht?ansicht=lehrkraefte&lehrkraft=${encodeURIComponent(teacherId)}`;
+
+export async function saveObligationAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const year = await planningYear(db);
+  const raw = String(form.get("obligation") ?? "").trim();
+  try {
+    await setObligation(db, user.id, year?.id ?? "", teacherId, raw ? hoursOf(raw) : null);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/verwaltung/unterricht");
+  return { ok: true };
+}
+
+export async function addReductionAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const year = await planningYear(db);
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  try {
+    await addReduction(db, user.id, { schoolYearId: year?.id ?? "", teacherId, reason: str("reason"), hours: hoursOf(str("hours")), note: str("note") || null });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/verwaltung/unterricht");
+  return { ok: true };
+}
+
+export async function deleteReductionAction(id: string, teacherId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteReduction(await getDb(), user.id, id);
+  revalidatePath("/verwaltung/unterricht");
+  redirect(teacherPage(teacherId));
+}
+
+// ---------------------------------------------------------------- Raumsperrungen (P2b-17)
+
+const BLOCKS_PAGE = "/stundenplan/raeume?ansicht=sperrungen";
+
+export async function createRoomBlockAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  const period = (k: string) => (str(k) ? Number(str(k)) : null);
+  try {
+    await createRoomBlock(await getDb(), user.id, {
+      roomId: str("roomId"),
+      startsOn: str("startsOn"),
+      endsOn: str("endsOn") || str("startsOn"),
+      fromPeriod: period("fromPeriod"),
+      toPeriod: period("toPeriod"),
+      reason: str("reason"),
+      note: str("note") || null,
+    });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function deleteRoomBlockAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteRoomBlock(await getDb(), user.id, id);
+  revalidatePath("/", "layout");
+  redirect(BLOCKS_PAGE);
+}
+
+/** Ausweichraum für eine gesperrte Stunde übernehmen (Raumänderung an diesem Tag). */
+export async function applyAlternativeRoomAction(lessonId: string, date: string, roomId: string, reason: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await saveSubstitution(await getDb(), user.id, { lessonId, date, kind: "room", substituteId: null, roomId, note: `Raumsperrung: ${reason}` });
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${BLOCKS_PAGE}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(BLOCKS_PAGE);
+}
+
+// ---------------------------------------------------------------- Abwesenheiten (P2b-18)
+
+const needsPage = (date: string) => `/verwaltung/vertretungen?datum=${date}`;
+
+export async function createAbsenceAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  const period = (k: string) => (str(k) ? Number(str(k)) : null);
+  try {
+    await createAbsence(await getDb(), user.id, {
+      teacherId: str("teacherId") || null,
+      groupId: str("groupId") || null,
+      startsOn: str("startsOn"),
+      endsOn: str("endsOn") || str("startsOn"),
+      fromPeriod: period("fromPeriod"),
+      toPeriod: period("toPeriod"),
+      reason: str("reason"),
+      note: str("note") || null,
+    });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function deleteAbsenceAction(id: string, date: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteAbsence(await getDb(), user.id, id);
+  revalidatePath("/", "layout");
+  redirect(needsPage(date));
+}
+
+/** Für alle Stunden abwesender Klassen an `date` Entfall eintragen (Freisetzungen bestätigen). */
+export async function cancelReleasedAction(date: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const { released } = await needsOn(db, date);
+  const done = new Set<string>();
+  for (const r of released) {
+    if (r.cancelled || done.has(r.lessonId)) continue;
+    await saveSubstitution(db, user.id, { lessonId: r.lessonId, date, kind: "cancel", substituteId: null, roomId: null, note: `${r.groupName} abwesend (${ABSENCE_LABELS[r.absence.reason]})` });
+    done.add(r.lessonId);
+  }
+  revalidatePath("/", "layout");
+  redirect(needsPage(date));
+}
+
+/** Vertretungsvorschlag übernehmen (P2b-19). */
+export async function applySuggestionAction(lessonId: string, date: string, teacherId: string, back: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await saveSubstitution(await getDb(), user.id, { lessonId, date, kind: "substitute", substituteId: teacherId, roomId: null, note: null });
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${back}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(back);
+}
+
+// ---------------------------------------------------------------- Pausenaufsichten (P2b-20)
+
+const dutyPage = (date?: string) => `/verwaltung/aufsichten${date ? `?datum=${date}` : ""}`;
+const firstMsg = (err: ValidationError) => Object.values(err.fieldErrors)[0] ?? "Das ging nicht";
+
+export async function createAreaAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await createArea(await getDb(), user.id, String(form.get("name") ?? ""));
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: firstMsg(err), fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/verwaltung/aufsichten");
+  return { ok: true };
+}
+
+export async function deleteAreaAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteArea(await getDb(), user.id, id);
+  revalidatePath("/verwaltung/aufsichten");
+  redirect(dutyPage());
+}
+
+export async function addDutyAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  try {
+    await addDuty(await getDb(), user.id, { areaId: str("areaId"), weekday: Number(str("weekday")), afterPeriod: Number(str("afterPeriod")), teacherId: str("teacherId") });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: firstMsg(err), fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function removeDutyAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await removeDuty(await getDb(), user.id, id);
+  revalidatePath("/", "layout");
+  redirect(dutyPage());
+}
+
+/** Vertretung (Formularfeld substituteId) oder – ohne Lehrkraft – „entfällt“ für eine Aufsicht an `date`. */
+export async function setDutyChangeAction(dutyId: string, date: string, form: FormData): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const substituteId = String(form.get("substituteId") ?? "").trim() || null;
+  try {
+    await setDutyChange(await getDb(), user.id, dutyId, date, substituteId);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${dutyPage(date)}&fehler=${encodeURIComponent(firstMsg(err))}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(dutyPage(date));
+}
+
+export async function clearDutyChangeAction(id: string, date: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await clearDutyChange(await getDb(), user.id, id);
+  revalidatePath("/", "layout");
+  redirect(dutyPage(date));
+}
+
+// ---------------------------------------------------------------- Zeitwünsche (P2b-21)
+
+/** Raster speichern: Felder `c-<Wochentag>-<Stunde>` mit „-3“…„3“ oder „x“ (gesperrt). */
+/** Rein: Raster aus den Formularfeldern `c-<Wochentag>-<Stunde>`; ungültiger Wert → null. */
+function readGrid(form: FormData): PrefGrid | null {
+  const grid: PrefGrid = new Map();
+  for (const [k, raw] of form.entries()) {
+    if (!k.startsWith("c-")) continue;
+    const v = parsePref(String(raw));
+    if (v === undefined) return null;
+    grid.set(k.slice(2), v);
+  }
+  return grid;
+}
+
+export async function savePrefsAction(kind: string, targetId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const grid = readGrid(form);
+  if (!grid) return { error: "Ungültiger Wert", values: formValues(form) };
+  try {
+    await savePrefs(await getDb(), user.id, kind, targetId, grid);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/verwaltung/unterricht/zeitwuensche");
+  return { ok: true };
+}
+
+/** Q5-10: Lehrkraft speichert die eigenen Zeitwünsche (nur im offenen Eingabefenster, Person aus der Sitzung). */
+export async function saveOwnPrefsAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const grid = readGrid(form);
+  if (!grid) return { error: "Ungültiger Wert", values: formValues(form) };
+  try {
+    await saveOwnPrefs(await getDb(), perms, grid, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/stundenplan/zeitwuensche");
+  return { ok: true };
+}
+
+/** Q5-10: Eingabefenster für Lehrkräfte öffnen/ändern (Planung). */
+export async function setPrefWindowAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await setPrefWindow(await getDb(), user.id, { opensOn: String(form.get("opensOn") ?? ""), closesOn: String(form.get("closesOn") ?? "") }, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/verwaltung/unterricht/zeitwuensche");
+  return { ok: true };
+}
+
+export async function closePrefWindowAction(): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await closePrefWindow(await getDb(), user.id);
+  revalidatePath("/verwaltung/unterricht/zeitwuensche");
+}
+
+// ---------------------------------------------------------------- Automatische Planung (P2b-23)
+
+const SOLVER_PAGE = "/verwaltung/stundenplan/solver";
+
+/** Lauf anlegen und im Hintergrund rechnen lassen (Seite zeigt den Fortschritt). */
+export async function startSolverAction(form: FormData): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const effort = String(form.get("effort") ?? "normal");
+  let id: string;
+  try {
+    id = await createRun(db, user.id, { seed: Number(form.get("seed")) || 1, effort });
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${SOLVER_PAGE}?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
+  // bewusst nicht abwarten: läuft im Serverprozess weiter (unter der Job-Sperre), Fortschritt steht in der Datenbank
+  void executeRunExclusive(db, id, toBerlinDate(new Date()), effort);
+  redirect(`${SOLVER_PAGE}?lauf=${id}`);
+}
+
+export async function applySolverAction(runId: string, form: FormData): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const from = String(form.get("from") ?? "");
+  let res: Awaited<ReturnType<typeof applyRun>>;
+  try {
+    res = await applyRun(await getDb(), user.id, runId, from, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${SOLVER_PAGE}?lauf=${runId}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(`${SOLVER_PAGE}?lauf=${runId}&uebernommen=${res.created}`);
+}
+
+/** Stunde fixieren/lösen (Pflege-Seite). */
+export async function toggleFixedAction(lessonId: string, groupId: string, fixed: boolean, stand: string | null): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await setFixed(await getDb(), user.id, lessonId, fixed);
+  revalidatePath("/verwaltung/stundenplan");
+  redirect(pageOf(groupId, stand));
+}

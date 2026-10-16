@@ -1,0 +1,17 @@
+{
+  "minVersion": "0.2.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "sicherheit", "text": "Datenbank: SchulOS arbeitet nicht mehr mit Superuser-Rechten – bestehende Server werden beim Update umgestellt (Server bis 0.3.1: einmaliger Schritt laut Installationsanleitung §5a.2)" },
+    { "kind": "verbessert", "text": "Updates bringen schulosctl und die Stack-Beschreibung signiert mit; schlägt der Start nach einem Update fehl, geht der Server automatisch auf die vorige Fassung zurück" },
+    { "kind": "neu", "text": "Rolle „Beratung“ für die Schulsozialarbeit inkl. eigener Sprechzeiten und Raum" },
+    { "kind": "neu", "text": "Hausaufgaben für Schüler:innen auf „Heute“ und im Kursraum, für Eltern per Einstellung" },
+    { "kind": "neu", "text": "Vertretungs-Gong gebündelt je Tag, auch an Eltern (ohne Notiz/Grund)" },
+    { "kind": "neu", "text": "Schulanmeldung: zweites Elternteil mit E-Mail und Elternkonto (Verknüpfung nur per Haken), Nachrücken von der Warteliste, Startpasswörter gesammelt neu erzeugen" },
+    { "kind": "neu", "text": "Benutzerverwaltung: Knopf „Bestätigungslink senden“" },
+    { "kind": "neu", "text": "Moduleinstellungen, u. a. Aufbewahrung der Prüfprotokolle (Gebäude & Technik)" },
+    { "kind": "verbessert", "text": "Impressum als einzelne Pflichtfelder nach § 5 DDG; Datenschutz-Texte als Vorlagen mit Verantwortungshinweis" },
+    { "kind": "verbessert", "text": "Wartungsfenster startet ohne TPM2 (Passphrase) nicht mehr automatisch neu" },
+    { "kind": "behoben", "text": "Backupserver-Oberfläche per IP-Adresse aufrufbar (vorher SSL-Fehler)" }
+  ]
+}

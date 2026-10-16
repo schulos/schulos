@@ -1,0 +1,11 @@
+#!/bin/sh
+# SchulOS-Live-System: Node 24 (für den Installer) verlinken, Installer auf tty1 und Netz (DHCP) einschalten
+set -e
+ln -sf /opt/schulos-node/bin/node /usr/local/bin/node
+chmod 0755 /usr/local/lib/schulos/start-installer.sh /usr/local/bin/schulos-installer
+systemctl enable schulos-installer.service systemd-networkd systemd-resolved
+# ttyS0 gehört den Installer-Meldungen (Tests ohne Bildschirm): kein Login dort – dessen Hangup würde laufende Ausgaben abschneiden
+systemctl mask serial-getty@ttyS0.service
+# Konsolenschrift (INST-02): Terminus Bold aus console-setup plus Halbblöcke ▀▄ (Logo der Oberfläche)
+# – die Schriften von console-setup haben keine. Der Installer lädt die passende Größe beim Start (setfont).
+/usr/local/bin/schulos-installer --konsolenschrift /usr/share/consolefonts /usr/local/share/schulos/konsolenschrift

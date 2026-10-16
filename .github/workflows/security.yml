@@ -1,0 +1,103 @@
+name: Sicherheit
+# B-53: Secret-Scan (gitleaks, ganze Historie, Ausnahmen nur für Testdaten in .gitleaks.toml), Abhängigkeiten (npm audit,
+# nur Produktion, ab „hoch“), Workflows (zizmor, ab „hoch“), Images (Trivy, kritisch/hoch mit verfügbarem Fix).
+# Images nur wöchentlich und von Hand (drei Image-Bauten); Fremd-Images werden nur berichtet, nicht blockiert.
+# Runner (CI-01): secrets/dependencies/workflows auf dem leichten Runner der Build-VM (ohne platz), images auf „schulos-iso“;
+# Pull Requests aus Forks bzw. mit SCHULOS_RUNNER=oeffentlich alle PRs auf GitHub-Runnern (wie ci.yml, REPO-02).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","leicht"]') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks (ganze Historie)
+        run: |
+          docker run --rm -v "$PWD:/repo" --entrypoint sh ghcr.io/gitleaks/gitleaks:v8.28.0 -c \
+            'git config --global --add safe.directory /repo && gitleaks detect --source /repo --no-banner --redact -v'
+
+  dependencies:
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","leicht"]') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: npm audit (Produktion, ab hoch)
+        run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (alles, nur Bericht)
+        run: npm audit || true
+
+  workflows:
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","leicht"]') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: zizmor (ab hoch)
+        run: docker run --rm -v "$PWD:/repo:ro" ghcr.io/zizmorcore/zizmor:1.30.1 --offline --no-progress --min-severity high /repo/.github/workflows
+
+  # Q-4E-35: Veröffentlichungsprüfung (Namen, Heimnetz-Adressen, Hostnamen, Geheimnisse, Fremdproduktnamen) als Pflicht-
+  # Check – das Repo ist öffentlich. Läuft mit Node allein (nur node:-Module, Typen werden entfernt), ohne npm ci.
+  veroeffentlichung:
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","leicht"]') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      # persönliche Muster (Namen, Heimnetz, Hostnamen) nur als Secret – stehen nicht im Repo; Forks bekommen keine Secrets
+      # und prüfen nur die allgemeinen Regeln. Das Skript gibt den Inhalt der Muster nie aus.
+      - name: Veröffentlichungsprüfung
+        env:
+          SCHULOS_PRIVATE_MUSTER: ${{ secrets.VEROEFFENTLICHUNG_MUSTER }}
+        run: node scripts/veroeffentlichen-pruefen.ts
+
+  images:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","schulos-iso"]') }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/platz
+      - name: Images bauen
+        run: |
+          docker build -q -t schulos:scan .
+          docker build -q -f apps/backup/Dockerfile -t schulos-backup:scan .
+          docker build -q -f apps/agent/Dockerfile -t schulos-agent:scan .
+      - name: Trivy – eigene Images (kritisch/hoch mit Fix blockiert)
+        run: |
+          for i in schulos:scan schulos-backup:scan schulos-agent:scan; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.75.0 image --quiet \
+              --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 "$i"
+          done
+      - name: Trivy – Fremd-Images wie ausgeliefert (gepinnt, B-47; nur Bericht)
+        run: |
+          for i in $(sh scripts/pin.sh caddy postgres rest-server); do
+            docker run --rm aquasec/trivy:0.75.0 image --quiet --severity CRITICAL,HIGH --ignore-unfixed "$i" || true
+          done

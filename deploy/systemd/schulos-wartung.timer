@@ -1,0 +1,12 @@
+# Wartungsfenster 02–04 Uhr (Vorgabe, INSTALLATION.md §5a.1): Start zufällig zwischen 02:30 und 03:00.
+# Der Backupserver hat sein eigenes Fenster – nie gleichzeitig mit dem Hauptsystem.
+[Unit]
+Description=SchulOS: Wartungsfenster täglich 02:30
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=30min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

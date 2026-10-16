@@ -1,0 +1,13 @@
+# SchulOS – Abgleich mit Verwaltung → System (B-33): Aufträge der App ausführen, Status für die App schreiben.
+# Installiert der Installer (OPS-4) nach /etc/systemd/system; schulosctl.mjs liegt in /opt/schulos.
+[Unit]
+Description=SchulOS: Abgleich mit Verwaltung → System
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=SCHULOS_DIR=/opt/schulos
+ExecStart=/usr/bin/node /opt/schulos/schulosctl.mjs system-sync
+# ein freigegebenes Update („jetzt“) läuft in diesem Dienst: Sicherung + Probelauf + Update brauchen Zeit
+TimeoutStartSec=2h

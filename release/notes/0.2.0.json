@@ -1,0 +1,12 @@
+{
+  "minVersion": "0.1.0",
+  "changes": [
+    { "kind": "neu", "text": "Kursraum: jede Klasse und jeder Kurs hat eine eigene Seite mit den nächsten Stunden, offenen Aufgaben, Terminen, Gruppenordner, Gruppenchat und Mitgliedern; die Leitung schaltet Bereiche selbst an und aus; auf „Heute“ das Feld „Meine Kurse“" },
+    { "kind": "neu", "text": "Umfragen: anonym oder namentlich, mit Zeitraum, Zielgruppen, Erinnerung und Auswertung als CSV; anonyme Ergebnisse erst ab 5 Antworten und nur in Fünferschritten" },
+    { "kind": "neu", "text": "Schnellumfrage: eine Frage mit Antwortknöpfen im Kursraum oder Gruppenchat, Ergebnis live" },
+    { "kind": "neu", "text": "Foren für Klassen, Kurse und das Kollegium – mit Melden, Ausblenden und Sperren durch die Moderation" },
+    { "kind": "neu", "text": "Pinnwände mit Spalten und Karten (Text, Link, Datei), live für alle, auch per Tastatur sortierbar, mit Druckansicht und auf Statusmonitoren" },
+    { "kind": "verbessert", "text": "Die neuen Module kommen ausgeschaltet an: unter Verwaltung → Rechte & Module einschalten, wenn die Schule so weit ist" },
+    { "kind": "behoben", "text": "Ausgeschaltete Module sind jetzt auch bei direktem Aufruf einer Adresse gesperrt, nicht nur aus dem Menü verschwunden" }
+  ]
+}

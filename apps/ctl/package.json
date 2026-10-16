@@ -1,0 +1,17 @@
+{
+  "name": "@schulos/ctl",
+  "version": "0.1.0",
+  "description": "schulosctl – Betrieb von SchulOS auf dem Host (Status, Backup, Admin-Zugang, Demo-Reset, Diagnosepaket)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@schulos/server": "0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

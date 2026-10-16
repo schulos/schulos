@@ -1,0 +1,1 @@
+ALTER TYPE "public"."monitor_profile" ADD VALUE 'sprechtag';

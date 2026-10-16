@@ -1,0 +1,108 @@
+/* SchulOS-Design-Tokens (Richtung A „Klar“) – gemeinsam für SchulOS und SchulOS Backup.
+   Einbinden nach `@import "tailwindcss";` mit `@import "@schulos/ui/theme.css";`. */
+
+/* Die Bausteine dieses Pakets nutzen Tailwind-Klassen – Tailwind soll sie mitscannen. */
+@source "./";
+
+/* Dark-Mode über data-theme (next-themes), funktioniert auch verschachtelt (/dev/ui). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ------------------------------------------------------------------ Tokens
+   Richtung A „Klar". Die Schulfarbe (--school) setzt in SchulOS SchoolTheme aus der DB;
+   alle Akzent-Abstufungen werden per color-mix daraus abgeleitet. */
+:root {
+  --school: #0e7c66;
+}
+
+:root,
+[data-school],
+[data-theme="light"] {
+  --ground: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #f7f8fa;
+  --border: #e3e6eb;
+  --border-strong: #c9ced6;
+  --ink: #14181f;
+  --muted: #5b6472;
+  --accent: var(--school);
+  --accent-fg: #ffffff;
+  --accent-soft: color-mix(in oklab, var(--school) 11%, var(--surface));
+  --accent-ink: color-mix(in oklab, var(--school) 78%, #000);
+  --warn: #8a3b00;
+  --warn-soft: #fff4ec;
+  --warn-border: #f5c9a8;
+  --danger: #a61b1b;
+  --danger-soft: #fdecec;
+  --success: #1f6f3a;
+  --success-soft: #e7f5ec;
+  --shadow: 0 1px 2px rgb(20 24 31 / 0.04), 0 6px 20px rgb(20 24 31 / 0.06);
+  color-scheme: light;
+}
+
+[data-theme="dark"],
+[data-theme="dark"] [data-school] {
+  --ground: #0f1217;
+  --surface: #171b22;
+  --surface-2: #1c212a;
+  --border: #272d38;
+  --border-strong: #3a4150;
+  --ink: #eceff4;
+  --muted: #9aa3b2;
+  --accent: color-mix(in oklab, var(--school) 80%, #fff);
+  --accent-fg: #0b0e12;
+  --accent-soft: color-mix(in oklab, var(--school) 22%, var(--surface));
+  --accent-ink: color-mix(in oklab, var(--school) 55%, #fff);
+  --warn: #ffb380;
+  --warn-soft: #2a1e14;
+  --warn-border: #6b3a14;
+  --danger: #ff8f8f;
+  --danger-soft: #2c1517;
+  --success: #7ddc9c;
+  --success-soft: #142a1c;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.35);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-border: var(--warn-border);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --shadow-card: var(--shadow);
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+  --radius-card: 16px;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}

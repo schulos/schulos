@@ -1,0 +1,17 @@
+{
+  "minVersion": "0.2.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "behoben", "text": "Installer: nach der Installation startet SchulOS von der Platte, auch wenn das Installationsmedium eingelegt bleibt (Startreihenfolge wird gesetzt, Startmenü des Mediums erkennt fertige Installationen – auch auf dem Spiegel)" },
+    { "kind": "verbessert", "text": "Installer: kein Neustart, bevor Block 8 des Wiederherstellungsschlüssels bestätigt ist – auch im unbeaufsichtigten Modus; statt QR-Code steht nach dem Neustart die Adresse an der Konsole, der Kopplungscode wird in der Weboberfläche erzeugt" },
+    { "kind": "sicherheit", "text": "Installer: Überschreibschutz – eine fertige SchulOS-Installation wird nur nach ausdrücklicher Bestätigung („ÜBERSCHREIBEN“ bzw. Datei „ueberschreiben“) neu installiert" },
+    { "kind": "neu", "text": "Vertretungsplan mit Entwurf und Freigabe; Zeitwünsche tragen Lehrkräfte selbst ein" },
+    { "kind": "neu", "text": "Beurlaubung vorab: Eltern bzw. volljährige Schüler:innen beantragen, Klassenleitung bzw. Schulleitung entscheidet" },
+    { "kind": "neu", "text": "Eigene Fehlzeiten für Schüler:innen, Vertretungs-Gong auch an Eltern" },
+    { "kind": "neu", "text": "Widgets „Offen für dich“ und „Heute im Haus“; Meine Aufsichten und Mein Deputat; Klassenbuch-Lücken für die eigene Lehrkraft" },
+    { "kind": "neu", "text": "Hausaufgaben optional mit „fällig am“" },
+    { "kind": "neu", "text": "Kalender-Abo per widerrufbarem Link (nur lesend)" },
+    { "kind": "neu", "text": "Datenschutz-Einrichtung durch die Schule: DSB-Checkliste mit Status und Nachweis; Löschfristen als Moduleinstellung mit Grenzen" },
+    { "kind": "verbessert", "text": "Buchungen lesend für die Hausmeisterei" }
+  ]
+}

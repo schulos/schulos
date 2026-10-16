@@ -1,0 +1,12 @@
+# SchulOS – Vorschau-Instanz nachts (B-35): auf die neueste Version im Kanal beta bringen und Demo-Daten zurücksetzen.
+# Tut nichts, wenn die Vorschau aus ist (schulosctl vorschau an|aus).
+[Unit]
+Description=SchulOS: Vorschau aktualisieren und zurücksetzen
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=SCHULOS_DIR=/opt/schulos
+ExecStart=/usr/bin/node /opt/schulos/schulosctl.mjs vorschau nacht
+TimeoutStartSec=30min

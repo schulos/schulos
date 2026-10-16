@@ -1,0 +1,114 @@
+// Stammdaten Räume: Art, Gebäude/Etage, Kapazität, Ausstattung, barrierefrei, aktiv.
+import { and, asc, count, eq, ilike, or, type SQL } from "drizzle-orm";
+import { audit } from "@/core/audit";
+import type { Db } from "@/core/db/client";
+import { ROOM_EQUIPMENT, ROOM_KINDS, bookingResources, bookings, exams, rooms, timetableLessons, timetableSubstitutions, type RoomEquipment, type RoomKind } from "@/core/db/schema";
+import { ValidationError } from "./users";
+
+export type Room = typeof rooms.$inferSelect;
+
+export async function listRooms(db: Db, f: { q?: string; kind?: RoomKind; activeOnly?: boolean } = {}): Promise<Room[]> {
+  const where: SQL[] = [];
+  const q = f.q?.trim();
+  if (q) {
+    const like = `%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    where.push(or(ilike(rooms.id, like), ilike(rooms.name, like), ilike(rooms.building, like))!);
+  }
+  if (f.kind) where.push(eq(rooms.kind, f.kind));
+  if (f.activeOnly) where.push(eq(rooms.active, true));
+  return db
+    .select()
+    .from(rooms)
+    .where(where.length ? and(...where) : undefined)
+    .orderBy(asc(rooms.building), asc(rooms.id));
+}
+
+export async function getRoom(db: Db, id: string): Promise<Room | null> {
+  const [r] = await db.select().from(rooms).where(eq(rooms.id, id));
+  return r ?? null;
+}
+
+/** Wie oft ein Raum in Stundenplan, Vertretungen, Klausuren und Buchungen vorkommt (dann nicht löschbar). */
+export async function roomUsage(db: Db, id?: string): Promise<Map<string, number>> {
+  const parts = await Promise.all([
+    db.select({ id: timetableLessons.roomId, n: count() }).from(timetableLessons).where(id ? eq(timetableLessons.roomId, id) : undefined).groupBy(timetableLessons.roomId),
+    db.select({ id: timetableSubstitutions.roomId, n: count() }).from(timetableSubstitutions).where(id ? eq(timetableSubstitutions.roomId, id) : undefined).groupBy(timetableSubstitutions.roomId),
+    db.select({ id: exams.roomId, n: count() }).from(exams).where(id ? eq(exams.roomId, id) : undefined).groupBy(exams.roomId),
+    db
+      .select({ id: bookingResources.roomId, n: count() })
+      .from(bookings)
+      .innerJoin(bookingResources, eq(bookingResources.id, bookings.resourceId))
+      .where(id ? eq(bookingResources.roomId, id) : undefined)
+      .groupBy(bookingResources.roomId),
+  ]);
+  const out = new Map<string, number>();
+  for (const r of parts.flat()) if (r.id) out.set(r.id, (out.get(r.id) ?? 0) + r.n);
+  return out;
+}
+
+export interface RoomInput {
+  code: string;
+  name: string;
+  kind: string;
+  building?: string | null;
+  floor?: string | null;
+  /** leer = unbekannt */
+  capacity?: string | number | null;
+  equipment: string[];
+  accessible: boolean;
+  active: boolean;
+}
+
+const CODE_RE = /^[\p{L}\p{N}.\-]{1,10}$/u;
+
+async function validate(db: Db, input: RoomInput, exceptId?: string) {
+  const fe: Record<string, string> = {};
+  const code = input.code.trim();
+  if (!CODE_RE.test(code)) fe.code = "Kürzel: 1–10 Zeichen, Buchstaben, Ziffern, Punkt oder Bindestrich";
+  else if (code.toLowerCase() !== exceptId?.toLowerCase()) {
+    const [dup] = await db.select({ id: rooms.id }).from(rooms).where(ilike(rooms.id, code));
+    if (dup) fe.code = "Kürzel schon vergeben";
+  }
+  if (!input.name.trim()) fe.name = "Name angeben";
+  if (!(ROOM_KINDS as readonly string[]).includes(input.kind)) fe.kind = "Raumart wählen";
+  const capRaw = input.capacity === null || input.capacity === undefined ? "" : String(input.capacity).trim();
+  const capacity = capRaw === "" ? null : Number(capRaw);
+  if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 2000)) fe.capacity = "Kapazität 1–2000 oder leer";
+  const unknown = input.equipment.filter((e) => !(ROOM_EQUIPMENT as readonly string[]).includes(e));
+  if (unknown.length) fe.equipment = `Unbekannte Ausstattung: ${unknown.join(", ")}`;
+  if (Object.keys(fe).length) throw new ValidationError(fe);
+  return {
+    id: code,
+    name: input.name.trim(),
+    kind: input.kind as RoomKind,
+    building: input.building?.trim() || null,
+    floor: input.floor?.trim() || null,
+    capacity,
+    // Reihenfolge wie im Katalog, ohne Dubletten
+    equipment: ROOM_EQUIPMENT.filter((e) => input.equipment.includes(e)) as RoomEquipment[],
+    accessible: input.accessible,
+    active: input.active,
+  };
+}
+
+export async function createRoom(db: Db, actorId: string, input: RoomInput): Promise<string> {
+  const values = await validate(db, input);
+  await db.insert(rooms).values(values);
+  await audit(db, actorId, "verwaltung.room.create", values.id, { name: values.name });
+  return values.id;
+}
+
+/** Ändert einen Raum; ein neues Kürzel wird in Stundenplan, Vertretungen, Klausuren und Buchungen mitgezogen. */
+export async function updateRoom(db: Db, actorId: string, id: string, input: RoomInput): Promise<string> {
+  const values = await validate(db, input, id);
+  await db.update(rooms).set(values).where(eq(rooms.id, id));
+  await audit(db, actorId, "verwaltung.room.update", values.id, { renamedFrom: values.id !== id ? id : undefined });
+  return values.id;
+}
+
+export async function deleteRoom(db: Db, actorId: string, id: string): Promise<void> {
+  const used = (await roomUsage(db, id)).get(id) ?? 0;
+  if (used) throw new ValidationError({ code: `Raum ${id} ist noch ${used}× verplant – stattdessen auf „inaktiv“ setzen` });
+  await db.delete(rooms).where(eq(rooms.id, id));
+  await audit(db, actorId, "verwaltung.room.delete", id, {});
+}

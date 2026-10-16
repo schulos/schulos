@@ -1,0 +1,396 @@
+# CI: Prüfung (tsc, eslint, vitest, Lizenzen), Build und E2E bei Push auf main und für Pull Requests (Dependabot).
+# Ein Job statt mehrerer: spart je Lauf ein `npm ci` (Freikontingent 2 000 Minuten/Monat, privates Repo).
+# Runner: alle Workflows laufen auf der Build-VM (self-hosted, keine GitHub-Minuten). Zwei Runner-Dienste (CI-01):
+# „schulos-iso“ für Docker-Stacks/Build/E2E (nacheinander, keine Port-Konflikte, ruft platz auf) und „leicht“ für kurze Jobs
+# (Änderungserkennung, postgres, Abschluss, Sicherheit – ohne platz, damit kein Aufräumen einen laufenden Job trifft).
+# Repo-Variable SCHULOS_RUNNER (REPO-02, docs/VEROEFFENTLICHUNG.md D): nicht gesetzt = so wie oben (privates Repo);
+# „oeffentlich“ = alle Pull Requests auf GitHub-Runnern, Push auf main/von Hand weiter auf der Build-VM; „github“ = alles
+# auf GitHub-Runnern. Self-hosted nur, wenn der Lauf kein PR ist oder der PR aus diesem Repo kommt (head.repo).
+# Umfang (CI-01, scripts/ci/aenderungen.sh): nur Doku geändert → schwere Jobs übersprungen; auf main ebenso, wenn ein PR-Lauf
+# genau diesen Baum schon grün geprüft hat (Artefakt „geprueft-<baum>“ aus „ergebnis“). „ergebnis“ ist der Job, auf den
+# scripts/pr-merge.sh wartet.
+# Fremder Code nie auf der Build-VM: Pull Requests aus Forks laufen immer auf GitHub-Runnern (gilt auch in security.yml);
+# Dependabot-PRs (Branch in diesem Repo) seit 2026-10-08 auf der Build-VM, mit „oeffentlich“ wieder auf GitHub. Schutz gegen
+# Fork-PRs, die diese Datei selbst ändern: Runner-Gruppe nur für Workflows von main + Freigabe von Fork-Läufen (VEROEFFENTLICHUNG D).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  aenderungen:
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","leicht"]') }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      voll: ${{ steps.umfang.outputs.voll }}
+      baum: ${{ steps.umfang.outputs.baum }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: umfang
+        name: Umfang bestimmen
+        env:
+          EVENT: ${{ github.event_name }}
+          VORHER: ${{ github.event.before }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/aenderungen.sh
+
+  verify:
+    needs: aenderungen
+    if: needs.aenderungen.outputs.voll == 'true'
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","schulos-iso"]') }}
+    timeout-minutes: 30
+    env:
+      TZ: Europe/Berlin
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/platz
+      # npm-Cache über GitHub nur auf GitHub-Runnern; auf der Build-VM bleibt ~/.npm ohnehin liegen (CI-01)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          package-manager-cache: ${{ runner.environment == 'github-hosted' }}
+      - run: npm ci --ignore-scripts
+      - name: Prüfung (tsc, eslint, Lizenzen, vitest)
+        run: npm run check
+      - name: Next-Build-Cache holen (Build-VM)
+        if: runner.environment == 'self-hosted'
+        run: bash scripts/ci/next-cache.sh holen
+      - name: Build
+        run: npm run build
+      - name: Next-Build-Cache sichern (Build-VM)
+        if: runner.environment == 'self-hosted'
+        run: bash scripts/ci/next-cache.sh sichern
+      - name: Playwright-Browser
+        run: npx playwright install --with-deps chromium
+      - name: E2E
+        run: npm run e2e
+      - name: E2E Backupserver
+        run: npm run e2e:backup
+      - name: E2E-Ergebnisse
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-results
+          path: |
+            .data/e2e-results
+            .data/e2e-backup-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # B-14: dieselben Unit-/Integrationstests gegen echtes PostgreSQL 18 (Produktiv-Datenbank)
+  # läuft auf dem leichten Runner parallel zu verify/stack/backup (Host-Port 5432 nutzt sonst kein CI-Job)
+  postgres:
+    needs: aenderungen
+    if: needs.aenderungen.outputs.voll == 'true'
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","leicht"]') }}
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: schulos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      TZ: Europe/Berlin
+      TEST_DATABASE_URL: postgres://postgres:schulos@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          package-manager-cache: ${{ runner.environment == 'github-hosted' }}
+      - run: npm ci --ignore-scripts
+      - name: Tests gegen PostgreSQL 18
+        run: npm run test:pg
+
+  # B-18: kompletter Stack (Caddy + App + PostgreSQL 18) als Demo-Instanz, Smoketest durch den Proxy
+  stack:
+    needs: aenderungen
+    if: needs.aenderungen.outputs.voll == 'true'
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","schulos-iso"]') }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/platz
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Stack bauen und starten
+        run: |
+          printf 'POSTGRES_PASSWORD=ci-%s\nPOSTGRES_ADMIN_PASSWORD=ci-%s\nSCHULOS_DOMAIN=localhost\nSCHULOS_HTTP_PORT=8080\nSCHULOS_HTTPS_PORT=8443\nSCHULOS_PUBLIC_PORT=:8443\n' "$(openssl rand -hex 16)" "$(openssl rand -hex 16)" > .env
+          # P4-40: der Docker-Gateway gilt als Proxy – so simuliert X-Forwarded-For eine Anfrage aus dem Internet
+          echo "SCHULOS_TRUSTED_PROXIES=private_ranges" >> .env
+          echo "SCHULOS_INSTANCE=demo" > schulos.env
+          docker compose up -d --build --wait --wait-timeout 300
+      - name: Smoketest
+        run: node scripts/smoke.mjs https://localhost:8443 --insecure
+      # INST-10: Aufruf über die IP bzw. einen fremden Namen landet bei der App (Weiterleitung zur Anmeldung), nicht auf
+      # Caddys leerer 200-Antwort
+      - name: Aufruf per IP (INST-10)
+        run: bash scripts/ci/per-ip.sh 8443
+      # SEC-13: non-root, read_only, cap_drop ALL, no-new-privileges, kein docker.sock – am laufenden Stack
+      - name: Container-Härtung (SEC-13)
+        run: bash scripts/haertung-pruefen.sh schulos --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres --rw step-ca --rw crowdsec --rw clamav --ohne-nnp step-ca --cap step-ca=NET_BIND_SERVICE
+      # P4-40: Außenzugang je Modus (nur Caddy wird neu erstellt); danach wieder die Vorgabe „keiner“
+      - name: Außenzugang
+        run: |
+          for modus in oeffentliche-seiten keiner alles; do
+            SCHULOS_PUBLIC_ACCESS=$modus docker compose up -d --wait --wait-timeout 120 caddy
+            node scripts/aussenzugang-test.mjs https://localhost:8443 "$modus" --insecure
+            # INST-10: dieselben Regeln beim Aufruf über die IP (Catch-all-Adresse im selben Block)
+            node scripts/aussenzugang-test.mjs https://127.0.0.1:8443 "$modus" --insecure
+          done
+          docker compose up -d --wait --wait-timeout 120 caddy
+      # P4-40b: Gerätezertifikate mit Test-CA (gültig/gesperrt/unbekannt/abgelaufen/fremde CA/gefälschte Kennzeichen) je Modus
+      - name: Gerätezertifikate
+        run: bash scripts/geraetezertifikat-test.sh https://localhost:8443
+      # P4-40b: echte Schul-CA (Compose-Profil „geraete“) – Start, Wurzel im Volume, Ausstellung über den JWK-Provisioner
+      - name: Schul-CA (step-ca)
+        run: |
+          printf 'SCHULOS_DEVICE_CA_PASSWORD=ci-%s\nSCHULOS_DEVICE_CA_PROVISIONER_PASSWORD=ci-%s\n' "$(openssl rand -hex 16)" "$(openssl rand -hex 16)" >> .env
+          docker compose --profile geraete run --rm geraete-ca-init
+          # bei --wait-Fehlern die Protokolle der betroffenen Dienste ausgeben (sonst sieht man im CI-Log nur „unhealthy“)
+          docker compose --profile geraete up -d --no-deps --wait --wait-timeout 180 step-ca ||
+            { docker compose --profile geraete logs --no-color geraete-ca-init step-ca; exit 1; }
+          bash scripts/haertung-pruefen.sh schulos --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres --rw step-ca --rw crowdsec --rw clamav --ohne-nnp step-ca --cap step-ca=NET_BIND_SERVICE
+          SCHULOS_DEVICE_CERTS=an docker compose up -d --wait --wait-timeout 180 app
+          docker compose exec -T app node cli.mjs geraete-ca-pruefen
+          docker compose --profile geraete rm -sf step-ca
+          docker compose up -d --wait --wait-timeout 180 app
+      # P4-72: Virenscan (Profil „clamav“) – EICAR muss gefunden, eine harmlose Datei durchgelassen werden; lädt einmal die
+      # Signaturen aus dem Internet (einige Minuten)
+      - name: Virenscan (ClamAV, EICAR)
+        run: |
+          echo "SCHULOS_CLAMAV=clamav:3310" >> .env
+          docker compose --profile clamav up -d --no-deps --wait --wait-timeout 900 clamav ||
+            { docker compose --profile clamav logs --no-color --tail 200 clamav; exit 1; }
+          docker compose up -d --wait --wait-timeout 180 app
+          docker compose exec -T app node cli.mjs virenscan-pruefen
+          bash scripts/haertung-pruefen.sh schulos --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres --rw step-ca --rw crowdsec --rw clamav --ohne-nnp step-ca --cap step-ca=NET_BIND_SERVICE --root clamav --cap clamav=CHOWN --cap clamav=SETUID --cap clamav=SETGID --cap clamav=DAC_OVERRIDE --cap clamav=FOWNER
+          docker compose --profile clamav rm -sf clamav
+          sed -i '/^SCHULOS_CLAMAV=/d' .env
+          docker compose up -d --wait --wait-timeout 180 app
+      # SEC-15: CrowdSec (Profil „crowdsec“) – Sperre per cscli, die App setzt sie durch (403 mit Hinweis), andere Adressen
+      # nicht; Zugriffsprotokoll von Caddy nur mit SCHULOS_CROWDSEC=1. 10.99.0.7 liegt im „Schulnetz“ (sonst wiese Caddy ab)
+      - name: CrowdSec (SEC-15)
+        run: |
+          printf 'SCHULOS_CROWDSEC=1\nSCHULOS_CROWDSEC_URL=http://crowdsec:8080\nSCHULOS_CROWDSEC_BOUNCER_KEY=ci-%s\n' "$(openssl rand -hex 16)" >> .env
+          docker compose --profile crowdsec up -d --no-deps --wait --wait-timeout 600 crowdsec ||
+            { docker compose --profile crowdsec logs --no-color --tail 200 crowdsec; exit 1; }
+          docker compose up -d --wait --wait-timeout 180 caddy app
+          # Testadressen per X-Forwarded-For: Caddy darf dafür nur dem Docker-Gateway (Absender der Anfragen vom Runner) trauen. Mit
+          # SCHULOS_TRUSTED_PROXIES=private_ranges galt auch 10.99.0.7 als Proxy – Caddy sah dann den Gateway als Client (Diagnose
+          # aus dem Lauf auf 7ae7475: client_ip 192.168.128.1, die App kannte die Sperre für 10.99.0.7 sehr wohl)
+          curl -sk -o /dev/null https://localhost:8443/login
+          sleep 1
+          GW=$(docker compose exec -T caddy sh -c 'tail -n 1 /var/log/caddy/access.log' | grep -o '"remote_ip":"[^"]*"' | cut -d'"' -f4)
+          echo "Docker-Gateway laut Caddy: $GW"
+          test -n "$GW"
+          SCHULOS_TRUSTED_PROXIES="$GW/32" docker compose up -d --wait --wait-timeout 180 caddy
+          for i in $(seq 1 30); do docker compose exec -T crowdsec cscli decisions add --ip 10.99.0.7 --duration 10m --reason ci && break; sleep 5; done
+          # der Proxy gleicht höchstens alle 10 s im Hintergrund ab – bis zu 30 s auf die Sperre warten
+          for i in $(seq 1 15); do
+            body=$(curl -sk -H 'X-Forwarded-For: 10.99.0.7' https://localhost:8443/login)
+            echo "$body" | grep -q "Sicherheitsfilter" && break
+            sleep 2
+          done
+          if ! echo "$body" | grep -q "Sicherheitsfilter"; then
+            echo "Sperre nicht durchgesetzt: $body" | head -c 400; echo
+            # Diagnose: Sicht der App (eigener Abgleich im App-Container), CrowdSec selbst, Bouncer, Client-Adresse laut Caddy, App-Log
+            docker compose exec -T app node cli.mjs crowdsec-pruefen 10.99.0.7 || true
+            docker compose exec -T crowdsec cscli decisions list || true
+            docker compose exec -T crowdsec cscli bouncers list || true
+            docker compose exec -T caddy sh -c 'grep -o "\"client_ip\":\"[^\"]*\"" /var/log/caddy/access.log | sort | uniq -c' || true
+            docker compose logs --no-color --tail 80 app | grep -iE "crowdsec|schulos\]" || true
+            exit 1
+          fi
+          test "$(curl -sk -o /dev/null -w '%{http_code}' -H 'X-Forwarded-For: 10.99.0.8' https://localhost:8443/login)" = 200
+          docker compose exec -T caddy test -s /var/log/caddy/access.log
+          # G4E-O13: die Sperre gilt auch mit Prefetch-Header und für Pfade mit Dateiendung
+          test "$(curl -sk -o /dev/null -w '%{http_code}' -H 'X-Forwarded-For: 10.99.0.7' -H 'Next-Router-Prefetch: 1' https://localhost:8443/login)" = 403
+          test "$(curl -sk -o /dev/null -w '%{http_code}' -H 'X-Forwarded-For: 10.99.0.7' https://localhost:8443/api/dateien/x.png)" = 403
+          # G4E-O11: Tokens im Pfad landen maskiert im Zugriffsprotokoll
+          curl -sk -o /dev/null -H 'X-Forwarded-For: 10.99.0.8' https://localhost:8443/monitor/abcdefghijklmnopqrstuvwxyz0123
+          sleep 2
+          docker compose exec -T caddy grep -q '/monitor/\*\*\*' /var/log/caddy/access.log
+          if docker compose exec -T caddy grep -q abcdefghijklmnopqrstuvwxyz0123 /var/log/caddy/access.log; then echo "Token im Zugriffsprotokoll"; exit 1; fi
+          # G4E-O13: CrowdSec wertet die Client-Adresse aus (client_ip), nicht den Proxy davor (der Docker-Gateway wäre als privates
+          # Netz ausgenommen) – Abtasten von außen (203.0.113.9, Caddy antwortet 403) muss zu einer Sperre genau dieser Adresse führen
+          # Szenario crowdsecurity/http-probing: > 10 verschiedene Pfade mit 403/404 innerhalb von ~10 s je Quelle (leaky bucket) –
+          # 40 Anfragen auf verschiedene Pfade; der Parser crowdsecurity/caddy-logs nimmt die Quelle aus client_ip
+          for i in $(seq 1 40); do curl -sk -o /dev/null -H 'X-Forwarded-For: 203.0.113.9' "https://localhost:8443/probe-$i.php"; done
+          # Erkennung läuft über das Protokoll (Einlesen, Parser, Bucket, Entscheidung) – bis zu 60 s abfragen
+          for i in $(seq 1 30); do docker compose exec -T crowdsec cscli decisions list -o raw | grep -q 203.0.113.9 && break; sleep 2; done
+          # CrowdSec liest Caddys Protokoll wirklich (Akquisitions-Metrik der Datei vorhanden – fehlte vor force_inotify ganz)
+          docker compose exec -T crowdsec cscli metrics | grep -q "file:/var/log/caddy/access.log" ||
+            { echo "CrowdSec liest /var/log/caddy/access.log nicht (keine Akquisitions-Metrik)"; docker compose logs --no-color --tail 60 crowdsec | grep -iE "acquis|file|caddy" || true; exit 1; }
+          if ! docker compose exec -T crowdsec cscli decisions list -o raw | grep -q 203.0.113.9; then
+            echo "CrowdSec sperrt nicht die Client-Adresse – Diagnose:"
+            docker compose exec -T crowdsec cscli alerts list || true
+            # Einlesen (Zeilen gelesen/geparst/nicht geparst je Datei), Parser, Whitelists, Buckets
+            docker compose exec -T crowdsec cscli metrics || true
+            docker compose exec -T crowdsec cat /etc/crowdsec/acquis.d/caddy.yaml || true
+            docker compose exec -T crowdsec ls -l /var/log/caddy/ || true
+            # eine der Probe-Zeilen durch die Parser schicken: welche source_ip, Whitelist ja/nein, welches Szenario
+            line=$(docker compose exec -T caddy sh -c 'grep "probe-40.php" /var/log/caddy/access.log | tail -n 1')
+            echo "$line" | head -c 600; echo
+            docker compose exec -T crowdsec cscli explain --log "$line" --type caddy -v || true
+            exit 1
+          fi
+          bash scripts/haertung-pruefen.sh schulos --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres --rw step-ca --rw crowdsec --rw clamav --ohne-nnp step-ca --cap step-ca=NET_BIND_SERVICE --root crowdsec
+          # Testsperren wieder weg; danach Caddy wieder mit der Vorgabe aus .env (private_ranges), App ohne CrowdSec (neu angelegt,
+          # leerer Zwischenspeicher) – folgende Schritte sind nicht blockiert
+          docker compose exec -T crowdsec cscli decisions delete --all || true
+          docker compose --profile crowdsec rm -sf crowdsec
+          sed -i '/^SCHULOS_CROWDSEC/d' .env
+          docker compose up -d --wait --wait-timeout 180 caddy app
+      - name: Schul-CA – Protokoll
+        if: failure()
+        run: docker compose --profile geraete logs step-ca geraete-ca-init caddy | tail -n 200
+      - name: Postgres-Einstellungen und Abfragestatistik (B-51)
+        run: |
+          docker compose logs postgres | grep "\[schulos\] Postgres mit"
+          docker compose logs app | grep -q "Abfragestatistik (pg_stat_statements) aktiv"
+          test "$(docker compose exec -T postgres psql -U schulos -d schulos -Atc 'select count(*) > 0 from pg_stat_statements')" = t
+      # SEC-07: App-Rolle ohne Superuser-Recht, Eigentümerin der Datenbank und aller Tabellen; Wartungsrolle postgres
+      - name: Datenbankrollen (SEC-07)
+        run: |
+          q() { docker compose exec -T postgres psql -U "$1" -d schulos -Atc "$2"; }
+          test "$(q postgres "select rolsuper::text || rolcreaterole::text || rolcreatedb::text from pg_roles where rolname = 'schulos'")" = falsefalsefalse
+          test "$(q postgres "select rolsuper from pg_roles where rolname = 'postgres'")" = t
+          test "$(q postgres "select pg_get_userbyid(datdba) from pg_database where datname = 'schulos'")" = schulos
+          test "$(q postgres "select count(*) from pg_tables where schemaname in ('public', 'drizzle') and tableowner <> 'schulos'")" = 0
+          test "$(q schulos "select current_user || '|' || rolsuper::text from pg_roles where rolname = current_user")" = "schulos|false"
+          # ohne Superuser: kein COPY … PROGRAM (Codeausführung im Container), keine Rollen
+          if q schulos "copy (select 1) to program 'true'" 2>/dev/null; then echo "COPY PROGRAM als App-Rolle möglich"; exit 1; fi
+          if q schulos "create role sec07_probe" 2>/dev/null; then echo "CREATE ROLE als App-Rolle möglich"; exit 1; fi
+      # B-54: OWASP-ZAP-Baseline (passiv) ohne und mit Anmeldung – FAIL-Regeln in .zap/regeln.tsv, Berichte als Artefakt
+      - name: ZAP-Baseline
+        run: bash scripts/zap-scan.sh https://localhost:8443 zap
+      - name: ZAP-Berichte
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zap-berichte
+          path: zap/zap-*
+          retention-days: 7
+          if-no-files-found: ignore
+      # B-31: schulosctl gegen den laufenden Stack (Backup ist hier nicht gekoppelt → status meldet ACHTUNG)
+      - name: schulosctl
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npm run build -w @schulos/ctl
+          ctl="node apps/ctl/dist/schulosctl.mjs --dir ."
+          $ctl status | tee status.txt || true
+          grep -q "Instanz demo · Datenbank postgres" status.txt
+          $ctl reset-admin > /dev/null
+          $ctl support-bundle --out bundle.tar.gz
+          tar -tzf bundle.tar.gz | grep -q "logs/app.log"
+          $ctl demo-reset --yes
+          docker compose up -d --wait --wait-timeout 120
+          node scripts/smoke.mjs https://localhost:8443 --insecure
+      - name: Logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Aufräumen
+        if: always()
+        # P4-40b: mit Profil, sonst blieben step-ca und seine Volumes stehen
+        run: docker compose --profile geraete --profile clamav --profile crowdsec down -v
+
+  # B-28: Backupserver + Hauptsystem als Compose-Stacks – Kopplung über TLS mit gepinnter Caddy-CA, Sicherung,
+  # Aufräumen, Prüfung und Test-Restore auf dem Backupserver, append-only (INSTALLATION.md §7 Schritte 1–3 ohne ISO)
+  backup:
+    needs: aenderungen
+    if: needs.aenderungen.outputs.voll == 'true'
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","schulos-iso"]') }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/platz
+      # schulosctl (Test-Restore mit App-Start, B-32) wird aus apps/ctl gebündelt
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          package-manager-cache: ${{ runner.environment == 'github-hosted' }}
+      - run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Stack-Test Backup
+        run: bash scripts/backup-stack-test.sh
+
+  # CI-01: Abschluss für scripts/pr-merge.sh – rot, wenn ein Job rot/abgebrochen ist; übersprungen (Doku, Kurzprüfung) zählt
+  # als grün. Nach einem vollen grünen PR-Lauf merkt sich das Artefakt „geprueft-<baum>“ den geprüften Baum für main.
+  ergebnis:
+    needs: [aenderungen, verify, postgres, stack, backup]
+    if: always()
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","leicht"]') }}
+    timeout-minutes: 5
+    steps:
+      - name: Ergebnisse
+        # nur Bash: der leichte Runner hat ohne setup-node kein node
+        env:
+          AENDERUNGEN: ${{ needs.aenderungen.result }}
+          VERIFY: ${{ needs.verify.result }}
+          POSTGRES: ${{ needs.postgres.result }}
+          STACK: ${{ needs.stack.result }}
+          BACKUP: ${{ needs.backup.result }}
+        run: |
+          rot=0
+          for job in AENDERUNGEN VERIFY POSTGRES STACK BACKUP; do
+            r=${!job}
+            echo "$job: $r"
+            case "$job:$r" in AENDERUNGEN:success | [A-Z]*:success | [A-Z]*:skipped) ;; *) rot=1 ;; esac
+          done
+          [ "$AENDERUNGEN" = success ] || rot=1
+          exit $rot
+      - name: Geprüften Baum merken
+        if: github.event_name == 'pull_request' && needs.aenderungen.outputs.voll == 'true'
+        env:
+          BAUM: ${{ needs.aenderungen.outputs.baum }}
+        run: mkdir -p geprueft && echo "$BAUM" > geprueft/baum.txt
+      - if: github.event_name == 'pull_request' && needs.aenderungen.outputs.voll == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: geprueft-${{ needs.aenderungen.outputs.baum }}
+          path: geprueft/baum.txt
+          retention-days: 7
+
+  # B-39: Update-Test N−1 → N (Probelauf, Löschnachweis, Rückweg) – teuer (~20 min), deshalb nur von Hand;
+  # vor jedem Release läuft er in release.yml
+  update:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","schulos-iso"]') }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/platz
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund --ignore-scripts
+      - name: Update-Test N−1 → N
+        run: bash scripts/update-test.sh

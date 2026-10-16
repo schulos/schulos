@@ -1,0 +1,12 @@
+# SchulOS – Wartungsfenster (B-34, INSTALLATION.md §5a.2): Patches automatisch, Funktions-Updates nur mit Freigabe
+# aus Verwaltung → System; jeweils mit Sicherung, Probelauf und Rückweg. Danach Status für die Verwaltung.
+[Unit]
+Description=SchulOS: Wartungsfenster (Updates)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=SCHULOS_DIR=/opt/schulos
+ExecStart=/usr/bin/node /opt/schulos/schulosctl.mjs wartungsfenster
+TimeoutStartSec=3h

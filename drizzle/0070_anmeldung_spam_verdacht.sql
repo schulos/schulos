@@ -1,0 +1,3 @@
+ALTER TABLE "anmeldung_antraege" ADD COLUMN "spam_suspected_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "anmeldung_antraege" ADD COLUMN "spam_suspected_by" text;--> statement-breakpoint
+ALTER TABLE "anmeldung_antraege" ADD CONSTRAINT "anmeldung_antraege_spam_suspected_by_users_id_fk" FOREIGN KEY ("spam_suspected_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;

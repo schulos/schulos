@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "lib": ["esnext"], "types": ["node"], "plugins": [], "paths": {} },
+  "include": ["src/**/*.ts", "build.mjs"],
+  "exclude": ["node_modules", "dist"]
+}

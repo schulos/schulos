@@ -1,0 +1,20 @@
+{
+  "minVersion": "0.4.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Notenbuch für Lehrkräfte: Noten per Tastatur eintragen, Gewichte und Notenschlüssel je Buch, Vorschlag für die Halbjahresnote, Abschluss mit Sperre, Übergabeliste für die Klassenleitung und Export für das Sekretariat" },
+    { "kind": "neu", "text": "Notenbuch auf Dienstgeräten auch ohne Verbindung: Eingaben werden verschlüsselt zwischengespeichert und später abgeglichen, Konflikte werden angezeigt statt überschrieben" },
+    { "kind": "neu", "text": "Schüler:innen und Eltern können ihre eigenen Noten sehen, wenn die Schule das einschaltet (Vorgabe: aus)" },
+    { "kind": "neu", "text": "Anmeldung mit Sicherheitsschlüssel (Passkey) als zweiter Faktor; gedruckte Code-Listen für Kinder ohne Handy; Passwort vergessen per Mail für Konten mit Zwei-Faktor-Anmeldung" },
+    { "kind": "neu", "text": "Angemeldete Geräte ansehen und abmelden, automatische Abmeldung nach Inaktivität (Einstellung je Schule)" },
+    { "kind": "neu", "text": "Lehrkräfte melden eigene Abwesenheit und hinterlegen Material für die Vertretung" },
+    { "kind": "neu", "text": "Kurswahl: mehrere Kurse je Person (z. B. zwei AGs) und automatische Erinnerung zwei Tage vor Wahlende" },
+    { "kind": "neu", "text": "SchulOS lässt sich als App auf dem Gerät installieren; Erklärung zur Barrierefreiheit; Schulprofil für die Vorschau-Instanz" },
+    { "kind": "neu", "text": "Optional: Virenscan für Uploads (ClamAV) und Abwehr von Angriffen (CrowdSec), beide standardmäßig aus" },
+    { "kind": "verbessert", "text": "Barrierefreiheit: bessere Kontraste, größere Klickflächen, Benutzermenü per Tastatur bedienbar" },
+    { "kind": "sicherheit", "text": "Zwei-Faktor-Anmeldung wird für alle außer Schüler:innen im Schulnetz Pflicht (Lehrkräfte, Personal und Eltern nach einer Übergangsfrist); Einrichtung nur im Schulnetz oder mit Freigabe" },
+    { "kind": "sicherheit", "text": "Server-Härtung: Bootmenü-Passwort und Bindung der Verschlüsselung an das TPM, Container mit weniger Rechten, Admin-Zugang per SSH nur aus dem Schulnetz, Sicherheitsalarme per Mail" },
+    { "kind": "sicherheit", "text": "Schutz der Datensicherung gegen Erpressungssoftware: Prüfung einer unveränderlichen Kopie beim Anbieter" },
+    { "kind": "sicherheit", "text": "Admin-Konten sehen keine Gründe von Krankmeldungen mehr" }
+  ]
+}

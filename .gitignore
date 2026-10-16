@@ -1,0 +1,25 @@
+node_modules/
+.next/
+.data/
+coverage/
+playwright-report/
+test-results/
+*.log
+.env*.local
+.env
+next-env.d.ts
+schulos.env
+dist/
+backup.env
+.env.backup
+
+# schulosctl update: Protokoll und Sicherungs-Dumps im Installationsordner (Entwicklung: Repo-Wurzel)
+/updates/
+
+# ISO-Bau (B-44)
+iso/out/
+iso/out-repro*
+.ci-geraete/
+
+# Veröffentlichungsprüfung: persönliche Muster (nie versionieren; CI: Secret VEROEFFENTLICHUNG_MUSTER)
+scripts/veroeffentlichen-muster.local.json

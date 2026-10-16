@@ -1,0 +1,31 @@
+#!/bin/sh
+# live-build für die SchulOS-ISO (B-44): Debian 13 Live-System, nur UEFI (INSTALLATION.md §5: x86_64 mit UEFI), ohne Debian-Installer.
+# Gebaut wird aus SCHULOS_DEBIAN_MIRROR/-SECURITY (iso/build-docker.sh: snapshot.debian.org, B-47); das fertige Live-System
+# zeigt auf deb.debian.org (--mirror-binary*). Check-Valid-Until aus: ältere Snapshots von debian-security gelten als abgelaufen.
+# Ohne Paketlisten im Live-System (--apt-indices false): der Installer braucht dort kein apt, und die Listen von
+# deb.debian.org änderten sich von Bau zu Bau.
+set -e
+lb config noauto \
+  --mode debian \
+  --distribution trixie \
+  --archive-areas main \
+  --architectures amd64 \
+  --binary-images iso-hybrid \
+  --bootloaders grub-efi \
+  --debian-installer none \
+  --memtest none \
+  --apt-recommends false \
+  --apt-indices false \
+  --firmware-chroot false \
+  --linux-flavours amd64 \
+  --iso-volume SCHULOS \
+  --iso-application SchulOS \
+  --iso-publisher "SchulOS (quelloffen, AGPL-3.0)" \
+  --bootappend-live "boot=live components quiet locales=de_DE.UTF-8 keyboard-layouts=de console=ttyS0,115200 console=tty0" \
+  --mirror-bootstrap "${SCHULOS_DEBIAN_MIRROR:-http://deb.debian.org/debian}" \
+  --mirror-chroot "${SCHULOS_DEBIAN_MIRROR:-http://deb.debian.org/debian}" \
+  --mirror-chroot-security "${SCHULOS_DEBIAN_SECURITY:-http://deb.debian.org/debian-security}" \
+  --mirror-binary "http://deb.debian.org/debian" \
+  --mirror-binary-security "http://deb.debian.org/debian-security" \
+  --apt-options "--yes -o Acquire::Retries=5 -o Acquire::Check-Valid-Until=false" \
+  "${@}"

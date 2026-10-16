@@ -1,0 +1,42 @@
+{
+  "name": "@schulos/server",
+  "version": "0.1.0",
+  "description": "Gemeinsame Server-Bausteine von SchulOS und SchulOS Backup: Konfiguration, Sicherheits-Header, Passwortregeln, Anmeldesperre, Zwei-Faktor-Helfer (rein, ohne Datenbank)",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./admin": "./src/admin.ts",
+    "./agent-api": "./src/agent-api.ts",
+    "./auth-errors": "./src/auth-errors.ts",
+    "./auth-paths": "./src/auth-paths.ts",
+    "./backup-retention": "./src/backup-retention.ts",
+    "./boot-hardening": "./src/boot-hardening.ts",
+    "./config": "./src/config.ts",
+    "./disclaimer": "./src/disclaimer.ts",
+    "./dump-toc": "./src/dump-toc.ts",
+    "./exec": "./src/exec.ts",
+    "./host-status": "./src/host-status.ts",
+    "./lasttest": "./src/lasttest.ts",
+    "./mail": "./src/mail.ts",
+    "./pairing": "./src/pairing.ts",
+    "./pairing-client": "./src/pairing-client.ts",
+    "./passwort": "./src/passwort.ts",
+    "./pinned-request": "./src/pinned-request.ts",
+    "./recovery-key": "./src/recovery-key.ts",
+    "./release": "./src/release.ts",
+    "./safe-next": "./src/safe-next.ts",
+    "./security-headers": "./src/security-headers.ts",
+    "./ssh-netz": "./src/ssh-netz.ts",
+    "./system": "./src/system.ts",
+    "./throttle": "./src/throttle.ts",
+    "./tmp-aufraeumen": "./src/tmp-aufraeumen.ts",
+    "./totp-code": "./src/totp-code.ts",
+    "./two-factor": "./src/two-factor.ts"
+  },
+  "dependencies": {
+    "nodemailer": "^10.0.14"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.2"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@schulos/agent",
+  "version": "0.1.0",
+  "description": "SchulOS Backup-Agent – sichert das Hauptsystem (pg_dump + Dateien + Konfiguration) mit restic auf den Backupserver",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@schulos/server": "0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

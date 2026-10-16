@@ -1,0 +1,14 @@
+# gitleaks (B-53): Standardregeln, dazu Ausnahmen nur für Testdaten – Testpasswörter in Tests/Fixtures und das
+# selbst signierte localhost-Zertifikat der Kopplungstests (2026-10-06 geprüft: alle 15 Treffer der Historie sind Testdaten).
+# Neue Ausnahmen nur für Testdateien, nie für echten Code oder Konfiguration.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Testdaten (keine echten Geheimnisse)"
+paths = [
+  '''(^|/)[^/]+\.test\.tsx?$''',
+  '''^apps/installer/src/fixtures\.ts$''',
+  '''^packages/server/test-fixtures/''',
+  '''^scripts/installer-system-test\.sh$''',
+]

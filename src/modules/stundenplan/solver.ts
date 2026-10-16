@@ -1,0 +1,631 @@
+// Solver-Kern (P2b-22): automatische Stundenplanerstellung – reines TypeScript, deterministisch (fester Startwert).
+//
+// Harte Regeln: Lehrkraft, Gruppe und Raum nie doppelt; Gruppen mit gemeinsamen Schüler:innen nie parallel;
+// Kopplungen liegen als eine Einheit gemeinsam; gesperrte Zeiten (Zeitwünsche); fixierte Stunden bleiben.
+// Weiche Regeln (gewichtet, erklärbar): Zeitwünsche, Hohlstunden (Lehrkraft/Klasse), Fach mehrfach am Tag,
+// Raumwunsch, späte Stunden. Doppelstunden werden als Zweier-Block gesetzt.
+//
+// Verfahren: gierige Konstruktion (schwierigste Einheiten zuerst, je Einheit der günstigste zulässige Slot), danach
+// lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand).
+
+export interface SolverWeights {
+  /** je Wunschpunkt (Zeitwunsch +3 spart 3 × pref, −3 kostet 3 × pref) */
+  pref: number;
+  teacherGap: number;
+  classGap: number;
+  /** je weiterem Block desselben Fachs am Tag in einer Gruppe */
+  subjectTwice: number;
+  /** Raumwunsch (Wunschraum, Raumart des Fachs, Stammraum) nicht erfüllt */
+  roomWish: number;
+  noRoom: number;
+  /** je Stunde nach der `lateFrom`-ten */
+  late: number;
+  lateFrom: number;
+}
+
+export const DEFAULT_WEIGHTS: SolverWeights = { pref: 2, teacherGap: 3, classGap: 10, subjectTwice: 8, roomWish: 4, noRoom: 20, late: 2, lateFrom: 6 };
+
+export interface SolverRoom {
+  id: string;
+  kind: string;
+  capacity: number | null;
+}
+
+export interface SolverUnit {
+  id: string;
+  /** Lehrauftrag (für die Erklärung und das Zusammenfassen) */
+  assignmentId: string;
+  label: string;
+  groupIds: string[];
+  teacherIds: string[];
+  subjectId: string;
+  /** 1 = Einzelstunde, 2 = Doppelstunde */
+  length: 1 | 2;
+  /** gewünschter Raum (Lehrauftrag) */
+  roomId: string | null;
+  /** gewünschte Raumart (Fach) */
+  roomKind: string | null;
+  /** Stammraum (eine Klasse) */
+  homeRoomId: string | null;
+  /** Personen (für die Raumgröße) */
+  size: number;
+}
+
+export interface FixedLesson {
+  groupId: string;
+  teacherId: string | null;
+  roomId: string | null;
+  subjectId: string;
+  weekday: number;
+  periodNr: number;
+}
+
+export interface SolverInput {
+  weekdays: number[];
+  /** Stundennummern, aufsteigend; aufeinanderfolgende Nummern gelten als Doppelstunden-fähig */
+  periods: number[];
+  units: SolverUnit[];
+  fixed: FixedLesson[];
+  rooms: SolverRoom[];
+  /** `${kind}:${id}` → `${wd}-${nr}` → −3 … +3 | null (gesperrt) */
+  prefs: Map<string, Map<string, number | null>>;
+  /** Gruppen mit gemeinsamen Mitgliedern dürfen nicht parallel liegen */
+  conflicts: Map<string, Set<string>>;
+  /** Gruppen, deren Hohlstunden zählen (Klassen) */
+  classIds: Set<string>;
+  weights?: Partial<SolverWeights>;
+  seed?: number;
+  iterations?: number;
+  /** Anzeigenamen für Lehrkräfte, Gruppen und Fächer (Erklärungen); sonst die id */
+  names?: Map<string, string>;
+  /** Stunden, die bleiben (fixiert bzw. ohne Lehrauftrag) – nur für die Übernahme, der Solver selbst nutzt `fixed` */
+  keptLessonIds?: string[];
+}
+
+export interface Placement {
+  unitId: string;
+  weekday: number;
+  periodNr: number;
+  roomId: string | null;
+}
+
+export interface CostItem {
+  category: "pref" | "teacherGap" | "classGap" | "subjectTwice" | "roomWish" | "noRoom" | "late";
+  cost: number;
+  text: string;
+}
+
+export const COST_LABELS: Record<CostItem["category"], string> = {
+  pref: "Zeitwünsche",
+  teacherGap: "Hohlstunden Lehrkräfte",
+  classGap: "Hohlstunden Klassen",
+  subjectTwice: "Fach mehrfach am Tag",
+  roomWish: "Raumwunsch",
+  noRoom: "ohne Raum",
+  late: "späte Stunden",
+};
+
+export interface SolverResult {
+  placements: Placement[];
+  /** Einheiten, die sich unter den harten Regeln nicht setzen ließen */
+  unplaced: { unitId: string; label: string; reason: string }[];
+  score: number;
+  /** Summe je Kategorie */
+  breakdown: Record<CostItem["category"], number>;
+  /** teuerste Einzelposten zuerst */
+  items: CostItem[];
+  stats: { units: number; iterations: number; improved: number };
+}
+
+// ---------------------------------------------------------------- Hilfen
+
+/** Deterministischer Zufall (Mulberry32). */
+export function rng(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const slotKey = (wd: number, nr: number) => `${wd}-${nr}`;
+
+/** Lücken zwischen erster und letzter belegter Stunde (bezogen auf das Zeitraster). */
+function holes(taken: Iterable<number>, periods: number[]): number[] {
+  const set = new Set(taken);
+  if (set.size < 2) return [];
+  const min = Math.min(...set);
+  const max = Math.max(...set);
+  return periods.filter((p) => p > min && p < max && !set.has(p));
+}
+
+/** Anzahl Blöcke aufeinanderfolgender Stunden. */
+function blockCount(ps: number[]): number {
+  const s = [...new Set(ps)].sort((a, b) => a - b);
+  let n = 0;
+  for (let i = 0; i < s.length; i++) if (i === 0 || s[i]! !== s[i - 1]! + 1) n++;
+  return n;
+}
+
+// ---------------------------------------------------------------- Zustand
+
+class State {
+  readonly w: SolverWeights;
+  readonly place = new Map<string, Placement>();
+  /** belegt: `t:${id}` / `g:${id}` / `r:${id}` → Set(slotKey) */
+  private readonly busy = new Map<string, Set<string>>();
+  /** Stunden je Lehrkraft-Tag bzw. Gruppen-Tag (inkl. fixierter), für Kosten */
+  readonly teacherDay = new Map<string, number[]>();
+  readonly groupDay = new Map<string, { nr: number; subjectId: string }[]>();
+  readonly unitById: Map<string, SolverUnit>;
+  readonly periodSet: Set<number>;
+
+  constructor(readonly input: SolverInput) {
+    this.w = { ...DEFAULT_WEIGHTS, ...input.weights };
+    this.unitById = new Map(input.units.map((u) => [u.id, u]));
+    this.periodSet = new Set(input.periods);
+    for (const f of input.fixed) {
+      this.mark(`g:${f.groupId}`, f.weekday, f.periodNr, true);
+      if (f.teacherId) this.mark(`t:${f.teacherId}`, f.weekday, f.periodNr, true);
+      if (f.roomId) this.mark(`r:${f.roomId}`, f.weekday, f.periodNr, true);
+      if (f.teacherId) this.addDay(this.teacherDay, `${f.teacherId}|${f.weekday}`, f.periodNr);
+      this.addGroupDay(f.groupId, f.weekday, f.periodNr, f.subjectId);
+    }
+  }
+
+  private mark(key: string, wd: number, nr: number, on: boolean) {
+    if (!this.busy.has(key)) this.busy.set(key, new Set());
+    const s = this.busy.get(key)!;
+    if (on) s.add(slotKey(wd, nr));
+    else s.delete(slotKey(wd, nr));
+  }
+  isBusy(key: string, wd: number, nr: number) {
+    return this.busy.get(key)?.has(slotKey(wd, nr)) ?? false;
+  }
+  private addDay(m: Map<string, number[]>, k: string, nr: number) {
+    m.set(k, [...(m.get(k) ?? []), nr]);
+  }
+  private removeDay(m: Map<string, number[]>, k: string, nr: number) {
+    const arr = m.get(k) ?? [];
+    const i = arr.indexOf(nr);
+    if (i >= 0) arr.splice(i, 1);
+  }
+  private addGroupDay(g: string, wd: number, nr: number, subjectId: string) {
+    const k = `${g}|${wd}`;
+    this.groupDay.set(k, [...(this.groupDay.get(k) ?? []), { nr, subjectId }]);
+  }
+  private removeGroupDay(g: string, wd: number, nr: number) {
+    const arr = this.groupDay.get(`${g}|${wd}`) ?? [];
+    const i = arr.findIndex((x) => x.nr === nr);
+    if (i >= 0) arr.splice(i, 1);
+  }
+
+  /** Stunden, die eine Einheit ab `nr` belegt (Doppelstunde: zwei aufeinanderfolgende). */
+  span(u: SolverUnit, nr: number): number[] | null {
+    if (u.length === 1) return [nr];
+    return this.periodSet.has(nr + 1) ? [nr, nr + 1] : null;
+  }
+
+  /** Harte Regeln ohne Raum: Lehrkräfte/Gruppen frei, keine Konfliktgruppe parallel, nichts gesperrt. */
+  feasible(u: SolverUnit, wd: number, nr: number): boolean {
+    const span = this.span(u, nr);
+    if (!span) return false;
+    for (const p of span) {
+      for (const t of u.teacherIds) if (this.isBusy(`t:${t}`, wd, p) || this.blocked("teacher", t, wd, p)) return false;
+      for (const g of u.groupIds) {
+        if (this.isBusy(`g:${g}`, wd, p) || this.blocked("group", g, wd, p)) return false;
+        for (const c of this.input.conflicts.get(g) ?? []) if (!u.groupIds.includes(c) && this.isBusy(`g:${c}`, wd, p)) return false;
+      }
+      if (this.blocked("subject", u.subjectId, wd, p)) return false;
+    }
+    return true;
+  }
+
+  blocked(kind: string, id: string, wd: number, nr: number) {
+    return this.input.prefs.get(`${kind}:${id}`)?.get(slotKey(wd, nr)) === null;
+  }
+  pref(kind: string, id: string, wd: number, nr: number) {
+    return this.input.prefs.get(`${kind}:${id}`)?.get(slotKey(wd, nr)) ?? 0;
+  }
+
+  /** Bester freier Raum für die Einheit im Slot: Wunschraum, Raumart, Stammraum, sonst ein Klassenraum. */
+  chooseRoom(u: SolverUnit, wd: number, span: number[]): string | null {
+    const free = (r: string) => span.every((p) => !this.isBusy(`r:${r}`, wd, p) && !this.blocked("room", r, wd, p));
+    const fits = (r: SolverRoom) => r.capacity === null || u.size === 0 || r.capacity >= u.size;
+    const byCap = (a: SolverRoom, b: SolverRoom) => (a.capacity ?? 999) - (b.capacity ?? 999) || a.id.localeCompare(b.id);
+    if (u.roomId && free(u.roomId)) return u.roomId;
+    if (u.roomKind) {
+      // Fachraum: passende Größe zuerst, sonst trotzdem der Fachraum (lieber eng im Fachraum als im Klassenraum)
+      const kindRooms = this.input.rooms.filter((x) => x.kind === u.roomKind).sort(byCap);
+      const r = kindRooms.find((x) => fits(x) && free(x.id)) ?? kindRooms.find((x) => free(x.id));
+      if (r) return r.id;
+    }
+    if (u.homeRoomId && free(u.homeRoomId)) return u.homeRoomId;
+    const kind = u.roomKind ?? "klassenraum";
+    const same = this.input.rooms
+      .filter((x) => x.kind === kind && fits(x))
+      .sort(byCap)
+      .find((x) => free(x.id));
+    if (same) return same.id;
+    return (
+      this.input.rooms
+        .filter((x) => x.kind === "klassenraum" && fits(x))
+        .sort(byCap)
+        .find((x) => free(x.id))?.id ?? null
+    );
+  }
+
+  roomWishMet(u: SolverUnit, roomId: string | null): boolean {
+    if (!roomId) return false;
+    if (u.roomId) return roomId === u.roomId;
+    if (u.roomKind) return this.input.rooms.find((r) => r.id === roomId)?.kind === u.roomKind;
+    if (u.homeRoomId) return roomId === u.homeRoomId;
+    return true;
+  }
+
+  apply(p: Placement) {
+    const u = this.unitById.get(p.unitId)!;
+    for (const nr of this.span(u, p.periodNr)!) {
+      for (const t of u.teacherIds) {
+        this.mark(`t:${t}`, p.weekday, nr, true);
+        this.addDay(this.teacherDay, `${t}|${p.weekday}`, nr);
+      }
+      for (const g of u.groupIds) {
+        this.mark(`g:${g}`, p.weekday, nr, true);
+        this.addGroupDay(g, p.weekday, nr, u.subjectId);
+      }
+      if (p.roomId) this.mark(`r:${p.roomId}`, p.weekday, nr, true);
+    }
+    this.place.set(u.id, p);
+  }
+
+  unapply(unitId: string) {
+    const p = this.place.get(unitId);
+    if (!p) return;
+    const u = this.unitById.get(unitId)!;
+    for (const nr of this.span(u, p.periodNr)!) {
+      for (const t of u.teacherIds) {
+        this.mark(`t:${t}`, p.weekday, nr, false);
+        this.removeDay(this.teacherDay, `${t}|${p.weekday}`, nr);
+      }
+      for (const g of u.groupIds) {
+        this.mark(`g:${g}`, p.weekday, nr, false);
+        this.removeGroupDay(g, p.weekday, nr);
+      }
+      if (p.roomId) this.mark(`r:${p.roomId}`, p.weekday, nr, false);
+    }
+    this.place.delete(unitId);
+  }
+
+  // ------------------------------------------------------------ Kosten
+
+  unitCost(u: SolverUnit, p: Placement, items?: CostItem[]): number {
+    let c = 0;
+    const w = this.w;
+    for (const nr of this.span(u, p.periodNr)!) {
+      let pv = 0;
+      for (const t of u.teacherIds) pv += this.pref("teacher", t, p.weekday, nr);
+      for (const g of u.groupIds) pv += this.pref("group", g, p.weekday, nr);
+      pv += this.pref("subject", u.subjectId, p.weekday, nr);
+      if (p.roomId) pv += this.pref("room", p.roomId, p.weekday, nr);
+      if (pv !== 0) {
+        c -= pv * w.pref;
+        items?.push({ category: "pref", cost: -pv * w.pref, text: `${u.label}: ${pv > 0 ? "erwünschte" : "ungünstige"} Zeit (${pv > 0 ? "+" : ""}${pv})` });
+      }
+      if (nr > w.lateFrom) {
+        const lc = (nr - w.lateFrom) * w.late;
+        c += lc;
+        items?.push({ category: "late", cost: lc, text: `${u.label}: ${nr}. Stunde` });
+      }
+    }
+    if (!p.roomId) {
+      c += w.noRoom;
+      items?.push({ category: "noRoom", cost: w.noRoom, text: `${u.label}: kein Raum frei` });
+    } else if (!this.roomWishMet(u, p.roomId)) {
+      c += w.roomWish;
+      items?.push({ category: "roomWish", cost: w.roomWish, text: `${u.label}: Raum ${p.roomId} statt Wunsch` });
+    }
+    return c;
+  }
+
+  teacherDayCost(key: string, items?: CostItem[], label?: string): number {
+    const h = holes(this.teacherDay.get(key) ?? [], this.input.periods).length;
+    if (h && items) items.push({ category: "teacherGap", cost: h * this.w.teacherGap, text: `${label}: ${h} Hohlstunde${h > 1 ? "n" : ""}` });
+    return h * this.w.teacherGap;
+  }
+
+  groupDayCost(key: string, items?: CostItem[], label?: string): number {
+    const [g] = key.split("|");
+    const day = this.groupDay.get(key) ?? [];
+    let c = 0;
+    if (this.input.classIds.has(g!)) {
+      const h = holes(
+        day.map((x) => x.nr),
+        this.input.periods,
+      ).length;
+      c += h * this.w.classGap;
+      if (h && items) items.push({ category: "classGap", cost: h * this.w.classGap, text: `${label}: ${h} Hohlstunde${h > 1 ? "n" : ""}` });
+    }
+    const bySubject = new Map<string, number[]>();
+    for (const x of day) bySubject.set(x.subjectId, [...(bySubject.get(x.subjectId) ?? []), x.nr]);
+    for (const [s, ps] of bySubject) {
+      const extra = blockCount(ps) - 1 + (ps.length > 2 ? ps.length - 2 : 0);
+      if (extra > 0) {
+        c += extra * this.w.subjectTwice;
+        items?.push({ category: "subjectTwice", cost: extra * this.w.subjectTwice, text: `${label}: ${this.input.names?.get(s) ?? s} ${ps.length}× am Tag` });
+      }
+    }
+    return c;
+  }
+
+  /** Kosten aller Tage, die eine Einheit berührt (für Deltas). */
+  touchedDays(u: SolverUnit, wds: number[]): { t: string[]; g: string[] } {
+    const t: string[] = [];
+    const g: string[] = [];
+    for (const wd of new Set(wds)) {
+      for (const x of u.teacherIds) t.push(`${x}|${wd}`);
+      for (const x of u.groupIds) g.push(`${x}|${wd}`);
+    }
+    return { t, g };
+  }
+
+  localCost(units: SolverUnit[], wds: number[]): number {
+    const t = new Set<string>();
+    const g = new Set<string>();
+    for (const u of units) {
+      const d = this.touchedDays(u, wds);
+      d.t.forEach((x) => t.add(x));
+      d.g.forEach((x) => g.add(x));
+    }
+    let c = 0;
+    for (const k of t) c += this.teacherDayCost(k);
+    for (const k of g) c += this.groupDayCost(k);
+    for (const u of units) {
+      const p = this.place.get(u.id);
+      if (p) c += this.unitCost(u, p);
+    }
+    return c;
+  }
+
+  total(items?: CostItem[], labels?: (kind: "t" | "g", id: string, wd: number) => string): number {
+    let c = 0;
+    for (const u of this.input.units) {
+      const p = this.place.get(u.id);
+      if (p) c += this.unitCost(u, p, items);
+    }
+    for (const k of this.teacherDay.keys()) {
+      const [id, wd] = k.split("|");
+      c += this.teacherDayCost(k, items, labels?.("t", id!, Number(wd)));
+    }
+    for (const k of this.groupDay.keys()) {
+      const [id, wd] = k.split("|");
+      c += this.groupDayCost(k, items, labels?.("g", id!, Number(wd)));
+    }
+    return c;
+  }
+}
+
+// ---------------------------------------------------------------- Lösen
+
+/** Wie schwer ist eine Einheit unterzubringen? Mehr Beteiligte, Doppelstunden, Fachräume und Sperren zuerst. */
+function difficulty(s: State, u: SolverUnit): number {
+  let free = 0;
+  for (const wd of s.input.weekdays) for (const nr of s.input.periods) if (s.feasible(u, wd, nr)) free++;
+  return -free * 10 + u.groupIds.length * 5 + u.teacherIds.length * 5 + (u.length === 2 ? 20 : 0) + (u.roomKind ? 10 : 0);
+}
+
+/**
+ * Solver in Schritten (für Hintergrundjobs mit Fortschritt): construct() → improve(n) beliebig oft → result().
+ * Gleicher Input und Startwert ergeben dieselbe Lösung, egal in wie vielen Schritten verbessert wird.
+ */
+export function createSolver(input: SolverInput) {
+  const s = new State(input);
+  const random = rng(input.seed ?? 1);
+  const unplaced: SolverResult["unplaced"] = [];
+  let placedUnits: SolverUnit[] = [];
+  const slots = input.weekdays.flatMap((wd) => input.periods.map((nr) => ({ wd, nr })));
+  const byGroup = new Map<string, SolverUnit[]>();
+  let done = 0;
+  let improved = 0;
+  let total = 0;
+
+  /** Günstigster zulässiger Slot für eine Einheit (oder null). */
+  function bestSlot(u: SolverUnit): Placement | null {
+    let best: { p: Placement; cost: number } | null = null;
+    for (const wd of input.weekdays) {
+      for (const nr of input.periods) {
+        if (!s.feasible(u, wd, nr)) continue;
+        const room = s.chooseRoom(u, wd, s.span(u, nr)!);
+        const p = { unitId: u.id, weekday: wd, periodNr: nr, roomId: room };
+        const before = s.localCost([u], [wd]);
+        s.apply(p);
+        const cost = s.localCost([u], [wd]) - before;
+        s.unapply(u.id);
+        if (!best || cost < best.cost) best = { p, cost };
+      }
+    }
+    return best?.p ?? null;
+  }
+
+  /** Gesetzte Einheiten, die `u` im Slot im Weg stehen (gleiche Lehrkraft, Gruppe oder Konfliktgruppe). */
+  function blockersAt(u: SolverUnit, wd: number, nr: number): SolverUnit[] | null {
+    const span = s.span(u, nr);
+    if (!span) return null;
+    // Sperrzeiten und fixierte Stunden lassen sich nicht verdrängen
+    for (const p of span) {
+      if (
+        u.teacherIds.some((t) => s.blocked("teacher", t, wd, p)) ||
+        u.groupIds.some((g) => s.blocked("group", g, wd, p)) ||
+        s.blocked("subject", u.subjectId, wd, p)
+      )
+        return null;
+    }
+    const related = (g: string) => [g, ...(input.conflicts.get(g) ?? [])];
+    const groupsHit = new Set(u.groupIds.flatMap(related));
+    const out: SolverUnit[] = [];
+    for (const [id, p] of s.place) {
+      const v = s.unitById.get(id)!;
+      if (p.weekday !== wd) continue;
+      const vs = s.span(v, p.periodNr)!;
+      if (!vs.some((x) => span.includes(x))) continue;
+      if (v.teacherIds.some((t) => u.teacherIds.includes(t)) || v.groupIds.some((g) => groupsHit.has(g))) out.push(v);
+    }
+    return out;
+  }
+
+  /** Reparatur: bis zu zwei blockierende Einheiten verdrängen, `u` setzen, die Verdrängten anderswo neu setzen. */
+  function repair(u: SolverUnit): boolean {
+    for (const wd of input.weekdays) {
+      for (const nr of input.periods) {
+        const blockers = blockersAt(u, wd, nr);
+        if (!blockers || !blockers.length || blockers.length > 2) continue;
+        const old = blockers.map((v) => s.place.get(v.id)!);
+        blockers.forEach((v) => s.unapply(v.id));
+        if (s.feasible(u, wd, nr)) {
+          s.apply({ unitId: u.id, weekday: wd, periodNr: nr, roomId: s.chooseRoom(u, wd, s.span(u, nr)!) });
+          const moved: string[] = [];
+          for (const v of blockers) {
+            const p = bestSlot(v);
+            if (!p) break;
+            s.apply(p);
+            moved.push(v.id);
+          }
+          if (moved.length === blockers.length) return true;
+          moved.forEach((id) => s.unapply(id));
+          s.unapply(u.id);
+        }
+        old.forEach((p) => s.apply(p));
+      }
+    }
+    return false;
+  }
+
+  /** 1. Konstruktion: schwierigste zuerst, je Einheit der günstigste zulässige Slot; Sackgassen per Reparatur lösen. */
+  function construct() {
+    const order = [...input.units].sort((a, b) => difficulty(s, b) - difficulty(s, a) || a.id.localeCompare(b.id));
+    for (const u of order) {
+      const p = bestSlot(u);
+      if (p) s.apply(p);
+      else if (!repair(u)) unplaced.push({ unitId: u.id, label: u.label, reason: "kein Slot frei (Lehrkraft, Gruppe oder Sperrzeit)" });
+    }
+    placedUnits = input.units.filter((u) => s.place.has(u.id));
+    for (const u of placedUnits) for (const g of u.groupIds) byGroup.set(g, [...(byGroup.get(g) ?? []), u]);
+    total = input.iterations ?? Math.min(40000, placedUnits.length * 40);
+  }
+
+  /** 2. Lokale Suche: bis zu `n` Schritte Verschieben/Tauschen, nur wenn es nicht schlechter wird. Liefert verbleibende Schritte. */
+  function improve(n: number): number {
+    const stop = Math.min(total, done + n);
+    for (; done < stop && placedUnits.length; done++) step();
+    return total - done;
+  }
+
+  function step() {
+    const u = placedUnits[Math.floor(random() * placedUnits.length)]!;
+    const old = s.place.get(u.id)!;
+    if (random() < 0.6) {
+      // Verschieben
+      const t = slots[Math.floor(random() * slots.length)]!;
+      if (t.wd === old.weekday && t.nr === old.periodNr) return;
+      const before = s.localCost([u], [old.weekday, t.wd]);
+      s.unapply(u.id);
+      if (!s.feasible(u, t.wd, t.nr)) {
+        s.apply(old);
+        return;
+      }
+      const p = { unitId: u.id, weekday: t.wd, periodNr: t.nr, roomId: s.chooseRoom(u, t.wd, s.span(u, t.nr)!) };
+      s.apply(p);
+      const after = s.localCost([u], [old.weekday, t.wd]);
+      if (after <= before) {
+        if (after < before) improved++;
+      } else {
+        s.unapply(u.id);
+        s.apply(old);
+      }
+      return;
+    }
+    // Tauschen mit einer anderen Einheit derselben Gruppe (gleiche Länge)
+    const peers = (byGroup.get(u.groupIds[0]!) ?? []).filter((v) => v.id !== u.id && v.length === u.length);
+    if (!peers.length) return;
+    const v = peers[Math.floor(random() * peers.length)]!;
+    const pv = s.place.get(v.id)!;
+    const days = [old.weekday, pv.weekday];
+    const before = s.localCost([u, v], days);
+    s.unapply(u.id);
+    s.unapply(v.id);
+    let ok = s.feasible(u, pv.weekday, pv.periodNr);
+    let pu: Placement | null = null;
+    if (ok) {
+      pu = { unitId: u.id, weekday: pv.weekday, periodNr: pv.periodNr, roomId: s.chooseRoom(u, pv.weekday, s.span(u, pv.periodNr)!) };
+      s.apply(pu);
+      ok = s.feasible(v, old.weekday, old.periodNr);
+    }
+    if (ok) {
+      s.apply({ unitId: v.id, weekday: old.weekday, periodNr: old.periodNr, roomId: s.chooseRoom(v, old.weekday, s.span(v, old.periodNr)!) });
+      const after = s.localCost([u, v], days);
+      if (after <= before) {
+        if (after < before) improved++;
+        return;
+      }
+      s.unapply(v.id);
+    }
+    if (pu) s.unapply(u.id);
+    s.apply(old);
+    s.apply(pv);
+  }
+
+  /** 3. Ergebnis mit Bewertung. */
+  function result(): SolverResult {
+    const items: CostItem[] = [];
+    const wdName = ["Mo", "Di", "Mi", "Do", "Fr"];
+    const score = s.total(items, (_kind, id, wd) => `${input.names?.get(id) ?? id} ${wdName[wd] ?? wd}`);
+    const breakdown = Object.fromEntries(Object.keys(COST_LABELS).map((k) => [k, 0])) as SolverResult["breakdown"];
+    for (const i of items) breakdown[i.category] += i.cost;
+    return {
+      placements: input.units.filter((u) => s.place.has(u.id)).map((u) => s.place.get(u.id)!),
+      unplaced,
+      score,
+      breakdown,
+      items: items.filter((i) => i.cost > 0).sort((a, b) => b.cost - a.cost),
+      stats: { units: input.units.length, iterations: done, improved },
+    };
+  }
+
+  return {
+    construct,
+    improve,
+    result,
+    get total() {
+      return total;
+    },
+  };
+}
+
+/** Erstellt einen Stundenplan aus den Einheiten (deterministisch bei gleichem Input und Startwert). */
+export function solve(input: SolverInput): SolverResult {
+  const solver = createSolver(input);
+  solver.construct();
+  solver.improve(Number.POSITIVE_INFINITY);
+  return solver.result();
+}
+
+/** Prüft eine Lösung gegen die harten Regeln (für Tests und vor dem Übernehmen). Liefert Verstöße als Text. */
+export function validate(input: SolverInput, placements: Placement[]): string[] {
+  const errors: string[] = [];
+  const s = new State(input);
+  for (const p of placements) {
+    const u = s.unitById.get(p.unitId);
+    if (!u) {
+      errors.push(`unbekannte Einheit ${p.unitId}`);
+      continue;
+    }
+    if (!s.feasible(u, p.weekday, p.periodNr)) errors.push(`${u.label}: ${p.weekday}-${p.periodNr} verletzt eine harte Regel`);
+    const span = s.span(u, p.periodNr) ?? [];
+    if (p.roomId && span.some((nr) => s.isBusy(`r:${p.roomId}`, p.weekday, nr))) errors.push(`${u.label}: Raum ${p.roomId} doppelt belegt`);
+    if (s.feasible(u, p.weekday, p.periodNr)) s.apply(p);
+  }
+  return errors;
+}

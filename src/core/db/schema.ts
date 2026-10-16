@@ -1,0 +1,26 @@
+// Zentrales Drizzle-Schema: Core-Tabellen + alle Modul-Schemas.
+// Nur relative Imports verwenden – drizzle-kit löst den "@/"-Alias nicht auf.
+export * from "./schema-auth";
+export * from "./schema-core";
+export * from "../../modules/news/schema";
+export * from "../../modules/kalender/schema";
+export * from "../../modules/dateien/schema";
+export * from "../../modules/aufgaben/schema";
+export * from "../../modules/messenger/schema";
+export * from "../../modules/stundenplan/schema";
+export * from "../../modules/klassenbuch/schema";
+export * from "../../modules/abwesenheiten/schema";
+export * from "../../modules/elternbriefe/schema";
+export * from "../../modules/buchungen/schema";
+export * from "../../modules/klausurplan/schema";
+export * from "../../modules/monitor/schema";
+export * from "../../modules/umfragen/schema";
+export * from "../../modules/foren/schema";
+export * from "../../modules/pinnwaende/schema";
+export * from "../../modules/texte/schema";
+export * from "../../modules/gebaeude/schema";
+export * from "../../modules/anmeldung/schema";
+export * from "../../modules/sprechtag/schema";
+export * from "../../modules/kurswahl/schema";
+export * from "../../modules/sitzplan/schema";
+export * from "../../modules/notenbuch/schema";

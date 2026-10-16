@@ -1,0 +1,1 @@
+ALTER TABLE "school_year_transitions" ADD COLUMN "admitted_users" jsonb DEFAULT '[]'::jsonb NOT NULL;

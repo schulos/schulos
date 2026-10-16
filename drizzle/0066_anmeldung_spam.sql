@@ -1,0 +1,1 @@
+ALTER TABLE "anmeldung_antraege" ADD COLUMN "rejected_as_spam" boolean DEFAULT false NOT NULL;

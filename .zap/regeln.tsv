@@ -1,0 +1,11 @@
+# ZAP-Baseline (scripts/zap-scan.sh, B-54): Regel-ID<TAB>IGNORE|WARN|FAIL<TAB>Name. Nicht genannte Regeln: WARN.
+# FAIL nur, was e2e/header.spec.ts schon zusichert – weitere nach Auswertung der ersten Berichte.
+10010	FAIL	(Cookie No HttpOnly Flag)
+10011	FAIL	(Cookie Without Secure Flag)
+10054	FAIL	(Cookie without SameSite Attribute)
+10020	FAIL	(Missing Anti-clickjacking Header)
+10021	FAIL	(X-Content-Type-Options Header Missing)
+10038	FAIL	(Content Security Policy Header Not Set)
+10202	IGNORE	(Absence of Anti-CSRF Tokens – Server Actions prüfen Origin, Cookies SameSite; siehe docs/SICHERHEIT.md)
+90004	IGNORE	(Cross-Origin-Embedder-Policy – keine Cross-Origin-Isolation nötig)
+10055	WARN	(CSP style-src unsafe-inline – bewusst, Skripte mit Nonce)

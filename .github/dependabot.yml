@@ -1,0 +1,54 @@
+# Wöchentliche Abhängigkeits-Updates, gebündelt (wenige PRs; jede PR durchläuft die CI).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+      npm-major:
+        update-types: [major]
+    ignore:
+      # TS 7 / eslint 10: typescript-eslint unterstützt TS 7 noch nicht → Umstieg als eigene Aufgabe (TD-03)
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "deps"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+  # B-47: Fremd-Images per Digest (deploy/upstream/Dockerfile) – Digests wöchentlich; Major-Sprünge (Node 25, PostgreSQL 19,
+  # Caddy 3) bewusst von Hand. Hebt Dependabot einen Tag an (z. B. restic 0.19.1 → 0.19.2), wird release.test.ts rot:
+  # Vorgabe in Dockerfile/compose*.yaml mitziehen.
+  - package-ecosystem: docker
+    directory: /deploy/upstream
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    groups:
+      images:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "images"

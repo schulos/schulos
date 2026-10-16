@@ -1,0 +1,17 @@
+# SchulOS – nach einem Debian-Versionswechsel (schulosctl os-upgrade, B-43): beim Start prüfen, ob Debian-Version und Stack
+# stimmen; sonst automatisch zurück auf den Schnappschuss und neu starten. Läuft nur, solange die Markierung auf /srv liegt.
+[Unit]
+Description=SchulOS: Debian-Versionswechsel prüfen
+# Wants statt Requires: startet Docker nach dem Wechsel nicht, muss die Prüfung trotzdem laufen (→ Rückweg); sie wartet selbst auf Docker
+Wants=docker.service
+After=docker.service network-online.target
+ConditionPathExists=/srv/schulos-os-upgrade.json
+
+[Service]
+Type=oneshot
+Environment=SCHULOS_DIR=/opt/schulos
+ExecStart=/usr/bin/node /opt/schulos/schulosctl.mjs os-upgrade-pruefen
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target

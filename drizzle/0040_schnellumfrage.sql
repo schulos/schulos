@@ -1,0 +1,1 @@
+ALTER TABLE "umfragen_surveys" ADD COLUMN "quick" boolean DEFAULT false NOT NULL;

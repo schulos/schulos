@@ -1,0 +1,9 @@
+#!/bin/sh
+# SchulOS – pre-commit (B-53): gitleaks über die vorgemerkten Änderungen, bevor ein Geheimnis im Commit landet.
+# Einschalten: git config core.hooksPath scripts/hooks
+# Braucht gitleaks im PATH (https://github.com/gitleaks/gitleaks/releases); ohne gitleaks nur ein Hinweis, die CI prüft ohnehin.
+if command -v gitleaks >/dev/null 2>&1; then
+  exec gitleaks git --pre-commit --staged --redact --no-banner
+fi
+echo "Hinweis: gitleaks nicht installiert – Secret-Prüfung übersprungen (CI-Workflow „Sicherheit“ prüft beim Push)." >&2
+exit 0

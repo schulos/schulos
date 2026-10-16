@@ -1,0 +1,118 @@
+# B-50a: Lasttest „Montag 7:40“ – Demo-Hauptsystem aus dem qcow2-Abbild als VM auf der Build-VM, k6 von außen,
+# je Kernzahl eine frische VM (scripts/lasttest.sh). Bericht in der Zusammenfassung des Laufs und als Artefakt.
+# Nur auf der Build-VM (KVM, Abbild im Lager) und nur von Hand – ein Lauf mit 2 Kernzahlen dauert ~45 min.
+# Die Build-VM hat 6 Kerne/12 GB: höchstens 4 Kerne/8 GB für die Test-VM, der Rest bleibt für k6 und den Runner.
+# Szenario „gemeinsam“ (Gate 3b): nutzer = Personen in einem Text/auf einer Tafel (z. B. 30), dauer je Phase (z. B. 5m), Lastgenerator
+# scripts/lasttest/gemeinsam/run.ts. Texte/Tafeln gibt es erst ab dem Stand nach v0.3.4 – dafür vorher ein Abbild des Branches bauen
+# (`gh workflow run iso.yml --ref <branch> -f qemu=qcow2`) und es hier per `abbild` wählen (Dateiname im Lager).
+name: Lasttest
+
+on:
+  workflow_dispatch:
+    inputs:
+      kerne:
+        description: "Kerne der Test-VM, je Wert ein Lauf (Komma-Liste, höchstens 4)"
+        type: string
+        default: "2,4"
+      ram:
+        description: "RAM der Test-VM in MB (höchstens 8192)"
+        type: string
+        default: "4096"
+      nutzer:
+        description: "gleichzeitige Nutzer (Schüler:innen/Lehrkräfte/Eltern 65/20/15 %)"
+        type: string
+        default: "300"
+      dauer:
+        description: "Dauer unter Volllast nach der Anmelde-Rampe (k6, z. B. 10m); bei „gemeinsam“ je Phase"
+        type: string
+        default: "10m"
+      szenario:
+        description: "montag (Seitenlast, k6) oder gemeinsam (Personen gleichzeitig in Text/Tafel, Gate 3b)"
+        type: choice
+        options: [montag, gemeinsam]
+        default: montag
+      phasen:
+        description: "nur „gemeinsam“: Phasen nacheinander (text, tafel, beide)"
+        type: string
+        default: "text,tafel,beide"
+      abbild:
+        description: "Abbild aus dem Lager (Dateiname, z. B. schulos-dev-<commit>-hauptsystem.qcow2); leer = neuestes"
+        type: string
+        required: false
+
+concurrency:
+  group: lasttest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ISO_LAGER: /home/runner/schulos-iso
+
+jobs:
+  lasttest:
+    runs-on: [self-hosted, schulos-iso]
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/platz
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Eingaben prüfen
+        env:
+          KERNE: ${{ inputs.kerne }}
+          RAM: ${{ inputs.ram }}
+          NUTZER: ${{ inputs.nutzer }}
+          DAUER: ${{ inputs.dauer }}
+          PHASEN: ${{ inputs.phasen }}
+          ABBILD_NAME: ${{ inputs.abbild }}
+        run: |
+          [[ "$PHASEN" =~ ^(text|tafel|beide)(,(text|tafel|beide))*$ ]] || { echo "::error::phasen: Komma-Liste aus text, tafel, beide"; exit 1; }
+          [ -z "$ABBILD_NAME" ] || [[ "$ABBILD_NAME" =~ ^schulos-[A-Za-z0-9._-]+-hauptsystem\.qcow2$ ]] || { echo "::error::abbild: schulos-…-hauptsystem.qcow2"; exit 1; }
+          [[ "$KERNE" =~ ^[1-4](,[1-4])*$ ]] || { echo "::error::kerne: Komma-Liste aus 1–4"; exit 1; }
+          [[ "$RAM" =~ ^[0-9]+$ ]] && [ "$RAM" -ge 2048 ] && [ "$RAM" -le 8192 ] || { echo "::error::ram: 2048–8192"; exit 1; }
+          [[ "$NUTZER" =~ ^[0-9]+$ ]] && [ "$NUTZER" -ge 1 ] && [ "$NUTZER" -le 1000 ] || { echo "::error::nutzer: 1–1000"; exit 1; }
+          [[ "$DAUER" =~ ^[0-9]+[smh]$ ]] || { echo "::error::dauer: z. B. 10m"; exit 1; }
+      # neuestes Abbild aus dem Lager (iso.yml mit qemu=qcow2/beide); fehlt es, aus der letzten ISO bauen
+      - name: Abbild Hauptsystem
+        env:
+          ABBILD_NAME: ${{ inputs.abbild }}
+        run: |
+          if [ -n "$ABBILD_NAME" ]; then
+            [ -f "$ISO_LAGER/$ABBILD_NAME" ] || { echo "::error::$ABBILD_NAME nicht im Lager"; ls -lh "$ISO_LAGER"; exit 1; }
+            echo "Abbild: $ISO_LAGER/$ABBILD_NAME"
+            echo "ABBILD=$ISO_LAGER/$ABBILD_NAME" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          abbild="$(ls -t "$ISO_LAGER"/schulos-*-hauptsystem.qcow2 2>/dev/null | head -n1 || true)"
+          if [ -z "$abbild" ]; then
+            [ -f "$ISO_LAGER/letzte.iso" ] || { echo "::error::weder Abbild noch ISO im Lager – erst iso.yml laufen lassen"; exit 1; }
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends qemu-system-x86 qemu-utils ovmf mtools dosfstools xorriso >/dev/null
+            bash iso/build-qcow2.sh "$ISO_LAGER/letzte.iso" "$ISO_LAGER" main
+            abbild="$(ls -t "$ISO_LAGER"/schulos-*-hauptsystem.qcow2 | head -n1)"
+          fi
+          echo "Abbild: $abbild"
+          echo "ABBILD=$abbild" >> "$GITHUB_ENV"
+      - name: Lasttest
+        env:
+          KERNE: ${{ inputs.kerne }}
+          RAM: ${{ inputs.ram }}
+          NUTZER: ${{ inputs.nutzer }}
+          DAUER: ${{ inputs.dauer }}
+          SZENARIO: ${{ inputs.szenario }}
+          PHASEN: ${{ inputs.phasen }}
+        run: |
+          bash scripts/lasttest.sh "$ABBILD" "$RUNNER_TEMP/lasttest" "$KERNE" "$RAM"
+          cat "$RUNNER_TEMP/lasttest/bericht.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: lasttest
+          path: |
+            ${{ runner.temp }}/lasttest/bericht.md
+            ${{ runner.temp }}/lasttest/kerne-*/
+          retention-days: 14

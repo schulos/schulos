@@ -1,0 +1,24 @@
+# Test-Override für compose.backup.yaml (scripts/backup-stack-test.sh): Testwerte statt backup.env, gemeinsames Netz mit dem Hauptsystem.
+services:
+  caddy:
+    networks:
+      verbund:
+        aliases: [backup.schulos.test]
+  backup:
+    environment:
+      SCHULOS_ADMIN_USERNAME: it.admin
+      SCHULOS_ADMIN_FIRST_NAME: Ina
+      SCHULOS_ADMIN_LAST_NAME: Tech
+      SCHULOS_ADMIN_PASSWORD: Tafel Kreide Pause
+      SCHULOS_INITIAL_PAIRING_CODE: K7Q2-9MXA-4RT1
+      SCHULOS_BACKUP_NAME: Backup CI
+      # Wartung erst nach der ersten Sicherung einschalten (TEST_JOBS=1), dann sofort fällig
+      SCHULOS_JOBS: ${TEST_JOBS:-0}
+      SCHULOS_PRUNE_TIME: "00:00"
+      SCHULOS_CHECK_TIME: "00:00"
+      SCHULOS_RESTORE_TEST_TIME: "00:00"
+
+networks:
+  verbund:
+    external: true
+    name: schulos-verbund

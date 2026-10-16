@@ -1,0 +1,28 @@
+# Nur Quellcode in den Build-Kontext – nie lokale Daten oder Geheimnisse
+.git
+.github
+**/.next
+**/.data
+**/node_modules
+**/coverage
+playwright-report
+test-results
+*.log
+**/.env*.local
+.env
+**/tsconfig.tsbuildinfo
+docs
+e2e
+Dockerfile
+compose*.yaml
+schulos.env
+.env.example
+schulos.env.example
+backup.env
+.env.backup
+.env.backup.example
+backup.env.example
+
+# ISO-Bau (B-44): Ergebnis und Arbeitsdateien
+iso/out
+iso/out-repro*

@@ -1,0 +1,11 @@
+# Platzwächter (scripts/ci/platz.sh) – nur auf der Build-VM (self-hosted), auf GitHub-Runnern ohne Wirkung.
+# In jedem Job, der auf der Build-VM laufen kann, direkt nach dem Checkout aufrufen: `- uses: ./.github/actions/platz`
+name: Platz auf der Build-VM
+description: Räumt Docker-Reste auf und bricht ab, wenn zu wenig Platz frei ist
+runs:
+  using: composite
+  steps:
+    - name: Platz prüfen und aufräumen
+      if: ${{ runner.environment == 'self-hosted' }}
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/../../../scripts/ci/platz.sh"

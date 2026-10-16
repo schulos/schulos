@@ -1,0 +1,6 @@
+# SchulOS-Live-System: per DHCP ins Netz (Vorab-Prüfung des Backupservers, B-41; die Installation selbst braucht kein Netz)
+[Match]
+Name=en* eth*
+
+[Network]
+DHCP=yes

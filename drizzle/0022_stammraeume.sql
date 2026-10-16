@@ -1,0 +1,2 @@
+ALTER TABLE "groups" ADD COLUMN "home_room_id" text;--> statement-breakpoint
+ALTER TABLE "groups" ADD CONSTRAINT "groups_home_room_id_rooms_id_fk" FOREIGN KEY ("home_room_id") REFERENCES "public"."rooms"("id") ON DELETE set null ON UPDATE cascade;

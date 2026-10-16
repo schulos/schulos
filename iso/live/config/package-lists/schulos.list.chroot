@@ -1,0 +1,25 @@
+# Live-System des Installers: alles, was die Systemschritte (apps/installer/src/system) im Live-System aufrufen
+live-boot
+live-config
+live-config-systemd
+systemd-sysv
+udev
+util-linux
+gdisk
+parted
+dosfstools
+e2fsprogs
+mdadm
+cryptsetup
+systemd-cryptsetup
+tpm2-tools
+btrfs-progs
+debootstrap
+zstd
+ca-certificates
+openssh-client
+kbd
+console-setup
+locales
+systemd-resolved
+efibootmgr
