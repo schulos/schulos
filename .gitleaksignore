@@ -2,3 +2,5 @@
 # jeweils mit Begründung; Testdaten-Ausnahmen stehen in .gitleaks.toml. Fingerprints hängen an der Commit-ID – dauerhafte
 # Fehlalarme lieber direkt an der Zeile mit `gitleaks:allow` markieren (z. B. der Zeichenvorrat des Bootmenü-Passworts in
 # packages/server/src/boot-hardening.ts, Gate 4e).
+# Erster Commit des Repos (Stand vor dem Inline-Vermerk) – derselbe Zeichenvorrat, kein Geheimnis:
+091ee3ad53cc4df0d83facc2665140c45ed03398:packages/server/src/boot-hardening.ts:generic-api-key:54
