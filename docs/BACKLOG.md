@@ -252,6 +252,7 @@ AG, Wahlpflicht, Förderkurs …) reichen.
   4. Next-Build-Cache (`.next/cache`) und npm-Cache auf dem self-hosted Runner behalten → verify kürzer
   5. Danach: CI auf `main` nach einem Merge auf eine Kurzprüfung reduzieren, wenn die PR-CI genau diesen Baum geprüft hat (sonst voll)
   Messen: Laufzeit Doku-PR und Feature-PR vorher/nachher in docs/LOG.md. Arbeitsweise: Doku-Nachträge in den nächsten fachlichen PR statt eigener PRs
+- [x] **CI-02** (S) Dependabot-PRs ohne Major-Sprung automatisch mergen (Projektleitung 2026-10-17): Workflow `dependabot-auto-merge.yml` schaltet GitHub-Auto-Merge ein (`dependabot/fetch-metadata`, Merge-Commit), gemerged wird erst, wenn das Ruleset „main schützen“ alle Pflicht-Checks grün sieht (`ergebnis`, `secrets`, `dependencies`, `workflows`, `veroeffentlichung`); Major-Updates und rote PRs bleiben für Hand-Arbeit. Möglich erst seit dem öffentlichen Repo mit Rulesets – CI-01 (`pr-merge.sh`) bleibt der Weg für alle anderen PRs
 
 ### S1 Kursraum
 - [x] **P3-01** (M) Kursraum `/kurse` + `/kurse/[id]`: „Meine Gruppen“ (Mitglied oder Leitung) und je Gruppe ein Hub mit den vorhandenen Bausteinen – nächste Stunden aus dem Stundenplan, offene Aufgaben, Termine, Gruppenordner, Gruppenchat, Mitglieder. Nur aus vorhandenen Services, keine neuen Tabellen; sichtbar für Mitglieder, Leitung und Verwaltung (Recht `kurse.view`). Abschnitte erscheinen nur, wenn das Modul an und das Gruppen-Feature aktiv ist
