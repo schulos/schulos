@@ -56,6 +56,10 @@ jobs:
     permissions:
       contents: write
       packages: write
+    # V-02: für den Folgejob „iso“ – angelegt nur, wenn weder Plan noch Fremd-Image-Vergleich den Lauf übersprungen haben
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      created: ${{ steps.plan.outputs.skip != 'true' && steps.upstream.outputs.skip != 'true' }}
     # SEC-06: Signierschlüssel nur in der Umgebung der beiden Signierschritte (nicht im ganzen Job); tsx aus dem Lockfile
     # (npm ci ohne Install-Skripte) statt `npx -y tsx@4` zur Laufzeit aus dem Netz bzw. dem npx-Cache des Runners
     env:
@@ -266,3 +270,22 @@ jobs:
             --title "SchulOS ${{ steps.plan.outputs.version }}" --notes-file dist-release/release-notes.md \
             dist-release/release.json dist-release/release.json.sig dist-release/schulosctl.mjs dist-release/compose.yaml \
             $(ls dist-release/sbom-*.cdx.json 2>/dev/null)
+
+  # V-02: nach einem getaggten Release die Release-ISO samt QEMU-Tests anstoßen (Build-VM, iso.yml von main; die ISO
+  # entsteht aus den signierten Images dieses Tags, B-49). Wöchentliche Auto-Patch-Releases (B-30) bauen bewusst keine
+  # ISO – Neuinstallationen ziehen das Update danach selbst. Den Platz auf der Build-VM prüft iso.yml (`platz`).
+  iso:
+    needs: release
+    if: github.event_name == 'push' && needs.release.result == 'success' && needs.release.outputs.created == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Release-ISO anstoßen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          gh workflow run iso.yml --repo "$GITHUB_REPOSITORY" --ref main -f release="$TAG" -f qemu=beide
+          echo "Release-ISO für $TAG angestoßen (Actions → ISO)." >> "$GITHUB_STEP_SUMMARY"

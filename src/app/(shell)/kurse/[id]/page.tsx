@@ -18,6 +18,7 @@ import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader, SubjectBar } from "@schulos/ui/misc";
 import { CourseAreas } from "./bereiche";
+import { ConferenceLink } from "./konferenz";
 import { QuickPolls } from "../../umfragen/quick-polls";
 
 export const metadata: Metadata = { title: "Kursraum" };
@@ -337,6 +338,7 @@ export default async function KursraumPage({ params }: { params: Promise<{ id: s
       {group.color && <SubjectBar color={group.color} className="max-w-24" />}
       {group.description && <p className="max-w-3xl text-muted">{group.description}</p>}
       {!hub.member && <p className="text-sm text-muted">Du siehst diesen Kursraum über die Verwaltung, ohne Mitglied der Gruppe zu sein.</p>}
+      {hub.conference && <ConferenceLink groupId={group.id} link={hub.conference.link} canEdit={hub.conference.canEdit} />}
       <div className="grid gap-4 lg:grid-cols-2">
         {hub.quickPolls && (
           <Card aria-labelledby="schnellumfrage" className="lg:col-span-2">

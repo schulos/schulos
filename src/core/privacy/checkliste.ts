@@ -200,6 +200,18 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     settings: ["sitzplan.photos"],
     where: { label: "Verwaltung → Rechte & Module → Sitzplan", href: "/verwaltung/rechte" },
   },
+  {
+    id: "konferenz",
+    nr: 17,
+    title: "Externe Konferenzdienste im Kursraum",
+    schulos:
+      "Leitung, Lehrkräfte der Gruppe und Gruppenverwaltung können je Kursraum einen https-Link auf einen externen Konferenzraum hinterlegen (V-01). SchulOS speichert nur den Link, ruft den Dienst nie selbst auf und gibt die Adresse des Kursraums nicht weiter; der Knopf nennt den Rechnernamen und weist auf den externen Dienst hin. Sichtbar nur für Personen, die den Kursraum öffnen dürfen; das Protokoll enthält nur den Rechnernamen (der Link kann ein Raum-Passwort enthalten).",
+    vorgabe: "Konferenzlinks aus; der Link wird mit der Gruppe gelöscht.",
+    schule:
+      "Wählt den Konferenzdienst (mit Vertrag zur Auftragsverarbeitung, z. B. über den Schulträger), nimmt ihn ins VVT auf und schaltet die Konferenzlinks erst danach ein; weist in der Nutzungsordnung darauf hin, dass nur dieser Dienst verlinkt wird.",
+    settings: ["kurse.konferenz"],
+    where: { label: "Verwaltung → Rechte & Module → Kursraum", href: "/verwaltung/rechte" },
+  },
 ];
 
 /** Rein: die Kurzfassung eines Themas für docs/DSB-FRAGEN.md (zwischen den Markern). */

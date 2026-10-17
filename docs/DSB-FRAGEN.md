@@ -479,3 +479,26 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
   der letzten Änderung passend?
 - **Vorschlag:** Vorgaben übernehmen; in der Nutzungsordnung festhalten, dass eigene Fotositzpläne (Handy, Papier mit Fotos) ohne
   Einwilligung nicht zulässig sind.
+
+## 17. Externe Konferenzdienste im Kursraum
+
+<!-- dsb:konferenz -->
+| Punkt | |
+|---|---|
+| Was SchulOS tut | Leitung, Lehrkräfte der Gruppe und Gruppenverwaltung können je Kursraum einen https-Link auf einen externen Konferenzraum hinterlegen (V-01). SchulOS speichert nur den Link, ruft den Dienst nie selbst auf und gibt die Adresse des Kursraums nicht weiter; der Knopf nennt den Rechnernamen und weist auf den externen Dienst hin. Sichtbar nur für Personen, die den Kursraum öffnen dürfen; das Protokoll enthält nur den Rechnernamen (der Link kann ein Raum-Passwort enthalten). |
+| Vorgabe | Konferenzlinks aus; der Link wird mit der Gruppe gelöscht. |
+| Die Schule entscheidet / dokumentiert | Wählt den Konferenzdienst (mit Vertrag zur Auftragsverarbeitung, z. B. über den Schulträger), nimmt ihn ins VVT auf und schaltet die Konferenzlinks erst danach ein; weist in der Nutzungsordnung darauf hin, dass nur dieser Dienst verlinkt wird. |
+| Einstellungen | „Konferenzlinks im Kursraum“ (Vorgabe: aus) |
+| In SchulOS | Verwaltung → Rechte & Module → Kursraum |
+<!-- /dsb -->
+
+**Hintergrund und Fragen** (Herkunft: V-01)
+
+- **Kontext:** Eine eigene Videokonferenz baut SchulOS bewusst nicht (Drittkomponente, eigene Datenschutzprüfung). Viele Schulen
+  nutzen einen Dienst des Schulträgers; der Link dorthin liegt heute verstreut in Chat oder Mail. SchulOS verlinkt nur – die
+  Verarbeitung im Konferenzdienst selbst liegt außerhalb von SchulOS und braucht eigene Grundlage und Vertrag.
+- **Frage:** Reicht es, den Schalter erst nach Auswahl und VVT-Eintrag des Dienstes einzuschalten, oder braucht es eine Liste
+  erlaubter Dienste in SchulOS?
+- **Vorschlag:** Schalter ab Werk aus, Einschalten durch die Schule nach VVT-Eintrag; eine Freigabeliste erst, wenn Schulen sie
+  brauchen.
+

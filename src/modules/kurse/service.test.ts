@@ -4,11 +4,13 @@ import type { DbHandle } from "@/core/db/client";
 import { auditLog, taskGroups, tasks } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { loadModuleStates, setModuleEnabled } from "@/core/modules/registry";
+import { writeModuleSetting } from "@/core/modules/settings";
 import { ForbiddenError, loadPermissions } from "@/core/permissions";
 import messenger from "@/modules/messenger/manifest";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { kurseSearch } from "./search";
-import { courseHub, myCourses, searchCourses, setCourseFeature } from "./service";
+import { courseHub, myCourses, parseConferenceLink, searchCourses, setConferenceLink, setCourseFeature } from "./service";
+import { KONFERENZ_SETTING } from "./settings";
 
 // Montag, 05.10.2026, 08:00 Uhr in Berlin
 const NOW = new Date("2026-10-05T06:00:00Z");
@@ -104,6 +106,44 @@ describe("Kursraum", () => {
     expect(await kurseSearch.search(h.db, lea, "q1")).toEqual([]);
     const sabine = { perms: await p("u-sabine.kowalski") } as Parameters<typeof kurseSearch.search>[1];
     expect((await kurseSearch.search(h.db, sabine, "q1 e")).length).toBeGreaterThan(0);
+  });
+
+  it("Konferenzlink (V-01): nur mit Schalter, setzen nur Leitung/Lehrkräfte der Gruppe/Verwaltung, protokolliert ohne Adresse", async () => {
+    const jana = await p("u-jana.brandt");
+    const lea = await p("u-lea.schaefer");
+    // Vorgabe aus: kein Abschnitt, Setzen abgelehnt
+    expect((await courseHub(h.db, jana, "g-7b", await states(), NOW))!.conference).toBeNull();
+    await expect(setConferenceLink(h.db, jana, "g-7b", { url: "https://konferenz.example.org/raum-7b" })).rejects.toBeInstanceOf(ValidationError);
+
+    await writeModuleSetting(h.db, KONFERENZ_SETTING, "an");
+    try {
+      expect((await courseHub(h.db, jana, "g-7b", await states(), NOW))!.conference).toEqual({ link: null, canEdit: true });
+      expect((await courseHub(h.db, lea, "g-7b", await states(), NOW))!.conference).toEqual({ link: null, canEdit: false });
+
+      await setConferenceLink(h.db, jana, "g-7b", { url: " https://konferenz.example.org/raum-7b?pw=geheim ", label: "" });
+      const seen = (await courseHub(h.db, lea, "g-7b", await states(), NOW))!.conference;
+      expect(seen?.link).toEqual({ url: "https://konferenz.example.org/raum-7b?pw=geheim", label: "Konferenzraum", host: "konferenz.example.org" });
+      const [log] = await h.db.select().from(auditLog).where(eq(auditLog.action, "kurse.konferenz.setzen")).orderBy(desc(auditLog.id)).limit(1);
+      expect(log).toMatchObject({ actorId: "u-jana.brandt", target: "g-7b", meta: { host: "konferenz.example.org" } });
+      expect(JSON.stringify(log!.meta)).not.toContain("geheim");
+
+      await expect(setConferenceLink(h.db, lea, "g-7b", { url: "https://x.example.org" })).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(setConferenceLink(h.db, await p("u-daniel.okafor"), "g-7b", { url: "https://x.example.org" })).rejects.toBeInstanceOf(ForbiddenError);
+      // Sekretariat (Gruppenverwaltung) ändert, Leitung entfernt
+      await setConferenceLink(h.db, await p("u-sabine.kowalski"), "g-7b", { url: "https://konferenz.example.org/neu", label: "Videoraum 7b" });
+      expect((await courseHub(h.db, lea, "g-7b", await states(), NOW))!.conference?.link?.label).toBe("Videoraum 7b");
+      await setConferenceLink(h.db, jana, "g-7b", { url: "" });
+      expect((await courseHub(h.db, lea, "g-7b", await states(), NOW))!.conference?.link).toBeNull();
+    } finally {
+      await writeModuleSetting(h.db, KONFERENZ_SETTING, "aus");
+    }
+  });
+
+  it("Konferenzlink: nur https, keine Zugangsdaten in der Adresse, Längen begrenzt", () => {
+    expect(parseConferenceLink({ url: "https://raum.example.org/a b" }).url).toBe("https://raum.example.org/a%20b");
+    for (const url of ["http://raum.example.org", "javascript:alert(1)", "raum.example.org", "https://nutzer:pw@raum.example.org", `https://raum.example.org/${"x".repeat(500)}`])
+      expect(() => parseConferenceLink({ url }), url).toThrow(ValidationError);
+    expect(() => parseConferenceLink({ url: "https://raum.example.org", label: "x".repeat(61) })).toThrow(ValidationError);
   });
 
   it("abgeschaltetes Modul → Abschnitt fehlt", async () => {

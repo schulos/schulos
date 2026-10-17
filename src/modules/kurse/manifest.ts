@@ -1,4 +1,5 @@
 import { defineModule } from "@/core/modules/types";
+import { KURSE_SETTINGS } from "./settings";
 
 export default defineModule({
   id: "kurse",
@@ -13,12 +14,21 @@ export default defineModule({
   },
   defaultGrants: { schueler: ["kurse.view"], lehrkraft: ["kurse.view"], verwaltung: ["kurse.view", "kurse.view_all"] },
   nav: [{ href: "/kurse", label: "Meine Kurse", requires: "kurse.view" }],
-  // keine eigenen Tabellen: der Kursraum zeigt nur, was die anderen Module schon speichern
+  settings: KURSE_SETTINGS,
+  // sonst keine eigenen Tabellen: der Kursraum zeigt, was die anderen Module schon speichern
+  retention: [
+    {
+      table: "kurse_links",
+      purpose: "Link auf einen externen Konferenzraum der Gruppe (V-01)",
+      categories: ["Gruppe", "Adresse und Bezeichnung des Raums", "zuletzt geändert von/am"],
+      follows: "groups",
+    },
+  ],
   processing: {
     title: "Kursraum",
     purpose: "Inhalte einer Lerngruppe (Stunden, Aufgaben, Termine, Dateien, Chat, Mitglieder) an einer Stelle anzeigen",
     subjects: ["Schüler:innen", "Lehrkräfte"],
     recipients: ["Mitglieder der Gruppe", "Verwaltung"],
-    note: "Speichert selbst nichts; Gruppenordner, Termine und Chat sieht nur, wer Mitglied der Gruppe ist.",
+    note: "Speichert selbst nur den optionalen Konferenzlink (Moduleinstellung, Vorgabe aus); Gruppenordner, Termine und Chat sieht nur, wer Mitglied der Gruppe ist. Den Konferenzdienst wählt die Schule – SchulOS ruft ihn nie selbst auf, der Link öffnet ihn im Browser der Person.",
   },
 });

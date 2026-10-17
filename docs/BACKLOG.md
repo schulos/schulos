@@ -540,6 +540,11 @@ INST-09 und INST-10 (oben bei 4e) plus:
   melden“ im Benutzermenü für Verwaltung/Admin – vorausgefülltes Formular mit Version und Bereich (Seitenpfad ohne IDs/Namen),
   nichts wird automatisch gesendet, kein Token/keine Mailadresse im Code; eigener Tracker per `SCHULOS_ISSUE_URL`
 
+### Verbesserungen aus dem Ideen-Board (ab 2026-10-17)
+Ideen werden privat gesammelt und ausgearbeitet; hier landet, was die Projektleitung freigegeben hat.
+- [x] **V-01** (S) Konferenzlink im Kursraum (Projektleitung 2026-10-17): je Gruppe ein `https://`-Link auf einen externen Konferenzraum mit Bezeichnung, Knopf im Kursraum mit Hinweis „externer Dienst“ und Rechnername, `rel="noopener noreferrer"`; setzen Leitung, Lehrkräfte der Gruppe und Gruppenverwaltung/`kurse.view_all`, nie bei archivierten Gruppen; Moduleinstellung `kurse.konferenz` (Vorgabe aus); Tabelle `kurse_links` (Migration 0086, Löschung mit der Gruppe); Protokoll nur mit Rechnername. Nicht in V1: Domain-Freigabeliste, mehrere Links, Anzeige in Heute/Stundenplan
+- [x] **V-02** (S) Release-ISO automatisch nach `release.yml` (Projektleitung 2026-10-17): Job `iso` in `release.yml` stößt nach einem getaggten, tatsächlich angelegten Release `iso.yml --ref main -f release=<tag> -f qemu=beide` an (GITHUB_TOKEN mit `actions: write`); wöchentliche Auto-Patch-Releases (B-30) bauen bewusst keine ISO; Platz prüft `iso.yml` selbst (`platz`). Erster echter Lauf mit dem nächsten Release
+
 ## Technische Schulden / Folgepunkte
 - [x] **TD-01** Deutsche Sortierung in DB-Listen (Benutzer, Adressbuch, Gruppen): PGlite sortiert per C-Collation (ä hinter z). Entweder ICU-Collation prüfen oder Sortierschlüssel-Spalte (umlaut-normalisiert). In der Aufgaben-Matrix bereits per Intl.Collator gelöst.
 - [x] **TD-02** Formulare verlieren nach einem Validierungsfehler die Eingaben (React 19 setzt Formulare nach einer Action zurück). In der Stundenplan-Pflege per `FormState.values` + `key` gelöst; Kalender-, Benutzer-, Gruppen- und News-Formulare prüfen und ggf. gleich lösen.

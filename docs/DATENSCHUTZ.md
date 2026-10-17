@@ -331,6 +331,10 @@ Phase 2 als eigener Block folgen.
 - **Keine Drittanbieter zur Laufzeit:** keine CDNs, kein Tracking, keine externen Schriften.
   `next/font` bettet die Schriften schon beim Build ein. Die Next.js-Telemetrie wird im
   Produktivbuild abgeschaltet.
+  **Konferenzlinks im Kursraum** (V-01, Moduleinstellung, Vorgabe **aus**): SchulOS speichert nur den Link, ruft den
+  Dienst nie selbst auf und gibt die Kursraum-Adresse nicht weiter (`rel="noreferrer"`); der Knopf weist auf den externen
+  Dienst hin. Welcher Dienst genutzt wird (und der Vertrag dazu), entscheidet die Schule. Der Link kann ein Raum-Passwort
+  enthalten: nur Personen, die den Kursraum öffnen dürfen, sehen ihn; das Protokoll hält nur den Rechnernamen fest.
 - **Anonym heißt technisch anonym** (Umfragen, P3): Antworten ohne Benutzerbezug und nur mit dem Tag,
   „hat teilgenommen“ getrennt und ohne Verweis auf die Antwort, Ergebnisse erst ab 5 Antworten und danach nur
   in **Fünferschritten** (sonst verriete die Differenz vorher/nachher jede einzelne neue Antwort) – auch live

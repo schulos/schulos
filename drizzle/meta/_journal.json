@@ -603,6 +603,13 @@
       "when": 1791982319101,
       "tag": "0085_gate4e_ohne_geraet_vertrauen",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792249865419,
+      "tag": "0086_kurse_konferenzlink",
+      "breakpoints": true
     }
   ]
 }
