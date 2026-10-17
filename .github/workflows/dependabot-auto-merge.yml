@@ -1,0 +1,36 @@
+# Dependabot-PRs ohne Major-Sprung automatisch mergen, sobald alle Pflicht-Checks grün sind (Projektleitung 2026-10-17).
+# Gemerged wird nicht hier, sondern von GitHub: der Job schaltet nur Auto-Merge ein. Das Ruleset „main schützen“ verlangt
+# ergebnis/secrets/dependencies/workflows/veroeffentlichung – rot oder abgebrochen bleibt der PR liegen (dann von Hand
+# beheben, siehe CLAUDE.md). Major-Updates (u. a. Image-Tags mit neuer Hauptversion) immer von Hand.
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'schulos/schulos'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+      - name: Auto-Merge einschalten
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          DEPS: ${{ steps.meta.outputs.dependency-names }}
+        run: |
+          echo "Update: ${UPDATE_TYPE:-Digest/ohne Version} – ${DEPS}"
+          gh pr merge --auto --merge "$PR_URL"
+      - name: Major-Update – von Hand
+        if: steps.meta.outputs.update-type == 'version-update:semver-major'
+        env:
+          DEPS: ${{ steps.meta.outputs.dependency-names }}
+        run: echo "::notice::Major-Update (${DEPS}) – kein Auto-Merge, bitte von Hand prüfen und mergen."
