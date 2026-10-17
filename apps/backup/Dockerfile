@@ -5,7 +5,7 @@
 ARG NODE_IMAGE=node:24-alpine
 ARG RESTIC_IMAGE=restic/restic:0.19.1
 # rclone für die Offsite-Kopie (B-37): SFTP, S3 u. a.; restic nutzt es als Backend (rclone:<remote>:<pfad>)
-ARG RCLONE_IMAGE=rclone/rclone:1.75.1
+ARG RCLONE_IMAGE=rclone/rclone:1.75.2
 
 FROM ${RESTIC_IMAGE} AS restic
 FROM ${RCLONE_IMAGE} AS rclone

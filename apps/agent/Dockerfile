@@ -3,7 +3,7 @@
 ARG NODE_IMAGE=node:24-alpine
 ARG RESTIC_IMAGE=restic/restic:0.19.1
 # rclone: Wiederherstellung direkt aus der Offsite-Kopie (Installer „aus Offsite“, B-42) – gleiche Version wie im Backupserver
-ARG RCLONE_IMAGE=rclone/rclone:1.75.1
+ARG RCLONE_IMAGE=rclone/rclone:1.75.2
 
 FROM ${NODE_IMAGE} AS build
 WORKDIR /app
