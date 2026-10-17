@@ -72,7 +72,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/platz
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -82,7 +82,7 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - name: Zweimal bauen und vergleichen
         run: bash iso/repro.sh --out iso/out-repro 2>&1 | tee iso/out-repro.log; exit "${PIPESTATUS[0]}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ always() }}
         with:
           name: reproduzierbarkeit
@@ -116,7 +116,7 @@ jobs:
           ref: ${{ steps.rel.outputs.commit || github.sha }}
       - uses: ./.github/actions/platz
       # Node + Abhängigkeiten auch ohne Neubau: der QEMU-Test braucht Playwright (§7 Schritt 4)
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -145,7 +145,7 @@ jobs:
           if [ -n "$RELEASE" ]; then bash iso/build-docker.sh --release "$RELEASE" --out iso/out --rauchtest
           else bash iso/build-docker.sh --version "$ISO_VERSION" --out iso/out --rauchtest; fi
       # GitHub-Runner: gleich hochladen (auch nach fehlgeschlagenen Tests wiederverwendbar); Build-VM: liegen lassen
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !inputs.iso_aus_lauf && env.LOKAL != 'true' }}
         with:
           name: schulos-iso
@@ -168,7 +168,7 @@ jobs:
         run: |
           mkdir -p iso/out && cp "$ISO_LAGER/letzte.iso" iso/out/schulos-letzte.iso
           echo "ISO von Commit $(cat "$ISO_LAGER/letzte.commit")"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: ${{ inputs.iso_aus_lauf && env.LOKAL != 'true' }}
         with:
           name: schulos-iso
@@ -190,7 +190,7 @@ jobs:
         run: mkdir -p "$ISO_LAGER" && cp "$RUNNER_TEMP"/qemu-qcow2/abbild/*.qcow2* "$ISO_LAGER/" && ls -lh "$ISO_LAGER"
       # B-49/REPO-02: Prüfsumme und Stückliste ans Release; die ISO selbst nur dann als Artefakt, wenn der Anhang auf einem
       # GitHub-Runner entsteht (sonst nimmt ihn der Job auf der Build-VM aus dem Lager – Artefakt-Speicher privater Repos ist knapp)
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ inputs.release && !inputs.iso_aus_lauf }}
         with:
           name: release-iso-anhang
@@ -198,7 +198,7 @@ jobs:
             iso/out/schulos-*.iso.sha256
             iso/out/schulos-*.stueckliste.json
           retention-days: 2
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ inputs.release && !inputs.iso_aus_lauf && env.ANHANG_GITHUB == 'true' }}
         with:
           name: release-iso-datei
@@ -221,11 +221,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/platz
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-iso-anhang
           path: anhang
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: ${{ env.ANHANG_GITHUB == 'true' }}
         with:
           name: release-iso-datei
