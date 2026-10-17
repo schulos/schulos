@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
-import { describe, expect, it } from "vitest";
-import { buildConsoleFonts, fontName, parseFbSize, parsePsf2, patchConsoleFont, pickConsoleFont, serializePsf2, TERMINUS_SIZES, type Psf2 } from "./console-font";
+import { describe, expect, it, vi } from "vitest";
+import { buildConsoleFonts, fontName, keepConsoleFont, parseFbSize, parsePsf2, patchConsoleFont, pickConsoleFont, serializePsf2, TERMINUS_SIZES, type Psf2 } from "./console-font";
 
 /** kleine Schrift: A, ░ (Schachbrett), ▶, sechs serbische Buchstaben (Plätze für ▀▄▌▐▓), Ж (russisch – bleibt) */
 function sample(width = 8, height = 16): Psf2 {
@@ -100,5 +100,24 @@ describe("Konsolenschrift", () => {
     expect(pickConsoleFont(null)).toBeNull();
     expect(parseFbSize("1280,800\n")).toEqual({ width: 1280, height: 800 });
     expect(parseFbSize("")).toBeNull();
+  });
+
+  it("INST-11: lädt die Schrift regelmäßig nach (setupcon ersetzt sie sonst); ohne Schrift kein Zeitgeber", () => {
+    vi.useFakeTimers();
+    try {
+      const calls: string[] = [];
+      const stop = keepConsoleFont("/schrift", 1000, (d) => (calls.push(d), true));
+      vi.advanceTimersByTime(3500);
+      expect(calls).toHaveLength(4);
+      stop();
+      vi.advanceTimersByTime(5000);
+      expect(calls).toHaveLength(4);
+      const none: string[] = [];
+      keepConsoleFont("/fehlt", 1000, (d) => (none.push(d), false));
+      vi.advanceTimersByTime(5000);
+      expect(none).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

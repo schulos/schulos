@@ -64,6 +64,31 @@ export function grubPasswordLines(pw: string): string[] {
   ];
 }
 
+/**
+ * INST-12: eigener Bildschirm für das Bootmenü-Passwort nach dem Wiederherstellungsschlüssel – weiter erst, wenn die letzten
+ * vier Zeichen eingetippt sind (Groß-/Kleinschreibung zählt, wie am GRUB-Prompt). So geht es nicht zwischen Kopplungscode
+ * und Hinweisen unter.
+ */
+export const GRUB_CONFIRM_PROMPT = "  Tippe die letzten 4 Zeichen des Bootmenü-Passworts ein: ";
+export function grubPasswordScreen(pw: string): string[] {
+  return [
+    "",
+    "  BOOTMENÜ-PASSWORT – jetzt aufschreiben und zum Wiederherstellungsschlüssel legen:",
+    "",
+    `      ${formatGrubPassword(pw)}`,
+    "",
+    "  Benutzer im Bootmenü: schulos. Gebraucht für ältere Kernel, „Stand vor dem Versionswechsel“ und e/c im Bootmenü.",
+    "  Dort ohne Leerzeichen eintippen (US-Tastatur; das Passwort enthält nur Zeichen, die auf beiden gleich liegen).",
+    "  Ohne das Passwort lässt sich SchulOS im Notfall nicht über das Bootmenü starten.",
+    "",
+  ];
+}
+export function checkGrubConfirmation(pw: string, input: string): "ok" | "anzeigen" | "falsch" {
+  const v = input.replace(/\s+/g, "");
+  if (!v) return "anzeigen";
+  return v === pw.slice(-4) ? "ok" : "falsch";
+}
+
 export function finalScreen(
   boot: BootOrderResult,
   pairingCode: string | null,

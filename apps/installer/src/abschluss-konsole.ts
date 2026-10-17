@@ -1,10 +1,11 @@
-// Abschluss an der Konsole (INST-01/INST-05): Startreihenfolge setzen, Schlüssel als Text, bis Block 8 eingetippt ist, dann
+// Abschluss an der Konsole (INST-01/INST-05/INST-12): Startreihenfolge setzen, Schlüssel als Text, bis Block 8 eingetippt ist,
+// Bootmenü-Passwort bis zu den letzten 4 Zeichen, dann
 // „Neustart oder ausschalten“ → <ausgabe>/danach (start-installer.sh führt es aus). Aus main.tsx herausgelöst, damit der echte
 // Ablauf mit Ersatz-Ein-/Ausgabe testbar ist (GATE-4f C-12): EOF ist nie eine Bestätigung, ohne Antwort kein `danach`.
 import { writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { CLEAR_SCREEN, closableAsk, confirmRecoveryKey, InputClosedError } from "@schulos/server/recovery-key";
-import { AFTER_FILE, afterChoice, finalScreen, type ConfigLocation } from "./abschluss";
+import { AFTER_FILE, afterChoice, checkGrubConfirmation, finalScreen, GRUB_CONFIRM_PROMPT, grubPasswordScreen, type ConfigLocation } from "./abschluss";
 import type { BootOrderResult } from "./system/boot-order";
 import { framed, titleBar } from "./tui/screens";
 import { detectCharset, themeFor } from "./tui/theme";
@@ -70,6 +71,19 @@ export async function finishAtConsole(
         },
         ask,
       });
+    // INST-12: Bootmenü-Passwort eigens bestätigen (letzte 4 Zeichen) – wie Block 8 des Schlüssels
+    const grubPw = deps.grubPassword ?? null;
+    if (grubPw) {
+      let note = "";
+      for (;;) {
+        const lines = [...grubPasswordScreen(grubPw), ...(note ? [note] : []), "  (Enter ohne Eingabe zeigt das Passwort erneut an.)"];
+        const bar = (out.rows || 25) >= lines.length + 2 ? `${titleBar(theme, cols, "Bootmenü-Passwort", version)}\n` : "";
+        out.write(CLEAR_SCREEN + bar + lines.join("\n") + "\n");
+        const r = checkGrubConfirmation(grubPw, await ask(GRUB_CONFIRM_PROMPT));
+        if (r === "ok") break;
+        note = r === "falsch" ? "  Das passt nicht – bitte die Abschrift prüfen (Groß-/Kleinschreibung zählt) und nochmal eintippen." : "";
+      }
+    }
     if (deps.configLocation === "stick") deps.releaseStick?.();
     const screen = finalScreen(boot, pairingCode, deps.configLocation ?? null, deps.testMode ?? false, deps.grubPassword ?? null);
     out.write(CLEAR_SCREEN + framed(theme, cols, "Fertig", version, screen.lines).join("\n") + "\n");

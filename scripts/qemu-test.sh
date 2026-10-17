@@ -220,16 +220,18 @@ wait_for() { # <beschreibung> <sekunden> <befehl…>
   done
   fail "$what (nach $secs s)"
 }
-keys() { # <name> <text> – tippt auf tty1 (QEMU-Monitor sendkey), danach Enter; nur a–z und 0–9
-  local name=$1 text=$2 i
+keys() { # <name> <text> – tippt auf tty1 (QEMU-Monitor sendkey), danach Enter; nur a–z, A–Z (Umschalt) und 0–9
+  local name=$1 text=$2 i c
   for ((i = 0; i < ${#text}; i++)); do
-    echo "sendkey ${text:i:1}" | socat - UNIX-CONNECT:"$W/$name.mon" >/dev/null
+    c=${text:i:1}
+    [[ $c == [[:upper:]] ]] && c="shift-${c,,}"
+    echo "sendkey $c" | socat - UNIX-CONNECT:"$W/$name.mon" >/dev/null
     sleep 0.2
   done
   echo "sendkey ret" | socat - UNIX-CONNECT:"$W/$name.mon" >/dev/null
 }
-confirm_at_console() { # <name> – INST-05 ohne Test-Schalter: Block 8 eintippen, dann „a“ (ausschalten über die Datei „danach“)
-  local name=$1 pid key
+confirm_at_console() { # <name> – INST-05 ohne Test-Schalter: Block 8 eintippen, Bootmenü-Passwort (INST-12), dann „a“ (ausschalten)
+  local name=$1 pid key grubpw
   pid=$(cat "$W/$name.pid")
   log "$name: warte auf die Bestätigung an der Konsole (tty1)"
   for _ in $(seq 1 3600); do
@@ -247,6 +249,12 @@ confirm_at_console() { # <name> – INST-05 ohne Test-Schalter: Block 8 eintippe
   grep -aq "SCHULOS-INSTALLER: ende" "$W/$name.serial" && fail "$name: Installer vor der Bestätigung beendet"
   keys "$name" "${key##*-}"
   sleep 5
+  # INST-12: Bootmenü-Passwort eigens bestätigen – letzte 4 Zeichen (steht mit seriell-geheimnisse im Klartext auf der Schnittstelle)
+  grubpw=$(grep -aoE 'Bootmenü-Passwort \(GRUB, Benutzer schulos\): [A-Za-z0-9 ]+' "$W/$name.serial" | tail -n1 | sed 's/.*): //; s/ //g' || true)
+  if [ -n "$grubpw" ]; then
+    keys "$name" "${grubpw: -4}"
+    sleep 5
+  fi
   keys "$name" a
   # sendkey verliert gelegentlich das Enter nach „a“ (Nachstellung auf der Build-VM: „a“ steht in der Zeile, die VM wartet) –
   # dann Enter nachschicken, bis sie aus ist

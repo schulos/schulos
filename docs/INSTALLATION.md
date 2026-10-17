@@ -235,8 +235,9 @@ auf UTF-8 und laden die passende Größe (`konsole.sh` vor jedem Neuzeichnen); o
 
 - **GRUB-Superuser:** Jede Installation setzt im Bootmenü den Superuser `schulos` mit einem eigenen, **zufällig erzeugten
   Bootmenü-Passwort** (Q-4E-61, G4E-O04/O05; nur als PBKDF2-Hash, `/etc/grub.d/01_schulos-passwort`). Der Installer zeigt es am
-  Ende zusammen mit dem Wiederherstellungsschlüssel (seriell geschwärzt), ein eingerichtetes Abbild bis zum ersten Neustart auf
-  der Konsole – **aufschreiben und zum Wiederherstellungsschlüssel legen**. Es ist nicht das Wartungspasswort, weil der Hash auf
+  Ende nach dem Wiederherstellungsschlüssel auf einem eigenen Bildschirm und geht erst weiter, wenn die **letzten 4 Zeichen**
+  eingetippt sind (INST-12, Groß-/Kleinschreibung zählt; seriell geschwärzt), ein eingerichtetes Abbild bis zum ersten Neustart
+  auf der Konsole – **aufschreiben und zum Wiederherstellungsschlüssel legen**. Es ist nicht das Wartungspasswort, weil der Hash auf
   dem unverschlüsselten /boot liegt und sich offline angreifen ließe (dort gilt nur das Bootmenü-Passwort, nicht sudo/SSH).
   Der Standardeintrag „SchulOS“ (neuester Kernel, `/etc/grub.d/09_schulos-standard`, `--unrestricted`) startet ohne Eingabe;
   **Einträge bearbeiten (`e`), GRUB-Kommandozeile (`c`) und alle anderen Einträge** (ältere Kernel, „Stand vor dem
