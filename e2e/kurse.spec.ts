@@ -64,3 +64,55 @@ test("P3-02: Kurse in der Suche; Schüler:innen schalten keine Bereiche", async 
   await expect(page).toHaveURL(/\/kurse\/g-7b$/);
   await expect(page.getByRole("heading", { name: "Bereiche des Kurses" })).toHaveCount(0);
 });
+
+test("Konferenzlink im Kursraum: Schule schaltet frei, Leitung hinterlegt, Schülerin öffnet (V-01)", async ({ browser }) => {
+  const admin = await (await browser.newContext()).newPage();
+  const jana = await (await browser.newContext()).newPage();
+  const lea = await (await browser.newContext()).newPage();
+  const errors = collectErrors(jana);
+  await login(admin, "admin");
+  await login(jana, "jana.brandt");
+  await login(lea, "lea.schaefer");
+  const setting = async (value: "an" | "aus") => {
+    await admin.goto("/verwaltung/rechte");
+    await admin.getByLabel("Konferenzlinks im Kursraum").selectOption(value);
+    await expect(admin.getByLabel("Konferenzlinks im Kursraum")).toHaveValue(value);
+  };
+
+  // Vorgabe aus: kein Knopf, auch nicht für die Leitung
+  await jana.goto("/kurse/g-7b");
+  await expect(jana.getByRole("button", { name: "Konferenzraum-Link hinterlegen" })).toHaveCount(0);
+
+  await setting("an");
+  try {
+    await jana.reload();
+    await jana.getByRole("button", { name: "Konferenzraum-Link hinterlegen" }).click();
+    await jana.getByLabel("Adresse des Konferenzraums").fill("http://konferenz.example.org/raum-7b");
+    await jana.getByRole("button", { name: "Speichern" }).click();
+    await expect(jana.getByText("Nur Adressen mit https:// sind erlaubt")).toBeVisible();
+    await jana.getByLabel("Adresse des Konferenzraums").fill("https://konferenz.example.org/raum-7b");
+    await jana.getByLabel("Bezeichnung").fill("Videoraum 7b");
+    await jana.getByRole("button", { name: "Speichern" }).click();
+    await expect(jana.getByRole("link", { name: "Videoraum 7b öffnen" })).toBeVisible();
+
+    await lea.goto("/kurse/g-7b");
+    const link = lea.getByRole("link", { name: "Videoraum 7b öffnen" });
+    await expect(link).toHaveAttribute("href", "https://konferenz.example.org/raum-7b");
+    await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(lea.getByText("öffnet konferenz.example.org")).toBeVisible();
+    await expect(lea.getByRole("button", { name: "Link ändern" })).toHaveCount(0);
+    await lea.screenshot({ path: ".data/shots/e2e/kurse-konferenz.png", fullPage: true });
+
+    // Leitung entfernt den Link wieder
+    await jana.getByRole("button", { name: "Link ändern" }).click();
+    await jana.getByRole("button", { name: "Link entfernen" }).click();
+    await expect(jana.getByRole("button", { name: "Konferenzraum-Link hinterlegen" })).toBeVisible();
+  } finally {
+    // zurück auf die Vorgabe (gemeinsame E2E-Datenbank)
+    await setting("aus");
+  }
+  await lea.reload();
+  await expect(lea.getByRole("link", { name: /öffnen$/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+  for (const p of [admin, jana, lea]) await p.context().close();
+});

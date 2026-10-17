@@ -130,6 +130,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "sitzplan.anlegen": "Sitzplan angelegt",
   "sitzplan.kopieren": "Sitzplan kopiert",
   "sitzplan.loeschen": "Sitzplan gelöscht",
+  "kurse.konferenz.setzen": "Kursraum: Konferenzlink gesetzt",
+  "kurse.konferenz.entfernen": "Kursraum: Konferenzlink entfernt",
   "notenbuch.anlegen": "Notenbuch angelegt",
   "notenbuch.spalte": "Notenbuch: Spalte angelegt",
   "notenbuch.spalte.aendern": "Notenbuch: Spalte geändert",

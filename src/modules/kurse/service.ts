@@ -1,12 +1,14 @@
-// Kursraum (P3-01): je Gruppe eine Übersicht aus den vorhandenen Modulen – keine eigenen Tabellen.
+// Kursraum (P3-01): je Gruppe eine Übersicht aus den vorhandenen Modulen; eigene Tabelle nur für den Konferenzlink (V-01).
 // Abschnitte erscheinen nur, wenn das Modul an ist (und das Gruppenmerkmal aktiv); Gruppenordner, Termine und Chat
 // lesen über die Services der Module und sind damit nur für Mitglieder sichtbar.
 import { and, asc, count, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
-import { GROUP_KINDS, type GroupKind, groupMembers, groups, subjects, taskGroups, taskSubmissions, tasks, users } from "@/core/db/schema";
+import { GROUP_KINDS, type GroupKind, groupMembers, groups, kurseLinks, subjects, taskGroups, taskSubmissions, tasks, users } from "@/core/db/schema";
 import { de } from "@/core/db/sort";
 import { GROUP_KIND_LABELS } from "@/core/labels";
 import { isEnabled, type ModuleStateMap } from "@/core/modules/registry";
+import { readModuleSetting } from "@/core/modules/settings";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
 import { addDays, toBerlinDate, toBerlinLocal } from "@/core/time";
 import { MODULES } from "@/modules";
@@ -20,6 +22,7 @@ import { activeQuickPolls, canStartQuickPoll } from "@/modules/umfragen/schnell"
 import { listSlots, type LessonSlot } from "@/modules/stundenplan/service";
 import { availableGroupFeatures, getGroup, listGroups, setGroupFeature } from "@/modules/verwaltung/groups";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { KONFERENZ_SETTING } from "./settings";
 
 const STAFF = ["lehrkraft", "verwaltung", "admin"];
 /** Gruppenarten mit Stundenplan – dort erscheint „Nächste Stunden“ auch ohne Treffer */
@@ -104,6 +107,68 @@ export async function setCourseFeature(db: Db, viewer: PermissionSet, groupId: s
   await setGroupFeature(db, viewer.userId, groupId, feature, enabled);
 }
 
+// ---- V-01: Link auf einen externen Konferenzraum ----
+
+export const LINK_LABEL_DEFAULT = "Konferenzraum";
+const LINK_URL_MAX = 500;
+const LINK_LABEL_MAX = 60;
+
+export interface ConferenceLink {
+  url: string;
+  label: string;
+  /** Rechnername, damit klar ist, wohin der Knopf führt */
+  host: string;
+}
+
+/** Link setzen/entfernen: wer Bereiche schalten darf, Lehrkräfte der Gruppe und `kurse.view_all` – nie bei archivierten Gruppen. */
+export function canEditConferenceLink(viewer: PermissionSet, group: { id: string; archivedAt: Date | null }): boolean {
+  if (group.archivedAt) return false;
+  if (canManageCourse(viewer, group) || hasPermission(viewer, "kurse.view_all")) return true;
+  return viewer.role === "lehrkraft" && viewer.memberOf.has(group.id);
+}
+
+/** Prüft und normalisiert die Eingabe: nur `https://` mit Rechnername, ohne Zugangsdaten in der Adresse. */
+export function parseConferenceLink(input: { url: string; label?: string }): { url: string; label: string } {
+  const raw = input.url.trim();
+  const label = (input.label ?? "").trim() || LINK_LABEL_DEFAULT;
+  if (label.length > LINK_LABEL_MAX) throw new ValidationError({ label: `Höchstens ${LINK_LABEL_MAX} Zeichen` });
+  if (raw.length > LINK_URL_MAX) throw new ValidationError({ url: `Höchstens ${LINK_URL_MAX} Zeichen` });
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new ValidationError({ url: "Bitte eine vollständige Adresse eingeben (https://…)" });
+  }
+  if (u.protocol !== "https:" || !u.hostname) throw new ValidationError({ url: "Nur Adressen mit https:// sind erlaubt" });
+  if (u.username || u.password) throw new ValidationError({ url: "Die Adresse darf keinen Benutzernamen oder kein Passwort vor dem Rechnernamen enthalten" });
+  return { url: u.toString(), label };
+}
+
+/** Link der Gruppe für den Kursraum; `null`, wenn keiner gesetzt ist. Sichtbarkeit (Schalter, Kursraum) prüft der Aufrufer. */
+export async function conferenceLink(db: Db, groupId: string): Promise<ConferenceLink | null> {
+  const [row] = await db.select({ url: kurseLinks.url, label: kurseLinks.label }).from(kurseLinks).where(eq(kurseLinks.groupId, groupId));
+  return row ? { ...row, host: new URL(row.url).hostname } : null;
+}
+
+/** Link setzen (`url` leer = entfernen); protokolliert ohne die Adresse selbst (sie kann ein Raum-Passwort enthalten). */
+export async function setConferenceLink(db: Db, viewer: PermissionSet, groupId: string, input: { url: string; label?: string }) {
+  const data = await getGroup(db, groupId);
+  if (!data || !canEditConferenceLink(viewer, data.group)) throw new ForbiddenError("kurse.konferenz");
+  if ((await readModuleSetting(db, KONFERENZ_SETTING)) !== "an") throw new ValidationError({ url: "Konferenzlinks sind an dieser Schule ausgeschaltet" });
+  if (!input.url.trim()) {
+    const removed = await db.delete(kurseLinks).where(eq(kurseLinks.groupId, groupId)).returning({ groupId: kurseLinks.groupId });
+    if (removed.length) await audit(db, viewer.userId, "kurse.konferenz.entfernen", groupId);
+    return null;
+  }
+  const { url, label } = parseConferenceLink(input);
+  await db
+    .insert(kurseLinks)
+    .values({ groupId, url, label, updatedBy: viewer.userId })
+    .onConflictDoUpdate({ target: kurseLinks.groupId, set: { url, label, updatedBy: viewer.userId, updatedAt: new Date() } });
+  await audit(db, viewer.userId, "kurse.konferenz.setzen", groupId, { host: new URL(url).hostname });
+  return { url, label, host: new URL(url).hostname } satisfies ConferenceLink;
+}
+
 /** Abschnitt des Kursraums: `null` = nicht anzeigen (Modul aus/Merkmal inaktiv), `items: null` = nur für Mitglieder. */
 export type Section<T> = { items: T[] | null } | null;
 
@@ -163,10 +228,16 @@ export async function courseHub(db: Db, viewer: PermissionSet, groupId: string, 
   const forum = on("foren") && has(FORUM_FEATURE) ? (member ? { items: await listTopics(db, viewer, groupId, 3) } : { items: null }) : null;
   // Schnellumfragen (P3-05): nur für Mitglieder, live über den SSE-Kanal
   const quickPolls = on("umfragen") && member ? { items: await activeQuickPolls(db, viewer, groupId, now), canStart: canStartQuickPoll(viewer, groupId) } : null;
+  // V-01: Konferenzlink nur bei eingeschalteter Moduleinstellung; bearbeiten dürfen Leitung, Lehrkräfte der Gruppe, Verwaltung
+  const conference =
+    (await readModuleSetting(db, KONFERENZ_SETTING)) === "an"
+      ? { link: await conferenceLink(db, groupId), canEdit: canEditConferenceLink(viewer, group) }
+      : null;
 
   return {
     forum,
     quickPolls,
+    conference,
     manage: canManageCourse(viewer, group) ? courseFeatures(states).map((f) => ({ ...f, enabled: has(f.id) })) : null,
     group: {
       id: group.id,
