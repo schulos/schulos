@@ -1,0 +1,8 @@
+{
+  "minVersion": "0.4.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "„Problem melden“ im Benutzermenü (Verwaltung/Admin): öffnet ein vorausgefülltes Fehlerformular mit Version und Bereich – es wird nichts automatisch gesendet; eigene Meldestelle per SCHULOS_ISSUE_URL" },
+    { "kind": "verbessert", "text": "Mitgelieferte Komponenten aktualisiert (u. a. Webserver, Datenbank, Sicherungswerkzeug und Programmbibliotheken)" }
+  ]
+}
