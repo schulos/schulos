@@ -48,7 +48,8 @@ Ein getaggtes Release nimmt die Digests aus `deploy/upstream/Dockerfile` (B-47, 
 aktuell); der wöchentliche Neubau löst die Tags dagegen frisch auf.
 
 **Release-ISO (B-49):** Die ISO zu einem Release entsteht nicht aus einem Neubau, sondern aus genau den signierten Images
-des Releases: `gh workflow run iso.yml -f release=v<version>` (Build-VM; dazu wie immer Rauchtest und QEMU-Tests). Der Lauf
+des Releases. Nach einem getaggten Release stößt `release.yml` (Job `iso`, V-02) sie selbst an; von Hand bzw. erneut:
+`gh workflow run iso.yml -f release=v<version> -f qemu=beide` (Build-VM; dazu wie immer Rauchtest und QEMU-Tests). Der Lauf
 checkt den Commit aus `release.json` aus, prüft die Signatur des Manifests gegen `release/cosign.pub`, prüft die drei
 eigenen Images zusätzlich mit `cosign verify` und zieht alle Images (auch caddy, postgres, rest-server) per Digest aus dem
 Manifest. Auf dem Medium heißen sie `ghcr.io/…/schulos:<version>` bzw. wie in Compose; die Digests stehen in der Stückliste.
