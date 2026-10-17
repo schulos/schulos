@@ -205,3 +205,16 @@ export function loadConsoleFont(fontDir: string = CONSOLE_FONT_DIR): boolean {
   const file = path.join(fontDir, fontName(f.width, f.height));
   return existsSync(file) && spawnSync("setfont", [file], { stdio: "inherit" }).status === 0;
 }
+
+/**
+ * INST-11: SchulOS-Schrift laden und alle `everyMs` neu laden. setupcon (console-setup.service bzw. die udev-Regel bei
+ * „vtcon add“, z. B. wenn der Grafiktreiber von Hyper-V spät übernimmt) ersetzt sie sonst nach unserem Start durch Terminus ohne
+ * ▀ ▄ √ ► – Logo und Marken erscheinen dann als ♦ (Befund Hyper-V 0.5.4). Wie konsole.sh im installierten System (INST-05).
+ * Ohne Schrift bzw. außerhalb der Linux-Konsole: nichts (Rückgabe: Abbrechen).
+ */
+export function keepConsoleFont(fontDir: string = CONSOLE_FONT_DIR, everyMs = 15_000, load: (dir: string) => boolean = loadConsoleFont): () => void {
+  if (!load(fontDir)) return () => {};
+  const timer = setInterval(() => load(fontDir), everyMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}

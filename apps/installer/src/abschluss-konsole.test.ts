@@ -58,6 +58,20 @@ describe("Abschluss an der Konsole (INST-05, GATE-4f C-12)", () => {
     expect(readFileSync(path.join(dir, AFTER_FILE), "utf8")).toBe("aus\n");
   });
 
+  it("INST-12: Bootmenü-Passwort nach Block 8 eigens bestätigen – letzte 4 Zeichen, Groß-/Kleinschreibung zählt", async () => {
+    const t = terminal();
+    const done = finishAtConsole(KEY, null, dir, "test", t.io, { bootOrder: () => ({ ok: true, order: ["0003"] }), hang, grubPassword: "abcdEFGH2345wxXW" });
+    await t.type("Tippe Block 8 des Wiederherstellungsschlüssels ein", "ttttvvvv");
+    for (let i = 0; i < 200 && !t.screen().includes("BOOTMENÜ-PASSWORT"); i++) await new Promise((r) => setTimeout(r, 5));
+    expect(t.screen()).toContain("abcd EFGH 2345 wxXW");
+    await t.type("Tippe die letzten 4 Zeichen des Bootmenü-Passworts ein", "wxxw");
+    await t.type("Das passt nicht", "");
+    expect(existsSync(path.join(dir, AFTER_FILE))).toBe(false);
+    await t.type("Tippe die letzten 4 Zeichen des Bootmenü-Passworts ein", "wx XW");
+    await t.type("Enter = Neustart", "a");
+    expect(await done).toBe("aus");
+  });
+
   it("INST-06: eigener SCHULOSCFG-Stick wird vor dem Hinweis „JETZT abziehen“ ausgehängt, auf dem Medium nicht", async () => {
     for (const where of ["stick", "medium"] as const) {
       const t = terminal();

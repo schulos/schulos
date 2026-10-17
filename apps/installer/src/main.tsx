@@ -25,7 +25,7 @@ import { CONFIGURE_LOG, configureSteps, IMAGE_FILE, imageSteps, parseImageFile }
 import { runSteps, StepError, type RunOptions } from "./system/run";
 import type { Role } from "./system/schulos-steps";
 import { installSteps, packageLists, planLayout, type Step } from "./system/steps";
-import { buildConsoleFonts, loadConsoleFont } from "./system/console-font";
+import { buildConsoleFonts, keepConsoleFont } from "./system/console-font";
 import { App, UiProvider } from "./tui/App";
 import { InstallView } from "./tui/Install";
 import { ProgressStore, tailLog } from "./tui/progress";
@@ -112,7 +112,7 @@ async function main() {
   }
   if ((inv.install || inv.image || inv.configure) && (process.platform !== "linux" || process.getuid?.() !== 0))
     fail("--installieren/--plan/--abbild/--konfigurieren nur als root unter Linux.", 64);
-  if (!inv.unattended && !inv.image) loadConsoleFont();
+  if (!inv.unattended && !inv.image) keepConsoleFont();
   if (inv.planFile) return install(JSON.parse(readFileSync(inv.planFile, "utf8")) as InstallPlan, inv);
   if (inv.image) return buildImage(inv.image, inv);
 
