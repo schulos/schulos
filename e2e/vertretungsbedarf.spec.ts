@@ -3,8 +3,8 @@ import { collectErrors, login } from "./helpers";
 
 test("Vertretungsbedarf: Lehrkraft krank → offene Stunden; Klasse auf Exkursion → Freisetzungen mit Entfall; aufheben", async ({ page }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/vertretungen");
+  await login(page, "frank.schulte");
+  await page.goto("/planung/vertretungen");
   const form = page.getByRole("form", { name: "Abwesenheit eintragen" });
   await form.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: "BRA – Jana Brandt" });
   await form.getByLabel("Grund").selectOption({ label: "krank" });
@@ -50,8 +50,8 @@ test("Vertretungsbedarf: Lehrkraft krank → offene Stunden; Klasse auf Exkursio
 
 test("Vertretungsvorschläge mit Punkten übernehmen, Statistik zählt die Vertretung", async ({ page }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/vertretungen");
+  await login(page, "frank.schulte");
+  await page.goto("/planung/vertretungen");
   await page.getByLabel("Lehrkraft (z. B. erkrankt)").selectOption({ label: "KRA – Stefan Krause" });
   await page.getByRole("button", { name: "Anzeigen" }).click();
   const group = page.getByRole("group", { name: /^Vorschläge: / }).first();

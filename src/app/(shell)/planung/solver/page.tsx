@@ -84,10 +84,10 @@ export default async function SolverPage({
   return (
     <main className="flex flex-col gap-6">
       {running && <AutoRefresh seconds={2} />}
-      <Link href="/verwaltung/stundenplan" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+      <Link href="/planung/stundenplan" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
         <ArrowLeft aria-hidden className="size-4" /> Stundenplan pflegen
       </Link>
-      <PageHeader eyebrow="Verwaltung" title="Automatisch planen" />
+      <PageHeader eyebrow="Stundenplanung" title="Automatisch planen" />
       <p className="-mt-3 max-w-3xl text-sm text-muted">
         Der Solver setzt alle Lehraufträge der Unterrichtsverteilung neu – kollisionsfrei, mit Kopplungen, Doppelstunden und Sperrzeiten – und bewertet
         Zeitwünsche, Hohlstunden, Fach mehrfach am Tag, Raumwünsche und späte Stunden. Fixierte Stunden ({fixedCount}) und Stunden ohne Lehrauftrag bleiben, wo
@@ -158,7 +158,7 @@ export default async function SolverPage({
                   <td className="text-right tabular-nums">{r.stored ? r.stored.result.score : "–"}</td>
                   <td className="text-right">
                     <Button asChild size="sm" variant="ghost">
-                      <Link href={`/verwaltung/stundenplan/solver?lauf=${r.id}`}>Ansehen</Link>
+                      <Link href={`/planung/solver?lauf=${r.id}`}>Ansehen</Link>
                     </Button>
                   </td>
                 </tr>

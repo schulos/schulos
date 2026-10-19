@@ -34,7 +34,8 @@ const CORE: { user: string; label: string; paths: string[] }[] = [
   { user: "lea.schaefer", label: "Schülerin", paths: ["/", "/stundenplan", "/stundenplan/vertretungen", "/messenger", "/dateien", "/kurswahl", "/aufgaben", "/kalender", "/zwei-faktor", "/konto/sitzungen", "/konto/app"] },
   { user: "jana.brandt", label: "Lehrkraft", paths: ["/", "/stundenplan", "/klassenbuch", "/notenbuch", "/messenger", "/dateien", "/stundenplan/abwesenheit", "/zwei-faktor", "/apps"] },
   { user: "daniela.schaefer", label: "Eltern", paths: ["/", "/stundenplan", "/kurswahl", "/messenger", "/abwesenheiten"] },
-  { user: "sabine.kowalski", label: "Sekretariat", paths: ["/", "/verwaltung", "/verwaltung/benutzer", "/verwaltung/gruppen", "/verwaltung/vertretungen", "/kurswahl"] },
+  { user: "sabine.kowalski", label: "Sekretariat", paths: ["/", "/verwaltung", "/verwaltung/benutzer", "/verwaltung/gruppen", "/kurswahl"] },
+  { user: "frank.schulte", label: "Stundenplanung", paths: ["/planung", "/planung/vertretungen"] },
   { user: "admin", label: "Admin", paths: ["/verwaltung", "/verwaltung/rechte", "/verwaltung/system", "/verwaltung/schule"] },
 ];
 

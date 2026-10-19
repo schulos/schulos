@@ -18,8 +18,8 @@ test("Gate 2 – Vertretung: Sekretariat trägt ein, Schülerin sieht sie in der
   const plain = strip.locator('article[data-tone="normal"]').last();
   const period = await plain.getAttribute("data-period");
 
-  const sek = await as(browser, "sabine.kowalski");
-  await sek.page.goto(`/verwaltung/vertretungen?datum=${day}&gruppe=g-7b`);
+  const sek = await as(browser, "frank.schulte");
+  await sek.page.goto(`/planung/vertretungen?datum=${day}&gruppe=g-7b`);
   const form = sek.page.getByRole("form", { name: new RegExp(`^${period}\\. Std · `) });
   const free = await form.locator('optgroup[label="Frei"] option').first().getAttribute("value");
   await form.getByLabel("Vertretung durch").selectOption(free!);

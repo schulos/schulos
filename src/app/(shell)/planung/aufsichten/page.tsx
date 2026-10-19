@@ -52,7 +52,7 @@ export default async function AufsichtenPage({ searchParams }: { searchParams: P
 
   return (
     <main className="flex flex-col gap-6">
-      <PageHeader eyebrow="Verwaltung" title="Pausenaufsichten" />
+      <PageHeader eyebrow="Stundenplanung" title="Pausenaufsichten" />
       {sp.fehler && (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           {sp.fehler}

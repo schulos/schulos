@@ -17,6 +17,7 @@
     "./markdown": "./src/markdown.tsx",
     "./misc": "./src/misc.tsx",
     "./print-button": "./src/print-button.tsx",
+    "./sub-nav": "./src/sub-nav.tsx",
     "./table": "./src/table.tsx",
     "./theme": "./src/theme.tsx",
     "./theme.css": "./src/theme.css"

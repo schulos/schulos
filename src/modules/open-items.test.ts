@@ -109,11 +109,11 @@ describe("Offen für dich (Q5-07)", () => {
   });
 
   it("Planung: Vertretungsbedarf, Entwurf (Q5-11); Lehrkraft: Zeitwünsche (Q5-10); ohne Planungsrecht keine Planungszahlen", async () => {
-    await createAbsence(h.db, "u-sabine.kowalski", { teacherId: "u-jana.brandt", groupId: null, startsOn: TODAY, endsOn: TODAY, fromPeriod: null, toPeriod: null, reason: "krank", note: null });
-    const plan = await items("u-sabine.kowalski");
+    await createAbsence(h.db, "u-frank.schulte", { teacherId: "u-jana.brandt", groupId: null, startsOn: TODAY, endsOn: TODAY, fromPeriod: null, toPeriod: null, reason: "krank", note: null });
+    const plan = await items("u-frank.schulte");
     const need = plan.find((i) => i.id === "stundenplan:bedarf")!;
     expect(need.count).toBeGreaterThan(0);
-    expect(need).toMatchObject({ tone: "danger", href: `/verwaltung/vertretungen?datum=${TODAY}` });
+    expect(need).toMatchObject({ tone: "danger", href: `/planung/vertretungen?datum=${TODAY}` });
     expect(need.detail).toMatch(/^Mo\., 5\.10\.: \d+/);
     // keine Planungszahlen für Lehrkräfte, Eltern
     expect(ids(await items("u-murat.yilmaz")).filter((i) => i.startsWith("stundenplan:"))).toEqual([]);
@@ -122,21 +122,23 @@ describe("Offen für dich (Q5-07)", () => {
     expect(ids(await items(mother)).filter((i) => i.startsWith("stundenplan:"))).toEqual([]);
 
     await writeModuleSetting(h.db, SUBSTITUTION_RELEASE, "freigabe");
-    const open = (await items("u-sabine.kowalski")).find((i) => i.id === "stundenplan:bedarf")!;
+    const open = (await items("u-frank.schulte")).find((i) => i.id === "stundenplan:bedarf")!;
     // eine offene Stunde als Entfall eintragen → Tag wird Entwurf
     const first = (await needsOn(h.db, TODAY)).open.find((o) => o.status === "open")!;
-    await saveSubstitution(h.db, "u-sabine.kowalski", { lessonId: first.lessonId, date: TODAY, kind: "cancel", substituteId: null, roomId: null, note: null });
-    const after = await items("u-sabine.kowalski");
+    await saveSubstitution(h.db, "u-frank.schulte", { lessonId: first.lessonId, date: TODAY, kind: "cancel", substituteId: null, roomId: null, note: null });
+    const after = await items("u-frank.schulte");
     expect(after.find((i) => i.id === "stundenplan:bedarf")?.count ?? 0).toBe(open.count! - 1);
-    expect(after.find((i) => i.id === "stundenplan:entwurf")).toMatchObject({ count: 1, href: `/verwaltung/vertretungen?datum=${TODAY}`, tone: "warn" });
+    expect(after.find((i) => i.id === "stundenplan:entwurf")).toMatchObject({ count: 1, href: `/planung/vertretungen?datum=${TODAY}`, tone: "warn" });
 
-    await setPrefWindow(h.db, "u-sabine.kowalski", { opensOn: TODAY, closesOn: "2026-10-16" }, TODAY);
+    await setPrefWindow(h.db, "u-frank.schulte", { opensOn: TODAY, closesOn: "2026-10-16" }, TODAY);
     expect((await items("u-tobias.kleine")).find((i) => i.id === "stundenplan:zeitwuensche")).toMatchObject({ label: "Zeitwünsche abgeben bis 16.10.2026", href: "/stundenplan/zeitwuensche" });
+    // die Erinnerung bekommen nur Lehrkräfte (auch die planende Lehrkraft), nicht das Sekretariat
+    expect(ids(await items("u-frank.schulte"))).toContain("stundenplan:zeitwuensche");
     expect(ids(await items("u-sabine.kowalski"))).not.toContain("stundenplan:zeitwuensche");
   });
 
   it("Reihenfolge: dringend zuerst; ausgeschaltetes Modul liefert nichts", async () => {
-    const plan = await items("u-sabine.kowalski");
+    const plan = await items("u-frank.schulte");
     const order = { danger: 0, warn: 1, info: 2 } as const;
     expect(plan.map((i) => order[i.tone])).toEqual([...plan.map((i) => order[i.tone])].sort());
     await setModuleEnabled(h.db, elternbriefeManifest, false);

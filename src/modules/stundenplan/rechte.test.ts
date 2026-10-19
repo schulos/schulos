@@ -128,6 +128,12 @@ describe("Planungsrechte (SP-02)", () => {
       expect(hasPermission(lindner, PLAN_MANAGE)).toBe(false);
       const jana = await loadPermissions(h.db, "u-jana.brandt");
       expect(hasPermission(jana, PLAN_MANAGE) || hasPermission(jana, PLAN_SUBSTITUTE)).toBe(false);
+      // SP-03: das Sekretariat plant in der Demo nicht mehr (kein Rollen-Grant für `verwaltung`)
+      const sabine = await loadPermissions(h.db, "u-sabine.kowalski");
+      expect(hasPermission(sabine, PLAN_MANAGE) || hasPermission(sabine, PLAN_SUBSTITUTE)).toBe(false);
+      const verwaltung = await grantsOf(h.db, { role: "verwaltung" });
+      expect(verwaltung).not.toContain(PLAN_MANAGE);
+      expect(verwaltung).not.toContain(PLAN_SUBSTITUTE);
     });
 
     it("SEC-04: Mitglieder der Funktionsgruppe nimmt nur auf, wer beide Rechte selbst hat", async () => {

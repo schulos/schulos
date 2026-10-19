@@ -44,7 +44,7 @@ export const stundenplanOpen: OpenItemsProvider = {
         label: "Vertretungsbedarf offen",
         count: openTotal,
         detail: openPerDay.map((x) => `${dayLabel(x.d)}: ${x.n}`).join(" · "),
-        href: `/verwaltung/vertretungen?datum=${openPerDay[0]!.d}`,
+        href: `/planung/vertretungen?datum=${openPerDay[0]!.d}`,
         tone: "danger",
       });
     const openDuties = duties.filter((d) => d.status === "open").length;
@@ -55,7 +55,7 @@ export const stundenplanOpen: OpenItemsProvider = {
         label: openDuties === 1 ? "Aufsicht unbesetzt" : "Aufsichten unbesetzt",
         count: openDuties,
         detail: dayLabel(days[0]),
-        href: `/verwaltung/aufsichten?datum=${days[0]}`,
+        href: `/planung/aufsichten?datum=${days[0]}`,
         tone: "danger",
       });
     if (drafts.length > 0)
@@ -65,7 +65,7 @@ export const stundenplanOpen: OpenItemsProvider = {
         label: "Vertretungsplan nicht veröffentlicht",
         count: drafts.length,
         detail: drafts.slice(0, 3).map(dayLabel).join(" · "),
-        href: `/verwaltung/vertretungen?datum=${drafts[0]}`,
+        href: `/planung/vertretungen?datum=${drafts[0]}`,
         tone: "warn",
       });
     if (blocks.length > 0)

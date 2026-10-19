@@ -11,8 +11,8 @@ function ymd(offsetDays: number): string {
 // Planung sieht „selbst abgegeben“. Die Erinnerung vor der Frist prüft der Service-Test (zeitwunsch-fenster.test.ts).
 test("Zeitwünsche selbst: Fenster öffnen, Lehrkraft trägt ein, Planung sieht den Stand; Schülerin 404", async ({ page, browser }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/unterricht/zeitwuensche");
+  await login(page, "frank.schulte");
+  await page.goto("/planung/zeitwuensche");
   const card = page.getByRole("article", { name: "Eingabefenster für Lehrkräfte" });
   const form = card.getByRole("form", { name: "Eingabefenster" });
   await form.getByLabel("Erster Tag").fill(ymd(0));

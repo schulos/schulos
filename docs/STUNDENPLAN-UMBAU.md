@@ -136,6 +136,17 @@ planen weiter als Sekretariat. SP-03 entfernt diese Demo-Grants mit dem Umzug na
 Die Funktionsgruppe hat die feste ID `g-stundenplanung`; eine schon vorhandene Gruppe mit Slug `stundenplanung` bekommt keine Rechte
 (keine stille Rechteausweitung). Mitglieder nimmt nur auf, wer beide Rechte selbst hat (SEC-04) – auf neuen Installationen also der Admin.
 
+**Umsetzungsstand SP-03 (2026-10-19):** Bereich `/planung` (Layout mit `requireModulePage` + einem der beiden Rechte, sonst 404;
+Reiter nach Recht: Übersicht · Stundenplan · Unterrichtsverteilung · Zeitwünsche · Automatisch planen (`manage`) · Vertretungen (`substitute`) ·
+Aufsichten (beide)), `SubNav` liegt in `@schulos/ui/sub-nav` (Verwaltung nutzt ihn mit), Nav-Eintrag „Stundenplanung“ (`CalendarCog`).
+Weiterleitungen in `next.config.ts` (307, Query bleibt): `/verwaltung/stundenplan/solver` → `/planung/solver`, `/verwaltung/stundenplan` →
+`/planung/stundenplan`, `/verwaltung/unterricht/zeitwuensche` → `/planung/zeitwuensche`, `/verwaltung/unterricht` → `/planung/unterricht`,
+`/verwaltung/vertretungen` → `/planung/vertretungen`, `/verwaltung/aufsichten` → `/planung/aufsichten` (jeweils mit Unterpfaden). Demo ohne
+Rollen-Grants `verwaltung → manage/substitute`; E2E planen als `frank.schulte`. `/planung` ist bis SP-04 ein Wegweiser mit dem Hinweis zur
+Gruppe (Mitglieder trägt nur ein, wer beide Rechte hat – auf neuen Installationen der Admin). **Offen für die Projektleitung:** Lehraufträge
+aus der Kurswahl anlegen braucht `kurswahl.manage` **und** `stundenplan.manage` – in der Demo hat beides nur der Admin (Sekretariat wählt,
+Stundenplanung sieht die Kurswahl nicht); das Sekretariat sieht dort jetzt den Hinweis „legt die Stundenplanung an“.
+
 **Außenzugang:** bleibt wie für Lehrkräfte (Gerätezertifikat nach Schuleinstellung); die Planung ist **kein** Verwaltungsrecht im Sinne von
 S28 (keine Außen-Sperre). Begründung: Vertretungsplanung findet morgens um 7 Uhr auch von zu Hause statt.
 
@@ -250,7 +261,7 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 |---|---|---|---|---|---|---|
 | **SP-01** | Plan-Dokument, BACKLOG-Block, QUESTIONS, PLAN §0 (dieser PR) | S | Opus | – | – | – |
 | **SP-02** ✅ | Rechte: `stundenplan.substitute`, Gruppe „Stundenplanung“, Verwaltung ohne Vorgabe, Migration 0088, 2FA, Actions/Seiten/`open.ts`/Gebäude auf das passende Recht, Seed (Gruppe + `frank.schulte`, Schulleitung `substitute`), Rechte-Hinweis; Anrechnungsgrund „Stundenplanung“ | M | Opus | SP-01 | **0088** (Enum `reduction_reason` + Daten: Grants + Gruppe) | `permissions.test`, `registry.test`, `escalation.test`, `open-items.test`, `seed.test`, Migrationstest Grants |
-| **SP-03** | Bereich `/planung`: Layout, `@schulos/ui/sub-nav`, Umzug der sechs Seiten (`git mv`), Nav-Eintrag, Eyebrow, `revalidatePath`/`redirect`-Pfade, `redirects()` in `next.config.ts`, Verwaltung ohne die vier Reiter, E2E/a11y/Unit-Tests auf neue URLs, CLAUDE.md/README Demo-Login | L | Opus | SP-02 | – | `npm run verify`; E2E „alte URL leitet weiter“, „Sekretariat sieht `/planung` nicht“ |
+| **SP-03** ✅ | Bereich `/planung`: Layout, `@schulos/ui/sub-nav`, Umzug der sechs Seiten (`git mv`), Nav-Eintrag, Eyebrow, `revalidatePath`/`redirect`-Pfade, `redirects()` in `next.config.ts`, Verwaltung ohne die vier Reiter, E2E/a11y/Unit-Tests auf neue URLs, CLAUDE.md/README Demo-Login | L | Opus | SP-02 | – | `npm run verify`; E2E „alte URL leitet weiter“, „Sekretariat sieht `/planung` nicht“ |
 | **SP-04** | Übersicht `/planung` (Kacheln aus vorhandenen Services, Links, Leerzustände), Kachel in der Verwaltungs-Übersicht, mobiler Durchgang der Planungsseiten mit `shot.mjs --mobile` | S | Opus | SP-03 | – | Service-Test der Kachel-Zahlen, E2E Übersicht, a11y-Pfade |
 | **SP-05** | Rechte- statt Rollen-Gates: `isStaffRole()` in `core/roles.ts`, `stundenplan/page.tsx` und `raeume/page.tsx` ohne `STAFF`-Liste, Sperren-Reiter an `substitute` | S | Opus | SP-02 | – | `registry.test` (Navigation), E2E „Personal sieht Wochenplan/Räume“ |
 | **SP-06** (**Kern**) | Solver-Läufe Datenmodell + Ausführung: Migration 0089 bzw. nächste freie Nummer (`label`, `params`, `metrics`, `log`, `cancel_requested`, `heartbeat_at`, `applied_by`/`applied_at`, `undo`, Status `queued`/`cancelled`, `timetable_lessons.solver_run_id`), Zeitscheiben statt fester Blöcke, Heartbeat-Sperre, Warteschlange, Abbruch, Startup (queued weiter, running → failed), Validierung vor dem Start, Nachtjob `solver-aufraeumen`, Messung der Antwortzeiten während eines Laufs. **Aus der Gap-Analyse (§6.3):** Einheiten-/`result`-Format bandfähig (`units[].parts[]`, Q-SP-13), Machbarkeits-Vorprüfung + konkrete Gründe „nicht gesetzt“ (SP-G-03), Doppelstunde nicht über große Pause/Mittag (SP-G-04a), Warnung „Kurse mit Lehrauftrag ohne Mitglieder“ (SP-G-13), Warnung vor A/B-Stunden mit Lehrauftrag, synthetischer Groß-Benchmark (SP-G-15) | M | **Fable** | SP-03 | **0089** (oder nächste freie) | `solverlauf.test` (Warteschlange, Abbruch vor/nach Konstruktion, Heartbeat, Aufräumen, Validierung, Vorprüfung), `solver.test` (Doppelstunde über Pause, Gründe je Einheit, `parts`), Benchmark-Test, `retention.test` |
@@ -262,7 +273,7 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | **SP-11** | E2E-Szenario „Stundenplaner:in“ (Login `frank.schulte` → Übersicht → Lauf mit Parametern → Abbruch → zweiter Lauf → Vergleich → Übernahme ab Stichtag → zurücknehmen; **Vertretung mit Fachtausch**; Sekretariat 404 auf `/planung`; alte URLs leiten weiter) + **Review-PR GATE SP** (erledigte IDs, Tests, Fragen) | S | Opus | SP-10, SP-12 | – | `e2e/zx-gate-sp.spec.ts` |
 | **GATE SP** | Review mit der Projektleitung (Review-PR aus SP-11; `/code-review ultra` nach Wunsch) – merged nur die Projektleitung | – | – | SP-11 | – | – |
 
-Reihenfolge: SP-02 ✅ → SP-03 → SP-04 (SP-05 parallel) → SP-06 ‖ SP-12 → SP-07 → SP-08 ‖ SP-09 → SP-10 → SP-11 → **GATE SP**.
+Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 (SP-05 parallel) → SP-06 ‖ SP-12 → SP-07 → SP-08 ‖ SP-09 → SP-10 → SP-11 → **GATE SP**.
 Parallelisierbar: SP-05 neben SP-03; SP-12 neben SP-06/SP-07 (kein Solver-Kern, berührt nur das Tagesgeschäft); SP-08 neben SP-09.
 Migrationsnummern werden in der Reihenfolge des Mergens vergeben (SP-06 und SP-12 nehmen jeweils die nächste freie Nummer).
 Zwischenstand zum Melden nach SP-04 (Bereich steht, Verwaltung aufgeräumt) und nach SP-07 (Läufe bedienbar). Release-Vorschlag nach

@@ -59,8 +59,8 @@ test("P4-74/Q5-12: Lehrkraft meldet Abwesenheit, hinterlegt Material, Schulleitu
   await logoutForSwitch(page);
 
   // Planung sieht die Selbstmeldung (ohne dass der Grund im Gong steht)
-  await login(page, "sabine.kowalski");
-  await page.goto(`/verwaltung/vertretungen?datum=${mo}`);
+  await login(page, "frank.schulte");
+  await page.goto(`/planung/vertretungen?datum=${mo}`);
   await expect(page.getByRole("list", { name: "Abwesenheiten" })).toContainText("selbst gemeldet");
   await logoutForSwitch(page);
 

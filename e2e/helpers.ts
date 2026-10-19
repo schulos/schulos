@@ -44,7 +44,7 @@ export function collectErrors(page: Page): string[] {
 }
 
 /**
- * Q5-11: Die Demo-Schule veröffentlicht den Vertretungsplan erst nach Freigabe. Auf Verwaltung → Vertretungen: ist der
+ * Q5-11: Die Demo-Schule veröffentlicht den Vertretungsplan erst nach Freigabe. Auf Stundenplanung → Vertretungen: ist der
  * angezeigte Tag ein Entwurf, ihn veröffentlichen (sonst sehen Schüler:innen/Monitor die Änderung nicht und es gibt keinen Gong).
  */
 export async function publishIfDraft(page: Page) {

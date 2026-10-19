@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, publishIfDraft } from "./helpers";
 
-test("Verwaltung pflegt den Stundenplan und bekommt Kollisionen gemeldet", async ({ page }) => {
+test("Stundenplanung pflegt den Stundenplan und bekommt Kollisionen gemeldet", async ({ page }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung");
-  await page.getByRole("navigation", { name: "Verwaltung" }).getByRole("link", { name: "Stundenplan", exact: true }).click();
+  await login(page, "frank.schulte");
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("link", { name: "Stundenplanung" }).click();
+  await page.getByRole("navigation", { name: "Stundenplanung" }).getByRole("link", { name: "Stundenplan", exact: true }).click();
   await page.getByLabel("Klasse oder Kurs").selectOption({ label: "Klasse 7b" });
   await page.getByRole("button", { name: "Anzeigen" }).click();
 
@@ -40,7 +40,7 @@ test("Verwaltung pflegt den Stundenplan und bekommt Kollisionen gemeldet", async
 
 test("Schüler:innen erreichen die Pflege nicht", async ({ page }) => {
   await login(page, "lea.schaefer");
-  const res = await page.goto("/verwaltung/stundenplan");
+  const res = await page.goto("/planung/stundenplan");
   expect(res?.status()).toBe(404);
 });
 
@@ -98,9 +98,9 @@ function addDaysYmd(ymd: string, days: number): string {
 test("Vertretung eintragen: Klasse bekommt Gong und sieht die Stunde orange im Plan", async ({ page, browser }) => {
   const errors = collectErrors(page);
   const date = mondayInTwoWeeks();
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung");
-  await page.getByRole("navigation", { name: "Verwaltung" }).getByRole("link", { name: "Vertretungen" }).click();
+  await login(page, "frank.schulte");
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("link", { name: "Stundenplanung" }).click();
+  await page.getByRole("navigation", { name: "Stundenplanung" }).getByRole("link", { name: "Vertretungen" }).click();
   await page.getByLabel("Datum").fill(date);
   await page.getByLabel("oder Klasse/Kurs").selectOption({ label: "Klasse 7b" });
   await page.getByRole("button", { name: "Anzeigen" }).click();
@@ -151,8 +151,8 @@ test("Vertretungsplan zeigt Änderungen nach Klasse, eigene Klasse zuerst", asyn
 
 test("Kopplung: geteilte Klasse und eine Lehrkraft für zwei Klassen", async ({ page }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/stundenplan?gruppe=g-7b");
+  await login(page, "frank.schulte");
+  await page.goto("/planung/stundenplan?gruppe=g-7b");
   await page.getByRole("link", { name: "Stunde anlegen: Fr 8. Stunde" }).click();
   await page.getByRole("link", { name: "Stattdessen Kopplung anlegen" }).click();
   await expect(page.getByRole("heading", { name: "Kopplung anlegen · Klasse 7b" })).toBeVisible();
@@ -188,7 +188,7 @@ test("Kopplung: geteilte Klasse und eine Lehrkraft für zwei Klassen", async ({ 
 
   // Vertretung für RIC in der 7a gilt auch für die 7b (gleiche Lehrkraft in der Kopplung)
   const friday = addDaysYmd(mondayInTwoWeeks(), 4);
-  await page.goto("/verwaltung/vertretungen");
+  await page.goto("/planung/vertretungen");
   await page.getByLabel("Datum").fill(friday);
   await page.getByLabel("oder Klasse/Kurs").selectOption({ label: "Klasse 7a" });
   await page.getByRole("button", { name: "Anzeigen" }).click();
@@ -201,7 +201,7 @@ test("Kopplung: geteilte Klasse und eine Lehrkraft für zwei Klassen", async ({ 
   await expect(page.getByRole("row", { name: /Klasse 7b.*Vertretung/ })).toBeVisible();
 
   // ganze Kopplung löschen
-  await page.goto("/verwaltung/stundenplan?gruppe=g-7b");
+  await page.goto("/planung/stundenplan?gruppe=g-7b");
   await cell.click();
   await expect(page.getByRole("heading", { name: "Kopplung bearbeiten · Klasse 7b" })).toBeVisible();
   await page.getByRole("button", { name: "Kopplung löschen" }).click();
@@ -211,8 +211,8 @@ test("Kopplung: geteilte Klasse und eine Lehrkraft für zwei Klassen", async ({ 
 
 test("Raumvorschlag beim Setzen: Fachraum nach Raumwunsch, sonst Stammraum der Klasse", async ({ page }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/stundenplan?gruppe=g-7b");
+  await login(page, "frank.schulte");
+  await page.goto("/planung/stundenplan?gruppe=g-7b");
   await page.getByRole("link", { name: "Stunde anlegen: Fr 8. Stunde" }).click();
   await page.getByLabel("Fach", { exact: true }).selectOption({ label: "Biologie" });
   await expect(page.getByLabel("Raum")).toHaveValue("NW1");
@@ -227,16 +227,16 @@ test("Raumvorschlag beim Setzen: Fachraum nach Raumwunsch, sonst Stammraum der K
 
 test("Setzhilfe: offene Stunden setzen, belegte Felder mit Grund, Stunde tauschen", async ({ page }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
+  await login(page, "frank.schulte");
   // neuer Lehrauftrag ohne Stunden im Plan
-  await page.goto("/verwaltung/unterricht?gruppe=g-6b&neu=1");
+  await page.goto("/planung/unterricht?gruppe=g-6b&neu=1");
   await page.getByLabel("Fach").selectOption({ label: "Französisch" });
   await page.getByLabel("Wochenstunden").fill("2");
   await page.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: "WAG – Sophie Wagner" });
   await page.getByRole("button", { name: "Speichern" }).click();
   await expect(page).not.toHaveURL(/neu=/);
 
-  await page.goto("/verwaltung/stundenplan?gruppe=g-6b");
+  await page.goto("/planung/stundenplan?gruppe=g-6b");
   const panel = page.getByRole("article", { name: "Offene Stunden" });
   await panel.getByRole("link", { name: "Setzen: Französisch · WAG, 2 von 2 offen" }).click();
   await expect(page).toHaveURL(/setzen=/);
@@ -334,7 +334,7 @@ test("Räume: Raumsuche mit Filtern, Belegung aller Räume mit Auslastung; nur P
 
 test("Raumsperrung: betroffene Stunden mit Ausweichraum verlegen, Belegung zeigt gesperrt, aufheben", async ({ page }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
+  await login(page, "frank.schulte");
   await page.goto("/stundenplan/raeume");
   await page.getByRole("link", { name: "Sperrungen" }).click();
   const form = page.getByRole("form", { name: "Raum sperren" });
@@ -375,13 +375,13 @@ test("Raumsperrung: betroffene Stunden mit Ausweichraum verlegen, Belegung zeigt
 test("Automatisch planen: Stunde fixieren, Lauf mit Fortschritt, Bewertung und Vorschau, Übernahme prüft den Stichtag", async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/stundenplan?gruppe=g-7b");
+  await login(page, "frank.schulte");
+  await page.goto("/planung/stundenplan?gruppe=g-7b");
   await page.getByRole("link", { name: /^Deutsch BRA/ }).first().click();
   await page.getByRole("button", { name: "Fixieren" }).click();
   await expect(page.getByText("fixiert", { exact: true }).first()).toBeVisible();
 
-  await page.getByRole("link", { name: "Automatisch planen" }).click();
+  await page.getByRole("main").getByRole("link", { name: "Automatisch planen" }).click();
   await expect(page.getByRole("heading", { name: "Automatisch planen", level: 1 })).toBeVisible();
   await expect(page.getByText(/Fixierte Stunden \(1\)/)).toBeVisible();
   await page.getByLabel("Gründlichkeit").selectOption("schnell");
@@ -403,7 +403,7 @@ test("Automatisch planen: Stunde fixieren, Lauf mit Fortschritt, Bewertung und V
   await apply.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
   await expect(page.getByRole("alert").filter({ hasText: /Stichtag/ })).toBeVisible();
 
-  await page.goto("/verwaltung/stundenplan?gruppe=g-7b");
+  await page.goto("/planung/stundenplan?gruppe=g-7b");
   await page.getByRole("link", { name: /^Deutsch BRA.*fixiert/ }).first().click();
   await page.getByRole("button", { name: "Lösen" }).click();
   await expect(page.getByText("fixiert", { exact: true })).toHaveCount(0);
@@ -412,8 +412,8 @@ test("Automatisch planen: Stunde fixieren, Lauf mit Fortschritt, Bewertung und V
 
 test("Periode kopieren: Halbjahreswechsel ab Stichtag, Plan ab Stichtag ändern ohne den laufenden", async ({ page }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/stundenplan");
+  await login(page, "frank.schulte");
+  await page.goto("/planung/stundenplan");
   const card = page.getByRole("article", { name: "Neue Periode (Halbjahreswechsel)" });
   await card.getByLabel("Stichtag").fill("2026-01-01");
   await card.getByRole("button", { name: "Vorschau" }).click();

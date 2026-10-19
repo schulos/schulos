@@ -31,6 +31,8 @@ export default defineModule({
     { href: "/stundenplan/abwesenheit", label: "Abwesenheit melden", icon: "CalendarX", roles: ["lehrkraft"] },
     // Q5-10: eigene Zeitwünsche, im Eingabefenster der Planung selbst eintragen
     { href: "/stundenplan/zeitwuensche", label: "Zeitwünsche", icon: "CalendarCheck", roles: ["lehrkraft"] },
+    // SP-03: eigener Bereich für die Planung (Jahresplanung und Tagesgeschäft) – nicht mehr unter Verwaltung
+    { href: "/planung", label: "Stundenplanung", icon: "CalendarCog", requires: ["stundenplan.manage", "stundenplan.substitute"] },
   ],
   settings: STUNDENPLAN_SETTINGS,
   retention: [

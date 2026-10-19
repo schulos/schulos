@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { collectErrors, login } from "./helpers";
 
-test.describe("Verwaltung · Unterrichtsverteilung", () => {
+test.describe("Stundenplanung · Unterrichtsverteilung", () => {
   test("Soll/verplant je Klasse und Lehrkraft, Lehrauftrag anlegen, Fehler, löschen", async ({ page }) => {
     const errors = collectErrors(page);
-    await login(page, "sabine.kowalski");
-    await page.goto("/verwaltung");
-    await page.getByRole("navigation", { name: "Verwaltung" }).getByRole("link", { name: "Unterrichtsverteilung" }).click();
+    await login(page, "frank.schulte");
+    await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("link", { name: "Stundenplanung" }).click();
+    await page.getByRole("navigation", { name: "Stundenplanung" }).getByRole("link", { name: "Unterrichtsverteilung" }).click();
     await expect(page.getByRole("heading", { name: "Unterrichtsverteilung", level: 1 })).toBeVisible();
     // Demo: alle Stunden haben einen Lehrauftrag
     await expect(page.getByRole("button", { name: /Aus Stundenplan übernehmen/ })).toHaveCount(0);
@@ -57,8 +57,8 @@ test.describe("Verwaltung · Unterrichtsverteilung", () => {
 
   test("Deputat: Pflichtstunden, Ermäßigung, Saldo", async ({ page }) => {
     const errors = collectErrors(page);
-    await login(page, "sabine.kowalski");
-    await page.goto("/verwaltung/unterricht?ansicht=lehrkraefte");
+    await login(page, "frank.schulte");
+    await page.goto("/planung/unterricht?ansicht=lehrkraefte");
     await expect(page.getByRole("heading", { name: "Deputatskonto je Lehrkraft" })).toBeVisible();
     // Demo: KLE hat 3 Std. Koordination → Soll 22,5 von 25,5
     const kle = page.getByRole("row").filter({ has: page.getByRole("link", { name: "KLE", exact: true }) });
@@ -96,8 +96,8 @@ test.describe("Verwaltung · Unterrichtsverteilung", () => {
 
   test("Diagnose: Prüfungen, Filter, Links; Plan-Hinweise in der Pflege", async ({ page }) => {
     const errors = collectErrors(page);
-    await login(page, "sabine.kowalski");
-    await page.goto("/verwaltung/unterricht");
+    await login(page, "frank.schulte");
+    await page.goto("/planung/unterricht");
     await page.getByRole("link", { name: "Diagnose", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Diagnose", level: 2 })).toBeVisible();
     const checks = page.getByRole("navigation", { name: "Prüfungen" });
@@ -119,7 +119,7 @@ test.describe("Verwaltung · Unterrichtsverteilung", () => {
     await expect(page.getByRole("heading", { name: "WAG · Sophie Wagner" })).toBeVisible();
 
     // Pflege-Seite der 7b zeigt die Plan-Hinweise der Klasse
-    await page.goto("/verwaltung/stundenplan?gruppe=g-7b");
+    await page.goto("/planung/stundenplan?gruppe=g-7b");
     const diag = page.getByRole("region", { name: "Diagnose" });
     await expect(diag.getByText("Raum ungeeignet:")).toBeVisible();
     await diag.getByRole("link", { name: "Diagnose der ganzen Schule" }).click();
@@ -130,9 +130,9 @@ test.describe("Verwaltung · Unterrichtsverteilung", () => {
 
 test("Zeitwünsche: Raster für eine Lehrkraft speichern, gesperrt bleibt erhalten, Übersicht", async ({ page }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/unterricht");
-  await page.getByRole("link", { name: "Zeitwünsche" }).click();
+  await login(page, "frank.schulte");
+  await page.goto("/planung/unterricht");
+  await page.getByRole("main").getByRole("link", { name: "Zeitwünsche" }).click();
   await expect(page.getByRole("heading", { name: "Zeitwünsche", level: 1 })).toBeVisible();
   await page.getByLabel("Lehrkraft").selectOption({ label: "WAG – Sophie Wagner" });
   await page.getByRole("button", { name: "Anzeigen" }).click();
