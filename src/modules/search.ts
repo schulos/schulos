@@ -2,6 +2,7 @@
 import type { SearchProvider } from "@/core/search";
 import { adressbuchSearch } from "./adressbuch/search";
 import { aufgabenSearch } from "./aufgaben/search";
+import { buechereiSearch } from "./buecherei/search";
 import { forenSearch } from "./foren/search";
 import { gebaeudeSearch } from "./gebaeude/search";
 import { kalenderSearch } from "./kalender/search";
@@ -22,4 +23,5 @@ export const SEARCH_PROVIDERS: readonly SearchProvider[] = [
   sprechtagSearch,
   sitzplanSearch,
   notenbuchSearch,
+  buechereiSearch,
 ];

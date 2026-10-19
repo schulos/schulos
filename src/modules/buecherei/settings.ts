@@ -45,4 +45,27 @@ export const MAX_RENEWALS = defineSetting({
   default: "2",
 });
 
-export const BUECHEREI_SETTINGS: readonly ModuleSettingDecl[] = [...MEDIA_TYPES.map((m) => LOAN_DAYS[m]), MAX_RENEWALS];
+/** BU-03: Wie lange ein zurückgekommenes Exemplar für die vormerkende Person bereitliegt (`buecherei.hold_days`). */
+export const HOLD_DAYS = defineSetting({
+  key: "buecherei.hold_days",
+  label: "Abholfrist bei Vormerkungen",
+  help: "So lange liegt ein zurückgegebenes Exemplar für die Person bereit, die es vorgemerkt hat (letzter Tag auf den nächsten Schultag verschoben). Danach rückt die nächste Vormerkung nach.",
+  options: [3, 5, 7, 10, 14].map((d) => ({ value: String(d), label: dayLabel(d) })),
+  default: "7",
+});
+
+/** BU-03: Wie viele Titel eine Person gleichzeitig vormerken kann (`buecherei.max_reservations`). */
+export const MAX_RESERVATIONS = defineSetting({
+  key: "buecherei.max_reservations",
+  label: "Vormerkungen je Person",
+  help: "Höchstzahl gleichzeitiger Vormerkungen; „keine“ schaltet das Vormerken aus.",
+  options: [
+    { value: "0", label: "keine" },
+    { value: "3", label: "3" },
+    { value: "5", label: "5" },
+    { value: "10", label: "10" },
+  ],
+  default: "5",
+});
+
+export const BUECHEREI_SETTINGS: readonly ModuleSettingDecl[] = [...MEDIA_TYPES.map((m) => LOAN_DAYS[m]), MAX_RENEWALS, HOLD_DAYS, MAX_RESERVATIONS];

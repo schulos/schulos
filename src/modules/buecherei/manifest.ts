@@ -18,14 +18,21 @@ export default defineModule({
     "buecherei.stock": "Bestand pflegen: Titel und Exemplare anlegen, ändern, importieren und aussondern",
     "buecherei.materials": "Schulbuchausleihe (Lernmittel) organisieren, Befunde bei der Rückgabe und Ersatzforderungen bearbeiten",
   },
+  // BU-03 (Projektleitung 2026-10-19): ausleihen dürfen alle Rollen außer Eltern und Admin
   defaultGrants: {
     schueler: ["buecherei.use"],
     lehrkraft: ["buecherei.use"],
+    personal: ["buecherei.use"],
+    beratung: ["buecherei.use"],
     verwaltung: ["buecherei.use", "buecherei.desk", "buecherei.stock", "buecherei.materials"],
   },
-  // BU-02: Leihfrist je Medienart, Verlängerungen
+  // BU-02: Leihfrist je Medienart, Verlängerungen; BU-03: Abholfrist, Vormerkungen je Person
   settings: BUECHEREI_SETTINGS,
-  nav: [{ href: "/buecherei", label: "Bücherei", requires: ["buecherei.desk", "buecherei.stock"] }],
+  nav: [
+    { href: "/buecherei", label: "Bücherei", requires: ["buecherei.use", "buecherei.desk", "buecherei.stock"] },
+    // BU-03: Eltern sehen Ausleihen und Vormerkungen ihrer Kinder (nur lesend)
+    { href: "/buecherei/meine", label: "Bücherei", roles: ["eltern"] },
+  ],
   retention: [
     {
       table: "buecherei_loans",
@@ -55,6 +62,14 @@ export default defineModule({
       start: "user_id",
       note: "Ersatz bei Verlust löscht den alten Code; geht mit dem Konto",
     },
+    {
+      table: "buecherei_reservations",
+      purpose: "Vormerkung eines ganz ausgeliehenen Titels; Benachrichtigung, wenn ein Exemplar bereitliegt",
+      categories: ["Konto", "Titel", "vorgemerkt am", "bereit seit / Abholfrist"],
+      class: "LK-90",
+      start: "created_at",
+      note: "Ausleihe an die Person, Ablauf der Abholfrist oder Löschen durch die Person entfernt die Vormerkung sofort (kein Verlauf); spätestens nach 90 Tagen; geht mit dem Konto",
+    },
   ],
   processing: {
     title: "Schulbücherei: Ausleihe",
@@ -63,7 +78,8 @@ export default defineModule({
     recipients: [
       "Büchereiteam an der Theke (Recht „Theke“, auch Schüler-Helfer:innen): nur Name, Klasse und offene Ausleihen der Person",
       "Verwaltung mit „Schulbuchausleihe“: Rückgaben mit Befund",
+      "die Person selbst („Meine Ausleihen“: offene Ausleihen und Vormerkungen), Eltern minderjähriger Schüler:innen lesend",
     ],
-    note: "Kein Ausleihverlauf je Person: Die Rückgabe ohne Befund löscht die Ausleihe sofort, es bleiben nur Zähler je Monat und Medienart ohne Personenbezug. Ausleihe und Rückgabe stehen nicht im Audit-Log, nur Befunde. Büchereiausweise tragen Name, Klasse und einen zufälligen Code ohne Namen oder Kontonummer; Ersatz macht den alten Code ungültig. Keine Leseempfehlungen oder Auswertungen aus dem Ausleihverhalten.",
+    note: "Kein Ausleihverlauf je Person: Die Rückgabe ohne Befund löscht die Ausleihe sofort, es bleiben nur Zähler je Monat und Medienart ohne Personenbezug. Ausleihe und Rückgabe stehen nicht im Audit-Log, nur Befunde. Büchereiausweise tragen Name, Klasse und einen zufälligen Code ohne Namen oder Kontonummer; Ersatz macht den alten Code ungültig. Vormerkungen nur für ganz ausgeliehene Titel; andere sehen nur ihre Zahl, keine Namen – auch die Theke nicht (sie erfährt nur „liegt für eine andere Person bereit“). Keine Leseempfehlungen oder Auswertungen aus dem Ausleihverhalten.",
   },
 });

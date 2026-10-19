@@ -111,3 +111,30 @@ export const buechereiCards = pgTable("buecherei_cards", {
   code: text("code").notNull().unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Vormerkung (BU-03): Person wartet auf einen Titel, dessen Exemplare alle ausgeliehen sind; Reihenfolge nach `created_at`.
+ * Kommt ein Exemplar zurück, wird die erste wartende Vormerkung „bereit“ (`ready_on`, Abholfrist `hold_until`, Gong). Die
+ * Ausleihe an die Person erfüllt sie (Zeile weg), abgelaufene Abholfrist oder Löschen durch die Person ebenso – kein Verlauf.
+ * Spätestens nach LK-90 gelöscht; geht mit dem Konto (Kaskade).
+ */
+export const buechereiReservations = pgTable(
+  "buecherei_reservations",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    titleId: text("title_id")
+      .notNull()
+      .references(() => buechereiTitles.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Tag, an dem ein Exemplar für die Person zurückgelegt wurde (Gong); bis dahin wartend */
+    readyOn: date("ready_on"),
+    /** letzter Abholtag; danach verfällt die Vormerkung und die nächste rückt nach */
+    holdUntil: date("hold_until"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("buecherei_reservations_title_user_idx").on(t.titleId, t.userId), index("buecherei_reservations_user_idx").on(t.userId)],
+);

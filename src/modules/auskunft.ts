@@ -2,6 +2,7 @@
 // (z. B. Teilnoten mit Spalten-ID), liefern hier eine verständliche Zusammenstellung. Neue Module tragen sich hier ein.
 import type { Db } from "@/core/db/client";
 import type { PermissionSet } from "@/core/permissions";
+import { buechereiAuskunft } from "./buecherei/auskunft";
 import { notenbuchAuskunft } from "./notenbuch/auskunft";
 
 export interface ReadableSection {
@@ -35,4 +36,4 @@ export interface ReadableExport {
   restricted?: RestrictedPart;
 }
 
-export const READABLE_EXPORTS: readonly ReadableExport[] = [notenbuchAuskunft];
+export const READABLE_EXPORTS: readonly ReadableExport[] = [notenbuchAuskunft, buechereiAuskunft];

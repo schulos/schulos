@@ -13,6 +13,8 @@ async function anmelden(page: Page, id: string, first: string, ip: string, time 
 }
 
 test("P4-78/P4-78b: Sekretariat markiert Spam-Verdacht, Schulleitung bestätigt gesammelt – ohne Mail", async ({ page }) => {
+  // drei Anmeldungen mit je 5 s Mindestdauer (Bot-Schutz) + zwei Logins: lag mit ~30 s genau an der Standardgrenze
+  test.setTimeout(60_000);
   const id = await createOpenVerfahren(page, "E2E Spam Klasse 5", "2030-03-12");
   await anmelden(page, id, "Bot", "198.51.100.78");
   await anmelden(page, id, "Robo", "198.51.100.79");

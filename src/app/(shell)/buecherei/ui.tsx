@@ -1,9 +1,14 @@
 import Link from "next/link";
 import type { PermissionSet } from "@/core/permissions";
+import type { CatalogRow } from "@/modules/buecherei/katalog";
+import { Badge } from "@schulos/ui/badge";
+import { canUse } from "@/modules/buecherei/katalog";
 import { canDesk } from "@/modules/buecherei/loans";
 import { canStock } from "@/modules/buecherei/service";
 
 const SECTIONS = [
+  { key: "katalog", href: "/buecherei/katalog", label: "Katalog", allowed: canUse },
+  { key: "meine", href: "/buecherei/meine", label: "Meine Ausleihen", allowed: (p: PermissionSet) => canUse(p) || p.role === "eltern" },
   { key: "theke", href: "/buecherei/theke", label: "Theke", allowed: canDesk },
   { key: "bestand", href: "/buecherei/bestand", label: "Bestand", allowed: canStock },
   { key: "ausweise", href: "/buecherei/ausweise", label: "Ausweise", allowed: canDesk },
@@ -11,7 +16,7 @@ const SECTIONS = [
 
 export type BuechereiSection = (typeof SECTIONS)[number]["key"];
 
-/** Bereiche der Bücherei nach Recht (Theke und Ausweise: `desk`, Bestand: `stock`). */
+/** Bereiche der Bücherei nach Recht (Katalog: `use`, Meine Ausleihen: `use` oder Eltern, Theke und Ausweise: `desk`, Bestand: `stock`). */
 export function BuechereiNav({ current, perms }: { current: BuechereiSection; perms: PermissionSet }) {
   const visible = SECTIONS.filter((s) => s.allowed(perms));
   if (visible.length < 2) return null;
@@ -37,3 +42,24 @@ export function BuechereiNav({ current, perms }: { current: BuechereiSection; pe
     </nav>
   );
 }
+
+const shortDay = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
+const dayShort = (ymd: string) => shortDay.format(new Date(`${ymd}T00:00:00Z`));
+
+/** Verfügbarkeit ohne Personenbezug: frei im Regal, sonst nächste Rückgabe und Zahl der Vormerkungen. */
+export function AvailabilityBadge({ t }: { t: Pick<CatalogRow, "shelf" | "active" | "nextDue" | "waiting" | "ready"> }) {
+  if (t.shelf > 0)
+    return (
+      <Badge tone="success">
+        {t.shelf} von {t.active} im Regal
+      </Badge>
+    );
+  const queue = t.waiting + t.ready;
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      <Badge tone="warn">ausgeliehen{t.nextDue ? ` · zurück ab ${dayShort(t.nextDue)}` : ""}</Badge>
+      {queue > 0 && <span className="text-xs text-muted">{queue === 1 ? "1 Vormerkung" : `${queue} Vormerkungen`}</span>}
+    </span>
+  );
+}
+
