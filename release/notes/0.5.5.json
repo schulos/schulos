@@ -1,0 +1,9 @@
+{
+  "minVersion": "0.4.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Konferenzlink im Kursraum: je Gruppe kann ein Link auf einen externen Konferenzraum hinterlegt werden (mit Hinweis „externer Dienst“); einschalten unter Module → Kurse" },
+    { "kind": "behoben", "text": "Installer: Logo und Markierungen wurden unter manchen Hypervisoren als Ersatzzeichen dargestellt, weil die Konsolenschrift nach dem Start ausgetauscht wurde" },
+    { "kind": "verbessert", "text": "Installer: das Bootmenü-Passwort bekommt einen eigenen Bildschirm und muss mit den letzten vier Zeichen bestätigt werden, damit es nicht untergeht" }
+  ]
+}
