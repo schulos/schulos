@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
-import { Field, Input, Select } from "@schulos/ui/field";
+import { Field, FieldActions, Input, Select } from "@schulos/ui/field";
 
 type Option = { value: string; label: string };
 
@@ -47,7 +47,7 @@ export function AbsenceForm({
         key={JSON.stringify(state.values ?? null) + String(state.ok ?? "")}
         action={formAction}
         aria-label="Abwesenheit eintragen"
-        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end"
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
       >
         {who === "teacher" ? (
           <Field label="Lehrkraft" error={fe.target}>
@@ -111,9 +111,11 @@ export function AbsenceForm({
         <Field label="Ergänzung" hint="ohne Gesundheitsangaben" error={fe.note}>
           <Input name="note" maxLength={80} defaultValue={v.note ?? ""} />
         </Field>
-        <Button type="submit" variant="primary" disabled={pending}>
-          Abwesenheit eintragen
-        </Button>
+        <FieldActions>
+          <Button type="submit" variant="primary" disabled={pending}>
+            Abwesenheit eintragen
+          </Button>
+        </FieldActions>
         {state.error && (
           <p role="alert" className="text-sm text-danger sm:col-span-2 lg:col-span-4">
             {state.error}

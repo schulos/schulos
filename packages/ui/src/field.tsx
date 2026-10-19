@@ -61,3 +61,19 @@ export function Field({
     </div>
   );
 }
+
+/**
+ * Knopfzeile in einem mehrspaltigen Formular-Raster aus `Field`s. Solche Raster richten sich oben aus (kein
+ * `items-end`): Felder mit und ohne Hinweis/Fehler stehen dann auf einer Linie (#16). Ein leerer Platzhalter in
+ * Label-Höhe setzt den Knopf auf Höhe der Eingabefelder; einspaltig (mobil) entfällt er.
+ */
+export function FieldActions({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex flex-col gap-1.5", className)}>
+      <span aria-hidden="true" className="hidden text-sm font-medium sm:block">
+        &nbsp;
+      </span>
+      <div className="flex min-h-11 flex-wrap items-center gap-3">{children}</div>
+    </div>
+  );
+}
