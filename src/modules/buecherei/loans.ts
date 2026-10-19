@@ -9,10 +9,10 @@ import { de } from "@/core/db/sort";
 import { buechereiCopies, buechereiLoans, buechereiStats, buechereiTitles, groupMembers, groups, schoolClosures, users } from "@/core/db/schema";
 import { readModuleSetting } from "@/core/modules/settings";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
-import type { Role } from "@/core/roles";
 import { addDays, weekdayMon0 } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { isValidCopyNumber, type MediaType } from "./labels";
+import { isCardCode, personByCard } from "./cards";
+import { BORROWER_ROLES, isValidCopyNumber, type MediaType } from "./labels";
 import { LOAN_DAYS, MAX_RENEWALS } from "./settings";
 
 export const canDesk = (p: PermissionSet) => hasPermission(p, "buecherei.desk");
@@ -23,8 +23,7 @@ function requireDesk(p: PermissionSet) {
   if (!canDesk(p)) throw new ForbiddenError("buecherei.desk");
 }
 
-/** Wer ausleihen kann: alle Konten der Schule außer Eltern und technischen Admin-Konten. */
-export const BORROWER_ROLES: readonly Role[] = ["schueler", "lehrkraft", "personal", "beratung", "verwaltung"];
+export { BORROWER_ROLES };
 
 export const MAX_FINDING_LENGTH = 200;
 
@@ -73,14 +72,15 @@ export interface Borrower {
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
-/** Klassen (aktive Klassengruppe) der Personen – „7b“ statt „Klasse 7b“. */
+/** Klassen (aktive Klassengruppe) von Schüler:innen – „7b“ statt „Klasse 7b“; Lehrkräfte als Gruppenmitglied zählen nicht. */
 async function classNamesOf(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
   if (!ids.length) return new Map();
   const rows = await db
     .select({ userId: groupMembers.userId, name: groups.name })
     .from(groupMembers)
     .innerJoin(groups, eq(groups.id, groupMembers.groupId))
-    .where(and(inArray(groupMembers.userId, [...ids]), eq(groups.kind, "klasse"), isNull(groups.archivedAt), eq(groupMembers.role, "member")));
+    .innerJoin(users, eq(users.id, groupMembers.userId))
+    .where(and(inArray(groupMembers.userId, [...ids]), eq(groups.kind, "klasse"), isNull(groups.archivedAt), eq(groupMembers.role, "member"), eq(users.role, "schueler")));
   return new Map(rows.map((r) => [r.userId, r.name.replace(/^Klasse /, "")]));
 }
 
@@ -94,7 +94,7 @@ export async function searchBorrowers(db: Db, viewer: PermissionSet, q: string):
   if (!words.length || words.join("").length < 2) return [];
   const conds: SQL[] = words.map((w) => {
     const like = `%${escapeLike(w)}%`;
-    return sql`(${users.name} ilike ${like} or exists (select 1 from group_members gm join groups g on g.id = gm.group_id where gm.user_id = ${users.id} and gm.role = 'member' and g.kind = 'klasse' and g.archived_at is null and (g.name ilike ${like} or g.slug = ${w.toLowerCase()})))`;
+    return sql`(${users.name} ilike ${like} or ${users.role} = 'schueler' and exists (select 1 from group_members gm join groups g on g.id = gm.group_id where gm.user_id = ${users.id} and gm.role = 'member' and g.kind = 'klasse' and g.archived_at is null and (g.name ilike ${like} or g.slug = ${w.toLowerCase()})))`;
   });
   const rows = await db
     .select({ id: users.id, name: users.name })
@@ -269,17 +269,23 @@ export async function renewLoan(db: Db, viewer: PermissionSet, loanId: string, t
 }
 
 export type ScanResult =
+  | { kind: "person"; userId: string }
   | { kind: "loan"; title: string; barcode: string; dueOn: string }
   | { kind: "return"; title: string; barcode: string; overdueDays: number; finding: boolean };
 
 /**
- * Ein Scan an der Theke: Exemplar ausgeliehen → Rückgabe (egal, welche Person gewählt ist); sonst Ausleihe an die gewählte
- * Person. Ohne gewählte Person geht nur die Rückgabe.
+ * Ein Scan an der Theke: Ausweis (BU-07) → diese Person wählen; Exemplar ausgeliehen → Rückgabe (egal, welche Person gewählt
+ * ist); sonst Ausleihe an die gewählte Person. Ohne gewählte Person geht nur die Rückgabe.
  */
 export async function scanAtDesk(db: Db, viewer: PermissionSet, rawCode: string, personId: string | null, today: string): Promise<ScanResult> {
   requireDesk(viewer);
   const code = normalizeScan(rawCode);
   if (!code) throw new ValidationError({ code: "Ausweis oder Exemplar scannen" });
+  if (isCardCode(code)) {
+    const userId = await personByCard(db, viewer, code);
+    if (!userId) throw new ValidationError({ code: "Ausweis unbekannt oder ersetzt – Person über die Suche wählen" });
+    return { kind: "person", userId };
+  }
   requireCopyNumber(code);
   const copy = await copyByBarcode(db, code);
   if (!copy) throw new ValidationError({ code: `Exemplar ${code} gibt es nicht` });

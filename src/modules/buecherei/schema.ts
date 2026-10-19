@@ -99,3 +99,15 @@ export const buechereiStats = pgTable(
   },
   (t) => [primaryKey({ columns: [t.month, t.mediaType] })],
 );
+
+/**
+ * Büchereiausweis (BU-07): je Konto höchstens ein pseudonymer, zufälliger Code (`K-` + 10 Zeichen) – keine Namen, keine
+ * Kontonummer darin. Ersatz bei Verlust löscht den alten Code. Gehört zum Konto (LK-KONTO, Kaskade).
+ */
+export const buechereiCards = pgTable("buecherei_cards", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  code: text("code").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

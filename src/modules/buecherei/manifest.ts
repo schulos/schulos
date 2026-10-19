@@ -47,6 +47,14 @@ export default defineModule({
       where: "returned_on is not null and finding_resolved_on is not null",
       note: "bleibt bis zur Erledigung, danach bis Schuljahresende + 1 Jahr",
     },
+    {
+      table: "buecherei_cards",
+      purpose: "Büchereiausweis: pseudonymer Code, mit dem die Theke die Person wählt",
+      categories: ["Konto", "zufälliger Ausweis-Code (ohne Namen oder Kontonummer)", "angelegt am"],
+      class: "LK-KONTO",
+      start: "user_id",
+      note: "Ersatz bei Verlust löscht den alten Code; geht mit dem Konto",
+    },
   ],
   processing: {
     title: "Schulbücherei: Ausleihe",
@@ -56,6 +64,6 @@ export default defineModule({
       "Büchereiteam an der Theke (Recht „Theke“, auch Schüler-Helfer:innen): nur Name, Klasse und offene Ausleihen der Person",
       "Verwaltung mit „Schulbuchausleihe“: Rückgaben mit Befund",
     ],
-    note: "Kein Ausleihverlauf je Person: Die Rückgabe ohne Befund löscht die Ausleihe sofort, es bleiben nur Zähler je Monat und Medienart ohne Personenbezug. Ausleihe und Rückgabe stehen nicht im Audit-Log, nur Befunde. Keine Leseempfehlungen oder Auswertungen aus dem Ausleihverhalten.",
+    note: "Kein Ausleihverlauf je Person: Die Rückgabe ohne Befund löscht die Ausleihe sofort, es bleiben nur Zähler je Monat und Medienart ohne Personenbezug. Ausleihe und Rückgabe stehen nicht im Audit-Log, nur Befunde. Büchereiausweise tragen Name, Klasse und einen zufälligen Code ohne Namen oder Kontonummer; Ersatz macht den alten Code ungültig. Keine Leseempfehlungen oder Auswertungen aus dem Ausleihverhalten.",
   },
 });

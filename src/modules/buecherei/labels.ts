@@ -1,5 +1,10 @@
 // Schulbücherei – Aufzählungen, Beschriftungen und reine Prüfungen (ISBN, Exemplarnummer). Abhängigkeitsfrei (auch für
-// Client-Komponenten und das Schema).
+// Client-Komponenten und das Schema; nur relative Typ-Imports).
+
+import type { Role } from "../../core/roles";
+
+/** Wer ausleihen kann (BU-02): alle Konten der Schule außer Eltern und technischen Admin-Konten. */
+export const BORROWER_ROLES: readonly Role[] = ["schueler", "lehrkraft", "personal", "beratung", "verwaltung"];
 
 export const MEDIA_TYPES = ["buch", "film", "spiel", "geraet", "sonstiges"] as const;
 export type MediaType = (typeof MEDIA_TYPES)[number];
