@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectErrors, login } from "./helpers";
+import { collectErrors, login, logoutForSwitch } from "./helpers";
 
 // SP-03 (docs/STUNDENPLAN-UMBAU.md §2.3): eigener Bereich „Stundenplanung“ unter /planung statt Reiter in der Verwaltung.
 
@@ -103,4 +103,33 @@ test("SP-04: Sekretariat ohne Planungsrecht bekommt keine Kachel „Stundenplanu
   await login(page, "sabine.kowalski");
   await page.goto("/verwaltung");
   await expect(page.getByRole("region", { name: "Kennzahlen" }).getByRole("link", { name: /Stundenplanung/ })).toHaveCount(0);
+});
+
+// SP-05: Rechte- statt Rollen-Gates im Stundenplan-Umfeld, Kurswahl lesend für die Stundenplanung
+
+test("SP-05: Personal und Beratung sehen Wochenpläne und Räume, Schüler:innen keine Räume", async ({ page }) => {
+  for (const user of ["klaus.berger", "nina.ostermann"]) {
+    await login(page, user);
+    await page.goto("/stundenplan");
+    await expect(page.getByRole("form", { name: "Plan wählen" }), user).toBeVisible();
+    expect((await page.goto("/stundenplan?gruppe=g-7b"))?.status(), user).toBe(200);
+    expect((await page.goto("/stundenplan/raeume?ansicht=belegung"))?.status(), user).toBe(200);
+    await expect(page.getByRole("heading", { name: "Räume", level: 1 })).toBeVisible();
+    // Klassenbuch bleibt Lehrkräften und Verwaltung vorbehalten (Schülerdaten)
+    expect((await page.goto("/klassenbuch"))?.status(), user).toBe(404);
+    await logoutForSwitch(page);
+  }
+  await login(page, "lea.schaefer");
+  expect((await page.goto("/stundenplan/raeume"))?.status()).toBe(404);
+});
+
+test("SP-05: Stundenplanung sieht die Kurswahlen lesend – ohne „Wahlverfahren anlegen“", async ({ page }) => {
+  const errors = collectErrors(page);
+  await login(page, "frank.schulte");
+  await page.getByRole("navigation", { name: "Hauptnavigation" }).getByRole("link", { name: "Kurswahlen" }).click();
+  await expect(page).toHaveURL("/kurswahl");
+  await expect(page.getByRole("heading", { name: "Kurswahlen", level: 1 })).toBeVisible();
+  await expect(page.getByRole("note").filter({ hasText: "Nur lesen" })).toBeVisible();
+  await expect(page.getByRole("form", { name: "Wahlverfahren anlegen" })).toHaveCount(0);
+  expect(errors).toEqual([]);
 });

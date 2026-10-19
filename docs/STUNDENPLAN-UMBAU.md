@@ -2,7 +2,7 @@
 
 > Stand: 2026-10-19 · Status: **Plan, zur Umsetzung freigegeben durch den Auftrag der Projektleitung** („Bereich Stundenpläne
 > managen komplett überarbeiten, eigene Rolle für die Stundenplaner, aus der Verwaltung herauslösen, selbstständig planen und
-> umsetzen; neue Funktionen nur die Solver-Läufe“). Aufgaben: `BACKLOG.md` SP-01 … SP-12 und Folgeblock SP2. Entscheidungen: `QUESTIONS.md` Q-SP-1 … Q-SP-16.
+> umsetzen; neue Funktionen nur die Solver-Läufe“). Aufgaben: `BACKLOG.md` SP-01 … SP-12 und Folgeblock SP2. Entscheidungen: `QUESTIONS.md` Q-SP-1 … Q-SP-17.
 > Ergänzt 2026-10-19 um die Gap-Analyse gegen verbreitete Stundenplan-Software (§6) und den Folgeblock „SP2 – Planungstiefe“ (§7).
 > Grundlage: `STUNDENPLAN.md` (Konzept Phase 2b), `FEINSCHLIFF.md` §7 (Stundenplaner:in), Code unter `src/modules/stundenplan/`.
 > `QUESTIONS.md`, `FEINSCHLIFF.md` und `LOG.md` sind Arbeitsdokumente und nicht im Repo veröffentlicht (VEROEFFENTLICHUNG.md); alle
@@ -143,7 +143,7 @@ Weiterleitungen in `next.config.ts` (307, Query bleibt): `/verwaltung/stundenpla
 `/planung/stundenplan`, `/verwaltung/unterricht/zeitwuensche` → `/planung/zeitwuensche`, `/verwaltung/unterricht` → `/planung/unterricht`,
 `/verwaltung/vertretungen` → `/planung/vertretungen`, `/verwaltung/aufsichten` → `/planung/aufsichten` (jeweils mit Unterpfaden). Demo ohne
 Rollen-Grants `verwaltung → manage/substitute`; E2E planen als `frank.schulte`. `/planung` ist bis SP-04 ein Wegweiser mit dem Hinweis zur
-Gruppe (Mitglieder trägt nur ein, wer beide Rechte hat – auf neuen Installationen der Admin). **Offen für die Projektleitung:** Lehraufträge
+Gruppe (Mitglieder trägt nur ein, wer beide Rechte hat – auf neuen Installationen der Admin). **(Entschieden in SP-05, siehe unten.)** Lehraufträge
 aus der Kurswahl anlegen braucht `kurswahl.manage` **und** `stundenplan.manage` – in der Demo hat beides nur der Admin (Sekretariat wählt,
 Stundenplanung sieht die Kurswahl nicht); das Sekretariat sieht dort jetzt den Hinweis „legt die Stundenplanung an“.
 
@@ -155,6 +155,21 @@ abgegeben x von y), letzter Solver-Lauf des Planungsjahres (Bewertung, nicht ges
 heute. Jede Kachel verlinkt auf den Reiter, Leerzustände je Kachel. Verwaltungs-Übersicht: Kachel „Stundenplanung öffnen“ bei einem der beiden
 Rechte. Mobiler Durchgang (`shot.mjs --mobile`) ohne nötige Korrekturen; a11y-Durchgang prüft jetzt auch Stundenplan, Unterrichtsverteilung,
 Zeitwünsche, Solver und Aufsichten (L-12 teilweise vorgezogen).
+
+**Umsetzungsstand SP-05 (2026-10-19):** Rollen-Gates im Stundenplan-Umfeld zentral in `src/core/roles.ts`: `isStaffRole()` /
+`STAFF_ROLES` (Lehrkraft, Personal, Beratung, Verwaltung, Admin – alle außer Schüler:innen und Eltern) und `isTeachingRole()` /
+`TEACHING_ROLES` (Lehrkraft, Verwaltung, Admin). Wochenpläne aller Klassen/Lehrkräfte/Räume (`seesAllPlans` in `service.ts`: Beschäftigte
+**oder** `stundenplan.manage`/`.substitute`), Planauswahl, Druck und Räume (Seite + Navigation) hängen daran – Personal und Beratung bekommen
+keine 404 mehr, Planer:innen mit Rolle `personal` erreichen `/stundenplan/raeume`; die Sonderregel „`gebaeude.manage` + Gebäude-Modul“
+für die Räume entfällt (Hausmeisterei ist Personal). Sperren-Reiter/-Anlegen blieb an `substitute` (seit SP-02). Das **Klassenbuch** bleibt
+bewusst bei `isTeachingRole` (Schülerdaten – Fehlzeiten, Bemerkungen; Personal/Beratung nicht), nur ohne eigene Rollenkopie.
+**Kurswahl lesen (Q-SP-17 – entschieden durch Projektleitung 19.10.2026):** neues Recht `kurswahl.view` – Verfahren, Angebote, Teilnehmerzahlen,
+Nachfrage und Zugeteilte je Angebot, übernommene Gruppen; **keine** Wunschlisten, Zuteilungen, Begründungen oder Übernahme-Vorschau einzelner
+Schüler:innen (für Lehraufträge – Gruppe, Fach, Stunden, Lehrkraft – nicht nötig; DATENSCHUTZ §Kurswahlen), keine Schreibaktion.
+`kurswahl.manage` schließt Lesen ein (`canViewKurswahl`). „Vorgeschlagene Lehraufträge anlegen“ = `stundenplan.manage` + (`kurswahl.view` oder
+`.manage`). Migration 0092 gibt `kurswahl.view` der Funktionsgruppe (`g-stundenplanung`, nur mit Slug `stundenplanung` – wie 0088 keine stille
+Ausweitung auf eine fremde Gruppe gleichen Namens), idempotent, sonst keine Grants; Seed ebenso. Navigation „Kurswahlen“ für Beschäftigte mit
+`view` oder `manage`. Das Sekretariat (nur `kurswahl.manage`) sieht weiter „legt die Stundenplanung an“.
 
 **Außenzugang:** bleibt wie für Lehrkräfte (Gerätezertifikat nach Schuleinstellung); die Planung ist **kein** Verwaltungsrecht im Sinne von
 S28 (keine Außen-Sperre). Begründung: Vertretungsplanung findet morgens um 7 Uhr auch von zu Hause statt.
@@ -272,7 +287,7 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | **SP-02** ✅ | Rechte: `stundenplan.substitute`, Gruppe „Stundenplanung“, Verwaltung ohne Vorgabe, Migration 0088, 2FA, Actions/Seiten/`open.ts`/Gebäude auf das passende Recht, Seed (Gruppe + `frank.schulte`, Schulleitung `substitute`), Rechte-Hinweis; Anrechnungsgrund „Stundenplanung“ | M | Opus | SP-01 | **0088** (Enum `reduction_reason` + Daten: Grants + Gruppe) | `permissions.test`, `registry.test`, `escalation.test`, `open-items.test`, `seed.test`, Migrationstest Grants |
 | **SP-03** ✅ | Bereich `/planung`: Layout, `@schulos/ui/sub-nav`, Umzug der sechs Seiten (`git mv`), Nav-Eintrag, Eyebrow, `revalidatePath`/`redirect`-Pfade, `redirects()` in `next.config.ts`, Verwaltung ohne die vier Reiter, E2E/a11y/Unit-Tests auf neue URLs, CLAUDE.md/README Demo-Login | L | Opus | SP-02 | – | `npm run verify`; E2E „alte URL leitet weiter“, „Sekretariat sieht `/planung` nicht“ |
 | **SP-04** ✅ | Übersicht `/planung` (Kacheln aus vorhandenen Services, Links, Leerzustände), Kachel in der Verwaltungs-Übersicht, mobiler Durchgang der Planungsseiten mit `shot.mjs --mobile` | S | Opus | SP-03 | – | Service-Test der Kachel-Zahlen, E2E Übersicht, a11y-Pfade |
-| **SP-05** | Rechte- statt Rollen-Gates: `isStaffRole()` in `core/roles.ts`, `stundenplan/page.tsx` und `raeume/page.tsx` ohne `STAFF`-Liste, Sperren-Reiter an `substitute` | S | Opus | SP-02 | – | `registry.test` (Navigation), E2E „Personal sieht Wochenplan/Räume“ |
+| **SP-05** ✅ | Rechte- statt Rollen-Gates: `isStaffRole()` in `core/roles.ts`, `stundenplan/page.tsx` und `raeume/page.tsx` ohne `STAFF`-Liste, Sperren-Reiter an `substitute` | S | Opus | SP-02 | – | `registry.test` (Navigation), E2E „Personal sieht Wochenplan/Räume“ |
 | **SP-06** (**Kern**) | Solver-Läufe Datenmodell + Ausführung: Migration 0089 bzw. nächste freie Nummer (`label`, `params`, `metrics`, `log`, `cancel_requested`, `heartbeat_at`, `applied_by`/`applied_at`, `undo`, Status `queued`/`cancelled`, `timetable_lessons.solver_run_id`), Zeitscheiben statt fester Blöcke, Heartbeat-Sperre, Warteschlange, Abbruch, Startup (queued weiter, running → failed), Validierung vor dem Start, Nachtjob `solver-aufraeumen`, Messung der Antwortzeiten während eines Laufs. **Aus der Gap-Analyse (§6.3):** Einheiten-/`result`-Format bandfähig (`units[].parts[]`, Q-SP-13), Machbarkeits-Vorprüfung + konkrete Gründe „nicht gesetzt“ (SP-G-03), Doppelstunde nicht über große Pause/Mittag (SP-G-04a), Warnung „Kurse mit Lehrauftrag ohne Mitglieder“ (SP-G-13), Warnung vor A/B-Stunden mit Lehrauftrag, synthetischer Groß-Benchmark (SP-G-15) | M | **Fable** | SP-03 | **0089** (oder nächste freie) | `solverlauf.test` (Warteschlange, Abbruch vor/nach Konstruktion, Heartbeat, Aufräumen, Validierung, Vorprüfung), `solver.test` (Doppelstunde über Pause, Gründe je Einheit, `parts`), Benchmark-Test, `retention.test` |
 | **SP-07** | Solver-Läufe UI: Liste aller Läufe (Filter), Start-Formular mit Bezeichnung/Gründlichkeit/Startwert/Gewichtungs-Voreinstellung + „eigene“ (alle Felder von `SolverWeights` **plus `lateFrom`**, SP-G-16), Detailseite `/planung/solver/[id]` (Fortschritt, Protokoll, Konflikte vollständig **mit Grund je Einheit** aus SP-G-03, Ergebnis der Vorprüfung, Kostenposten mit Filter, Vorschau Klasse **und** Lehrkraft), Abbrechen, Löschen | M | Opus | SP-06 | – | `npm run verify`; E2E Lauf starten → abbrechen → zweiter Lauf |
 | **SP-08** | Vergleich `/planung/solver/vergleich?laeufe=…` (2–3 Läufe, bester Wert markiert, Delta, Vorschau nebeneinander) | S | Opus | SP-07 | – | Service-Test der Delta-Berechnung, E2E Vergleich |
@@ -282,7 +297,7 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | **SP-11** | E2E-Szenario „Stundenplaner:in“ (Login `frank.schulte` → Übersicht → Lauf mit Parametern → Abbruch → zweiter Lauf → Vergleich → Übernahme ab Stichtag → zurücknehmen; **Vertretung mit Fachtausch**; Sekretariat 404 auf `/planung`; alte URLs leiten weiter) + **Review-PR GATE SP** (erledigte IDs, Tests, Fragen) | S | Opus | SP-10, SP-12 | – | `e2e/zx-gate-sp.spec.ts` |
 | **GATE SP** | Review mit der Projektleitung (Review-PR aus SP-11; `/code-review ultra` nach Wunsch) – merged nur die Projektleitung | – | – | SP-11 | – | – |
 
-Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ (SP-05 parallel) → SP-06 ‖ SP-12 → SP-07 → SP-08 ‖ SP-09 → SP-10 → SP-11 → **GATE SP**.
+Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ → SP-05 ✅ → SP-06 ‖ SP-12 → SP-07 → SP-08 ‖ SP-09 → SP-10 → SP-11 → **GATE SP**.
 Parallelisierbar: SP-05 neben SP-03; SP-12 neben SP-06/SP-07 (kein Solver-Kern, berührt nur das Tagesgeschäft); SP-08 neben SP-09.
 Migrationsnummern werden in der Reihenfolge des Mergens vergeben (SP-06 und SP-12 nehmen jeweils die nächste freie Nummer).
 Zwischenstand zum Melden nach SP-04 (Bereich steht, Verwaltung aufgeräumt) und nach SP-07 (Läufe bedienbar). Release-Vorschlag nach

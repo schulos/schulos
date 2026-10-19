@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { CheckCircle2, ChevronLeft, ChevronRight, CircleDashed } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
+import { isTeachingRole } from "@/core/roles";
 import { TZ, addDays, fromBerlinLocal, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { mySlots, readableClasses } from "@/modules/klassenbuch/service";
 import { GAP_SCHOOL_DAYS, gapTitle, openLessons } from "@/modules/klassenbuch/luecken";
@@ -16,7 +17,6 @@ export const metadata: Metadata = { title: "Klassenbuch" };
 
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 const shortDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", timeZone: TZ });
-const STAFF = ["lehrkraft", "verwaltung", "admin"];
 
 /** Schultag-Navigation: Wochenenden überspringen */
 function stepSchoolDay(ymd: string, dir: 1 | -1): string {
@@ -27,7 +27,8 @@ function stepSchoolDay(ymd: string, dir: 1 | -1): string {
 
 export default async function KlassenbuchPage({ searchParams }: { searchParams: Promise<{ datum?: string }> }) {
   const { user, perms } = await requireUser();
-  if (!STAFF.includes(user.role)) notFound();
+  // SP-05: zentrale Rollenliste statt eigener `STAFF`-Kopie – Personal/Beratung bewusst nicht (Schülerdaten, `isTeachingRole`)
+  if (!isTeachingRole(user.role)) notFound();
   const sp = await searchParams;
   const today = toBerlinDate(new Date());
   // am Wochenende den letzten Freitag zeigen – Einträge werden nachgetragen, nicht vorab

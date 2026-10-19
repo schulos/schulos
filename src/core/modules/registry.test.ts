@@ -103,17 +103,28 @@ describe("buildNav", () => {
     const parent = { ...student, role: "eltern" as const };
     expect(buildNav(MODULES, new Map(), parent, { selfResponsible: true }).flatMap((g) => g.items.map((i) => i.href)).filter((h) => h === "/elternbriefe")).toHaveLength(1);
   });
-  it("Hausmeisterei (Rolle Personal mit gebaeude.manage) sieht die Raumbelegung, Personal ohne das Recht nicht (Q5-08)", () => {
-    const hrefs = (perms: PermissionSet) => buildNav(MODULES, new Map(), perms).flatMap((g) => g.items.map((i) => i.href));
+  it("SP-05 (L-01): Räume für alle Beschäftigten (auch Personal ohne Gebäude-Recht und Beratung), nicht für Schüler:innen/Eltern", () => {
+    const hrefs = (perms: PermissionSet, states = new Map<string, boolean>()) => buildNav(MODULES, states, perms).flatMap((g) => g.items.map((i) => i.href));
     const hausmeister = { ...student, role: "personal" as const, granted: new Set(["gebaeude.report", "gebaeude.manage"]) };
     expect(hrefs(hausmeister).filter((h) => h === "/stundenplan/raeume")).toHaveLength(1);
-    expect(hrefs({ ...hausmeister, granted: new Set(["gebaeude.report"]) })).not.toContain("/stundenplan/raeume");
-    // Lehrkraft mit Verwaltungsrecht: weiterhin genau ein Eintrag
+    expect(hrefs({ ...hausmeister, granted: new Set(["gebaeude.report"]) }).filter((h) => h === "/stundenplan/raeume")).toHaveLength(1);
+    // früher an `gebaeude.manage` + Gebäude-Modul gekoppelt (Gate 4a Hinweis 4) – jetzt Beschäftigte unabhängig vom Gebäude-Modul
+    expect(hrefs(hausmeister, new Map([["gebaeude", false]]))).toContain("/stundenplan/raeume");
+    expect(hrefs({ ...student, role: "beratung" as const })).toContain("/stundenplan/raeume");
+    // Lehrkraft/Verwaltung: genau ein Eintrag
     const verwaltung = { ...student, role: "verwaltung" as const, granted: new Set(["gebaeude.manage"]) };
     expect(hrefs(verwaltung).filter((h) => h === "/stundenplan/raeume")).toHaveLength(1);
-    // Gebäude-Modul aus: kein Eintrag für die Hausmeisterei (Security-Review Gate 4a Hinweis 4)
-    const offStates = new Map([["gebaeude", false]]);
-    expect(buildNav(MODULES, offStates, hausmeister).flatMap((g) => g.items.map((i) => i.href))).not.toContain("/stundenplan/raeume");
+    expect(hrefs(student)).not.toContain("/stundenplan/raeume");
+    expect(hrefs({ ...student, role: "eltern" as const })).not.toContain("/stundenplan/raeume");
+    // Stundenplan-Modul aus: kein Eintrag
+    expect(hrefs(hausmeister, new Map([["stundenplan", false]]))).not.toContain("/stundenplan/raeume");
+  });
+  it("SP-05: Kurswahlen für Beschäftigte mit `kurswahl.view` oder `.manage`, ohne Recht nur die Familiensicht", () => {
+    const hrefs = (perms: PermissionSet) => buildNav(MODULES, new Map(), perms).flatMap((g) => g.items);
+    const planner = { ...student, role: "lehrkraft" as const, granted: new Set(["stundenplan.manage", "kurswahl.view"]) };
+    expect(hrefs(planner).filter((i) => i.href === "/kurswahl").map((i) => i.label)).toEqual(["Kurswahlen"]);
+    expect(hrefs({ ...planner, role: "personal" as const }).filter((i) => i.href === "/kurswahl")).toHaveLength(1);
+    expect(hrefs({ ...planner, granted: new Set(["stundenplan.manage"]) }).filter((i) => i.href === "/kurswahl")).toHaveLength(0);
   });
   it("Hausmeisterei sieht „Buchungen“ (nur lesen) nur mit gebaeude.manage und Gebäude-Modul (Q5-08b)", () => {
     const hrefs = (perms: PermissionSet, states = new Map<string, boolean>()) => buildNav(MODULES, states, perms).flatMap((g) => g.items.map((i) => i.href));
