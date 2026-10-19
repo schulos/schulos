@@ -1,8 +1,8 @@
 // Demo: kleiner Bücherei-Bestand (Jugendbuch, Sachbuch, Film, Spiel) mit Exemplaren, eins davon ausgesondert; einige offene
-// Ausleihen (eine überfällig), eine Rückgabe mit Befund und anonyme Zähler der letzten Monate (BU-02).
+// Ausleihen (eine überfällig), eine Rückgabe mit Befund und anonyme Zähler der letzten Monate (BU-02), eine Vormerkung (BU-03).
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { buechereiCopies, buechereiLoans, buechereiStats, buechereiTitles } from "@/core/db/schema";
+import { buechereiCopies, buechereiLoans, buechereiReservations, buechereiStats, buechereiTitles } from "@/core/db/schema";
 import { addDays, toBerlinDate } from "@/core/time";
 import { copyNumber, normalizeIsbn, type MediaType } from "./labels";
 
@@ -70,6 +70,9 @@ export async function seedBuecherei(db: Db, opts: { now?: Date; borrowers?: read
     { copyId: copies.get(4)!, userId: b, loanedOn: addDays(today, -3), dueOn: addDays(today, 25), renewals: 0 },
     { copyId: copies.get(9)!, userId: c, loanedOn: addDays(today, -35), dueOn: addDays(today, -7), returnedOn: addDays(today, -2), finding: "Seiten eingerissen" },
   ]);
+  // BU-03: der Film (einziges Exemplar, überfällig) ist vorgemerkt
+  const [film] = await db.select({ titleId: buechereiCopies.titleId }).from(buechereiCopies).where(eq(buechereiCopies.seq, 12));
+  await db.insert(buechereiReservations).values({ titleId: film!.titleId, userId: b });
   const month = (back: number) => {
     const d = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1 - back, 1));
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;

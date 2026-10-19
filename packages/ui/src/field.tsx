@@ -40,16 +40,19 @@ export function Field({
   const id = useId();
   const noteId = `${id}-note`;
   const note = error ?? hint;
+  // Aus einer Server-Komponente kann das Kind beim Streamen noch ein unaufgelöster Verweis sein (kein Element, keine `props`) –
+  // dann nicht abstürzen; Formulare mit `Field` trotzdem als Client-Komponente bauen, sonst fehlt die Label-Verknüpfung.
+  const childId = isValidElement(children) ? children.props?.id : undefined;
   const control = isValidElement(children)
     ? cloneElement(children, {
-        id: children.props.id ?? id,
+        id: childId ?? id,
         "aria-describedby": note ? noteId : undefined,
         "aria-invalid": error ? true : undefined,
       })
     : children;
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <label htmlFor={children.props.id ?? id} className="text-sm font-medium">
+      <label htmlFor={childId ?? id} className="text-sm font-medium">
         {label}
       </label>
       {control}

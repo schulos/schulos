@@ -1,6 +1,7 @@
 // Schulbücherei – Bestand (BU-01): Büchereiteam legt einen Titel mit Exemplaren an, ergänzt und sondert aus, prüft einen
 // CSV-Import in der Vorschau; Lehrkraft ohne Teamrecht bekommt 404. Theke (BU-02): Person suchen, scannen, verlängern,
 // Rückgabe nur scannen, Rückgabe mit Befund; Befunde nur für die Verwaltung. Ausweise (BU-07): drucken, scannen, ersetzen.
+// Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht.
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch } from "./helpers";
 
@@ -187,17 +188,75 @@ test.describe("Bücherei", () => {
     await logoutForSwitch(page);
   });
 
-  test("BU-02: Schülerin ohne Teamrecht – keine Theke (404)", async ({ page }) => {
+  test("BU-02: Schülerin ohne Teamrecht – keine Theke (404), Einstieg ist der Katalog", async ({ page }) => {
     await login(page, "lea.schaefer");
     expect((await page.goto("/buecherei/theke"))?.status()).toBe(404);
-    expect((await page.goto("/buecherei"))?.status()).toBe(404);
+    expect((await page.goto("/buecherei/ausweise"))?.status()).toBe(404);
+    await page.goto("/buecherei");
+    await expect(page).toHaveURL("/buecherei/katalog");
     await logoutForSwitch(page);
   });
 
-  test("BU-01: Lehrkraft ohne Teamrecht sieht den Bestand nicht (404, kein Menüpunkt)", async ({ page }) => {
+  test("BU-01: Lehrkraft ohne Teamrecht sieht den Bestand nicht (404), nur Katalog und Meine Ausleihen", async ({ page }) => {
     await login(page, "jana.brandt");
-    await expect(page.getByRole("link", { name: "Bücherei", exact: true })).toHaveCount(0);
+    await page.getByRole("link", { name: "Bücherei", exact: true }).first().click();
+    await expect(page).toHaveURL("/buecherei/katalog");
+    const nav = page.getByRole("navigation", { name: "Bücherei" });
+    await expect(nav.getByRole("link")).toHaveText(["Katalog", "Meine Ausleihen"]);
     expect((await page.goto("/buecherei/bestand"))?.status()).toBe(404);
+    await logoutForSwitch(page);
+  });
+
+  test("BU-03: Katalog, Vormerkung, Meine Ausleihen, Eltern-Sicht", async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = collectErrors(page);
+    const FILM = "Reise zum Mond (Dokumentation)";
+    await login(page, "lea.schaefer");
+    await page.getByRole("link", { name: "Bücherei", exact: true }).first().click();
+    await expect(page).toHaveURL("/buecherei/katalog");
+    const search = page.getByRole("form", { name: "Katalog durchsuchen" });
+    await search.getByLabel("Suche").fill("Raumfahrt");
+    await search.getByRole("button", { name: "Suchen" }).click();
+    const list = page.getByRole("table", { name: "Titel im Katalog" });
+    // Demo: einziges Exemplar ausgeliehen und schon einmal vorgemerkt – ohne Namen
+    await expect(list.getByRole("row").filter({ hasText: FILM })).toContainText("1 Vormerkung");
+    await list.getByRole("link", { name: FILM }).click();
+    await expect(page.getByRole("heading", { name: FILM })).toBeVisible();
+    await expect(page.getByRole("table", { name: `Exemplare von ${FILM}` })).toContainText("ausgeliehen bis");
+    const reserve = page.getByRole("form", { name: "Vormerken" });
+    await reserve.getByRole("button", { name: "Vormerken" }).click();
+    // nach dem Vormerken zeigt die Seite den Platz in der Reihe statt des Knopfs
+    await expect(page.getByText("du bist auf Platz 2").first()).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("du bist auf Platz 2").first()).toBeVisible();
+    await expect(page.getByRole("form", { name: "Vormerken" })).toHaveCount(0);
+
+    await page.getByRole("link", { name: "← Katalog" }).click();
+    await page.getByRole("navigation", { name: "Bücherei" }).getByRole("link", { name: "Meine Ausleihen" }).click();
+    await expect(page).toHaveURL("/buecherei/meine");
+    const res = page.getByRole("table", { name: "Vormerkungen von mir" });
+    await expect(res.getByRole("row").filter({ hasText: FILM })).toContainText("Platz 2 in der Reihe");
+    expect(errors).toEqual([]);
+    await logoutForSwitch(page);
+
+    // Eltern: nur lesend, ohne Katalog
+    await login(page, "daniela.schaefer");
+    await page.getByRole("link", { name: "Bücherei", exact: true }).first().click();
+    await expect(page).toHaveURL("/buecherei/meine");
+    await expect(page.getByRole("heading", { name: "Ausleihen meiner Kinder" })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Vormerkungen von Lea Schäfer" })).toContainText(FILM);
+    await expect(page.getByRole("button", { name: "Löschen" })).toHaveCount(0);
+    expect((await page.goto("/buecherei/katalog"))?.status()).toBe(404);
+    await logoutForSwitch(page);
+
+    // Vormerkung wieder löschen
+    await login(page, "lea.schaefer");
+    await page.goto("/buecherei/meine");
+    const cancel = page.getByRole("form", { name: `Vormerkung ${FILM} löschen` });
+    await cancel.getByRole("button", { name: "Löschen" }).click();
+    await expect(page.getByRole("table", { name: "Vormerkungen von mir" })).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole("table", { name: "Vormerkungen von mir" })).toHaveCount(0);
     await logoutForSwitch(page);
   });
 });

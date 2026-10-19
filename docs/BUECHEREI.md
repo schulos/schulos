@@ -45,17 +45,19 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 
 | Recht | Inhalt | Vorgabe |
 |---|---|---|
-| `buecherei.use` | Katalog, eigene Ausleihen, vormerken, verlängern | schueler, lehrkraft (Eltern lesen über die Eltern-Kind-Zuordnung) |
+| `buecherei.use` | Katalog, eigene Ausleihen, vormerken, verlängern | alle Rollen außer Eltern und Admin (schueler, lehrkraft, personal, beratung, verwaltung); Eltern lesen über die Eltern-Kind-Zuordnung |
 | `buecherei.desk` | Theke: verbuchen; sieht nur Name, Klasse, offene Ausleihen – keine Historie, keine Mahnstufen anderer | Gruppe „Büchereiteam“ |
 | `buecherei.stock` | Titel/Exemplare, Import, Aussondern, Etiketten | verwaltung, Büchereiteam |
-| `buecherei.materials` | Schulbuchausleihe, Ersatzforderungen (Stufe 2) | verwaltung |
+| `buecherei.materials` | Schulbuchausleihe, Ersatzforderungen (Stufe 2), Befunde bei der Rückgabe (mit Namen) sehen und erledigen | verwaltung |
 
 ## Datenschutz
 
 - Leseverhalten ist persönlich → **Personenbezug einer Ausleihe wird bei Rückgabe ohne Befund sofort entfernt**, nur anonyme
   Zähler bleiben; kein Ausleihverlauf je Person. Schadensfälle/Ersatzforderungen bis zur Erledigung + `LK-SJ-1J`.
 - Bestand (Titel, Exemplare) hat keinen Personenbezug; Zustandsvermerke ohne Namen.
-- Vormerkungen mit der Ausleihe bzw. `LK-90`; Ausweis-Code gehört zum Konto (`LK-KONTO`).
+- Vormerkungen mit der Ausleihe bzw. `LK-90`; Ausweis-Code gehört zum Konto (`LK-KONTO`). Vormerken nur bei ganz ausgeliehenen
+  Titeln; Abholfrist (Vorgabe 1 Woche) danach rückt die nächste nach; andere sehen nur die Zahl, nie Namen; der Gong nennt keinen Titel.
+- „Meine Ausleihen“ zeigt nur Aktuelles (offene Ausleihen, Vormerkungen) – keinen Verlauf.
 - Schulbuchausleihe: Zuordnung Exemplar ↔ Person nur im laufenden Schuljahr, nach Rücknahme entkoppelt.
 - Abgang: offene Ausleihen blockieren die Löschung nicht, erscheinen aber als Hinweis.
 - Auskunft (Art. 15) und Eigenexport: eigene offene Ausleihen, Vormerkungen, Forderungen.
@@ -75,3 +77,10 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 9. Labeldruck: A4-Etikettenbögen und Etikettendrucker über den Browserdruck (`@page` in mm, Code 128 als selbst erzeugtes SVG,
    kein PDF-/Barcode-Paket), kein Direktdruck vom Server.
 10. Cover nur als eigenes Foto (Upload mit Virenscan), kein externer Abruf.
+
+## Entschieden durch Projektleitung 19.10.2026 (BU-03)
+
+11. Befunde (Rückgaben mit Schaden, mit Namen) sehen und erledigen nur Inhaber von `buecherei.materials` (ab Werk Verwaltung),
+    nicht das Büchereiteam.
+12. Ausleihen dürfen alle Rollen außer Eltern und Admin (`buecherei.use` ab Werk für Schüler:innen, Lehrkräfte, weiteres
+    Personal, Beratung und Verwaltung).

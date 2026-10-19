@@ -9,7 +9,8 @@ import { toBerlinDate } from "@/core/time";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { classMemberIds, ensureCards, replaceCard } from "./cards";
-import { checkin, renewLoan, resolveFinding, scanAtDesk } from "./loans";
+import { checkin, renewLoan, renewOwnLoan, resolveFinding, scanAtDesk } from "./loans";
+import { cancelReservation, reserve } from "./reservations";
 import { MAX_TITLE_CSV_BYTES, addCopies, createTitle, deleteTitle, importTitles, restoreCopy, updateCopy, updateTitle, withdrawCopy, type TitleInput } from "./service";
 
 const { requireUser } = moduleActions("buecherei");
@@ -187,6 +188,44 @@ export async function resolveFindingAction(loanId: string): Promise<void> {
   const { perms } = await requireUser();
   await resolveFinding(await getDb(), perms, loanId, today());
   revalidatePath("/buecherei", "layout");
+}
+
+// ---------------------------------------------------------------- Katalog, Vormerkung, Meine Ausleihen (BU-03)
+
+/** Titel vormerken (nur wenn alle Exemplare ausgeliehen sind). */
+export async function reserveAction(titleId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    const r = await reserve(await getDb(), perms, titleId);
+    revalidatePath("/buecherei", "layout");
+    return { ok: true, values: { result: `Vorgemerkt – du bist ${r.position === 1 ? "als Nächste:r dran" : `auf Platz ${r.position}`}. Du bekommst Bescheid, sobald ein Exemplar bereitliegt.` } };
+  } catch (err) {
+    return fail(err, form);
+  }
+}
+
+/** Eigene Vormerkung löschen. */
+export async function cancelReservationAction(reservationId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await cancelReservation(await getDb(), perms, reservationId, today());
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  return { ok: true, values: { result: "Vormerkung gelöscht" } };
+}
+
+/** Eigene Ausleihe verlängern („Meine Ausleihen“). */
+export async function renewOwnLoanAction(loanId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    const r = await renewOwnLoan(await getDb(), perms, loanId, today());
+    revalidatePath("/buecherei", "layout");
+    return { ok: true, values: { result: `Verlängert bis ${fmtDay(r.dueOn)}` } };
+  } catch (err) {
+    return fail(err, form);
+  }
 }
 
 // ---------------------------------------------------------------- Ausweise (BU-07)

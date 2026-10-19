@@ -9,6 +9,7 @@ import { toBerlinDate } from "@/core/time";
 import { assertExportSize } from "@/core/export-limit";
 import { createZipAsync, type ZipEntry } from "@/core/zip";
 import { taskFiles, tasks, taskSubmissions } from "@/modules/aufgaben/schema";
+import { libraryAuskunft, libraryText } from "@/modules/buecherei/katalog";
 
 const safe = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "_").trim().slice(0, 100) || "unbenannt";
 const dtFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Berlin" });
@@ -96,6 +97,9 @@ export async function planOwnExport(db: Db, userId: string): Promise<OwnExportPl
       .orderBy(asc(taskFiles.name)))
       push(`${dir}/${safe(f.name)}`, { storageKey: f.storageKey, size: f.size });
   }
+  // BU-03: Schulbücherei – nur der aktuelle Stand (offene Ausleihen, Befunde, Vormerkungen); einen Verlauf gibt es nicht
+  const library = libraryText(await libraryAuskunft(db, userId));
+  if (library) push("Bücherei.txt", { text: library });
   const bytes = entries.reduce((sum, e) => sum + (e.size ?? 0), 0);
   return { entries, counts: { files, submissions: subs.length, tasks: own.length }, bytes };
 }

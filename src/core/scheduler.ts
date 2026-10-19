@@ -19,6 +19,7 @@ import { runPrefWindowReminders } from "@/modules/stundenplan/zeitwunsch-fenster
 import { runSprechtagReminders } from "@/modules/sprechtag/erinnerung";
 import { runKurswahlReminders } from "@/modules/kurswahl/erinnerung";
 import { purgeExpiredOfflineDevices } from "@/modules/notenbuch/offline";
+import { runReservations } from "@/modules/buecherei/reservations";
 
 export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   {
@@ -113,6 +114,18 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
       const m = MODULES.find((x) => x.id === "kurswahl");
       if (!m || !isEnabled(m, await loadModuleStates(db))) return;
       return runKurswahlReminders(db, now);
+    },
+  },
+  {
+    // BU-03: verfallene Abholfristen von Vormerkungen löschen, nächste Vormerkung nachrücken lassen (Gong)
+    name: "buecherei-vormerkungen",
+    at: "06:30",
+    until: "20:00",
+    ttlMs: 10 * 60_000,
+    run: async (db, now) => {
+      const m = MODULES.find((x) => x.id === "buecherei");
+      if (!m || !isEnabled(m, await loadModuleStates(db))) return;
+      return runReservations(db, toBerlinDate(now));
     },
   },
 ];

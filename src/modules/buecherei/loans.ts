@@ -2,17 +2,18 @@
 // verlängern. Datenschutz (docs/BUECHEREI.md): Die Theke sieht nur Name, Klasse und offene Ausleihen einer Person; die Rückgabe
 // ohne Befund löscht die Ausleihe (nur der Zähler je Monat/Medienart bleibt) – kein Ausleihverlauf je Person, auch nicht im
 // Audit-Log (Ausleihe/Rückgabe werden dort bewusst nicht protokolliert, nur Befunde).
-import { and, asc, count, eq, gte, inArray, isNotNull, isNull, lt, lte, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, lt, sql, type SQL } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
 import { de } from "@/core/db/sort";
-import { buechereiCopies, buechereiLoans, buechereiStats, buechereiTitles, groupMembers, groups, schoolClosures, users } from "@/core/db/schema";
+import { buechereiCopies, buechereiLoans, buechereiReservations, buechereiStats, buechereiTitles, groupMembers, groups, users } from "@/core/db/schema";
 import { readModuleSetting } from "@/core/modules/settings";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
-import { addDays, weekdayMon0 } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { isCardCode, personByCard } from "./cards";
+import { dueDate, nextOpenDay } from "./dates";
 import { BORROWER_ROLES, isValidCopyNumber, type MediaType } from "./labels";
+import { checkoutReservation, canUse, promoteReservations, reservedByOthers } from "./reservations";
 import { LOAN_DAYS, MAX_RENEWALS } from "./settings";
 
 export const canDesk = (p: PermissionSet) => hasPermission(p, "buecherei.desk");
@@ -29,26 +30,7 @@ export const MAX_FINDING_LENGTH = 200;
 
 // ---------------------------------------------------------------- Fälligkeit
 
-/** Rein: erster Tag ab `ymd`, der kein Wochenende ist und in keiner Schließzeit (Ferien, Feiertag …) liegt. */
-export function nextOpenDay(ymd: string, closures: readonly { startsOn: string; endsOn: string }[]): string {
-  let d = ymd;
-  for (let i = 0; i < 400; i++) {
-    const closed = weekdayMon0(d) >= 5 || closures.some((c) => c.startsOn <= d && d <= c.endsOn);
-    if (!closed) return d;
-    d = addDays(d, 1);
-  }
-  return ymd;
-}
-
-/** Fälligkeit: heute + Leihfrist, verschoben auf den nächsten Schultag (nie am Wochenende oder in den Ferien). */
-export async function dueDate(db: Db, today: string, days: number): Promise<string> {
-  const target = addDays(today, days);
-  const closures = await db
-    .select({ startsOn: schoolClosures.startsOn, endsOn: schoolClosures.endsOn })
-    .from(schoolClosures)
-    .where(and(lte(schoolClosures.startsOn, addDays(target, 400)), gte(schoolClosures.endsOn, target)));
-  return nextOpenDay(target, closures);
-}
+export { dueDate, nextOpenDay };
 
 async function loanDays(db: Db, mediaType: MediaType): Promise<number> {
   return Number(await readModuleSetting(db, LOAN_DAYS[mediaType]));
@@ -111,6 +93,7 @@ export async function searchBorrowers(db: Db, viewer: PermissionSet, q: string):
 
 export interface OpenLoan {
   id: string;
+  titleId: string;
   barcode: string;
   title: string;
   mediaType: MediaType;
@@ -120,10 +103,12 @@ export interface OpenLoan {
   overdue: boolean;
 }
 
-async function openLoansOf(db: Db, userId: string, today: string): Promise<OpenLoan[]> {
+/** Offene Ausleihen einer Person (Theke, „Meine Ausleihen“) – Rückgaben mit Befund gehören nicht dazu. */
+export async function openLoansOf(db: Db, userId: string, today: string): Promise<OpenLoan[]> {
   const rows = await db
     .select({
       id: buechereiLoans.id,
+      titleId: buechereiCopies.titleId,
       barcode: buechereiCopies.barcode,
       title: buechereiTitles.title,
       mediaType: buechereiTitles.mediaType,
@@ -171,7 +156,14 @@ export const normalizeScan = (raw: string) => raw.replace(/\s+/g, "").toUpperCas
 
 async function copyByBarcode(db: Db, barcode: string) {
   const [c] = await db
-    .select({ id: buechereiCopies.id, barcode: buechereiCopies.barcode, withdrawnOn: buechereiCopies.withdrawnOn, title: buechereiTitles.title, mediaType: buechereiTitles.mediaType })
+    .select({
+      id: buechereiCopies.id,
+      titleId: buechereiCopies.titleId,
+      barcode: buechereiCopies.barcode,
+      withdrawnOn: buechereiCopies.withdrawnOn,
+      title: buechereiTitles.title,
+      mediaType: buechereiTitles.mediaType,
+    })
     .from(buechereiCopies)
     .innerJoin(buechereiTitles, eq(buechereiTitles.id, buechereiCopies.titleId))
     .where(eq(buechereiCopies.barcode, barcode));
@@ -190,7 +182,11 @@ function requireCopyNumber(code: string) {
   if (!isValidCopyNumber(code)) throw new ValidationError({ code: `„${code}“ ist keine gültige Exemplarnummer (Prüfziffer)` });
 }
 
-/** Exemplar an eine Person ausleihen (Recht `buecherei.desk`); Fälligkeit nach der Leihfrist der Medienart. */
+/**
+ * Exemplar an eine Person ausleihen (Recht `buecherei.desk`); Fälligkeit nach der Leihfrist der Medienart. BU-03: Liegen alle
+ * freien Exemplare des Titels für andere bereit (Vormerkung), geht es nicht – ohne deren Namen zu nennen; die eigene
+ * Vormerkung der Person ist mit der Ausleihe erfüllt und wird gelöscht.
+ */
 export async function checkout(db: Db, viewer: PermissionSet, userId: string, rawCode: string, today: string): Promise<{ title: string; barcode: string; dueOn: string }> {
   requireDesk(viewer);
   const code = normalizeScan(rawCode);
@@ -202,18 +198,21 @@ export async function checkout(db: Db, viewer: PermissionSet, userId: string, ra
   const [u] = await db.select({ role: users.role, status: users.status }).from(users).where(eq(users.id, userId));
   if (!u || !BORROWER_ROLES.includes(u.role)) throw new ValidationError({ code: "Diese Person kann nicht ausleihen" });
   if (u.status !== "active") throw new ValidationError({ code: "Konto gesperrt – keine neue Ausleihe" });
+  const reservation = await checkoutReservation(db, copy.titleId, userId, code);
   const dueOn = await dueDate(db, today, await loanDays(db, copy.mediaType));
   await db.transaction(async (raw) => {
     const tx = raw as unknown as Db;
     await tx.insert(buechereiLoans).values({ copyId: copy.id, userId, loanedOn: today, dueOn });
     await bumpStats(tx, today, copy.mediaType, "loans");
+    if (reservation) await tx.delete(buechereiReservations).where(eq(buechereiReservations.id, reservation.id));
   });
   return { title: copy.title, barcode: copy.barcode, dueOn };
 }
 
 /**
  * Rückgabe (Recht `buecherei.desk`) – nur scannen, ohne die Person zu wählen. Ohne Befund wird die Ausleihe gelöscht
- * (Personenbezug sofort weg); mit Befund bleibt sie bis zur Erledigung (Verwaltung) und wird protokolliert.
+ * (Personenbezug sofort weg); mit Befund bleibt sie bis zur Erledigung (Verwaltung) und wird protokolliert. BU-03: Danach
+ * rückt die nächste Vormerkung des Titels nach (Gong an die Person).
  */
 export async function checkin(
   db: Db,
@@ -238,24 +237,44 @@ export async function checkin(
     await db.update(buechereiLoans).set({ returnedOn: today, finding: note }).where(eq(buechereiLoans.id, loan.id));
     await audit(db, viewer.userId, "buecherei.loan.finding", loan.id, { barcode: copy.barcode, finding: note });
   }
+  await promoteReservations(db, copy.titleId, today);
   return { title: copy.title, barcode: copy.barcode, overdueDays, finding: !!note };
 }
 
 /**
- * Verlängern (Recht `buecherei.desk`): höchstens so oft wie eingestellt; die Frist beginnt ab heute neu (nie früher als die
- * bisherige Fälligkeit). Vorgemerkte Titel lassen sich nicht verlängern – die Vormerkung kommt mit BU-03.
+ * Verlängern an der Theke (Recht `buecherei.desk`): höchstens so oft wie eingestellt; die Frist beginnt ab heute neu (nie früher
+ * als die bisherige Fälligkeit). BU-03: Hat jemand anderes den Titel vorgemerkt, geht es nicht.
  */
 export async function renewLoan(db: Db, viewer: PermissionSet, loanId: string, today: string): Promise<{ dueOn: string; renewals: number }> {
   requireDesk(viewer);
+  return renewChecked(db, loanId, today, null);
+}
+
+/** BU-03: eigene Ausleihe selbst verlängern („Meine Ausleihen“, Recht `buecherei.use`) – gleiche Regeln wie an der Theke. */
+export async function renewOwnLoan(db: Db, viewer: PermissionSet, loanId: string, today: string): Promise<{ dueOn: string; renewals: number }> {
+  if (!canUse(viewer)) throw new ForbiddenError("buecherei.use");
+  return renewChecked(db, loanId, today, viewer.userId);
+}
+
+/** Rein: Grund, warum eine Ausleihe nicht verlängert werden kann – oder null. */
+export function renewalBlock(renewals: number, max: number, reserved: boolean): string | null {
+  if (max === 0) return "Verlängern ist ausgeschaltet";
+  if (renewals >= max) return `Schon ${renewals}-mal verlängert – mehr geht nicht`;
+  if (reserved) return "Vorgemerkt – bitte zurückgeben, jemand wartet darauf";
+  return null;
+}
+
+async function renewChecked(db: Db, loanId: string, today: string, owner: string | null) {
   const [l] = await db
-    .select({ id: buechereiLoans.id, dueOn: buechereiLoans.dueOn, renewals: buechereiLoans.renewals, mediaType: buechereiTitles.mediaType })
+    .select({ id: buechereiLoans.id, userId: buechereiLoans.userId, titleId: buechereiCopies.titleId, dueOn: buechereiLoans.dueOn, renewals: buechereiLoans.renewals, mediaType: buechereiTitles.mediaType })
     .from(buechereiLoans)
     .innerJoin(buechereiCopies, eq(buechereiCopies.id, buechereiLoans.copyId))
     .innerJoin(buechereiTitles, eq(buechereiTitles.id, buechereiCopies.titleId))
     .where(and(eq(buechereiLoans.id, loanId), isNull(buechereiLoans.returnedOn)));
-  if (!l) throw new ValidationError({ loan: "Ausleihe gibt es nicht (schon zurückgegeben?)" });
+  if (!l || (owner && l.userId !== owner)) throw new ValidationError({ loan: "Ausleihe gibt es nicht (schon zurückgegeben?)" });
   const max = Number(await readModuleSetting(db, MAX_RENEWALS));
-  if (l.renewals >= max) throw new ValidationError({ loan: max === 0 ? "Verlängern ist ausgeschaltet" : `Schon ${l.renewals}-mal verlängert – mehr geht nicht` });
+  const block = renewalBlock(l.renewals, max, await reservedByOthers(db, l.titleId, l.userId));
+  if (block) throw new ValidationError({ loan: block });
   const next = await dueDate(db, today, await loanDays(db, l.mediaType));
   const dueOn = next > l.dueOn ? next : l.dueOn;
   const [r] = await db
