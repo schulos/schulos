@@ -65,8 +65,10 @@ function StripCard({ item, staff, exam, href, open }: { item: StripItem; staff: 
   );
   // Q5-06: Karte führt weiter – Lehrkraft zum Klassenbuch-Eintrag, Schüler:in in den Kursraum der Gruppe
   return href ? (
-    <Link href={href} aria-label={`${item.periodNr}. Std ${item.subjectName}: ${staff ? "Klassenbuch-Eintrag" : "Kursraum"}`} className="rounded-2xl transition hover:brightness-[0.98]">
+    <Link href={href} className="rounded-2xl transition hover:brightness-[0.98]">
       {card}
+      {/* WCAG 2.5.3: der zugängliche Name besteht aus dem sichtbaren Kartentext, das Ziel kommt nur dazu */}
+      <span className="sr-only">{staff ? "– zum Klassenbuch-Eintrag" : "– zum Kursraum"}</span>
     </Link>
   ) : (
     card
