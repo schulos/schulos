@@ -147,6 +147,48 @@ Befunde:
    bei 381 sichtbaren. Jeder Sync liefert alle – bei einer intensiv genutzten Tafel wächst die Antwort entsprechend (hier weit unter
    der 4-MB-Grenze).
 
+## Solver-Lauf im App-Prozess (SP-06, Q-SP-9) – 2026-10-19
+
+Der Solver rechnet im Serverprozess **zeitgeschnitten**: ~25 ms rechnen, dann `setImmediate`; kam der Lauf danach spürbar verspätet zurück
+(etwas anderes brauchte die Ereignisschleife), pausiert er 30 ms („Vorfahrt für Anfragen“). Heartbeat jede Sekunde (Fortschritt, Sperre,
+Abbruchwunsch). Gemessen lokal (Entwicklungsrechner, PGlite – die Datenbank rechnet dort im selben Thread, im Betrieb wartet die App auf PostgreSQL).
+
+**Groß-Benchmark (SP-G-15, `solver.benchmark.test.ts`):** synthetische Schule 7-zügig 5–10 (42 Klassen) + Oberstufe mit 120 Kursen in Schienen
+(130 Schüler:innen je Jahrgang → Konfliktmengen), 70 Lehrkräfte, 1 323 Einheiten / 1 653 Wochenstunden, Zeitraster 8 Stunden mit großen Pausen
+nach der 2./4./6. Stunde: Konstruktion 0,3 s, gesamt **0,9 s** bei 40 000 Verbesserungsschritten (82 Verbesserungen), **9 Einheiten (0,7 %) nicht
+gesetzt** – alle Oberstufenkurse mit dichten Konfliktmengen über Schienen hinweg (Grund je Einheit: „Kurse mit gemeinsamen Schüler:innen von Q1-D2:
+3 von 40 Slots frei (37 belegt)“; das löst erst die Blockung, SP-G-24), Hohlstunden Klassen 13 (max. 3 je Klasse), Lehrkräfte 169 (max. 10), kein
+Raum fehlt. Grenzwerte im Test: ≤ 1 % nicht gesetzt, Klassen-Hohlstunden im Mittel < 1, < 120 s. Die Demo-Schule (354 Einheiten) rechnet „gründlich“
+(4 × 40 Schritte je Einheit = 56 640 Schritte; bis SP-06 lief „gründlich“ wegen einer Deckelung in `improve()` nur so viele Schritte wie „normal“) in 1,7 s.
+
+**Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
+p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
+PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:
+p95 < 100 ms, max < 300 ms.
+
+**Antwortzeiten des gebauten Servers** (`next start`, Demo-DB, angemeldet als Stundenplanung; ein Abrufer holt der Reihe nach Heute, Stundenplan und
+`/api/health`, Phasen: Ruhe · acht gründliche Läufe nacheinander starten (Formular, Weiterleitung, Solver-Seite mit Vorschau) · Läufe rechnen, Browser
+weg von der Solver-Seite · danach):
+
+| Phase | Heute p50 / p95 | Stundenplan p50 / p95 | /api/health p50 / p95 | Messpunkte je Pfad |
+|---|---:|---:|---:|---:|
+| Ruhe | 318 / 595 ms | 176 / 326 ms | 27 / 40 ms | ~20 |
+| Läufe starten (Bedienung) | 668 / 1 148 ms | 370 / 742 ms | 34 / 183 ms | 11 |
+| **Läufe rechnen** (Browser weg) | **357 / 754 ms** | **196 / 469 ms** | 38 / 66 ms | 148 |
+| danach | 251 / 403 ms | 169 / 257 ms | 23 / 31 ms | ~15 |
+
+- **Während der Berechnung** liegen die Seiten im Median **+11–12 %** über der Ruhe (Heute +12 %, Stundenplan +11 %), p95 +27 % (Heute) bzw.
+  +44 % (Stundenplan) – die Ruhe-p95 beruhen auf nur ~20 Messpunkten und streuen entsprechend. Preis: unter **dauerhaften** Anfragen (der Abrufer
+  hält die Ereignisschleife ständig beschäftigt) pausiert der Lauf nach fast jeder Scheibe → acht gründliche Läufe brauchten 112 s statt ~14 s
+  reiner Rechenzeit (≈ 8× langsamer); ohne Anfragen läuft er mit voller Geschwindigkeit. Zum Vergleich **ohne** „Vorfahrt“ (25-ms-Scheiben, nur
+  `setImmediate`, gleiche Messung vorher): Heute +91 % im Median, Stundenplan +270 % – der Lauf teilt sich die CPU dann hälftig mit den Seiten.
+- **Läufe starten** ist die teurere Phase: je Lauf baut `createRun` die Solver-Eingabe (Prüfung) und die Solver-Seite rendert nach der Weiterleitung
+  Vorschlag + Diagnose des letzten Laufs (Diagnose O(n²) über ~1 000 Stunden) und lädt mit `AutoRefresh` alle 2 s neu. **Hinweis für SP-07:** Kennzahlen
+  aus `metrics` statt `proposalDiagnosis` je Seitenaufruf, Vorschau erst auf Wunsch laden, Auto-Aktualisierung nur Status/Fortschritt.
+- **Entscheidung Q-SP-9:** Der Lauf bleibt im App-Prozess (kein Worker-Thread, kein zweites Bundle für Next-Standalone/ISO): im Median unter +20 %,
+  Spitzen durch Zeitscheibe (≤ 25 ms) plus Eingabe laden. Ein Lasttest-Regressionslauf auf der Build-VM (k6 „Montag 7:40“ mit laufender Berechnung)
+  steht noch aus – er braucht ein qcow2 des Standes (~1,5 h) und ein Szenario, das den Lauf startet; bei Bedarf vor v0.6.0 nachholen.
+
 ## Folgerungen
 
 - **Mindesthardware** (INSTALLATION.md): 2 Kerne / 4 GB reichen für eine Schule mit ~600 Konten (Spitze ~300 gleichzeitig aktiv);

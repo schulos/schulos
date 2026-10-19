@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbHandle } from "@/core/db/client";
 import { createSeededTestDb } from "@/core/db/testing";
 import { solve, validate } from "./solver";
-import { conflictsFrom, solverInputFromDb, unitsFrom } from "./solver-input";
+import { checkInput, conflictsFrom, solverInputFromDb, unitsFrom } from "./solver-input";
 import { planningYear } from "./verteilung";
 
 describe("conflictsFrom / unitsFrom", () => {
@@ -50,6 +50,44 @@ describe("conflictsFrom / unitsFrom", () => {
     expect(y).toHaveLength(2);
     expect(y[0]).toMatchObject({ groupIds: ["7a", "7b"], homeRoomId: null, size: 55, label: "7a + 7b Deutsch (BRA)" });
     expect(units[0]!.homeRoomId).toBe("106");
+    // bandfähig (Q-SP-13): genau ein Teil je Einheit mit denselben Angaben wie der Lehrauftrag
+    expect(y[0]!.parts).toEqual([{ assignmentId: "y", groupIds: ["7a", "7b"], teacherIds: ["t"], subjectId: "D", roomId: null, roomKind: null, homeRoomId: null, size: 55 }]);
+    expect(units[0]!.parts[0]).toMatchObject({ assignmentId: "x", homeRoomId: "106", size: 28 });
+  });
+
+  it("checkInput: Fehler ohne Zeitraster/Lehraufträge/Räume; Warnungen für Kurse ohne Mitglieder (SP-G-13) und A/B-Stunden", () => {
+    const groupKind = new Map([
+      ["7a", "klasse"],
+      ["wp1", "wahlpflicht"],
+      ["q1-m", "kurs"],
+    ]);
+    const groupName = new Map([
+      ["7a", "Klasse 7a"],
+      ["wp1", "WP Technik"],
+      ["q1-m", "Q1 Mathe GK"],
+    ]);
+    const assignments = [{ id: "a", groups: [{ id: "7a", name: "7a" }] }, { id: "b", groups: [{ id: "wp1", name: "WP" }] }, { id: "c", groups: [{ id: "q1-m", name: "Q1" }] }, { id: "d", groups: [] }];
+    const empty = checkInput({ periods: 0, assignments: [{ id: "d", groups: [] }], activeRooms: 0, groupsWithMembers: new Set(), groupKind, groupName, replaceable: [] });
+    expect(Object.keys(empty.errors).sort()).toEqual(["assignments", "periods", "rooms"]);
+    expect(empty.warnings).toEqual([]);
+    const ok = checkInput({ periods: 8, assignments, activeRooms: 3, groupsWithMembers: new Set(["wp1"]), groupKind, groupName, replaceable: [{ week: "all", groupName: "7a", subjectName: "D" }] });
+    expect(ok.errors).toEqual({});
+    // Klasse ohne Mitglieder ist keine Warnung (Klassen kollidieren nicht untereinander), der leere Kurs schon
+    expect(ok.warnings).toEqual([expect.stringMatching(/^1 Kurs mit Lehrauftrag ohne Mitglieder \(Q1 Mathe GK\)/)]);
+    const ab = checkInput({
+      periods: 8,
+      assignments,
+      activeRooms: 3,
+      groupsWithMembers: new Set(["wp1", "q1-m"]),
+      groupKind,
+      groupName,
+      replaceable: [
+        { week: "A", groupName: "7a", subjectName: "Kunst" },
+        { week: "B", groupName: "7a", subjectName: "Kunst" },
+        { week: "A", groupName: "7a", subjectName: "Musik" },
+      ],
+    });
+    expect(ab.warnings).toEqual([expect.stringMatching(/^3 A\/B-Wochen-Stunden mit Lehrauftrag sind nicht fixiert \(7a Kunst, 7a Musik\)/)]);
   });
 });
 
@@ -64,6 +102,9 @@ describe("Solver auf der Demo-Schule", () => {
     const year = (await planningYear(h.db))!;
     const input = await solverInputFromDb(h.db, year, "2026-10-05", { seed: 1 });
     expect(input.units.length).toBeGreaterThan(300);
+    // Demo-Raster: große Pausen nach der 2., 4. und 6. Stunde; Eingabe ohne Hinweise
+    expect(input.breakAfter).toEqual([2, 4, 6]);
+    expect(input.check).toEqual({ errors: {}, warnings: [] });
     const t0 = performance.now();
     const r = solve(input);
     const ms = performance.now() - t0;

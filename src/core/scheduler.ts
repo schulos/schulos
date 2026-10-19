@@ -20,6 +20,7 @@ import { runSprechtagReminders } from "@/modules/sprechtag/erinnerung";
 import { runKurswahlReminders } from "@/modules/kurswahl/erinnerung";
 import { purgeExpiredOfflineDevices } from "@/modules/notenbuch/offline";
 import { runReservations } from "@/modules/buecherei/reservations";
+import { cleanupRuns, executeQueued } from "@/modules/stundenplan/solverlauf";
 
 export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   {
@@ -117,6 +118,15 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
     },
   },
   {
+    // SP-06 (Q-SP-11): Solver-Läufe aufräumen – fehlgeschlagene/abgebrochene ohne Ergebnis nach 7 Tagen weg, je Schuljahr nur
+    // die neuesten 20 fertigen Läufe mit vollem Ergebnis (ältere behalten Kennzahlen und Protokoll); LK-90 macht der Löschlauf
+    name: "solver-aufraeumen",
+    at: "03:00",
+    until: "06:00",
+    ttlMs: 10 * 60_000,
+    run: (db, now) => cleanupRuns(db, now),
+  },
+  {
     // BU-03: verfallene Abholfristen von Vormerkungen löschen, nächste Vormerkung nachrücken lassen (Gong)
     name: "buecherei-vormerkungen",
     at: "06:30",
@@ -152,6 +162,33 @@ export function startScheduler(db: Db, jobs: readonly ScheduledJob[] = SCHEDULED
   };
   g.__schulosScheduler = setInterval(run, everyMs);
   g.__schulosScheduler.unref();
+  void run();
+}
+
+const gq = globalThis as unknown as { __schulosSolverQueue?: NodeJS.Timeout };
+
+/**
+ * Warteschlange der Solver-Läufe (SP-06): alle 30 s nachsehen, ob ein Lauf wartet, den kein Prozess rechnet – nach einem
+ * Neustart, wenn ein anderer Prozess die Sperre hielt, oder wenn der Start aus der Anfrage verloren ging. Verwaiste
+ * Läufe ohne Lebenszeichen werden dabei als fehlgeschlagen markiert. Normalerweise startet die Server Action den Lauf direkt.
+ */
+export function startSolverQueue(db: Db, everyMs = 30_000): void {
+  if (gq.__schulosSolverQueue) return;
+  let busy = false;
+  const run = async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      const r = await executeQueued(db, toBerlinDate(new Date()));
+      if (r.executed.length) console.log(`[schulos] Stundenplan-Berechnung aus der Warteschlange gerechnet: ${r.executed.length}`);
+    } catch (err) {
+      console.error("[schulos] Solver-Warteschlange fehlgeschlagen:", err instanceof Error ? err.message : err);
+    } finally {
+      busy = false;
+    }
+  };
+  gq.__schulosSolverQueue = setInterval(run, everyMs);
+  gq.__schulosSolverQueue.unref();
   void run();
 }
 

@@ -37,17 +37,36 @@ async function release(db: Db, name: string, who: string, status: "ok" | "failed
     .where(and(eq(systemJobs.name, name), eq(systemJobs.lockedBy, who)));
 }
 
-/** Führt `fn` unter der Sperre `name` aus; läuft schon ein Lauf, passiert nichts (`ran: false`). */
+/**
+ * Sperre verlängern (Heartbeat, SP-06): nur der eigene Halter kann das; liefert false, wenn die Sperre inzwischen jemand
+ * anderem gehört (abgelaufen und neu vergeben) – der Aufrufer sollte dann aufhören.
+ */
+export async function extendLock(db: Db, name: string, who: string, ttlMs: number, now = new Date()): Promise<boolean> {
+  const rows = await db
+    .update(systemJobs)
+    .set({ lockedUntil: new Date(now.getTime() + ttlMs) })
+    .where(and(eq(systemJobs.name, name), eq(systemJobs.lockedBy, who)))
+    .returning({ name: systemJobs.name });
+  return rows.length === 1;
+}
+
+export interface HeldLock {
+  /** Sperre um `ttlMs` (Vorgabe: die TTL des Laufs) ab jetzt verlängern; false = Sperre verloren */
+  extend: (ttlMs?: number) => Promise<boolean>;
+}
+
+/** Führt `fn` unter der Sperre `name` aus; läuft schon ein Lauf, passiert nichts (`ran: false`). Lange Läufe verlängern die Sperre über `lock.extend()`. */
 export async function runExclusive<T>(
   db: Db,
   name: string,
-  fn: () => Promise<T>,
+  fn: (lock: HeldLock) => Promise<T>,
   opts: { ttlMs?: number; now?: Date; notStartedSince?: Date } = {},
 ): Promise<JobRunResult<T>> {
   const who = owner();
-  if (!(await tryAcquire(db, name, who, opts.ttlMs ?? 30 * 60_000, opts.now ?? new Date(), opts.notStartedSince))) return { ran: false };
+  const ttlMs = opts.ttlMs ?? 30 * 60_000;
+  if (!(await tryAcquire(db, name, who, ttlMs, opts.now ?? new Date(), opts.notStartedSince))) return { ran: false };
   try {
-    const result = await fn();
+    const result = await fn({ extend: (ms = ttlMs) => extendLock(db, name, who, ms) });
     await release(db, name, who, "ok", null);
     return { ran: true, result };
   } catch (err) {

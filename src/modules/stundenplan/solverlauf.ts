@@ -1,36 +1,116 @@
-// Solver-Bedienung (P2b-23): Lauf als Hintergrundjob mit Fortschritt, Vorschau mit Bewertung und Diagnose,
-// Übernahme ab Stichtag. Fixierte Stunden und Stunden ohne Lehrauftrag bleiben.
-import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+// Solver-Läufe (P2b-23, SP-06): Lauf mit Parametern anlegen, Warteschlange (nur ein Lauf rechnet), Ausführung im App-Prozess
+// zeitgeschnitten (~25 ms rechnen, dann `setImmediate`) mit Heartbeat-Sperre, Abbruch, Protokoll und Kennzahlen; Vorschau mit
+// Bewertung und Diagnose, Übernahme ab Stichtag, Aufräumen. Fixierte Stunden und Stunden ohne Lehrauftrag bleiben.
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { runExclusive } from "@/core/jobs";
+import { runExclusive, type HeldLock } from "@/core/jobs";
 import { audit } from "@/core/audit";
 import { groupMembers, groups, periods, rooms, subjects, timetableLessons, timetableSolverRuns, timetableSubstitutions, users } from "@/core/db/schema";
-import { addDays } from "@/core/time";
+import { addDays, toBerlinDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { diagnose, type DiagLesson, type Finding } from "./diagnose";
-import { createSolver, type SolverResult } from "./solver";
+import { createSolver, DEFAULT_WEIGHTS, unitParts, type GapStats, type SolverResult, type SolverWeights, type UnitPart } from "./solver";
+import { precheck, type PrecheckFinding } from "./solver-check";
 import { solverInputFromDb } from "./solver-input";
 import { planningYear } from "./verteilung";
 
 export const EFFORTS = { schnell: 0.25, normal: 1, gruendlich: 4 } as const;
 export type Effort = keyof typeof EFFORTS;
+export const EFFORT_LABELS: Record<Effort, string> = { schnell: "schnell", normal: "normal", gruendlich: "gründlich" };
+
+/** Gewichtungs-Voreinstellungen (SP-07 zeigt sie zur Auswahl; „eigene“ = alle Felder von Hand). */
+export const WEIGHT_PRESETS = {
+  ausgewogen: DEFAULT_WEIGHTS,
+  lehrkraefteschonend: { ...DEFAULT_WEIGHTS, teacherGap: 8, pref: 3, classGap: 6 },
+  klassenkompakt: { ...DEFAULT_WEIGHTS, classGap: 16, subjectTwice: 10, late: 3 },
+  raumtreu: { ...DEFAULT_WEIGHTS, roomWish: 10, noRoom: 40 },
+} as const satisfies Record<string, SolverWeights>;
+export type WeightPreset = keyof typeof WEIGHT_PRESETS | "eigene";
+export const PRESET_LABELS: Record<WeightPreset, string> = {
+  ausgewogen: "ausgewogen",
+  lehrkraefteschonend: "lehrkräfteschonend",
+  klassenkompakt: "klassenkompakt",
+  raumtreu: "raumtreu",
+  eigene: "eigene",
+};
+
+/** Alles, was einen Lauf reproduzierbar macht (L-05). */
+export interface RunParams {
+  effort: Effort;
+  seed: number;
+  weights: SolverWeights;
+  preset: WeightPreset;
+}
+
+export interface RunLogEntry {
+  at: string;
+  kind: "queued" | "start" | "input" | "warning" | "precheck" | "construct" | "progress" | "cancel" | "done" | "error" | "cleanup";
+  text: string;
+  /** Zahlen zum Eintrag (Vorprüfung, Gründe „nicht gesetzt“, Zwischenbewertung) */
+  data?: Record<string, unknown>;
+}
+
+export const LOG_LIMIT = 50;
+
+/** Kennzahlen beim Abschluss – klein, damit die Historie sie ohne das ganze Ergebnis lesen kann. */
+export interface RunMetrics {
+  score: number;
+  breakdown: SolverResult["breakdown"];
+  unplaced: number;
+  units: number;
+  steps: number;
+  improved: number;
+  durationMs: number;
+  gaps: GapStats;
+  /** Diagnose-Zähler des Vorschlags (Fehler + Warnungen) */
+  diag: { gaps: number; subjectDay: number; room: number };
+  /** Pausen „Vorfahrt für Anfragen“ (Ereignisschleife war zwischen zwei Zeitscheiben anderweitig beschäftigt) */
+  pauses: number;
+  /** Fortschritt in %, bei dem der Lauf vorzeitig beendet wurde (Abbruch nach der Konstruktion) */
+  cancelledAt?: number;
+  /** Fehler und Warnungen der Vorprüfung */
+  precheck: { errors: number; warnings: number };
+}
+
+/** Einheit, wie sie im Lauf gespeichert wird. `parts` fehlt bei Läufen vor SP-06 (dann ein Teil aus den flachen Feldern). */
+export interface StoredUnit {
+  id: string;
+  label: string;
+  groupIds: string[];
+  teacherIds: string[];
+  subjectId: string;
+  length: 1 | 2;
+  parts?: UnitPart[];
+}
 
 /** Was zu einem Lauf gespeichert wird: Ergebnis + was die Vorschau und die Übernahme brauchen. */
 export interface StoredResult {
   result: SolverResult;
-  units: { id: string; label: string; groupIds: string[]; teacherIds: string[]; subjectId: string; length: 1 | 2 }[];
+  units: StoredUnit[];
   keptLessonIds: string[];
   refYmd: string;
 }
 
+export type RunStatus = (typeof timetableSolverRuns.$inferSelect)["status"];
+
 export interface SolverRun {
   id: string;
-  status: "running" | "done" | "failed" | "applied";
+  schoolYearId: string;
+  status: RunStatus;
   progress: number;
   seed: number;
   iterations: number;
   error: string | null;
+  label: string | null;
+  params: RunParams | null;
+  metrics: RunMetrics | null;
+  log: RunLogEntry[];
+  cancelRequested: boolean;
+  heartbeatAt: Date | null;
   appliedFrom: string | null;
+  appliedBy: string | null;
+  appliedAt: Date | null;
+  createdBy: string | null;
   createdAt: Date;
   finishedAt: Date | null;
   stored: StoredResult | null;
@@ -38,19 +118,45 @@ export interface SolverRun {
 
 const toRun = (r: typeof timetableSolverRuns.$inferSelect): SolverRun => ({
   id: r.id,
+  schoolYearId: r.schoolYearId,
   status: r.status,
   progress: r.progress,
   seed: r.seed,
   iterations: r.iterations,
   error: r.error,
+  label: r.label,
+  params: (r.params as RunParams | null) ?? null,
+  metrics: (r.metrics as RunMetrics | null) ?? null,
+  log: (r.log as RunLogEntry[] | null) ?? [],
+  cancelRequested: r.cancelRequested,
+  heartbeatAt: r.heartbeatAt,
   appliedFrom: r.appliedFrom,
+  appliedBy: r.appliedBy,
+  appliedAt: r.appliedAt,
+  createdBy: r.createdBy,
   createdAt: r.createdAt,
   finishedAt: r.finishedAt,
   stored: (r.result as StoredResult | null) ?? null,
 });
 
-export async function listRuns(db: Db, limit = 5): Promise<SolverRun[]> {
-  return (await db.select().from(timetableSolverRuns).orderBy(desc(timetableSolverRuns.createdAt)).limit(limit)).map(toRun);
+export interface ListRunsOptions {
+  schoolYearId?: string;
+  status?: RunStatus | RunStatus[];
+  limit?: number;
+}
+
+/** Läufe, neueste zuerst. `listRuns(db, 5)` = die letzten fünf (alle Schuljahre); mit Optionen gefiltert (SP-07: Historie). */
+export async function listRuns(db: Db, opts: number | ListRunsOptions = 5): Promise<SolverRun[]> {
+  const o = typeof opts === "number" ? { limit: opts } : opts;
+  const conds = [];
+  if (o.schoolYearId) conds.push(eq(timetableSolverRuns.schoolYearId, o.schoolYearId));
+  if (o.status) conds.push(Array.isArray(o.status) ? inArray(timetableSolverRuns.status, o.status) : eq(timetableSolverRuns.status, o.status));
+  const q = db
+    .select()
+    .from(timetableSolverRuns)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(timetableSolverRuns.createdAt));
+  return (await (o.limit ? q.limit(o.limit) : q)).map(toRun);
 }
 
 export async function getRun(db: Db, id: string): Promise<SolverRun | null> {
@@ -58,36 +164,123 @@ export async function getRun(db: Db, id: string): Promise<SolverRun | null> {
   return r ? toRun(r) : null;
 }
 
-/** Legt einen Lauf an (Status „running“); ausgeführt wird er mit executeRun(). */
-export async function createRun(db: Db, actorId: string, opts: { seed?: number; effort?: string }): Promise<string> {
+// ---------------------------------------------------------------- Anlegen
+
+export interface CreateRunOptions {
+  label?: string | null;
+  effort?: string;
+  seed?: number;
+  preset?: string;
+  /** eigene Gewichte (nur bei `preset: "eigene"`, sonst ignoriert); fehlende Felder aus der Vorgabe */
+  weights?: Partial<Record<keyof SolverWeights, number>>;
+}
+
+/** Rein: Parameter aus der Eingabe (Formular/Test) – ungültige Werte werden gemeldet, nicht still ersetzt. */
+export function parseParams(opts: CreateRunOptions): RunParams {
+  const errors: Record<string, string> = {};
+  const effort = (opts.effort ?? "normal") as Effort;
+  if (!(effort in EFFORTS)) errors.effort = "Unbekannte Gründlichkeit";
+  const seed = opts.seed ?? 1;
+  if (!Number.isInteger(seed) || seed < 1 || seed > 999_999) errors.seed = "Der Startwert muss eine ganze Zahl von 1 bis 999999 sein";
+  const preset = (opts.preset ?? "ausgewogen") as WeightPreset;
+  if (!(preset in PRESET_LABELS)) errors.preset = "Unbekannte Gewichtung";
+  let weights: SolverWeights = preset === "eigene" || !(preset in WEIGHT_PRESETS) ? { ...DEFAULT_WEIGHTS } : { ...WEIGHT_PRESETS[preset as keyof typeof WEIGHT_PRESETS] };
+  if (preset === "eigene") {
+    weights = { ...DEFAULT_WEIGHTS };
+    for (const k of Object.keys(DEFAULT_WEIGHTS) as (keyof SolverWeights)[]) {
+      const v = opts.weights?.[k];
+      if (v === undefined) continue;
+      if (!Number.isFinite(v) || v < 0 || v > 1000 || (k === "lateFrom" && !Number.isInteger(v))) errors[`weights.${k}`] = `Gewicht „${k}“ muss eine Zahl von 0 bis 1000 sein`;
+      else weights[k] = v;
+    }
+  }
+  if (Object.keys(errors).length) throw new ValidationError(errors);
+  return { effort, seed, weights, preset };
+}
+
+const logEntry = (kind: RunLogEntry["kind"], text: string, data?: Record<string, unknown>, now = new Date()): RunLogEntry => ({
+  at: now.toISOString(),
+  kind,
+  text,
+  ...(data ? { data } : {}),
+});
+
+/**
+ * Legt einen Lauf an (Status „queued“); gerechnet wird über executeQueued() – sofort, wenn kein anderer Lauf rechnet, sonst
+ * danach. Ohne Zeitraster, Lehraufträge oder aktive Räume gibt es einen Hinweis statt eines leeren Laufs (L-02); Warnungen
+ * (Kurse ohne Mitglieder, A/B-Stunden) stehen im Protokoll.
+ */
+export async function createRun(db: Db, actorId: string, opts: CreateRunOptions, todayYmd?: string): Promise<string> {
   const year = await planningYear(db);
   if (!year) throw new ValidationError({ year: "Zuerst ein Schuljahr anlegen" });
-  if ((await listRuns(db, 20)).some((r) => r.status === "running" && Date.now() - r.createdAt.getTime() < 10 * 60_000))
-    throw new ValidationError({ run: "Es läuft schon eine Berechnung" });
-  const seed = Number.isInteger(opts.seed) && opts.seed! > 0 ? opts.seed! : 1;
+  const params = parseParams(opts);
+  const label = opts.label?.trim() ? opts.label.trim().slice(0, 120) : null;
+  const input = await solverInputFromDb(db, year, todayYmd ?? toBerlinDate(new Date()), { seed: params.seed });
+  if (Object.keys(input.check.errors).length) throw new ValidationError(input.check.errors);
+  const now = new Date();
+  const log: RunLogEntry[] = [logEntry("queued", "Lauf angelegt, wartet auf die Berechnung", undefined, now), ...input.check.warnings.map((w) => logEntry("warning", w, undefined, now))];
   const [row] = await db
     .insert(timetableSolverRuns)
-    .values({ schoolYearId: year.id, seed, createdBy: actorId, iterations: 0 })
+    .values({ schoolYearId: year.id, status: "queued", seed: params.seed, createdBy: actorId, iterations: 0, label, params, log })
     .returning({ id: timetableSolverRuns.id });
-  await audit(db, actorId, "stundenplan.solver.start", null, { run: row!.id, seed, effort: opts.effort ?? "normal" });
+  await audit(db, actorId, "stundenplan.solver.start", null, { run: row!.id, seed: params.seed, effort: params.effort, preset: params.preset, label });
   return row!.id;
 }
 
-const tick = () => new Promise<void>((r) => setImmediate(r));
-
-/** executeRun unter der Job-Sperre „solver“: nie zwei Berechnungen gleichzeitig (auch nicht über Prozesse hinweg). */
-export async function executeRunExclusive(db: Db, runId: string, todayYmd: string, effort: string = "normal"): Promise<boolean> {
-  const r = await runExclusive(db, "solver", () => executeRun(db, runId, todayYmd, effort), { ttlMs: 30 * 60_000 });
-  if (!r.ran) {
+/** Abbruch: wartende Läufe enden sofort als „cancelled“; rechnende bekommen den Wunsch und beenden sich in der nächsten Zeitscheibe. */
+export async function cancelRun(db: Db, actorId: string, runId: string): Promise<"cancelled" | "requested"> {
+  const run = await getRun(db, runId);
+  if (!run) throw new ValidationError({ run: "Lauf gibt es nicht" });
+  if (run.status === "queued") {
     await db
       .update(timetableSolverRuns)
-      .set({ status: "failed", error: "Es läuft schon eine Berechnung", finishedAt: new Date() })
-      .where(eq(timetableSolverRuns.id, runId));
+      .set({ status: "cancelled", finishedAt: new Date(), log: [...run.log, logEntry("cancel", "Abgebrochen, bevor die Berechnung begann")].slice(-LOG_LIMIT) })
+      .where(and(eq(timetableSolverRuns.id, runId), eq(timetableSolverRuns.status, "queued")));
+    await audit(db, actorId, "stundenplan.solver.cancel", null, { run: runId, state: "queued" });
+    return "cancelled";
   }
-  return r.ran;
+  if (run.status !== "running") throw new ValidationError({ run: "Nur ein wartender oder rechnender Lauf lässt sich abbrechen" });
+  await db.update(timetableSolverRuns).set({ cancelRequested: true }).where(eq(timetableSolverRuns.id, runId));
+  await audit(db, actorId, "stundenplan.solver.cancel", null, { run: runId, state: "running" });
+  return "requested";
 }
 
-/** Beim Serverstart: Läufe, die beim Beenden noch rechneten, sind verloren (sie laufen im Prozess) → als abgebrochen markieren. */
+/** Lauf löschen (nicht während er rechnet). Stunden, die aus ihm übernommen wurden, bleiben – nur ihre Herkunft wird leer. */
+export async function deleteRun(db: Db, actorId: string, runId: string): Promise<void> {
+  const run = await getRun(db, runId);
+  if (!run) throw new ValidationError({ run: "Lauf gibt es nicht" });
+  if (run.status === "running") throw new ValidationError({ run: "Erst abbrechen, dann löschen" });
+  await db.delete(timetableSolverRuns).where(eq(timetableSolverRuns.id, runId));
+  await audit(db, actorId, "stundenplan.solver.delete", null, { run: runId, status: run.status, label: run.label });
+}
+
+// ---------------------------------------------------------------- Ausführen
+
+const tick = () => new Promise<void>((r) => setImmediate(r));
+
+/** Sperre „solver“: TTL kurz, je Heartbeat verlängert – ein verlorener Prozess gibt sie so nach zwei Minuten frei. */
+export const SOLVER_LOCK_TTL_MS = 2 * 60_000;
+/** Rechnende Läufe ohne Lebenszeichen so lange gelten als verwaist (anderer Prozess abgestürzt). */
+export const STALE_RUN_MS = 5 * 60_000;
+
+export interface ExecuteOptions {
+  /** Rechenzeit je Zeitscheibe, danach `setImmediate` (Vorgabe 25 ms) */
+  sliceMs?: number;
+  /**
+   * Vorfahrt für Anfragen: kam der Lauf nach `setImmediate` spürbar verspätet zurück (etwas anderes hat die Ereignisschleife
+   * gebraucht), pausiert er so lange (Vorgabe 30 ms), bevor er weiterrechnet – unter Last wird der Lauf langsamer, die Seiten nicht
+   */
+  pauseMs?: number;
+  /** Abstand der Heartbeats (Fortschritt, Sperre verlängern, Abbruch prüfen; Vorgabe 1 s) */
+  heartbeatMs?: number;
+  lock?: HeldLock;
+  /** Testhaken: wird je Zeitscheibe aufgerufen */
+  onSlice?: (phase: "construct" | "improve") => void;
+  /** Testhaken: wird je Pause (Vorfahrt) aufgerufen */
+  onPause?: () => void;
+}
+
+/** Beim Serverstart: Läufe, die beim Beenden noch rechneten, sind verloren (sie laufen im Prozess) → fehlgeschlagen; wartende startet executeQueued(). */
 export async function failInterruptedRuns(db: Db): Promise<number> {
   const rows = await db
     .update(timetableSolverRuns)
@@ -97,40 +290,259 @@ export async function failInterruptedRuns(db: Db): Promise<number> {
   return rows.length;
 }
 
-/** Führt einen Lauf aus und schreibt Fortschritt und Ergebnis (auch im Hintergrund aufrufbar). */
-export async function executeRun(db: Db, runId: string, todayYmd: string, effort: string = "normal"): Promise<void> {
+/** Rechnende Läufe ohne Lebenszeichen seit STALE_RUN_MS (Prozess abgestürzt, Sperre abgelaufen) → fehlgeschlagen. */
+export async function reapStaleRuns(db: Db, now = new Date(), staleMs = STALE_RUN_MS): Promise<number> {
+  const cutoff = new Date(now.getTime() - staleMs);
+  const rows = await db
+    .update(timetableSolverRuns)
+    .set({ status: "failed", error: "Abgebrochen: keine Rückmeldung der Berechnung (Prozess beendet?)", finishedAt: now })
+    .where(and(eq(timetableSolverRuns.status, "running"), lt(sql`coalesce(${timetableSolverRuns.heartbeatAt}, ${timetableSolverRuns.createdAt})`, cutoff)))
+    .returning({ id: timetableSolverRuns.id });
+  return rows.length;
+}
+
+/**
+ * Warteschlange abarbeiten: unter der Sperre „solver“ (nur ein Lauf gleichzeitig, auch über Prozesse hinweg) den ältesten
+ * wartenden Lauf rechnen, dann den nächsten – bis keiner mehr wartet. Läuft schon ein anderer Prozess, passiert nichts
+ * (`ran: false`); der Takt in scheduler.ts versucht es dann wieder. Verwaiste Läufe werden vorher aufgeräumt.
+ */
+export async function executeQueued(db: Db, todayYmd: string, opts: ExecuteOptions = {}): Promise<{ ran: boolean; executed: string[] }> {
+  await reapStaleRuns(db);
+  const [pending] = await db.select({ id: timetableSolverRuns.id }).from(timetableSolverRuns).where(eq(timetableSolverRuns.status, "queued")).limit(1);
+  if (!pending) return { ran: false, executed: [] };
+  const executed: string[] = [];
+  const r = await runExclusive(
+    db,
+    "solver",
+    async (lock) => {
+      for (;;) {
+        const [next] = await db
+          .select({ id: timetableSolverRuns.id })
+          .from(timetableSolverRuns)
+          .where(eq(timetableSolverRuns.status, "queued"))
+          .orderBy(asc(timetableSolverRuns.createdAt), asc(timetableSolverRuns.id))
+          .limit(1);
+        if (!next) return;
+        await executeRun(db, next.id, todayYmd, { ...opts, lock });
+        executed.push(next.id);
+      }
+    },
+    { ttlMs: SOLVER_LOCK_TTL_MS },
+  );
+  return { ran: r.ran, executed };
+}
+
+/**
+ * Führt einen Lauf aus (queued/running → done | cancelled | failed) und schreibt Fortschritt, Heartbeat, Protokoll, Kennzahlen
+ * und Ergebnis. Rechnet zeitgeschnitten, damit der Serverprozess nebenbei Anfragen beantwortet.
+ */
+export async function executeRun(db: Db, runId: string, todayYmd: string, opts: ExecuteOptions = {}): Promise<"done" | "cancelled" | "failed" | "skipped"> {
+  const sliceMs = opts.sliceMs ?? 25;
+  const pauseMs = opts.pauseMs ?? 30;
+  const heartbeatMs = opts.heartbeatMs ?? 1000;
+  const t0 = Date.now();
+  let pauses = 0;
+  /** Ereignisschleife freigeben; kam etwas anderes dran, zusätzlich pausieren (Anfragen haben Vorfahrt) */
+  const breathe = async () => {
+    const t = performance.now();
+    await tick();
+    if (pauseMs > 0 && performance.now() - t > 2) {
+      pauses++;
+      opts.onPause?.();
+      await new Promise<void>((r) => setTimeout(r, pauseMs));
+    }
+  };
+  let log: RunLogEntry[] = [];
   const set = (v: Partial<typeof timetableSolverRuns.$inferInsert>) => db.update(timetableSolverRuns).set(v).where(eq(timetableSolverRuns.id, runId));
+  const note = (kind: RunLogEntry["kind"], text: string, data?: Record<string, unknown>) => {
+    log = [...log, logEntry(kind, text, data)].slice(-LOG_LIMIT);
+  };
   try {
     const run = await getRun(db, runId);
+    if (!run) throw new Error("Lauf fehlt");
+    if (run.status !== "queued" && run.status !== "running") return "skipped";
     const year = await planningYear(db);
-    if (!run || !year) throw new Error("Lauf oder Schuljahr fehlt");
-    const input = await solverInputFromDb(db, year, todayYmd, { seed: run.seed });
-    await set({ progress: 10 });
+    if (!year || year.id !== run.schoolYearId) throw new Error("Das Schuljahr des Laufs ist nicht mehr das Planungsjahr");
+    log = run.log;
+    const params: RunParams = run.params ?? { effort: "normal", seed: run.seed, weights: { ...DEFAULT_WEIGHTS }, preset: "ausgewogen" };
+    note("start", `Berechnung gestartet (${EFFORT_LABELS[params.effort]}, Startwert ${params.seed}, Gewichtung ${PRESET_LABELS[params.preset]})`);
+    await set({ status: "running", progress: 1, heartbeatAt: new Date(), log });
+
+    // Eingabe und Vorprüfung (zwischen den Abschnitten die Ereignisschleife freigeben – mit PGlite rechnet die Datenbank im selben Thread)
+    const input = await solverInputFromDb(db, year, todayYmd, { seed: params.seed });
+    await tick();
+    input.weights = params.weights;
+    const blockedSlots = [...input.prefs.values()].reduce((s, m) => s + [...m.values()].filter((v) => v === null).length, 0);
+    note("input", `Eingabe: ${input.units.length} Einheiten (${input.units.filter((u) => u.length === 2).length} Doppelstunden), ${input.fixed.length} fixierte Stunden, ${input.rooms.length} Räume, ${blockedSlots} gesperrte Zeiten, ${input.weekdays.length * input.periods.length} Slots${input.breakAfter?.length ? `, große Pause nach der ${input.breakAfter.map((p) => `${p}.`).join("/")} Stunde` : ""}`, {
+      units: input.units.length,
+      doubles: input.units.filter((u) => u.length === 2).length,
+      fixed: input.fixed.length,
+      rooms: input.rooms.length,
+      blocked: blockedSlots,
+      breakAfter: input.breakAfter ?? [],
+    });
+    for (const w of input.check.warnings) if (!run.log.some((e) => e.kind === "warning" && e.text === w)) note("warning", w);
+    const findings = precheck(input);
+    const pre = { errors: findings.filter((f) => f.severity === "error").length, warnings: findings.filter((f) => f.severity === "warn").length };
+    note(
+      "precheck",
+      findings.length
+        ? `Vorprüfung: ${pre.errors} Fehler, ${pre.warnings} ${pre.warnings === 1 ? "Warnung" : "Warnungen"} – ${findings
+            .slice(0, 3)
+            .map((f) => f.message)
+            .join("; ")}${findings.length > 3 ? "; …" : ""}`
+        : "Vorprüfung: Bedarf passt überall in die freien Slots",
+      { findings },
+    );
+    await set({ progress: 5, heartbeatAt: new Date(), log });
+    await tick();
+
+    // Heartbeat: Fortschritt + Lebenszeichen schreiben, Sperre verlängern, Abbruchwunsch lesen
+    let lastBeat = Date.now();
+    const beat = async (progress: number): Promise<boolean> => {
+      lastBeat = Date.now();
+      const [row] = await db
+        .update(timetableSolverRuns)
+        .set({ progress, heartbeatAt: new Date() })
+        .where(eq(timetableSolverRuns.id, runId))
+        .returning({ cancel: timetableSolverRuns.cancelRequested });
+      if (opts.lock) await opts.lock.extend();
+      return row?.cancel ?? false;
+    };
+
+    // 1. Konstruktion in Zeitscheiben (5 … 30 %)
     const solver = createSolver(input);
-    solver.construct();
-    // Gründlichkeit: Anzahl der Verbesserungsschritte
-    const factor = EFFORTS[(effort in EFFORTS ? effort : "normal") as Effort];
-    const steps = Math.max(1, Math.round(solver.total * factor));
-    await set({ progress: 30, iterations: steps });
-    const chunk = 2000;
-    let done = 0;
-    while (done < steps) {
-      solver.improve(Math.min(chunk, steps - done));
-      done += chunk;
-      await set({ progress: 30 + Math.min(65, Math.round((Math.min(done, steps) / steps) * 65)) });
-      await tick();
+    let cancelled = false;
+    for (;;) {
+      const start = performance.now();
+      const remaining = solver.construct(() => performance.now() - start < sliceMs);
+      opts.onSlice?.("construct");
+      if (remaining === 0) break;
+      await breathe();
+      if (Date.now() - lastBeat >= heartbeatMs) {
+        if (await beat(5 + Math.round((25 * (input.units.length - remaining)) / Math.max(1, input.units.length)))) {
+          cancelled = true;
+          break;
+        }
+      }
     }
+    if (cancelled) {
+      note("cancel", "Abgebrochen während der Konstruktion – kein Ergebnis");
+      await set({ status: "cancelled", finishedAt: new Date(), heartbeatAt: new Date(), log });
+      return "cancelled";
+    }
+    await tick();
+    const built = solver.result();
+    note(
+      "construct",
+      `Konstruktion fertig: ${built.placements.length} von ${input.units.length} Einheiten gesetzt${built.unplaced.length ? `, ${built.unplaced.length} nicht gesetzt (${built.unplaced
+        .slice(0, 3)
+        .map((u) => `${u.label}: ${u.reason}`)
+        .join("; ")}${built.unplaced.length > 3 ? "; …" : ""})` : ""}, Bewertung ${built.score}`,
+      { placed: built.placements.length, unplaced: built.unplaced.length, score: built.score },
+    );
+
+    // 2. Verbesserung in Zeitscheiben (30 … 95 %), alle 10 % eine Zwischenbewertung
+    const factor = EFFORTS[params.effort];
+    const steps = Math.max(1, Math.round(solver.total * factor));
+    await set({ progress: 30, iterations: steps, heartbeatAt: new Date(), log });
+    let done = 0;
+    let nextMark = 10;
+    let earlyAt: number | null = null;
+    while (done < steps) {
+      const start = performance.now();
+      while (done < steps && performance.now() - start < sliceMs) {
+        const n = Math.min(20, steps - done);
+        solver.improve(n);
+        done += n;
+      }
+      opts.onSlice?.("improve");
+      const pct = Math.round((done / steps) * 100);
+      if (pct >= nextMark && done < steps) {
+        note("progress", `${pct} % – Bewertung ${solver.score()}`, { percent: pct, score: solver.score() });
+        nextMark = Math.floor(pct / 10) * 10 + 10;
+        await set({ log });
+      }
+      if (done >= steps) break;
+      await breathe();
+      if (Date.now() - lastBeat >= heartbeatMs && (await beat(30 + Math.round((65 * done) / steps)))) {
+        earlyAt = 30 + Math.round((65 * done) / steps);
+        break;
+      }
+    }
+
+    // 3. Ergebnis, Kennzahlen, Protokoll
+    await tick();
     const result = solver.result();
     const stored: StoredResult = {
       result,
-      units: input.units.map((u) => ({ id: u.id, label: u.label, groupIds: u.groupIds, teacherIds: u.teacherIds, subjectId: u.subjectId, length: u.length })),
+      units: input.units.map((u) => ({ id: u.id, label: u.label, groupIds: u.groupIds, teacherIds: u.teacherIds, subjectId: u.subjectId, length: u.length, parts: u.parts })),
       keptLessonIds: input.keptLessonIds ?? [],
       refYmd: todayYmd,
     };
-    await set({ status: "done", progress: 100, result: stored, finishedAt: new Date() });
+    await tick();
+    const diag = await proposalDiagnosis(db, stored);
+    await tick();
+    const diagCount = (c: Finding["category"]) => diag.filter((f) => f.category === c && f.severity !== "info").length;
+    const metrics: RunMetrics = {
+      score: result.score,
+      breakdown: result.breakdown,
+      unplaced: result.unplaced.length,
+      units: input.units.length,
+      steps: result.stats.iterations,
+      improved: result.stats.improved,
+      durationMs: Date.now() - t0,
+      gaps: result.gaps,
+      diag: { gaps: diagCount("gaps"), subjectDay: diagCount("subjectDay"), room: diagCount("room") },
+      precheck: pre,
+      pauses,
+      ...(earlyAt !== null ? { cancelledAt: earlyAt } : {}),
+    };
+    if (earlyAt !== null) note("cancel", `Vorzeitig beendet bei ${earlyAt} % – der bisherige Stand ist ein gültiger Plan`, { percent: earlyAt });
+    note("done", `Fertig: Bewertung ${result.score}, ${result.unplaced.length} nicht gesetzt, ${result.stats.iterations} Verbesserungsschritte (${result.stats.improved} Verbesserungen), ${Math.round(metrics.durationMs / 100) / 10} s${pauses ? `, ${pauses} Pausen für Anfragen` : ""}`, { score: result.score, durationMs: metrics.durationMs, pauses });
+    await set({ status: "done", progress: 100, result: stored, metrics, log, finishedAt: new Date(), heartbeatAt: new Date() });
+    return "done";
   } catch (err) {
-    await set({ status: "failed", error: err instanceof Error ? err.message : String(err), finishedAt: new Date() });
+    const message = err instanceof Error ? err.message : String(err);
+    note("error", `Fehler: ${message}`);
+    await set({ status: "failed", error: message, finishedAt: new Date(), log });
+    return "failed";
   }
+}
+
+// ---------------------------------------------------------------- Aufräumen
+
+/** Je Schuljahr behalten so viele fertige Läufe ihr volles Ergebnis. */
+export const KEEP_RESULTS_PER_YEAR = 20;
+export const DISCARD_FAILED_AFTER_DAYS = 7;
+
+/**
+ * Nachtjob „solver-aufraeumen“ (Q-SP-11): fehlgeschlagene/abgebrochene Läufe ohne Ergebnis nach 7 Tagen löschen; von den
+ * fertigen Läufen je Schuljahr nur die neuesten 20 mit vollem Ergebnis behalten, ältere behalten Kennzahlen und Protokoll
+ * („Ergebnis entfernt“, nicht mehr übernehmbar). Übernommene Läufe bleiben unangetastet. Die Löschklasse LK-90 (Löschlauf) bleibt.
+ */
+export async function cleanupRuns(db: Db, now = new Date()): Promise<{ deleted: number; trimmed: number }> {
+  const cutoff = new Date(now.getTime() - DISCARD_FAILED_AFTER_DAYS * 86_400_000);
+  const deleted = await db
+    .delete(timetableSolverRuns)
+    .where(and(inArray(timetableSolverRuns.status, ["failed", "cancelled"]), isNull(timetableSolverRuns.result), lt(timetableSolverRuns.createdAt, cutoff)))
+    .returning({ id: timetableSolverRuns.id });
+  const done = await db
+    .select({ id: timetableSolverRuns.id, schoolYearId: timetableSolverRuns.schoolYearId, log: timetableSolverRuns.log })
+    .from(timetableSolverRuns)
+    .where(and(eq(timetableSolverRuns.status, "done"), sql`${timetableSolverRuns.result} is not null`))
+    .orderBy(desc(timetableSolverRuns.createdAt), desc(timetableSolverRuns.id));
+  const seen = new Map<string, number>();
+  let trimmed = 0;
+  for (const r of done) {
+    const n = (seen.get(r.schoolYearId) ?? 0) + 1;
+    seen.set(r.schoolYearId, n);
+    if (n <= KEEP_RESULTS_PER_YEAR) continue;
+    const log = [...((r.log as RunLogEntry[] | null) ?? []), logEntry("cleanup", "Ergebnis entfernt (Aufräumen: nur die neuesten 20 fertigen Läufe behalten den Vorschlag) – Kennzahlen und Protokoll bleiben", undefined, now)].slice(-LOG_LIMIT);
+    await db.update(timetableSolverRuns).set({ result: null, log }).where(eq(timetableSolverRuns.id, r.id));
+    trimmed++;
+  }
+  return { deleted: deleted.length, trimmed };
 }
 
 // ---------------------------------------------------------------- Vorschau
@@ -147,28 +559,32 @@ export interface ProposedLesson {
   coupled: boolean;
 }
 
-/** Rein: Platzierungen → Stunden-Zeilen (Gruppen × Lehrkräfte, Doppelstunde = zwei Zeilen je Teil). */
+/** Rein: Platzierungen → Stunden-Zeilen (je Teil Gruppen × Lehrkräfte, Doppelstunde = zwei Zeilen je Teil). */
 export function proposedLessons(stored: StoredResult): ProposedLesson[] {
   const unitOf = new Map(stored.units.map((u) => [u.id, u]));
   const out: ProposedLesson[] = [];
   for (const p of stored.result.placements) {
     const u = unitOf.get(p.unitId);
     if (!u) continue;
-    const teachers = u.teacherIds.length ? u.teacherIds : [null];
-    const coupled = u.groupIds.length * teachers.length > 1;
+    const parts = unitParts(u);
+    const rowsPerSlot = parts.reduce((s, part) => s + part.groupIds.length * Math.max(1, part.teacherIds.length), 0);
+    const coupled = rowsPerSlot > 1;
     for (let k = 0; k < u.length; k++)
-      for (const g of u.groupIds)
-        for (const t of teachers)
-          out.push({
-            unitId: `${u.id}@${k}`,
-            groupId: g,
-            subjectId: u.subjectId,
-            teacherId: t,
-            roomId: p.roomId,
-            weekday: p.weekday,
-            periodNr: p.periodNr + k,
-            coupled,
-          });
+      for (const part of parts) {
+        const teachers = part.teacherIds.length ? part.teacherIds : [null];
+        for (const g of part.groupIds)
+          for (const t of teachers)
+            out.push({
+              unitId: `${u.id}@${k}`,
+              groupId: g,
+              subjectId: part.subjectId,
+              teacherId: t,
+              roomId: p.roomId,
+              weekday: p.weekday,
+              periodNr: p.periodNr + k,
+              coupled,
+            });
+      }
   }
   return out;
 }
@@ -217,7 +633,8 @@ export async function proposalDiagnosis(db: Db, stored: StoredResult): Promise<F
 /**
  * Übernimmt den Vorschlag ab `fromYmd`: alle übrigen Stunden des Schuljahres (nicht fixiert, mit Lehrauftrag) enden am
  * Vortag bzw. werden gelöscht, wenn sie erst danach beginnen; Vertretungen ab dem Stichtag an diesen Stunden entfallen.
- * Die vorgeschlagenen Stunden gelten ab dem Stichtag bis zum Schuljahresende.
+ * Die vorgeschlagenen Stunden gelten ab dem Stichtag bis zum Schuljahresende und tragen den Lauf als Herkunft (SP-06);
+ * „Zurücknehmen“ mit `undo` kommt in SP-09.
  */
 export async function applyRun(
   db: Db,
@@ -227,7 +644,8 @@ export async function applyRun(
   todayYmd: string,
 ): Promise<{ created: number; ended: number; removedSubstitutions: number }> {
   const run = await getRun(db, runId);
-  if (!run || run.status !== "done" || !run.stored) throw new ValidationError({ run: "Nur ein fertiger, noch nicht übernommener Lauf lässt sich übernehmen" });
+  if (!run || run.status !== "done") throw new ValidationError({ run: "Nur ein fertiger, noch nicht übernommener Lauf lässt sich übernehmen" });
+  if (!run.stored) throw new ValidationError({ run: "Das Ergebnis dieses Laufs wurde beim Aufräumen entfernt – einen neuen Lauf starten" });
   const year = await planningYear(db);
   if (!year) throw new ValidationError({ run: "Kein Schuljahr" });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fromYmd) || fromYmd <= todayYmd) throw new ValidationError({ from: "Der Stichtag muss in der Zukunft liegen" });
@@ -277,10 +695,14 @@ export async function applyRun(
         validFrom: fromYmd,
         validUntil: year.endsOn,
         couplingId,
+        solverRunId: runId,
       };
     });
     for (let i = 0; i < rows.length; i += 500) await tx.insert(timetableLessons).values(rows.slice(i, i + 500));
-    await tx.update(timetableSolverRuns).set({ status: "applied", appliedFrom: fromYmd }).where(eq(timetableSolverRuns.id, runId));
+    await tx
+      .update(timetableSolverRuns)
+      .set({ status: "applied", appliedFrom: fromYmd, appliedBy: actorId, appliedAt: new Date() })
+      .where(and(eq(timetableSolverRuns.id, runId), ne(timetableSolverRuns.status, "applied")));
     return { created: rows.length, ended: ids.length, removedSubstitutions };
   });
   await audit(db, actorId, "stundenplan.solver.apply", null, { run: runId, from: fromYmd, ...out });
@@ -297,3 +719,5 @@ export async function setFixed(db: Db, actorId: string, lessonId: string, fixed:
     .where(l.couplingId ? eq(timetableLessons.couplingId, l.couplingId) : eq(timetableLessons.id, lessonId));
   await audit(db, actorId, fixed ? "stundenplan.lesson.fix" : "stundenplan.lesson.unfix", l.groupId, { lesson: lessonId });
 }
+
+export type { PrecheckFinding };

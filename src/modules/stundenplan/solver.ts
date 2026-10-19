@@ -1,12 +1,13 @@
 // Solver-Kern (P2b-22): automatische Stundenplanerstellung – reines TypeScript, deterministisch (fester Startwert).
 //
 // Harte Regeln: Lehrkraft, Gruppe und Raum nie doppelt; Gruppen mit gemeinsamen Schüler:innen nie parallel;
-// Kopplungen liegen als eine Einheit gemeinsam; gesperrte Zeiten (Zeitwünsche); fixierte Stunden bleiben.
-// Weiche Regeln (gewichtet, erklärbar): Zeitwünsche, Hohlstunden (Lehrkraft/Klasse), Fach mehrfach am Tag,
-// Raumwunsch, späte Stunden. Doppelstunden werden als Zweier-Block gesetzt.
+// Kopplungen liegen als eine Einheit gemeinsam; gesperrte Zeiten (Zeitwünsche); fixierte Stunden bleiben;
+// Doppelstunden nicht über eine große Pause (SP-G-04a). Weiche Regeln (gewichtet, erklärbar): Zeitwünsche,
+// Hohlstunden (Lehrkraft/Klasse), Fach mehrfach am Tag, Raumwunsch, späte Stunden. Doppelstunden werden als Zweier-Block gesetzt.
 //
 // Verfahren: gierige Konstruktion (schwierigste Einheiten zuerst, je Einheit der günstigste zulässige Slot), danach
-// lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand).
+// lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand). Beides läuft in Schritten, damit ein
+// Hintergrundlauf (solverlauf.ts) zwischendurch die Ereignisschleife freigibt.
 
 export interface SolverWeights {
   /** je Wunschpunkt (Zeitwunsch +3 spart 3 × pref, −3 kostet 3 × pref) */
@@ -31,13 +32,36 @@ export interface SolverRoom {
   capacity: number | null;
 }
 
+/**
+ * Ein Teil einer Einheit (Q-SP-13, bandfähiges Format): heute genau ein Teil je Einheit (= ein Lehrauftrag: Gruppe(n) ×
+ * Lehrkräfte, ein Fach). Bänder (SP2-02) bekommen mehrere Teile mit eigener Lehrkraft, eigenem Fach und Raum je Teil.
+ */
+export interface UnitPart {
+  /** Lehrauftrag dieses Teils */
+  assignmentId: string;
+  groupIds: string[];
+  teacherIds: string[];
+  subjectId: string;
+  /** gewünschter Raum (Lehrauftrag) */
+  roomId: string | null;
+  /** gewünschte Raumart (Fach) */
+  roomKind: string | null;
+  /** Stammraum (eine Klasse) */
+  homeRoomId: string | null;
+  /** Personen (für die Raumgröße) */
+  size: number;
+}
+
 export interface SolverUnit {
   id: string;
   /** Lehrauftrag (für die Erklärung und das Zusammenfassen) */
   assignmentId: string;
   label: string;
+  /** alle Gruppen über alle Teile (harte Regeln, Kosten) */
   groupIds: string[];
+  /** alle Lehrkräfte über alle Teile */
   teacherIds: string[];
+  /** Fach des (ersten) Teils – Sperrzeiten des Fachs, Fach mehrfach am Tag */
   subjectId: string;
   /** 1 = Einzelstunde, 2 = Doppelstunde */
   length: 1 | 2;
@@ -49,6 +73,25 @@ export interface SolverUnit {
   homeRoomId: string | null;
   /** Personen (für die Raumgröße) */
   size: number;
+  /** Teile der Einheit (Vorschau/Übernahme erzeugen je Teil Gruppen × Lehrkräfte Stunden-Zeilen) */
+  parts: UnitPart[];
+}
+
+/** Teile einer Einheit – auch für gespeicherte Einheiten aus Läufen vor SP-06, die noch kein `parts` haben. */
+export function unitParts(u: Pick<SolverUnit, "groupIds" | "teacherIds" | "subjectId"> & Partial<Pick<SolverUnit, "parts" | "assignmentId" | "roomId" | "roomKind" | "homeRoomId" | "size">>): UnitPart[] {
+  if (u.parts?.length) return u.parts;
+  return [
+    {
+      assignmentId: u.assignmentId ?? "",
+      groupIds: u.groupIds,
+      teacherIds: u.teacherIds,
+      subjectId: u.subjectId,
+      roomId: u.roomId ?? null,
+      roomKind: u.roomKind ?? null,
+      homeRoomId: u.homeRoomId ?? null,
+      size: u.size ?? 0,
+    },
+  ];
 }
 
 export interface FixedLesson {
@@ -62,8 +105,10 @@ export interface FixedLesson {
 
 export interface SolverInput {
   weekdays: number[];
-  /** Stundennummern, aufsteigend; aufeinanderfolgende Nummern gelten als Doppelstunden-fähig */
+  /** Stundennummern, aufsteigend; aufeinanderfolgende Nummern gelten als Doppelstunden-fähig … */
   periods: number[];
+  /** … außer über eine große Pause: nach diesen Stunden beginnt keine Doppelstunde (SP-G-04a; leer = wie bisher) */
+  breakAfter?: number[];
   units: SolverUnit[];
   fixed: FixedLesson[];
   rooms: SolverRoom[];
@@ -105,16 +150,47 @@ export const COST_LABELS: Record<CostItem["category"], string> = {
   late: "späte Stunden",
 };
 
+/** Woran es bei einer nicht gesetzten Einheit hängt (SP-G-03): je Beteiligtem die Zahl der Slots, die für ihn allein frei wären. */
+export interface UnplacedCause {
+  kind: "teacher" | "group" | "conflict" | "subject" | "double";
+  id: string | null;
+  label: string;
+  /** Slots, in denen dieser Beteiligte allein nichts im Weg hätte */
+  free: number;
+  of: number;
+  /** davon belegt (fixiert oder schon gesetzt) bzw. gesperrt (Zeitwunsch) */
+  busy: number;
+  blocked: number;
+}
+
+export interface Unplaced {
+  unitId: string;
+  label: string;
+  /** lesbarer Grund („kein Slot frei – Lehrkraft LIN: 0 von 30 frei …“) */
+  reason: string;
+  /** Zählung je Beteiligtem, engster zuerst (SP-07 zeigt sie an) */
+  causes: UnplacedCause[];
+}
+
+export interface GapStats {
+  /** Hohlstunden aller Lehrkräfte in der Woche (Summe) und das Maximum einer Lehrkraft */
+  teacherTotal: number;
+  teacherMax: number;
+  classTotal: number;
+  classMax: number;
+}
+
 export interface SolverResult {
   placements: Placement[];
   /** Einheiten, die sich unter den harten Regeln nicht setzen ließen */
-  unplaced: { unitId: string; label: string; reason: string }[];
+  unplaced: Unplaced[];
   score: number;
   /** Summe je Kategorie */
   breakdown: Record<CostItem["category"], number>;
   /** teuerste Einzelposten zuerst */
   items: CostItem[];
   stats: { units: number; iterations: number; improved: number };
+  gaps: GapStats;
 }
 
 // ---------------------------------------------------------------- Hilfen
@@ -162,11 +238,14 @@ class State {
   readonly groupDay = new Map<string, { nr: number; subjectId: string }[]>();
   readonly unitById: Map<string, SolverUnit>;
   readonly periodSet: Set<number>;
+  /** nach diesen Stunden beginnt keine Doppelstunde (große Pause) */
+  readonly noDoubleAfter: Set<number>;
 
   constructor(readonly input: SolverInput) {
     this.w = { ...DEFAULT_WEIGHTS, ...input.weights };
     this.unitById = new Map(input.units.map((u) => [u.id, u]));
     this.periodSet = new Set(input.periods);
+    this.noDoubleAfter = new Set(input.breakAfter ?? []);
     for (const f of input.fixed) {
       this.mark(`g:${f.groupId}`, f.weekday, f.periodNr, true);
       if (f.teacherId) this.mark(`t:${f.teacherId}`, f.weekday, f.periodNr, true);
@@ -203,10 +282,10 @@ class State {
     if (i >= 0) arr.splice(i, 1);
   }
 
-  /** Stunden, die eine Einheit ab `nr` belegt (Doppelstunde: zwei aufeinanderfolgende). */
+  /** Stunden, die eine Einheit ab `nr` belegt (Doppelstunde: zwei aufeinanderfolgende, nicht über eine große Pause). */
   span(u: SolverUnit, nr: number): number[] | null {
     if (u.length === 1) return [nr];
-    return this.periodSet.has(nr + 1) ? [nr, nr + 1] : null;
+    return this.periodSet.has(nr + 1) && !this.noDoubleAfter.has(nr) ? [nr, nr + 1] : null;
   }
 
   /** Harte Regeln ohne Raum: Lehrkräfte/Gruppen frei, keine Konfliktgruppe parallel, nichts gesperrt. */
@@ -229,6 +308,62 @@ class State {
   }
   pref(kind: string, id: string, wd: number, nr: number) {
     return this.input.prefs.get(`${kind}:${id}`)?.get(slotKey(wd, nr)) ?? 0;
+  }
+
+  /**
+   * Warum passt die Einheit nirgends (SP-G-03)? Zählt je Beteiligtem die Slots, in denen er allein frei wäre –
+   * engster Beteiligter zuerst. „Doppelstunde“ zählt die Startstunden, an denen ein Zweier-Block überhaupt möglich ist.
+   */
+  explain(u: SolverUnit): UnplacedCause[] {
+    const name = (id: string) => this.input.names?.get(id) ?? id;
+    const starts = this.input.weekdays.flatMap((wd) => this.input.periods.map((nr) => ({ wd, nr, span: this.span(u, nr) })));
+    const possible = starts.filter((s) => s.span);
+    const causes: UnplacedCause[] = [];
+    if (u.length === 2) causes.push({ kind: "double", id: null, label: "Doppelstunde", free: possible.length, of: starts.length, busy: 0, blocked: starts.length - possible.length });
+    const count = (kind: UnplacedCause["kind"], id: string | null, label: string, isBusy: (wd: number, p: number) => boolean, isBlocked: (wd: number, p: number) => boolean) => {
+      let busy = 0;
+      let blocked = 0;
+      for (const s of possible) {
+        if (s.span!.some((p) => isBlocked(s.wd, p))) blocked++;
+        else if (s.span!.some((p) => isBusy(s.wd, p))) busy++;
+      }
+      causes.push({ kind, id, label, free: possible.length - busy - blocked, of: possible.length, busy, blocked });
+    };
+    for (const t of u.teacherIds)
+      count(
+        "teacher",
+        t,
+        `Lehrkraft ${name(t)}`,
+        (wd, p) => this.isBusy(`t:${t}`, wd, p),
+        (wd, p) => this.blocked("teacher", t, wd, p),
+      );
+    for (const g of u.groupIds) {
+      count(
+        "group",
+        g,
+        `${this.input.classIds.has(g) ? "Klasse" : "Gruppe"} ${name(g)}`,
+        (wd, p) => this.isBusy(`g:${g}`, wd, p),
+        (wd, p) => this.blocked("group", g, wd, p),
+      );
+      const others = [...(this.input.conflicts.get(g) ?? [])].filter((c) => !u.groupIds.includes(c));
+      if (others.length)
+        count(
+          "conflict",
+          g,
+          `Kurse mit gemeinsamen Schüler:innen von ${name(g)}`,
+          (wd, p) => others.some((c) => this.isBusy(`g:${c}`, wd, p)),
+          () => false,
+        );
+    }
+    if (this.input.prefs.has(`subject:${u.subjectId}`))
+      count(
+        "subject",
+        u.subjectId,
+        `Fach ${name(u.subjectId)}`,
+        () => false,
+        (wd, p) => this.blocked("subject", u.subjectId, wd, p),
+      );
+    return causes.sort((a, b) => a.free - b.free || a.label.localeCompare(b.label, "de"));
   }
 
   /** Bester freier Raum für die Einheit im Slot: Wunschraum, Raumart, Stammraum, sonst ein Klassenraum. */
@@ -331,23 +466,32 @@ class State {
     return c;
   }
 
+  teacherHoles(key: string): number {
+    return holes(this.teacherDay.get(key) ?? [], this.input.periods).length;
+  }
+
   teacherDayCost(key: string, items?: CostItem[], label?: string): number {
-    const h = holes(this.teacherDay.get(key) ?? [], this.input.periods).length;
+    const h = this.teacherHoles(key);
     if (h && items) items.push({ category: "teacherGap", cost: h * this.w.teacherGap, text: `${label}: ${h} Hohlstunde${h > 1 ? "n" : ""}` });
     return h * this.w.teacherGap;
   }
 
-  groupDayCost(key: string, items?: CostItem[], label?: string): number {
+  classHoles(key: string): number {
     const [g] = key.split("|");
+    if (!this.input.classIds.has(g!)) return 0;
+    return holes(
+      (this.groupDay.get(key) ?? []).map((x) => x.nr),
+      this.input.periods,
+    ).length;
+  }
+
+  groupDayCost(key: string, items?: CostItem[], label?: string): number {
     const day = this.groupDay.get(key) ?? [];
     let c = 0;
-    if (this.input.classIds.has(g!)) {
-      const h = holes(
-        day.map((x) => x.nr),
-        this.input.periods,
-      ).length;
+    const h = this.classHoles(key);
+    if (h) {
       c += h * this.w.classGap;
-      if (h && items) items.push({ category: "classGap", cost: h * this.w.classGap, text: `${label}: ${h} Hohlstunde${h > 1 ? "n" : ""}` });
+      items?.push({ category: "classGap", cost: h * this.w.classGap, text: `${label}: ${h} Hohlstunde${h > 1 ? "n" : ""}` });
     }
     const bySubject = new Map<string, number[]>();
     for (const x of day) bySubject.set(x.subjectId, [...(bySubject.get(x.subjectId) ?? []), x.nr]);
@@ -406,6 +550,24 @@ class State {
     }
     return c;
   }
+
+  /** Hohlstunden je Lehrkraft und Klasse in der Woche: Summe und Maximum (Kennzahlen eines Laufs). */
+  gapStats(): GapStats {
+    const perTeacher = new Map<string, number>();
+    for (const k of this.teacherDay.keys()) {
+      const id = k.split("|")[0]!;
+      perTeacher.set(id, (perTeacher.get(id) ?? 0) + this.teacherHoles(k));
+    }
+    const perClass = new Map<string, number>();
+    for (const k of this.groupDay.keys()) {
+      const id = k.split("|")[0]!;
+      if (!this.input.classIds.has(id)) continue;
+      perClass.set(id, (perClass.get(id) ?? 0) + this.classHoles(k));
+    }
+    const sum = (m: Map<string, number>) => [...m.values()].reduce((s, x) => s + x, 0);
+    const max = (m: Map<string, number>) => Math.max(0, ...m.values());
+    return { teacherTotal: sum(perTeacher), teacherMax: max(perTeacher), classTotal: sum(perClass), classMax: max(perClass) };
+  }
 }
 
 // ---------------------------------------------------------------- Lösen
@@ -417,20 +579,35 @@ function difficulty(s: State, u: SolverUnit): number {
   return -free * 10 + u.groupIds.length * 5 + u.teacherIds.length * 5 + (u.length === 2 ? 20 : 0) + (u.roomKind ? 10 : 0);
 }
 
+/** Lesbarer Grund aus der Zählung: engste Beteiligte zuerst, höchstens drei. */
+export function unplacedReason(causes: UnplacedCause[]): string {
+  const part = (c: UnplacedCause) => {
+    if (c.kind === "double") return `${c.label}: nur ${c.free} von ${c.of} Startstunden möglich`;
+    const why = [c.busy ? `${c.busy} belegt` : null, c.blocked ? `${c.blocked} gesperrt` : null].filter(Boolean).join(", ");
+    return `${c.label}: ${c.free} von ${c.of} Slots frei${why ? ` (${why})` : ""}`;
+  };
+  const tight = causes.filter((c) => c.free < c.of).slice(0, 3);
+  return `kein Slot frei${tight.length ? ` – ${tight.map(part).join(" · ")}` : " (alle Beteiligten einzeln frei, zusammen nie)"}`;
+}
+
 /**
  * Solver in Schritten (für Hintergrundjobs mit Fortschritt): construct() → improve(n) beliebig oft → result().
- * Gleicher Input und Startwert ergeben dieselbe Lösung, egal in wie vielen Schritten verbessert wird.
+ * Gleicher Input und Startwert ergeben dieselbe Lösung, egal in wie vielen Schritten konstruiert oder verbessert wird.
  */
 export function createSolver(input: SolverInput) {
   const s = new State(input);
   const random = rng(input.seed ?? 1);
-  const unplaced: SolverResult["unplaced"] = [];
+  const unplaced: Unplaced[] = [];
   let placedUnits: SolverUnit[] = [];
   const slots = input.weekdays.flatMap((wd) => input.periods.map((nr) => ({ wd, nr })));
   const byGroup = new Map<string, SolverUnit[]>();
   let done = 0;
   let improved = 0;
   let total = 0;
+  /** Schwierigkeit je Einheit (einmal berechnet, in Scheiben), daraus die Reihenfolge der Konstruktion und wie weit sie ist */
+  const rank = new Map<string, number>();
+  let order: SolverUnit[] | null = null;
+  let constructed = 0;
 
   /** Günstigster zulässiger Slot für eine Einheit (oder null). */
   function bestSlot(u: SolverUnit): Placement | null {
@@ -503,24 +680,47 @@ export function createSolver(input: SolverInput) {
     return false;
   }
 
-  /** 1. Konstruktion: schwierigste zuerst, je Einheit der günstigste zulässige Slot; Sackgassen per Reparatur lösen. */
-  function construct() {
-    const order = [...input.units].sort((a, b) => difficulty(s, b) - difficulty(s, a) || a.id.localeCompare(b.id));
-    for (const u of order) {
+  /**
+   * 1. Konstruktion: schwierigste zuerst, je Einheit der günstigste zulässige Slot; Sackgassen per Reparatur lösen.
+   * Mit `budget` werden nur so viele Einheiten gesetzt, bis `budget()` false liefert (mindestens eine); liefert die Zahl
+   * der noch nicht konstruierten Einheiten – 0 heißt fertig, erst dann sind improve()/result() sinnvoll.
+   */
+  function construct(budget?: () => boolean): number {
+    if (!order) {
+      // Schwierigkeit vor der ersten Platzierung bewerten (der Zustand ändert sich dabei nicht) – je Einheit einmal, in Scheiben
+      for (const u of input.units) {
+        if (rank.has(u.id)) continue;
+        rank.set(u.id, difficulty(s, u));
+        if (budget && rank.size < input.units.length && !budget()) return input.units.length;
+      }
+      order = [...input.units].sort((a, b) => rank.get(b.id)! - rank.get(a.id)! || a.id.localeCompare(b.id));
+    }
+    while (constructed < order.length) {
+      const u = order[constructed++]!;
       const p = bestSlot(u);
       if (p) s.apply(p);
-      else if (!repair(u)) unplaced.push({ unitId: u.id, label: u.label, reason: "kein Slot frei (Lehrkraft, Gruppe oder Sperrzeit)" });
+      else if (!repair(u)) {
+        const causes = s.explain(u);
+        unplaced.push({ unitId: u.id, label: u.label, reason: unplacedReason(causes), causes });
+      }
+      if (budget && constructed < order.length && !budget()) return order.length - constructed;
     }
-    placedUnits = input.units.filter((u) => s.place.has(u.id));
-    for (const u of placedUnits) for (const g of u.groupIds) byGroup.set(g, [...(byGroup.get(g) ?? []), u]);
-    total = input.iterations ?? Math.min(40000, placedUnits.length * 40);
+    if (!placedUnits.length && !byGroup.size) {
+      placedUnits = input.units.filter((u) => s.place.has(u.id));
+      for (const u of placedUnits) for (const g of u.groupIds) byGroup.set(g, [...(byGroup.get(g) ?? []), u]);
+      total = input.iterations ?? Math.min(40000, placedUnits.length * 40);
+    }
+    return 0;
   }
 
-  /** 2. Lokale Suche: bis zu `n` Schritte Verschieben/Tauschen, nur wenn es nicht schlechter wird. Liefert verbleibende Schritte. */
+  /**
+   * 2. Lokale Suche: `n` Schritte Verschieben/Tauschen, nur wenn es nicht schlechter wird (`Infinity` = bis zum Richtwert `total`;
+   * mehr Schritte als `total` sind erlaubt – Gründlichkeit „gründlich“ rechnet das Vierfache). Liefert die bis `total` verbleibenden Schritte.
+   */
   function improve(n: number): number {
-    const stop = Math.min(total, done + n);
+    const stop = Number.isFinite(n) ? done + n : Math.max(total, done);
     for (; done < stop && placedUnits.length; done++) step();
-    return total - done;
+    return Math.max(0, total - done);
   }
 
   function step() {
@@ -577,6 +777,11 @@ export function createSolver(input: SolverInput) {
     s.apply(pv);
   }
 
+  /** Aktuelle Bewertung ohne Einzelposten (Zwischenstand im Protokoll). */
+  function score(): number {
+    return s.total();
+  }
+
   /** 3. Ergebnis mit Bewertung. */
   function result(): SolverResult {
     const items: CostItem[] = [];
@@ -591,15 +796,21 @@ export function createSolver(input: SolverInput) {
       breakdown,
       items: items.filter((i) => i.cost > 0).sort((a, b) => b.cost - a.cost),
       stats: { units: input.units.length, iterations: done, improved },
+      gaps: s.gapStats(),
     };
   }
 
   return {
     construct,
     improve,
+    score,
     result,
     get total() {
       return total;
+    },
+    /** Zahl der gesetzten Einheiten nach der Konstruktion */
+    get placed() {
+      return placedUnits.length;
     },
   };
 }

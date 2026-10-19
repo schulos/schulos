@@ -1,6 +1,6 @@
 // Stundenplan – nur relative Imports (drizzle-kit).
 import { sql } from "drizzle-orm";
-import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { users } from "../../core/db/schema-auth";
 import { groups, periods, rooms, schoolYears, subjects } from "../../core/db/schema-core";
 
@@ -39,10 +39,13 @@ export const timetableLessons = pgTable(
     couplingId: text("coupling_id"),
     /** fixiert: die automatische Planung (Solver) lässt die Stunde, wo sie ist */
     fixed: boolean("fixed").notNull().default(false),
+    /** SP-06: Herkunft – aus welchem Solver-Lauf die Stunde übernommen wurde (fällt mit dem Lauf weg, die Stunde bleibt) */
+    solverRunId: text("solver_run_id").references((): AnyPgColumn => timetableSolverRuns.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("timetable_lessons_coupling_idx").on(t.couplingId),
+    index("timetable_lessons_solver_run_idx").on(t.solverRunId),
     check("timetable_lessons_weekday", sql`${t.weekday} between 0 and 4`),
     check("timetable_lessons_valid", sql`${t.validUntil} is null or ${t.validUntil} >= ${t.validFrom}`),
     index("timetable_lessons_group_idx").on(t.groupId, t.weekday),
@@ -425,10 +428,18 @@ export const timetableTimePrefs = pgTable(
   ],
 );
 
-export const SOLVER_RUN_STATUS = ["running", "done", "failed", "applied"] as const;
+/**
+ * queued = wartet (nur ein Lauf rechnet) · running = rechnet · done = fertig (auch vorzeitig beendet) · failed = Fehler ·
+ * cancelled = vor der Konstruktion abgebrochen (kein Ergebnis) · applied = übernommen. Neue Werte (SP-06) hinten angefügt;
+ * die Vorgabe bleibt `running`, weil ein neuer Enum-Wert in der Migration, die ihn anlegt, nicht benutzt werden darf.
+ */
+export const SOLVER_RUN_STATUS = ["running", "done", "failed", "applied", "queued", "cancelled"] as const;
 export const solverRunStatusEnum = pgEnum("solver_run_status", SOLVER_RUN_STATUS);
 
-/** Ein Lauf der automatischen Planung (P2b-23): Fortschritt und Ergebnis (Vorschlag) als JSON. */
+/**
+ * Ein Lauf der automatischen Planung (P2b-23, SP-06): Parameter (reproduzierbar), Fortschritt mit Heartbeat, Abbruchwunsch,
+ * Ergebnis (Vorschlag) als JSON, Kennzahlen und Protokoll klein daneben (die Historie liest nur diese), Übernahme mit Herkunft.
+ */
 export const timetableSolverRuns = pgTable("timetable_solver_runs", {
   id: text("id")
     .primaryKey()
@@ -441,13 +452,29 @@ export const timetableSolverRuns = pgTable("timetable_solver_runs", {
   progress: integer("progress").notNull().default(0),
   seed: integer("seed").notNull().default(1),
   iterations: integer("iterations").notNull().default(0),
-  /** SolverResult + Einheiten-Metadaten für Vorschau und Übernahme */
+  /** SolverResult + Einheiten-Metadaten für Vorschau und Übernahme; `null`, wenn das Aufräumen das Ergebnis entfernt hat */
   result: jsonb("result"),
   error: text("error"),
   appliedFrom: date("applied_from"),
   createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
+  /** freie Bezeichnung der Planung („Variante Mo frei“) – keine Personen nennen */
+  label: text("label"),
+  /** `{ effort, seed, weights, preset }` – alles, was den Lauf reproduzierbar macht */
+  params: jsonb("params"),
+  /** Kennzahlen beim Abschluss (Bewertung, Kostenposten, nicht gesetzt, Hohlstunden, Dauer …) */
+  metrics: jsonb("metrics"),
+  /** Protokoll (≤ 50 Einträge): Eingabe, Vorprüfung, Konstruktion, alle 10 %, Abbruch/Ende */
+  log: jsonb("log"),
+  /** Abbruch gewünscht – der Lauf prüft das je Zeitscheibe */
+  cancelRequested: boolean("cancel_requested").notNull().default(false),
+  /** letzte Lebenszeichen des rechnenden Laufs (Sperre, Anzeige „rechnet seit …“, verwaiste Läufe) */
+  heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+  appliedBy: text("applied_by").references(() => users.id, { onDelete: "set null" }),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  /** SP-09: was die Übernahme geändert hat (beendete Stunden mit altem `valid_until`, Zahl gelöschter Vertretungen) */
+  undo: jsonb("undo"),
 });
 
 /**

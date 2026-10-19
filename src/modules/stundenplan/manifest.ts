@@ -128,9 +128,10 @@ export default defineModule({
     {
       table: "timetable_solver_runs",
       purpose: "Automatische Stundenplanung (Läufe und Vorschläge)",
-      categories: ["Planvorschlag (Lehrkräfte, Gruppen, Räume, Zeiten)", "Gestartet von"],
+      categories: ["Planvorschlag (Lehrkräfte, Gruppen, Räume, Zeiten)", "Bezeichnung", "Parameter", "Kennzahlen", "Protokoll (Kürzel, Gruppen)", "Gestartet von", "Übernommen von"],
       class: "LK-90",
       start: "created_at",
+      note: "SP-06: Nachtjob löscht fehlgeschlagene/abgebrochene Läufe ohne Ergebnis nach 7 Tagen und entfernt bei älteren fertigen Läufen (je Schuljahr ab dem 21.) den Vorschlag; die Herkunft `solver_run_id` an Stunden wird mit dem Lauf leer, die Stunden bleiben",
     },
     {
       table: "timetable_duty_changes",
