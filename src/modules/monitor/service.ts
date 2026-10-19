@@ -174,7 +174,8 @@ export async function monitorData(db: Db, screen: Pick<MonitorScreen, "profile">
         .map((s) => ({
           group: s.groupName.replace(/^Klasse /, ""),
           period: s.periodNr,
-          subject: s.subjectName,
+          // SP-12: Fachtausch „Mathe (statt Sport)“
+          subject: s.insteadOf ? `${s.subjectName} (statt ${s.insteadOf})` : s.subjectName,
           kind: s.kind,
           room: s.newRoomId ?? s.roomId,
           note: s.note,

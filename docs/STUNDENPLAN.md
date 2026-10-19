@@ -63,6 +63,7 @@ Bewertung: **A = für den Start nötig** · **B = bald danach** · **C = später
 | Pausenaufsichten inkl. Vertretung offener Aufsichten | fehlt | **A** |
 | Bereitschaften (Präsenz-/Vertretungsreserve) | fehlt | B |
 | Vertretungstexte, „Aufgaben für die Klasse“ | Hinweis-Feld ✅ | – |
+| **Vertretung mit anderem Fach** („Mathe statt Sport“, wenn eine freie Lehrkraft die Klasse kennt) – Formularfeld „Fach“, Vorschlag „kann eigenes Fach geben“ (+10), Anzeige in allen Plänen/Vertretungsplan/Druck/Monitor/Gong, Klassenbuch mit tatsächlichem Fach, Zähler „davon mit eigenem Fach“, Klausur-Hinweis | ✅ SP-12 | – |
 
 ### 2.4 Veröffentlichung
 | Übliche Funktion | SchulOS | Prio |

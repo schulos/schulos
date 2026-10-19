@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectErrors, login } from "./helpers";
+import { collectErrors, login, logoutForSwitch, publishIfDraft } from "./helpers";
 
 test("Vertretungsbedarf: Lehrkraft krank → offene Stunden; Klasse auf Exkursion → Freisetzungen mit Entfall; aufheben", async ({ page }) => {
   const errors = collectErrors(page);
@@ -69,5 +69,63 @@ test("Vertretungsvorschläge mit Punkten übernehmen, Statistik zählt die Vertr
   await expect(row).toBeVisible();
   await page.getByRole("link", { name: "Dieser Monat" }).click();
   await expect(page).toHaveURL(/zeitraum=monat/);
+  expect(errors).toEqual([]);
+});
+
+test("SP-12 Fachtausch: Vertretung mit anderem Fach – Klasse, Eltern, Druck und Monitor sehen „Informatik statt …“", async ({ page }) => {
+  const errors = collectErrors(page);
+  await login(page, "frank.schulte");
+  await page.goto("/planung/vertretungen?gruppe=g-7b");
+  const date = await page.getByLabel("Datum").inputValue();
+  const lessons = page.getByRole("region", { name: /^Stunden am/ });
+  // eine Stunde ohne Änderung (andere Tests lassen evtl. Vertretungen stehen)
+  const label = (await lessons.getByRole("form").filter({ hasNot: page.getByRole("button", { name: "Aufheben" }) }).first().getAttribute("aria-label"))!;
+  const form = lessons.getByRole("form", { name: label, exact: true });
+  const regular = label.split(" · ")[1]!;
+  expect(regular).not.toBe("Informatik");
+  await form.getByLabel("Art").selectOption("substitute");
+  const teacher = form.getByLabel("Vertretung durch");
+  await teacher.selectOption((await teacher.locator('optgroup[label="Frei"] option').first().getAttribute("value"))!);
+  // Vorgabe ist das reguläre Fach
+  await expect(form.getByLabel("Fach").locator("option:checked")).toHaveText(`${regular} (regulär)`);
+  await form.getByLabel("Fach").selectOption({ label: "Informatik" });
+  await form.getByRole("button", { name: "Speichern" }).click();
+  await expect(form.getByRole("status")).toContainText("Gespeichert");
+  await publishIfDraft(page);
+  const all = page.getByRole("region", { name: /^Alle Änderungen am/ });
+  await expect(all.getByText(`Informatik statt ${regular}`)).toBeVisible();
+  await expect(lessons.getByText("→ Informatik").first()).toBeVisible();
+  await page.screenshot({ path: ".data/shots/e2e/vertretung-fachtausch.png", fullPage: true });
+
+  // Druck und Monitor
+  await page.goto("/druck/vertretungsplan");
+  await expect(page.getByText(`Informatik statt ${regular}`).first()).toBeVisible();
+  await page.goto("/monitor/demo-foyer-lindenhof-2026");
+  await expect(page.getByText(`Informatik (statt ${regular})`).first()).toBeVisible();
+
+  // Schülerin: Vertretungsplan und Stundenplan
+  await logoutForSwitch(page);
+  await login(page, "lea.schaefer");
+  await page.goto("/stundenplan/vertretungen");
+  await expect(page.getByText(`Informatik statt ${regular}`).first()).toBeVisible();
+  await page.goto(`/stundenplan?woche=${date}`);
+  await expect(page.getByText(`statt ${regular}`).first()).toBeVisible();
+  // Elternteil
+  await logoutForSwitch(page);
+  await login(page, "daniela.schaefer");
+  await page.goto("/stundenplan/vertretungen");
+  await expect(page.getByText(`Informatik statt ${regular}`).first()).toBeVisible();
+
+  // aufräumen
+  await logoutForSwitch(page);
+  await login(page, "frank.schulte");
+  await page.goto(`/planung/vertretungen?datum=${date}`);
+  await page
+    .getByRole("region", { name: /^Alle Änderungen am/ })
+    .getByRole("row")
+    .filter({ hasText: `Informatik statt ${regular}` })
+    .getByRole("button", { name: /^Aufheben/ })
+    .click();
+  await expect(page.getByText(`Informatik statt ${regular}`)).toHaveCount(0);
   expect(errors).toEqual([]);
 });

@@ -5,6 +5,7 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
+import { subjectLabel } from "@/modules/stundenplan/display";
 import { planDays, substitutionsOn, type DaySubstitution } from "@/modules/stundenplan/vertretung";
 import { Button } from "@schulos/ui/button";
 import { cn } from "@schulos/ui/cn";
@@ -41,7 +42,7 @@ function DayTable({ date, entries }: { date: string; entries: DaySubstitution[] 
               <tr key={e.id} className={cn(i > 0 && entries[i - 1]!.groupId !== e.groupId && "border-t-2 border-ink")}>
                 <td className="border border-border-strong px-2 py-1 font-semibold">{i === 0 || entries[i - 1]!.groupId !== e.groupId ? e.groupName : ""}</td>
                 <td className="border border-border-strong px-2 py-1 tabular-nums">{e.periodNr}.</td>
-                <td className={cn("border border-border-strong px-2 py-1", e.kind === "cancel" && "line-through")}>{e.subjectName}</td>
+                <td className={cn("border border-border-strong px-2 py-1", e.kind === "cancel" && "line-through")}>{subjectLabel(e.subjectName, e.insteadOf)}</td>
                 <td className="border border-border-strong px-2 py-1">{e.teacherCode ?? "–"}</td>
                 <td className="border border-border-strong px-2 py-1 font-semibold">{KIND_LABEL[e.kind]}</td>
                 <td className="border border-border-strong px-2 py-1">{e.kind === "substitute" ? (e.substituteCode ?? e.substituteName ?? "–") : ""}</td>

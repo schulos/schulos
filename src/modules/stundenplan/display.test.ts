@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coupledGroupLabel, mergeCoupled, slotDisplay } from "./display";
+import { coupledGroupLabel, mergeCoupled, slotDisplay, subjectLabel } from "./display";
 import type { LessonSlot } from "./service";
 
 const base: LessonSlot = {
@@ -36,6 +36,14 @@ describe("slotDisplay", () => {
   it("Vertretungslehrkraft sieht „für KLE“, vertretene Lehrkraft „durch BRA“ durchgestrichen", () => {
     expect(slotDisplay({ ...base, change: sub, perspective: "covering" }, "teacher")).toMatchObject({ tone: "sub", detail: "Klasse 6b · R 015 · für KLE" });
     expect(slotDisplay({ ...base, change: sub, perspective: "away" }, "teacher")).toMatchObject({ tone: "off", tag: "Vertreten", detail: "Klasse 6b · durch BRA", struck: true });
+  });
+  it("SP-12: Fachtausch – darunter „statt Sport“, abgebende Lehrkraft ohne Zusatz", () => {
+    const alt = { ...base, subjectId: "M", subjectName: "Mathematik", change: { ...sub, insteadOf: "Sport", subjectId: "M", subjectName: "Mathematik" } };
+    expect(slotDisplay(alt, "student").detail).toBe("statt Sport · BRA · R 015");
+    expect(slotDisplay({ ...alt, perspective: "covering" }, "teacher").detail).toBe("statt Sport · Klasse 6b · R 015 · für KLE");
+    expect(slotDisplay({ ...alt, subjectName: "Sport", perspective: "away", change: { ...alt.change, insteadOf: null } }, "teacher").detail).toBe("Klasse 6b · durch BRA");
+    expect(subjectLabel("Mathematik", "Sport")).toBe("Mathematik statt Sport");
+    expect(subjectLabel("Mathematik", null)).toBe("Mathematik");
   });
   it("Entfall, Raumänderung, Raumplan", () => {
     expect(slotDisplay({ ...base, change: { ...sub, kind: "cancel", substituteId: null, substituteCode: null, substituteName: null, roomId: null } }, "student")).toMatchObject({

@@ -8,6 +8,7 @@ import { loadSchoolCalendar } from "@/core/school/calendar";
 import { groupMembers } from "@/core/db/schema";
 import { childrenOf } from "@/core/school/majority";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
+import { subjectLabel } from "@/modules/stundenplan/display";
 import { planDays, substitutionsOn, type DaySubstitution } from "@/modules/stundenplan/vertretung";
 import { draftDays } from "@/modules/stundenplan/freigabe";
 import { hasPermission } from "@/core/permissions";
@@ -60,7 +61,7 @@ function DayPlan({ date, today, entries, mine }: { date: string; today: string; 
                       <span aria-hidden className="w-1 shrink-0 self-stretch rounded-full" style={{ background: e.color }} />
                       <span className="flex min-w-0 flex-col">
                         <span className={cn("font-medium", e.kind === "cancel" && "text-muted line-through")}>
-                          {e.subjectName} <span className="font-normal text-muted">({e.teacherCode})</span>
+                          {subjectLabel(e.subjectName, e.insteadOf)} <span className="font-normal text-muted">({e.teacherCode})</span>
                         </span>
                         <span className={cn("text-sm font-semibold", e.kind === "cancel" ? "text-muted" : "text-warn")}>
                           {KIND_LABEL[e.kind]}

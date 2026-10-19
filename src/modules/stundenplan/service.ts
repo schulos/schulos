@@ -27,6 +27,16 @@ export interface SlotChange {
   /** neuer Raum, sonst null */
   roomId: string | null;
   note: string | null;
+  /**
+   * SP-12 (Fachtausch): reguläres Fach, wenn die Vertretung ein anderes Fach gibt („Mathe statt Sport“) – dann tragen
+   * `subjectId`/`subjectName`/`color` des Slots bereits das tatsächliche Fach (außer in der Sicht „away“). Sonst null.
+   */
+  insteadOf?: string | null;
+  /** id zu `insteadOf` (reguläres Fach) */
+  insteadOfId?: string | null;
+  /** SP-12: abweichendes Fach der Vertretung (unabhängig von der Sicht), sonst null */
+  subjectId?: string | null;
+  subjectName?: string | null;
 }
 
 export interface LessonSlot {
@@ -78,6 +88,7 @@ async function groupIdsOf(db: Db, userId: string): Promise<string[]> {
 
 const teacher = alias(users, "teacher");
 const substitute = alias(users, "substitute");
+const altSubject = alias(subjects, "alt_subject");
 
 function lessonQuery(db: Db) {
   return db
@@ -147,9 +158,10 @@ export async function listSlots(
   const all = [...base, ...extra];
   const subs = all.length
     ? await db
-        .select({ s: timetableSubstitutions, name: substitute.name, code: substitute.shortCode })
+        .select({ s: timetableSubstitutions, name: substitute.name, code: substitute.shortCode, altName: altSubject.name, altColor: altSubject.color })
         .from(timetableSubstitutions)
         .leftJoin(substitute, eq(substitute.id, timetableSubstitutions.substituteId))
+        .leftJoin(altSubject, eq(altSubject.id, timetableSubstitutions.subjectId))
         .where(
           and(
             inArray(timetableSubstitutions.lessonId, all.map((r) => r.l.id)),
@@ -181,6 +193,8 @@ export async function listSlots(
       } else if (sub && teacherId && sub.s.substituteId === teacherId && sub.s.kind === "substitute") {
         perspective = "covering";
       }
+      // SP-12: Vertretung mit anderem Fach – der Slot zeigt das tatsächliche Fach; wer die Stunde abgegeben hat, sieht weiter das eigene
+      const alt = sub?.s.kind === "substitute" && sub.s.subjectId && sub.altName && perspective !== "away" ? { id: sub.s.subjectId, name: sub.altName, color: sub.altColor! } : null;
       slots.push({
         lessonId: r.l.id,
         date: d,
@@ -188,9 +202,9 @@ export async function listSlots(
         periodNr: r.l.periodNr,
         startsAt: r.startsAt,
         endsAt: r.endsAt,
-        subjectId: r.l.subjectId,
-        subjectName: r.subjectName,
-        color: r.color,
+        subjectId: alt?.id ?? r.l.subjectId,
+        subjectName: alt?.name ?? r.subjectName,
+        color: alt?.color ?? r.color,
         groupId: r.l.groupId,
         groupName: r.groupName,
         teacherId: r.l.teacherId,
@@ -200,7 +214,18 @@ export async function listSlots(
         week: r.l.week,
         couplingId: r.l.couplingId,
         change: sub
-          ? { kind: sub.s.kind, substituteId: sub.s.substituteId, substituteName: sub.name, substituteCode: sub.code, roomId: sub.s.roomId, note: sub.s.note }
+          ? {
+              kind: sub.s.kind,
+              substituteId: sub.s.substituteId,
+              substituteName: sub.name,
+              substituteCode: sub.code,
+              roomId: sub.s.roomId,
+              note: sub.s.note,
+              insteadOf: alt ? r.subjectName : null,
+              insteadOfId: alt ? r.l.subjectId : null,
+              subjectId: sub.s.kind === "substitute" ? sub.s.subjectId : null,
+              subjectName: sub.s.kind === "substitute" ? sub.altName : null,
+            }
           : undefined,
         perspective,
       });

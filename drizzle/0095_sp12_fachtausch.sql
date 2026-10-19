@@ -1,0 +1,3 @@
+ALTER TABLE "timetable_substitutions" ADD COLUMN "subject_id" text;--> statement-breakpoint
+ALTER TABLE "timetable_substitutions" ADD CONSTRAINT "timetable_substitutions_subject_id_subjects_id_fk" FOREIGN KEY ("subject_id") REFERENCES "public"."subjects"("id") ON DELETE set null ON UPDATE cascade;--> statement-breakpoint
+ALTER TABLE "timetable_substitutions" ADD CONSTRAINT "timetable_substitutions_subject" CHECK ("timetable_substitutions"."subject_id" is null or "timetable_substitutions"."kind" = 'substitute');
