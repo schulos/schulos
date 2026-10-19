@@ -564,6 +564,28 @@ Reihenfolge: SP-02 → SP-03 → SP-04 (SP-05 parallel) → SP-06 → SP-07 → 
 - [ ] **SP-11** (S) E2E-Szenario „Stundenplaner:in“ (`e2e/zx-gate-sp.spec.ts`): `frank.schulte` → Übersicht → Lauf mit Parametern → Abbruch → zweiter Lauf → Vergleich → Übernahme ab Stichtag → zurücknehmen; Sekretariat 404 auf `/planung`; alte URLs leiten weiter. Dann Review-PR für **GATE SP** (erledigte IDs, Tests, offene Fragen)
 - [ ] **GATE SP** – Review mit der Projektleitung (Review-PR aus SP-11, `/code-review ultra` nach Wunsch; merged nur die Projektleitung) → Release-Vorschlag v0.6.0 (Rechteänderung + Migrationen, Release-Notes: Gruppe „Stundenplanung“, 2FA-Pflicht für Planende)
 
+## Schulbücherei – Modul `buecherei` (freigegeben von der Projektleitung 2026-10-19, nach INST-08)
+Konzept, Datenmodell, Rechte und Entscheidungen: [`BUECHEREI.md`](BUECHEREI.md). Läuft parallel zum Stundenplan-Umbau (eigene
+Migrationen, Nummer jeweils erst direkt vor dem PR auf aktuellem `main` erzeugen). Reihenfolge Stufe 1: BU-01 → BU-02 + BU-07 →
+BU-03 ‖ BU-04 → BU-05 ‖ BU-06 → **GATE BU1**; Stufe 2 (Schalter `buecherei.lernmittel`) danach → **GATE BU2**.
+
+### Stufe 1 – Bücherei/Mediothek
+- [ ] **BU-01** (M) Modulgerüst und Bestand (Projektleitung 2026-10-19): Modul `buecherei` (Sektion Organisation, Rechte `buecherei.use`/`buecherei.desk`/`buecherei.stock`/`buecherei.materials`, Gruppe „Büchereiteam“ im Seed), Tabellen `buecherei_titles` (Titel, Autor:in, ISBN mit Prüfziffer/10→13, Verlag, Jahr, Schlagwörter, Altersempfehlung, Medienart) und `buecherei_copies` (Exemplarnummer mit Präfix + laufender Nummer + Prüfziffer, Signatur, Standort, Zustand, ausgesondert); Bestandsseiten (Liste mit Suche/Filter, Titel anlegen/bearbeiten, Exemplare hinzufügen, Aussondern mit Grund), CSV-Import für Altbestand (Vorschau, Fehlerliste, Dubletten per ISBN), Audit; Seed mit Demo-Bestand; Tests Service + E2E
+- [ ] **BU-02** (M) Theke (Projektleitung 2026-10-19): Person suchen (Name/Klasse) → Exemplare per Hand-Scanner (Tastatur) verbuchen, Rückgabe nur scannen; Leihfrist je Medienart (Moduleinstellung), Verlängern (max. n-mal, nicht bei Vormerkung); Tabelle `buecherei_loans`, Personenbezug bei Rückgabe ohne Befund sofort entfernt (nur Zähler `buecherei_stats` bleiben); Theke sieht nur Name, Klasse, offene Ausleihen; Löschklassen + DATENSCHUTZ
+- [ ] **BU-07** (S) Ausweis-Code (Projektleitung 2026-10-17): je Person ein pseudonymer, zufälliger Code 128 (keine Namen/Kontonummer im Code; bei Verlust neu = alter ungültig), Ausweise drucken (Karte/Etikett, klassenweise, Druckansicht wie BU-05), Theke erkennt Ausweis- und Exemplar-Scans automatisch, Personensuche bleibt Rückfall; Code gehört zum Konto (`LK-KONTO`)
+- [ ] **BU-03** (S) Katalog, globale Suche, Vormerkung mit Benachrichtigung bei Rückgabe, „Meine Ausleihen“ inkl. Eltern-Sicht (Eltern-Kind-Zuordnung, nur lesend; eigenständige Schüler:innen wie üblich), Auskunft/Eigenexport
+- [ ] **BU-04** (S) Erinnerung vor Fristende und Mahnstufen 1–3 (täglicher Job, Benachrichtigung + optional Mail; Eltern Minderjähriger ab 2. Stufe), Mahnliste fürs Team (Schüler-Helfer:innen ohne Mahnstufen anderer), Widgets „Meine Ausleihen“ und „Mahnliste“
+- [ ] **BU-05** (S) Etiketten und Statistik: Druckansicht mit `@page` in mm, Code 128 als selbst erzeugtes SVG, A4-Bögen (Vorlagen, Startposition, Testseite) und Einzeletikett für Etikettendrucker per Browserdruck, Druckwarteschlange „als gedruckt markieren“; Statistik ohne Personenbezug (Ausleihen je Monat/Medienart, nie ausgeliehen, Aussonderungsvorschläge)
+- [ ] **BU-06** (S) Optionale ISBN-Abfrage (Moduleinstellung `buecherei.isbn`, Vorgabe aus): nur serverseitig, nur die ISBN verlässt den Server, Quellen öffentliche Bibliothekskataloge der Reihe nach und einzeln abschaltbar, Zeitlimit ~5 s, Zwischenspeicher, Ergebnis nur als Vorschlagsformular, Dublettenhinweis; SICHERHEIT/VVT/INSTALLATION (erster ausgehender Aufruf)
+- [ ] **GATE BU1** – Review Stufe 1 mit der Projektleitung (Review-PR, merged nur die Projektleitung)
+
+### Stufe 2 – Schulbuchausleihe (Lernmittel)
+- [ ] **BU-10** (M) Lernmittel-Titel je Jahrgang/Fach/Kurs, Exemplare mit Inventarnummer und Zustand, Bücherliste für Eltern (Text je Jahrgang)
+- [ ] **BU-11** (M) Ausgabe klassen-/kursweise per Scan, Rücknahme am Schuljahresende mit Zustandsvermerk; Zuordnung nur im laufenden Schuljahr
+- [ ] **BU-12** (S) Ersatzforderungen (Betrag, Grund, Status offen/bezahlt/erlassen, keine Zahlungsabwicklung) + Brief/PDF an Eltern
+- [ ] **BU-13** (S) Anbindung Schuljahreswechsel (B-08, Prüfschritt „offene Schulbücher“) und Abgang (B-02, Hinweis im Abgangsdialog)
+- [ ] **GATE BU2** – Review Stufe 2 mit der Projektleitung
+
 ## Technische Schulden / Folgepunkte
 - [x] **TD-01** Deutsche Sortierung in DB-Listen (Benutzer, Adressbuch, Gruppen): PGlite sortiert per C-Collation (ä hinter z). Entweder ICU-Collation prüfen oder Sortierschlüssel-Spalte (umlaut-normalisiert). In der Aufgaben-Matrix bereits per Intl.Collator gelöst.
 - [x] **TD-02** Formulare verlieren nach einem Validierungsfehler die Eingaben (React 19 setzt Formulare nach einer Action zurück). In der Stundenplan-Pflege per `FormState.values` + `key` gelöst; Kalender-, Benutzer-, Gruppen- und News-Formulare prüfen und ggf. gleich lösen.
