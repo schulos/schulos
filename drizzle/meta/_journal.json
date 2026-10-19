@@ -610,6 +610,13 @@
       "when": 1792249865419,
       "tag": "0086_kurse_konferenzlink",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792387801028,
+      "tag": "0087_buecherei_bestand",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ import adressbuch from "./adressbuch/manifest";
 import anmeldung from "./anmeldung/manifest";
 import aufgaben from "./aufgaben/manifest";
 import buchungen from "./buchungen/manifest";
+import buecherei from "./buecherei/manifest";
 import dateien from "./dateien/manifest";
 import elternbriefe from "./elternbriefe/manifest";
 import foren from "./foren/manifest";
@@ -29,7 +30,7 @@ import texte from "./texte/manifest";
 import umfragen from "./umfragen/manifest";
 import verwaltung from "./verwaltung/manifest";
 
-export const MODULES: readonly ModuleManifest[] = [heute, messenger, news, elternbriefe, foren, umfragen, kurse, aufgaben, pinnwaende, texte, tafeln, stundenplan, klassenbuch, sitzplan, notenbuch, kurswahl, abwesenheiten, buchungen, gebaeude, klausurplan, sprechtag, kalender, dateien, adressbuch, monitor, anmeldung, verwaltung];
+export const MODULES: readonly ModuleManifest[] = [heute, messenger, news, elternbriefe, foren, umfragen, kurse, aufgaben, pinnwaende, texte, tafeln, stundenplan, klassenbuch, sitzplan, notenbuch, kurswahl, abwesenheiten, buchungen, buecherei, gebaeude, klausurplan, sprechtag, kalender, dateien, adressbuch, monitor, anmeldung, verwaltung];
 
 validateManifests(MODULES);
 
