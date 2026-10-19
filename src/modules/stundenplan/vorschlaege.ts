@@ -1,7 +1,7 @@
 // Vertretungsvorschläge (P2b-19): freie Lehrkräfte mit Punkten und Begründung + Vertretungsstatistik.
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { groups, schoolYears, timetableLessons, timetableSubstitutions, users } from "@/core/db/schema";
+import { groups, schoolYears, subjects, timetableLessons, timetableSubstitutions, users } from "@/core/db/schema";
 import { absencesBetween, absentGroups, absentTeachers } from "./abwesenheit";
 import { lessonActiveOn } from "./service";
 
@@ -10,6 +10,8 @@ export const WEIGHTS = {
   released: 30,
   knowsGroup: 20,
   knowsSubject: 15,
+  /** SP-12: kennt die Klasse, aber nicht das Fach – kann stattdessen das eigene Fach geben */
+  ownSubject: 10,
   gap: 10,
   edge: -10,
   dayOff: -25,
@@ -28,6 +30,8 @@ export interface Candidate {
   name: string;
   score: number;
   reasons: Reason[];
+  /** SP-12 (Fachtausch): Fach, das die Lehrkraft regulär in der Gruppe gibt – Vorschlag „→ Mathe“ statt des ausgefallenen Fachs */
+  suggestedSubject: { id: string; name: string } | null;
 }
 
 export interface ScoreInput {
@@ -41,6 +45,8 @@ export interface ScoreInput {
   /** Gruppen bzw. Fächer, die eine Lehrkraft regulär unterrichtet */
   teachesGroup: Map<string, Set<string>>;
   teachesSubject: Map<string, Set<string>>;
+  /** SP-12: je Lehrkraft das Fach, das sie regulär in der Gruppe der Stunde gibt (bei mehreren das mit den meisten Wochenstunden) */
+  ownSubjectInGroup?: Map<string, { id: string; name: string }>;
   /** Vertretungen bisher im Schuljahr bzw. heute */
   countYear: Map<string, number>;
   countToday: Map<string, number>;
@@ -54,7 +60,11 @@ export function scoreCandidates(input: ScoreInput): Candidate[] {
       const reasons: Reason[] = [];
       if (input.released.has(t.id)) reasons.push({ label: "frei durch Freisetzung", points: WEIGHTS.released });
       if (input.teachesGroup.get(t.id)?.has(lesson.groupId)) reasons.push({ label: "unterrichtet die Klasse", points: WEIGHTS.knowsGroup });
-      if (input.teachesSubject.get(t.id)?.has(lesson.subjectId)) reasons.push({ label: "unterrichtet das Fach", points: WEIGHTS.knowsSubject });
+      const knowsSubject = !!input.teachesSubject.get(t.id)?.has(lesson.subjectId);
+      if (knowsSubject) reasons.push({ label: "unterrichtet das Fach", points: WEIGHTS.knowsSubject });
+      // SP-12: kennt die Klasse, aber nicht das ausgefallene Fach → kann das eigene Fach geben
+      const own = input.teachesGroup.get(t.id)?.has(lesson.groupId) && !knowsSubject ? (input.ownSubjectInGroup?.get(t.id) ?? null) : null;
+      if (own) reasons.push({ label: `kann eigenes Fach geben: ${own.name}`, points: WEIGHTS.ownSubject });
       const day = input.dayPeriods.get(t.id) ?? [];
       // freigesetzt: die Lehrkraft ist zu dieser Stunde ohnehin in der Schule – keine Rand-/Frei-Abzüge
       if (!input.released.has(t.id)) {
@@ -66,7 +76,7 @@ export function scoreCandidates(input: ScoreInput): Candidate[] {
       if (year > 0) reasons.push({ label: `${year} Vertretung${year === 1 ? "" : "en"} im Schuljahr`, points: WEIGHTS.perSubstitution * year });
       const today = input.countToday.get(t.id) ?? 0;
       if (today >= 2) reasons.push({ label: `heute schon ${today}× vertreten`, points: WEIGHTS.twiceToday });
-      return { ...t, reasons, score: reasons.reduce((s, r) => s + r.points, 0) };
+      return { ...t, reasons, score: reasons.reduce((s, r) => s + r.points, 0), suggestedSubject: own };
     })
     .sort(
       (a, b) =>
@@ -146,6 +156,20 @@ export async function suggestSubstitutes(db: Db, lessonId: string, date: string)
     teachesGroup.get(x.teacherId)!.add(x.groupId);
     teachesSubject.get(x.teacherId)!.add(x.subjectId);
   }
+  // SP-12: je Lehrkraft das Fach mit den meisten Wochenstunden in dieser Gruppe (A/B-Stunden zählen halb)
+  const hoursInGroup = new Map<string, Map<string, number>>();
+  for (const x of all) {
+    if (!x.teacherId || x.groupId !== l.groupId || x.validFrom > date || (x.validUntil !== null && x.validUntil < date)) continue;
+    const m = hoursInGroup.get(x.teacherId) ?? new Map<string, number>();
+    m.set(x.subjectId, (m.get(x.subjectId) ?? 0) + (x.week === "all" ? 1 : 0.5));
+    hoursInGroup.set(x.teacherId, m);
+  }
+  const subjectNames = new Map((await db.select({ id: subjects.id, name: subjects.name }).from(subjects)).map((x) => [x.id, x.name]));
+  const ownSubjectInGroup = new Map<string, { id: string; name: string }>();
+  for (const [teacherId, m] of hoursInGroup) {
+    const [best] = [...m].sort((a, b) => b[1] - a[1] || (subjectNames.get(a[0]) ?? a[0]).localeCompare(subjectNames.get(b[0]) ?? b[0], "de"));
+    if (best && best[0] !== l.subjectId) ownSubjectInGroup.set(teacherId, { id: best[0], name: subjectNames.get(best[0]) ?? best[0] });
+  }
   const countYear = new Map<string, number>();
   const countToday = new Map<string, number>();
   for (const s of yearSubs) {
@@ -160,6 +184,7 @@ export async function suggestSubstitutes(db: Db, lessonId: string, date: string)
     released,
     teachesGroup,
     teachesSubject,
+    ownSubjectInGroup,
     countYear,
     countToday,
   });
@@ -170,8 +195,9 @@ export async function suggestSubstitutes(db: Db, lessonId: string, date: string)
 export interface SubstitutionStats {
   from: string;
   to: string;
-  teachers: { id: string; code: string | null; name: string; substitutions: number; given: number; cancelled: number }[];
-  groups: { id: string; name: string; substituted: number; cancelled: number }[];
+  /** SP-12: `ownSubject` = davon mit eigenem (abweichendem) Fach – rein informativ */
+  teachers: { id: string; code: string | null; name: string; substitutions: number; ownSubject: number; given: number; cancelled: number }[];
+  groups: { id: string; name: string; substituted: number; ownSubject: number; cancelled: number }[];
 }
 
 /**
@@ -185,6 +211,7 @@ export async function substitutionStats(db: Db, from: string, to: string): Promi
       substituteId: timetableSubstitutions.substituteId,
       teacherId: timetableLessons.teacherId,
       groupId: timetableLessons.groupId,
+      subjectId: timetableSubstitutions.subjectId,
     })
     .from(timetableSubstitutions)
     .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
@@ -193,19 +220,23 @@ export async function substitutionStats(db: Db, from: string, to: string): Promi
     db.select({ id: users.id, code: users.shortCode, name: users.name }).from(users).where(eq(users.role, "lehrkraft")),
     db.select({ id: groups.id, name: groups.name }).from(groups),
   ]);
-  const t = new Map(teacherRows.map((x) => [x.id, { ...x, substitutions: 0, given: 0, cancelled: 0 }]));
-  const g = new Map<string, { id: string; name: string; substituted: number; cancelled: number }>();
+  const t = new Map(teacherRows.map((x) => [x.id, { ...x, substitutions: 0, ownSubject: 0, given: 0, cancelled: 0 }]));
+  const g = new Map<string, { id: string; name: string; substituted: number; ownSubject: number; cancelled: number }>();
   const groupName = new Map(groupRows.map((x) => [x.id, x.name]));
   for (const r of rows) {
     if (r.kind === "room") continue;
-    if (!g.has(r.groupId)) g.set(r.groupId, { id: r.groupId, name: groupName.get(r.groupId) ?? r.groupId, substituted: 0, cancelled: 0 });
+    if (!g.has(r.groupId)) g.set(r.groupId, { id: r.groupId, name: groupName.get(r.groupId) ?? r.groupId, substituted: 0, ownSubject: 0, cancelled: 0 });
     const gs = g.get(r.groupId)!;
     if (r.kind === "cancel") {
       gs.cancelled++;
       if (r.teacherId && t.has(r.teacherId)) t.get(r.teacherId)!.cancelled++;
     } else {
       gs.substituted++;
-      if (r.substituteId && t.has(r.substituteId)) t.get(r.substituteId)!.substitutions++;
+      if (r.subjectId) gs.ownSubject++;
+      if (r.substituteId && t.has(r.substituteId)) {
+        t.get(r.substituteId)!.substitutions++;
+        if (r.subjectId) t.get(r.substituteId)!.ownSubject++;
+      }
       if (r.teacherId && t.has(r.teacherId)) t.get(r.teacherId)!.given++;
     }
   }

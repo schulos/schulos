@@ -3,7 +3,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
-import { bookingResources, bookings, groupMembers, groups, rooms, subjects, timetableLessons, timetableSubstitutionDays, timetableSubstitutions, users } from "@/core/db/schema";
+import { bookingResources, bookings, exams, groupMembers, groups, rooms, subjects, timetableLessons, timetableSubstitutionDays, timetableSubstitutions, users } from "@/core/db/schema";
 import { OPEN_CALENDAR, dayOffLabel, dayOffOn, type SchoolCalendar } from "@/core/school/calendar";
 import { addDays, weekdayMon0 } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
@@ -14,6 +14,8 @@ import { lessonActiveOn } from "./service";
 import { dayChanges, notifySubstitutionDay } from "./vertretung-gong";
 import { draftDays, startDraftIfNeeded } from "./freigabe";
 
+type ExamKind = (typeof exams.$inferSelect)["kind"];
+
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface SubstitutionInput {
@@ -23,6 +25,8 @@ export interface SubstitutionInput {
   substituteId: string | null;
   roomId: string | null;
   note: string | null;
+  /** SP-12 (Fachtausch): abweichendes Fach, nur bei `substitute`; leer bzw. gleiches Fach wie die Stunde = reguläres Fach */
+  subjectId?: string | null;
 }
 
 /** Wer ist zu dieser Stunde wirklich beschäftigt? Eigene Stunden (sofern nicht entfallen/abgegeben) + übernommene Vertretungen. */
@@ -145,7 +149,15 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
   const all = [l, ...siblings];
   const except = all.map((x) => x.id);
 
-  const sub = { ...input, note: input.note?.trim() || null };
+  const sub = { ...input, note: input.note?.trim() || null, subjectId: input.subjectId || null };
+  // SP-12: ein anderes Fach gibt es nur bei einer Vertretung; das reguläre Fach wird nicht gespeichert
+  if (sub.kind !== "substitute" || sub.subjectId === l.subjectId) sub.subjectId = null;
+  let subjectName: string | null = null;
+  if (sub.subjectId) {
+    const [subj] = await db.select({ name: subjects.name }).from(subjects).where(eq(subjects.id, sub.subjectId));
+    if (!subj) fe.subjectId = "Fach gibt es nicht";
+    else subjectName = subj.name;
+  }
   if (sub.kind === "cancel") {
     sub.substituteId = null;
     sub.roomId = null;
@@ -192,13 +204,19 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
         .values({ ...sub, lessonId: x.id, createdBy: actorId })
         .onConflictDoUpdate({
           target: [timetableSubstitutions.lessonId, timetableSubstitutions.date],
-          set: { kind: sub.kind, substituteId: sub.substituteId, roomId: sub.roomId, note: sub.note, createdBy: actorId, createdAt: new Date() },
+          set: { kind: sub.kind, substituteId: sub.substituteId, roomId: sub.roomId, note: sub.note, subjectId: sub.subjectId, createdBy: actorId, createdAt: new Date() },
         })
         .returning({ id: timetableSubstitutions.id });
       ids.push(row!.id);
     }
   });
-  await audit(db, actorId, "stundenplan.substitution.save", l.groupId, { lesson: l.id, date: sub.date, kind: sub.kind, coupled: siblings.length || undefined });
+  await audit(db, actorId, "stundenplan.substitution.save", l.groupId, {
+    lesson: l.id,
+    date: sub.date,
+    kind: sub.kind,
+    coupled: siblings.length || undefined,
+    subject: subjectName ? `${subjectName} statt ${lesson!.subjectName}` : undefined,
+  });
 
   // Gong an alle Betroffenen (Q5-03): eine Nachricht je Person und Tag – Schüler:innen, Lehrkraft, Vertretung (auch die
   // bisherige, wenn sie wechselt), Eltern nach Moduleinstellung
@@ -283,8 +301,11 @@ export interface DaySubstitution {
   groupId: string;
   groupName: string;
   gradeLevel: number | null;
+  /** tatsächliches Fach (SP-12: bei Fachtausch das Fach der Vertretung) */
   subjectName: string;
   color: string;
+  /** SP-12: reguläres Fach, wenn die Vertretung ein anderes gibt – sonst null */
+  insteadOf: string | null;
   teacherCode: string | null;
   substituteCode: string | null;
   substituteName: string | null;
@@ -306,6 +327,7 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
   if (visible.length === 0) return [];
   const teacher = alias(users, "teacher");
   const substitute = alias(users, "substitute");
+  const alt = alias(subjects, "alt_subject");
   const rows = await db
     .select({
       s: timetableSubstitutions,
@@ -317,6 +339,8 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
       teacherCode: teacher.shortCode,
       substituteCode: substitute.shortCode,
       substituteName: substitute.name,
+      altName: alt.name,
+      altColor: alt.color,
     })
     .from(timetableSubstitutions)
     .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
@@ -324,6 +348,7 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
     .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
     .leftJoin(teacher, eq(teacher.id, timetableLessons.teacherId))
     .leftJoin(substitute, eq(substitute.id, timetableSubstitutions.substituteId))
+    .leftJoin(alt, eq(alt.id, timetableSubstitutions.subjectId))
     .where(inArray(timetableSubstitutions.date, visible));
   return rows
     .map((r) => ({
@@ -335,8 +360,9 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
       groupId: r.l.groupId,
       groupName: r.groupName,
       gradeLevel: r.gradeLevel,
-      subjectName: r.subjectName,
-      color: r.color,
+      subjectName: r.altName ?? r.subjectName,
+      color: r.altColor ?? r.color,
+      insteadOf: r.altName ? r.subjectName : null,
       teacherCode: r.teacherCode,
       substituteCode: r.substituteCode,
       substituteName: r.substituteName,
@@ -346,6 +372,22 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
       draft: drafts.has(r.s.date),
     }))
     .sort((a, b) => a.date.localeCompare(b.date) || (a.gradeLevel ?? 99) - (b.gradeLevel ?? 99) || a.groupName.localeCompare(b.groupName, "de", { numeric: true }) || a.periodNr - b.periodNr);
+}
+
+/**
+ * SP-12: Arbeiten der Gruppen an einem Tag (Fach + Art) – für den Hinweis im Vertretungsformular, wenn das gewählte Fach
+ * an dem Tag eine Klassenarbeit/Klausur hat. Nur für die Vertretungsplanung; liefert keine Titel oder Lehrkräfte.
+ */
+export async function examSubjectsOn(db: Db, groupIds: readonly string[], date: string): Promise<Map<string, { subjectId: string; subjectName: string; kind: ExamKind }[]>> {
+  const out = new Map<string, { subjectId: string; subjectName: string; kind: ExamKind }[]>();
+  if (groupIds.length === 0) return out;
+  const rows = await db
+    .select({ groupId: exams.groupId, subjectId: exams.subjectId, subjectName: subjects.name, kind: exams.kind })
+    .from(exams)
+    .innerJoin(subjects, eq(subjects.id, exams.subjectId))
+    .where(and(inArray(exams.groupId, [...groupIds]), eq(exams.date, date)));
+  for (const r of rows) out.set(r.groupId, [...(out.get(r.groupId) ?? []), { subjectId: r.subjectId, subjectName: r.subjectName, kind: r.kind }]);
+  return out;
 }
 
 /** Die beiden Tage des Vertretungsplans: heute (sonst der nächste Schultag) und der Schultag danach. */

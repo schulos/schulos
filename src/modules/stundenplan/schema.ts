@@ -77,11 +77,14 @@ export const timetableSubstitutions = pgTable(
     roomId: text("room_id").references(() => rooms.id, { onDelete: "set null", onUpdate: "cascade" }),
     /** Hinweis für Schüler:innen, z. B. „Arbeitsheft S. 24“ */
     note: text("note"),
+    /** SP-12 (Fachtausch): abweichendes Fach der Vertretung („Mathe statt Sport“); leer = Fach der regulären Stunde. Nur bei `substitute`. */
+    subjectId: text("subject_id").references(() => subjects.id, { onDelete: "set null", onUpdate: "cascade" }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("timetable_substitutions_lesson_date_uq").on(t.lessonId, t.date),
+    check("timetable_substitutions_subject", sql`${t.subjectId} is null or ${t.kind} = 'substitute'`),
     index("timetable_substitutions_date_idx").on(t.date),
     index("timetable_substitutions_substitute_idx").on(t.substituteId, t.date),
   ],

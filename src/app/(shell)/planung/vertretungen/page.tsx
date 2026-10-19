@@ -9,10 +9,10 @@ import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { applySuggestionAction, cancelReleasedAction, createAbsenceAction, deleteAbsenceAction, deleteSubstitutionAction, publishDayAction, saveSubstitutionAction } from "@/modules/stundenplan/actions";
 import { dayRelease, draftDays, openDrafts } from "@/modules/stundenplan/freigabe";
 import { ABSENCE_LABELS, GROUP_REASONS, needsOn, TEACHER_REASONS } from "@/modules/stundenplan/abwesenheit";
-import { slotDisplay } from "@/modules/stundenplan/display";
+import { slotDisplay, subjectLabel } from "@/modules/stundenplan/display";
 import { plannableGroups, teacherOptions } from "@/modules/stundenplan/manage";
 import { listSlots, timetableMasterData, type PlanTarget } from "@/modules/stundenplan/service";
-import { planDays, substitutionsOn, teacherAvailability } from "@/modules/stundenplan/vertretung";
+import { examSubjectsOn, planDays, substitutionsOn, teacherAvailability } from "@/modules/stundenplan/vertretung";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -21,6 +21,7 @@ import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import Link from "next/link";
 import { suggestSubstitutes } from "@/modules/stundenplan/vorschlaege";
+import { KIND_LABEL as EXAM_KIND } from "@/modules/klausurplan/service";
 import { materialsFor } from "@/modules/stundenplan/selbstmeldung";
 import { AbsenceForm } from "./absence-form";
 import { SubstitutionForm } from "./substitution-form";
@@ -56,10 +57,13 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   const target: PlanTarget | null = sp.lehrkraft ? { kind: "teacher", id: sp.lehrkraft } : sp.gruppe ? { kind: "group", id: sp.gruppe } : null;
   // nur eigene Stunden der Lehrkraft/Gruppe – übernommene Vertretungen werden bei der Original-Stunde gepflegt
   const lessons = target ? (await listSlots(db, target, date, addDays(date, 1), { drafts: true })).filter((s) => s.perspective !== "covering") : [];
-  const [availability, suggestions] = await Promise.all([
+  const [availability, suggestions, examsByGroup] = await Promise.all([
     Promise.all(lessons.map((l) => teacherAvailability(db, l.lessonId, date))),
     Promise.all(lessons.map((l) => (l.change?.kind === "substitute" || l.change?.kind === "cancel" ? Promise.resolve([]) : suggestSubstitutes(db, l.lessonId, date)))),
+    // SP-12: Klausur-Hinweis im Formular, wenn das gewählte Fach an dem Tag eine Arbeit hat
+    examSubjectsOn(db, [...new Set(lessons.map((l) => l.groupId))], date),
   ]);
+  const subjectOptions = master.subjects.map((x) => ({ id: x.id, label: x.name }));
   const here = `/planung/vertretungen?datum=${date}${sp.lehrkraft ? `&lehrkraft=${sp.lehrkraft}` : ""}${sp.gruppe ? `&gruppe=${sp.gruppe}` : ""}`;
   const openCount = needs.open.filter((o) => o.status === "open").length;
   // Q5-12: „Material liegt vor“ je offener Stunde
@@ -299,7 +303,10 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
             lessons.map((l, i) => {
               const d = slotDisplay(l, target.kind === "teacher" ? "teacher" : "group");
               const existing = changes.find((c) => c.lessonId === l.lessonId);
-              const label = `${l.periodNr}. Std · ${l.subjectName} · ${l.groupName}`;
+              // SP-12: Kopf und Feldnamen mit dem regulären Fach; bei Fachtausch steht das neue daneben
+              const regularSubject = l.change?.insteadOf ?? l.subjectName;
+              const regularSubjectId = l.change?.insteadOfId ?? l.subjectId;
+              const label = `${l.periodNr}. Std · ${regularSubject} · ${l.groupName}`;
               return (
                 <Card key={l.lessonId} className="gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -307,7 +314,8 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                       <span aria-hidden className="h-9 w-1.5 rounded-full" style={{ background: l.color }} />
                       <span className="flex flex-col leading-tight">
                         <span className="font-semibold">
-                          {l.periodNr}. Std · {l.subjectName}
+                          {l.periodNr}. Std · {regularSubject}
+                          {l.change?.subjectName && <span className="font-normal text-warn"> → {l.change.subjectName}</span>}
                         </span>
                         <span className="text-sm text-muted">{[l.groupName, l.teacherCode, l.roomId && `R ${l.roomId}`].filter(Boolean).join(" · ")}</span>
                       </span>
@@ -320,11 +328,18 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                       <ol className="flex flex-col gap-1.5">
                         {suggestions[i]!.slice(0, 3).map((c) => (
                           <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
-                            <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, here)}>
+                            <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, here, null)}>
                               <Button type="submit" size="sm" aria-label={`${c.code ?? c.name} übernehmen: ${label}`}>
                                 {c.code ?? c.name} übernehmen
                               </Button>
                             </form>
+                            {c.suggestedSubject && (
+                              <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, here, c.suggestedSubject.id)}>
+                                <Button type="submit" size="sm" aria-label={`${c.code ?? c.name} mit ${c.suggestedSubject.name} übernehmen: ${label}`} title="Lehrkraft und Fach übernehmen">
+                                  → {c.suggestedSubject.name}
+                                </Button>
+                              </form>
+                            )}
                             <Badge tone={c.score > 0 ? "success" : "neutral"}>{c.score > 0 ? `+${c.score}` : c.score} Punkte</Badge>
                             <span className="text-muted">{c.reasons.map((r) => `${r.label} (${r.points > 0 ? "+" : ""}${r.points})`).join(" · ")}</span>
                           </li>
@@ -343,7 +358,11 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                       substituteId: l.change?.substituteId ?? "",
                       roomId: l.change?.roomId ?? "",
                       note: l.change?.note ?? "",
+                      subjectId: l.change?.subjectId ?? regularSubjectId,
                     }}
+                    regularSubjectId={regularSubjectId}
+                    subjects={subjectOptions}
+                    exams={(examsByGroup.get(l.groupId) ?? []).map((e) => ({ subjectId: e.subjectId, label: `${EXAM_KIND[e.kind]} in ${e.subjectName}` }))}
                     teachers={availability[i]!.map((t) => ({ id: t.id, label: `${t.code} – ${t.name}`, free: t.free }))}
                     rooms={roomOptions}
                   />
@@ -381,7 +400,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                   <td className="font-medium whitespace-nowrap">{c.groupName}</td>
                   <td className="tabular-nums">{c.periodNr}.</td>
                   <td className="whitespace-nowrap">
-                    {c.subjectName} <span className="text-muted">({c.teacherCode})</span>
+                    {subjectLabel(c.subjectName, c.insteadOf)} <span className="text-muted">({c.teacherCode})</span>
                   </td>
                   <td>
                     <Badge tone={c.kind === "cancel" ? "neutral" : "warn"}>{KIND_LABEL[c.kind]}</Badge>

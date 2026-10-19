@@ -14,7 +14,7 @@ import { notifyBundled } from "@/core/notifications";
 import { sek1GradeOf, withinGradeSetting } from "@/core/school/grades";
 import { parentInformedSql, parentLinks } from "@/core/school/majority";
 import { TZ, fromBerlinLocal } from "@/core/time";
-import { coupledGroupLabel } from "./display";
+import { coupledGroupLabel, subjectLabel } from "./display";
 import { isDraftDay } from "./freigabe";
 import { PARENTS_SUBSTITUTION } from "./settings";
 
@@ -25,7 +25,10 @@ export interface DayChange {
   groupId: string;
   groupName: string;
   periodNr: number;
+  /** tatsächliches Fach (SP-12: bei Fachtausch das Fach der Vertretung) */
   subjectName: string;
+  /** SP-12: reguläres Fach, wenn die Vertretung ein anderes gibt („Mathe statt Sport“) */
+  insteadOf?: string | null;
   kind: "cancel" | "substitute" | "room";
   teacherId: string | null;
   substituteId: string | null;
@@ -41,7 +44,7 @@ const bundleKey = (date: string) => `stundenplan:${date}`;
 function merge(changes: readonly DayChange[]): (DayChange & { groupNames: string[] })[] {
   const out = new Map<string, DayChange & { groupNames: string[] }>();
   for (const c of [...changes].sort((a, b) => a.periodNr - b.periodNr || a.groupName.localeCompare(b.groupName, "de", { numeric: true }))) {
-    const key = [c.periodNr, c.subjectName, c.kind, c.substituteId, c.roomId, c.note].join("|");
+    const key = [c.periodNr, c.subjectName, c.insteadOf, c.kind, c.substituteId, c.roomId, c.note].join("|");
     const prev = out.get(key);
     if (prev) {
       if (!prev.groupNames.includes(c.groupName)) prev.groupNames.push(c.groupName);
@@ -60,7 +63,7 @@ export function dayMessage(date: string, changes: readonly DayChange[]): { title
   const day = shortDay.format(fromBerlinLocal(date));
   const lines = merge(changes);
   if (lines.length === 0) return { title: `Vertretungsplan ${day}: keine Änderungen mehr`, body: "Die Änderungen für diesen Tag sind zurückgenommen – es gilt der reguläre Stundenplan." };
-  const what = (c: (typeof lines)[number]) => `${c.subjectName} (${coupledGroupLabel(c.groupNames)})`;
+  const what = (c: (typeof lines)[number]) => `${subjectLabel(c.subjectName, c.insteadOf)} (${coupledGroupLabel(c.groupNames)})`;
   const detail = (c: DayChange, sep: string) =>
     [c.kind === "substitute" && c.substituteName ? `bei ${c.substituteName}` : null, c.roomId ? `Raum ${c.roomId}` : null, c.note].filter(Boolean).join(sep);
   if (lines.length === 1) {
@@ -80,6 +83,7 @@ export function dayMessage(date: string, changes: readonly DayChange[]): { title
 }
 
 const substitute = alias(users, "substitute");
+const altSubject = alias(subjects, "alt_subject");
 
 /** Alle Änderungen eines Tages mit Gruppe, Lehrkraft und Vertretung. */
 export async function dayChanges(db: Db, date: string): Promise<DayChange[]> {
@@ -96,14 +100,16 @@ export async function dayChanges(db: Db, date: string): Promise<DayChange[]> {
       substituteName: substitute.name,
       roomId: timetableSubstitutions.roomId,
       note: timetableSubstitutions.note,
+      altName: altSubject.name,
     })
     .from(timetableSubstitutions)
     .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
     .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
     .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
     .leftJoin(substitute, eq(substitute.id, timetableSubstitutions.substituteId))
+    .leftJoin(altSubject, eq(altSubject.id, timetableSubstitutions.subjectId))
     .where(eq(timetableSubstitutions.date, date));
-  return rows;
+  return rows.map(({ altName, ...r }) => (altName ? { ...r, subjectName: altName, insteadOf: r.subjectName } : r));
 }
 
 /** Eltern, die über diese Schüler:innen informiert werden (Moduleinstellung), mit allen ihren berechtigten Kindern. */

@@ -29,6 +29,7 @@ function Counts({ title, c }: { title: string; c: OwnSubstitutions }) {
       <CardHeader title={title} />
       <dl>
         <Row label="vertreten (Mehrarbeit)" value={String(c.covered)} strong />
+        {c.coveredOwnSubject > 0 && <Row label="davon mit eigenem Fach" value={String(c.coveredOwnSubject)} />}
         <Row label="eigene Stunden vertreten worden" value={String(c.given)} />
         <Row label="eigene Stunden entfallen" value={String(c.cancelled)} />
       </dl>

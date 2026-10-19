@@ -29,9 +29,9 @@ describe("Mein Deputat (Q5-09)", () => {
   afterAll(() => h.close());
 
   it("Vertretungszähler nur der eigenen Person", async () => {
-    expect(await ownSubstitutions(h.db, "u-jana.brandt", "2026-08-01", today)).toEqual({ covered: 1, given: 1, cancelled: 1 });
-    expect(await ownSubstitutions(h.db, "u-jana.brandt", "2026-10-01", today)).toEqual({ covered: 1, given: 0, cancelled: 1 });
-    expect(await ownSubstitutions(h.db, "u-tobias.kleine", "2026-08-01", today)).toEqual({ covered: 1, given: 1, cancelled: 0 });
+    expect(await ownSubstitutions(h.db, "u-jana.brandt", "2026-08-01", today)).toEqual({ covered: 1, coveredOwnSubject: 0, given: 1, cancelled: 1 });
+    expect(await ownSubstitutions(h.db, "u-jana.brandt", "2026-10-01", today)).toEqual({ covered: 1, coveredOwnSubject: 0, given: 0, cancelled: 1 });
+    expect(await ownSubstitutions(h.db, "u-tobias.kleine", "2026-08-01", today)).toEqual({ covered: 1, coveredOwnSubject: 0, given: 1, cancelled: 0 });
   });
 
   it("Konto wie in der Planung, aber nur die eigene Zeile", async () => {

@@ -42,6 +42,11 @@ describe("Vertretungs-Gong (Q5-03): Tagesnachricht", () => {
     expect(dayMessage("2026-10-13", [change({}), change({ periodNr: 4 })]).title).toBe("Vertretungsplan Di., 13.10.: 2 Stunden entfallen");
     expect(dayMessage("2026-10-13", []).title).toBe("Vertretungsplan Di., 13.10.: keine Änderungen mehr");
   });
+  it("SP-12: Fachtausch im Titel bzw. in der Zeile – „Mathematik statt Sport“", () => {
+    const alt = change({ kind: "substitute", substituteId: "s", substituteName: "Jana Brandt", insteadOf: "Sport" });
+    expect(dayMessage("2026-10-13", [alt]).title).toBe("Vertretung Di., 13.10., 3. Std: Mathematik statt Sport (7b)");
+    expect(dayMessage("2026-10-13", [alt, change({ periodNr: 5, lessonId: "l5" })]).body).toBe("3. Std Mathematik statt Sport (7b): Vertretung – bei Jana Brandt · 5. Std Mathematik (7b): Entfall");
+  });
 });
 
 describe("Vertretungs-Gong (Q5-03): gebündelt und an Eltern", () => {

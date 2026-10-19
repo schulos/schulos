@@ -115,8 +115,8 @@ function NewChat() {
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
-        <Button size="sm" aria-label="Neuer Chat">
-          <MessageSquarePlus aria-hidden /> Neu
+        <Button size="sm">
+          <MessageSquarePlus aria-hidden /> Neuer Chat
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>

@@ -39,7 +39,7 @@ export default async function ShellLayout({ children }: { children: React.ReactN
         <aside aria-label="Seitenleiste" className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col gap-6 overflow-y-auto border-r border-border bg-surface px-4 py-6 lg:flex">
           {school.logos.logo ? (
             // Schullogo (P4-04): quer mit Schriftzug, darunter klein Plattform und Schulname
-            <Link href="/" className="flex flex-col items-start gap-1.5 px-2" aria-label={`${school.name} – Startseite`}>
+            <Link href="/" className="flex flex-col items-start gap-1.5 px-2" aria-label={`SchulOS · ${school.name} – Startseite`}>
               <SchoolLogo logos={school.logos} name={school.name} className="h-12 max-w-full" />
               <span className="max-w-full truncate text-xs text-muted">SchulOS · {school.name}</span>
             </Link>

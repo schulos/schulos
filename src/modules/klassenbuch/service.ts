@@ -93,6 +93,8 @@ export async function lessonContext(db: Db, lessonId: string, date: string): Pro
   ]);
   const absences = entry ? await db.select().from(classbookAbsences).where(eq(classbookAbsences.entryId, entry.id)) : [];
   const siblings = await couplingSiblings(db, row.l, date);
+  // SP-12 (Fachtausch): die Vertretung gibt ein anderes Fach – der Eintrag trägt das tatsächlich unterrichtete Fach
+  const [alt] = sub?.kind === "substitute" && sub.subjectId ? await db.select({ id: subjects.id, name: subjects.name, color: subjects.color }).from(subjects).where(eq(subjects.id, sub.subjectId)) : [];
   const siblingGroups = siblings.length ? await db.select({ id: groups.id, name: groups.name }).from(groups).where(inArray(groups.id, siblings.map((x) => x.groupId))) : [];
   // deutsche Sortierung (Umlaute) statt C-Collation der DB (TD-01)
   students.sort((a, b) => a.lastName.localeCompare(b.lastName, "de") || a.firstName.localeCompare(b.firstName, "de"));
@@ -102,9 +104,9 @@ export async function lessonContext(db: Db, lessonId: string, date: string): Pro
     groupId: row.l.groupId,
     groupName: row.groupName,
     periodNr: row.l.periodNr,
-    subjectId: row.l.subjectId,
-    subjectName: row.subjectName,
-    color: row.color,
+    subjectId: alt?.id ?? row.l.subjectId,
+    subjectName: alt?.name ?? row.subjectName,
+    color: alt?.color ?? row.color,
     roomId: sub?.roomId ?? row.l.roomId,
     teacherId: sub?.kind === "substitute" ? sub.substituteId : row.l.teacherId,
     students: students.map((s) => ({ id: s.id, name: s.name })),
@@ -115,7 +117,7 @@ export async function lessonContext(db: Db, lessonId: string, date: string): Pro
       lessonId: x.id,
       groupId: x.groupId,
       groupName: siblingGroups.find((g) => g.id === x.groupId)?.name ?? x.groupId,
-      subjectId: x.subjectId,
+      subjectId: alt?.id ?? x.subjectId,
       periodNr: x.periodNr,
     })),
   };
@@ -158,7 +160,7 @@ export async function saveEntry(db: Db, viewer: PermissionSet, input: EntryInput
     homeworkDue,
   };
   let entryId = ctx.entry?.id;
-  if (entryId) await db.update(classbookEntries).set({ topic: values.topic, homework: values.homework, homeworkDue }).where(eq(classbookEntries.id, entryId));
+  if (entryId) await db.update(classbookEntries).set({ subjectId: values.subjectId, topic: values.topic, homework: values.homework, homeworkDue }).where(eq(classbookEntries.id, entryId));
   else {
     const [row] = await db
       .insert(classbookEntries)
@@ -172,7 +174,7 @@ export async function saveEntry(db: Db, viewer: PermissionSet, input: EntryInput
       await db
         .insert(classbookEntries)
         .values({ lessonId: c.lessonId, date: ctx.date, groupId: c.groupId, periodNr: c.periodNr, subjectId: c.subjectId, topic: values.topic, homework: values.homework, homeworkDue, teacherId: viewer.userId })
-        .onConflictDoUpdate({ target: [classbookEntries.lessonId, classbookEntries.date], set: { topic: values.topic, homework: values.homework, homeworkDue } });
+        .onConflictDoUpdate({ target: [classbookEntries.lessonId, classbookEntries.date], set: { subjectId: c.subjectId, topic: values.topic, homework: values.homework, homeworkDue } });
     }
   }
 
