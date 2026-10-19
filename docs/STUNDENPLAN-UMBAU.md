@@ -2,7 +2,8 @@
 
 > Stand: 2026-10-19 · Status: **Plan, zur Umsetzung freigegeben durch den Auftrag der Projektleitung** („Bereich Stundenpläne
 > managen komplett überarbeiten, eigene Rolle für die Stundenplaner, aus der Verwaltung herauslösen, selbstständig planen und
-> umsetzen; neue Funktionen nur die Solver-Läufe“). Aufgaben: `BACKLOG.md` SP-01 … SP-11. Entscheidungen: `QUESTIONS.md` Q-SP-1 … Q-SP-12.
+> umsetzen; neue Funktionen nur die Solver-Läufe“). Aufgaben: `BACKLOG.md` SP-01 … SP-12 und Folgeblock SP2. Entscheidungen: `QUESTIONS.md` Q-SP-1 … Q-SP-16.
+> Ergänzt 2026-10-19 um die Gap-Analyse gegen verbreitete Stundenplan-Software (§6) und den Folgeblock „SP2 – Planungstiefe“ (§7).
 > Grundlage: `STUNDENPLAN.md` (Konzept Phase 2b), `FEINSCHLIFF.md` §7 (Stundenplaner:in), Code unter `src/modules/stundenplan/`.
 > `QUESTIONS.md`, `FEINSCHLIFF.md` und `LOG.md` sind Arbeitsdokumente und nicht im Repo veröffentlicht (VEROEFFENTLICHUNG.md); alle
 > Entscheidungen stehen deshalb auch hier in §2 und §3.
@@ -236,7 +237,7 @@ Der Solver selbst (`solver.ts`) ist rein, deterministisch, schrittweise (`constr
 | 2 | Tests: Service-Tests für Lauf-Warteschlange/Abbruch/Undo, E2E-Szenario Stundenplaner:in, A11Y-Durchgang der Planungsseiten (L-09, L-12) | SP-06, SP-09, SP-11 |
 | 2 | Mobil: Planungsseiten einmal mit `shot.mjs --mobile` durchsehen, offensichtliche Umbrüche beheben (L-13) | SP-04 |
 | 3 | Doku: STUNDENPLAN.md „Stand 2026-10“, README/CLAUDE.md Demo-Login, DATENSCHUTZ/SICHERHEIT (L-14) | SP-03, SP-10 |
-| – | Exporte/Drucke/Statistiken (L-16), Warmstart des Solvers vom aktuellen Plan, Vorschau je Raum, Lauf-Favoriten | **nicht hier** → Ideen-Board |
+| – | Exporte/Drucke/Statistiken (L-16) → Folgeblock SP2 (SP-G-14, §7); Warmstart des Solvers vom aktuellen Plan, Vorschau je Raum, Lauf-Favoriten | **nicht hier** → Ideen-Board |
 
 ---
 
@@ -252,17 +253,21 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | **SP-03** | Bereich `/planung`: Layout, `@schulos/ui/sub-nav`, Umzug der sechs Seiten (`git mv`), Nav-Eintrag, Eyebrow, `revalidatePath`/`redirect`-Pfade, `redirects()` in `next.config.ts`, Verwaltung ohne die vier Reiter, E2E/a11y/Unit-Tests auf neue URLs, CLAUDE.md/README Demo-Login | L | Opus | SP-02 | – | `npm run verify`; E2E „alte URL leitet weiter“, „Sekretariat sieht `/planung` nicht“ |
 | **SP-04** | Übersicht `/planung` (Kacheln aus vorhandenen Services, Links, Leerzustände), Kachel in der Verwaltungs-Übersicht, mobiler Durchgang der Planungsseiten mit `shot.mjs --mobile` | S | Opus | SP-03 | – | Service-Test der Kachel-Zahlen, E2E Übersicht, a11y-Pfade |
 | **SP-05** | Rechte- statt Rollen-Gates: `isStaffRole()` in `core/roles.ts`, `stundenplan/page.tsx` und `raeume/page.tsx` ohne `STAFF`-Liste, Sperren-Reiter an `substitute` | S | Opus | SP-02 | – | `registry.test` (Navigation), E2E „Personal sieht Wochenplan/Räume“ |
-| **SP-06** (**Kern**) | Solver-Läufe Datenmodell + Ausführung: Migration 0089 (`label`, `params`, `metrics`, `log`, `cancel_requested`, `heartbeat_at`, `applied_by`/`applied_at`, `undo`, Status `queued`/`cancelled`, `timetable_lessons.solver_run_id`), Zeitscheiben statt fester Blöcke, Heartbeat-Sperre, Warteschlange, Abbruch, Startup (queued weiter, running → failed), Validierung vor dem Start, Nachtjob `solver-aufraeumen`, Messung der Antwortzeiten während eines Laufs | M | **Fable** | SP-03 | **0089** | `solverlauf.test` (Warteschlange, Abbruch vor/nach Konstruktion, Heartbeat, Aufräumen, Validierung), `solver.test` unverändert grün, `retention.test` |
-| **SP-07** | Solver-Läufe UI: Liste aller Läufe (Filter), Start-Formular mit Bezeichnung/Gründlichkeit/Startwert/Gewichtungs-Voreinstellung + „eigene“, Detailseite `/planung/solver/[id]` (Fortschritt, Protokoll, Konflikte vollständig, Kostenposten mit Filter, Vorschau Klasse **und** Lehrkraft), Abbrechen, Löschen | M | Opus | SP-06 | – | `npm run verify`; E2E Lauf starten → abbrechen → zweiter Lauf |
+| **SP-06** (**Kern**) | Solver-Läufe Datenmodell + Ausführung: Migration 0089 bzw. nächste freie Nummer (`label`, `params`, `metrics`, `log`, `cancel_requested`, `heartbeat_at`, `applied_by`/`applied_at`, `undo`, Status `queued`/`cancelled`, `timetable_lessons.solver_run_id`), Zeitscheiben statt fester Blöcke, Heartbeat-Sperre, Warteschlange, Abbruch, Startup (queued weiter, running → failed), Validierung vor dem Start, Nachtjob `solver-aufraeumen`, Messung der Antwortzeiten während eines Laufs. **Aus der Gap-Analyse (§6.3):** Einheiten-/`result`-Format bandfähig (`units[].parts[]`, Q-SP-13), Machbarkeits-Vorprüfung + konkrete Gründe „nicht gesetzt“ (SP-G-03), Doppelstunde nicht über große Pause/Mittag (SP-G-04a), Warnung „Kurse mit Lehrauftrag ohne Mitglieder“ (SP-G-13), Warnung vor A/B-Stunden mit Lehrauftrag, synthetischer Groß-Benchmark (SP-G-15) | M | **Fable** | SP-03 | **0089** (oder nächste freie) | `solverlauf.test` (Warteschlange, Abbruch vor/nach Konstruktion, Heartbeat, Aufräumen, Validierung, Vorprüfung), `solver.test` (Doppelstunde über Pause, Gründe je Einheit, `parts`), Benchmark-Test, `retention.test` |
+| **SP-07** | Solver-Läufe UI: Liste aller Läufe (Filter), Start-Formular mit Bezeichnung/Gründlichkeit/Startwert/Gewichtungs-Voreinstellung + „eigene“ (alle Felder von `SolverWeights` **plus `lateFrom`**, SP-G-16), Detailseite `/planung/solver/[id]` (Fortschritt, Protokoll, Konflikte vollständig **mit Grund je Einheit** aus SP-G-03, Ergebnis der Vorprüfung, Kostenposten mit Filter, Vorschau Klasse **und** Lehrkraft), Abbrechen, Löschen | M | Opus | SP-06 | – | `npm run verify`; E2E Lauf starten → abbrechen → zweiter Lauf |
 | **SP-08** | Vergleich `/planung/solver/vergleich?laeufe=…` (2–3 Läufe, bester Wert markiert, Delta, Vorschau nebeneinander) | S | Opus | SP-07 | – | Service-Test der Delta-Berechnung, E2E Vergleich |
-| **SP-09** (**Kern**) | Übernahme: `solver_run_id` an Stunden, `undo` schreiben, „Übernahme zurücknehmen“ bis zum Stichtag, Stichtag = Schultag, Hinweis mit Zahl der entfallenden Vertretungen; Randfälle Kopplungen/A-B-Woche/Vertretungen am Stichtag | M | **Fable** | SP-06 | – (Spalten aus 0089) | `solverlauf.test` (Übernahme/Zurücknehmen mit Kopplungen, bleibenden Stunden, Vertretungen), E2E Übernahme → zurücknehmen |
+| **SP-09** (**Kern**) | Übernahme: `solver_run_id` an Stunden, `undo` schreiben, „Übernahme zurücknehmen“ bis zum Stichtag, Stichtag = Schultag, Hinweis mit Zahl der entfallenden Vertretungen; Randfälle Kopplungen/A-B-Woche/Vertretungen am Stichtag; **Raum je Kopplungsteil** (SP-G-02: `chooseRoom` je Teil, gleiche Lehrkraft → gleicher Raum) | M | **Fable** | SP-06 | – (Spalten aus SP-06) | `solverlauf.test` (Übernahme/Zurücknehmen mit Kopplungen, bleibenden Stunden, Vertretungen), `solver.test` (geteilte Klasse mit zwei Lehrkräften → zwei Räume, bis zur Übernahme), E2E Übernahme → zurücknehmen |
 | **SP-10** | Datenschutz + Doku: DATENSCHUTZ §3.4 Zeile, Manifest `retention`/`processing`, SICHERHEIT S-xx, STUNDENPLAN.md „Stand 2026-10“, VVT-/Auskunftstest | S | Opus | SP-09 | – | `retention.test`, VVT-Snapshot, Auskunftstest |
-| **SP-11** | E2E-Szenario „Stundenplaner:in“ (Login `frank.schulte` → Übersicht → Lauf mit Parametern → Abbruch → zweiter Lauf → Vergleich → Übernahme ab Stichtag → zurücknehmen; Sekretariat 404 auf `/planung`; alte URLs leiten weiter) + **Review-PR GATE SP** (erledigte IDs, Tests, Fragen) | S | Opus | SP-10 | – | `e2e/zx-gate-sp.spec.ts` |
+| **SP-12** | **Vertretung mit abweichendem Fach** („Fachtausch“, SP-G-Fachtausch, §6.4): `timetable_substitutions.subject_id` (nullable, nur bei `substitute`, Check-Constraint), Formularfeld „Fach“, Vorschlag „kennt die Klasse → eigenes Fach“ (+10, Knopf übernimmt Lehrkraft **und** Fach), Anzeige „Mathe statt Sport“ in allen Plänen/Tagesleiste/Vertretungsplan/Druck/Monitor, Gong-Text, Klassenbuch-Eintrag mit tatsächlichem Fach, Statistik-Zähler „davon mit eigenem Fach“, Klausur-Hinweis im Formular, DATENSCHUTZ §3.4/STUNDENPLAN §2.3 | M | Opus | SP-03 (Recht `substitute` aus SP-02, Seiten unter `/planung/vertretungen`) | nächste freie Nummer (Spalte + Check) | `vertretung.test`, `vorschlaege.test`, `display.test`, `vertretung-gong.test`, Klassenbuch-Test, E2E `vertretungsbedarf.spec.ts` erweitert |
+| **SP-11** | E2E-Szenario „Stundenplaner:in“ (Login `frank.schulte` → Übersicht → Lauf mit Parametern → Abbruch → zweiter Lauf → Vergleich → Übernahme ab Stichtag → zurücknehmen; **Vertretung mit Fachtausch**; Sekretariat 404 auf `/planung`; alte URLs leiten weiter) + **Review-PR GATE SP** (erledigte IDs, Tests, Fragen) | S | Opus | SP-10, SP-12 | – | `e2e/zx-gate-sp.spec.ts` |
 | **GATE SP** | Review mit der Projektleitung (Review-PR aus SP-11; `/code-review ultra` nach Wunsch) – merged nur die Projektleitung | – | – | SP-11 | – | – |
 
-Parallelisierbar: SP-05 neben SP-03; SP-08 neben SP-09. Zwischenstand zum Melden nach SP-04 (Bereich steht, Verwaltung aufgeräumt) und
-nach SP-07 (Läufe bedienbar). Release-Vorschlag nach GATE SP: **v0.6.0** (Rechteänderung + Migrationen → Minor, Release-Notes mit dem
-Hinweis zur Gruppe „Stundenplanung“ und zur 2FA-Pflicht für Planende).
+Reihenfolge: SP-02 ✅ → SP-03 → SP-04 (SP-05 parallel) → SP-06 ‖ SP-12 → SP-07 → SP-08 ‖ SP-09 → SP-10 → SP-11 → **GATE SP**.
+Parallelisierbar: SP-05 neben SP-03; SP-12 neben SP-06/SP-07 (kein Solver-Kern, berührt nur das Tagesgeschäft); SP-08 neben SP-09.
+Migrationsnummern werden in der Reihenfolge des Mergens vergeben (SP-06 und SP-12 nehmen jeweils die nächste freie Nummer).
+Zwischenstand zum Melden nach SP-04 (Bereich steht, Verwaltung aufgeräumt) und nach SP-07 (Läufe bedienbar). Release-Vorschlag nach
+GATE SP: **v0.6.0** (Rechteänderung + Migrationen → Minor, Release-Notes mit dem Hinweis zur Gruppe „Stundenplanung“, zur 2FA-Pflicht
+für Planende und zur „Vertretung mit abweichendem Fach“).
 
 ### 5.1 Prüfliste je Runde
 
@@ -272,3 +277,120 @@ Hinweis zur Gruppe „Stundenplanung“ und zur 2FA-Pflicht für Planende).
 - `revalidatePath`/`redirect` auf neue Pfade; alte Pfade nur noch in `redirects()` und Tests.
 - E2E-Tests mit dem Planungs-Login, nicht mit dem Sekretariat.
 - Doku-Nachträge (LOG, Abhaken) im selben PR.
+
+---
+
+## 6. Gap-Analyse gegen verbreitete Stundenplan-Software (2026-10-19)
+
+Abgleich des Stundenplanmoduls samt Solver mit dem Funktionsumfang verbreiteter kommerzieller und quelloffener
+Stundenplan-Software (Marktführer im deutschsprachigen Raum, gegengeprüft an drei weiteren Programmen). Leitlinie der
+Projektleitung: „so einfach wie möglich, aber einen großen Teil abdecken“. Entscheidungen: Q-SP-13 … Q-SP-16 (Projektleitung 2026-10-19).
+
+### 6.1 Ergebnis in Kürze
+
+Der **Kern** für eine typische Sek-I-Schule ist heute schon gut und durchgängig abgedeckt: Stammdaten, Unterrichtsverteilung mit
+Soll/verplant, Deputate mit Anrechnungen, Zeitwünsche −3…+3/gesperrt (Lehrkraft, Klasse, Raum, Fach), Kopplungen, Setzhilfe,
+Diagnose, Solver mit erklärbarer Bewertung, Übernahme ab Stichtag, Vertretungsplanung mit Vorschlägen/Statistik/Freigabe,
+Aufsichten, Räume, Drucke, Monitor, Gong (auch an Eltern). Echte Lücken liegen an drei Stellen: **Bänder/heterogene Kopplungen
+im Solver** (E-/G-Kurse, WP, Religion/Philosophie, Oberstufen-Schienen), **Tagesregeln** (max. Stunden/Tag, Nachmittage,
+Mittagspause, Doppelstunde über die große Pause) und **Vertretung Stufe 2** (Verlegung, Zusammenlegung, Bereitschaft,
+Dauervertretung). Dazu der Zusatzwunsch **Vertretung mit abweichendem Fach**.
+
+### 6.2 Abgleichstabelle (kompakt)
+
+Lücke: **ja** = fehlt · **teilw.** = vorhanden mit Einschränkung · **nein** = abgedeckt · **bewusst** = Entscheidung gegen die Funktion.
+
+| Bereich / Funktion | SchulOS heute | Lücke | Einordnung |
+|---|---|---|---|
+| Stammdaten, Stundentafel, Unterrichtsverteilung Soll/verplant, Deputat mit Anrechnungen, Zeitwünsche (inkl. Selbsteingabe) | ja | nein | – |
+| Perioden/Halbjahreswechsel | Periode kopieren, Übernahme ab Stichtag | nein | SP-09 zurücknehmbar |
+| Lehrauftrag mit Gültigkeit (Halbjahr, Epoche) | nein (nur Notiz) | ja | SP2 (SP-G-07) |
+| A/B-Wochen | manuell ja, Solver nur `all` | teilw. | Warnung in SP-06; Solver-Unterstützung Kann (SP-G-17) |
+| Kopplung heterogen (manuell) | ja | nein | – |
+| **Bänder im Lehrauftrag und Solver** (E/G, WP, Reli/Philo, Oberstufen-Schienen) | nein: 1 Fach, Gruppen × Lehrkräfte kartesisch | **ja (größte Lücke)** | SP2 (SP-G-01); Format in SP-06 bandfähig |
+| Raum je Kopplungsteil (geteilte Klasse) | Solver: ein Raum für alle Teile | teilw. | SP-09 (SP-G-02) |
+| Kollisionen, Fixieren, Fach-/Raumwünsche, Fach mehrfach am Tag | ja | nein | – |
+| Doppelstunde nicht über große Pause/Mittag | nein | teilw. | SP-06 (SP-G-04a) |
+| Hohlstunden Lehrkraft/Klasse | Gewicht fest | teilw. | SP-07 Gewichte |
+| Hohlstunden bei Kursband/Oberstufe im Solver | nein (Diagnose ja) | ja | SP2 (SP-G-11) |
+| Tagesgrenzen Klasse/Jahrgang, Nachmittage, Mittagspause (Ganztag) | nein (nur „späte Stunden“) | **ja** | SP2 (SP-G-04b) |
+| Lehrkraft max. Stunden/Tag, Anwesenheitstage (Teilzeit) | nein | ja | SP2 (SP-G-05) |
+| Fachverteilung über die Woche | nein | ja | SP2 (SP-G-06) |
+| Gewichte einstellbar inkl. „späte Stunden ab“ | fest | nein nach SP | SP-07 (+ SP-G-16 `lateFrom`) |
+| Machbarkeits-Vorprüfung, Grund je „nicht gesetzt“ | generischer Text | ja | SP-06/SP-07 (SP-G-03) |
+| Warnung „Kurse ohne Mitglieder“, Groß-Benchmark | nein | ja | SP-06 (SP-G-13, SP-G-15) |
+| Varianten vergleichen, Abbruch, Historie | teilw. | nein nach SP | SP-06 … SP-08 |
+| Diagnose kennt Zeitwunsch-Verletzungen | nein | ja | SP2 (SP-G-12) |
+| Vertretung: Abwesenheit, Vorschläge, Entfall/Vertretung/Raum, Statistik, Freigabe, Gong | ja | nein | – |
+| **Vertretung mit abweichendem Fach** | nein (`subject_id` fehlt) | **ja (Zusatzwunsch)** | **SP-12 vor GATE SP** |
+| Verlegung, Zusammenlegung, Bereitschaft | nein | ja | SP2 (SP-G-08) |
+| Dauervertretung, Wochenblick Vertretungsbedarf | nein | ja | SP2 (SP-G-09, SP-G-10) |
+| Gesamtübersichten, Druck Verteilung/Deputate/Aufsichtsplan, CSV | nein | ja | SP2 (SP-G-14) |
+| Einstieg für Umsteiger | Lehraufträge aus Handplan | teilw. | SP2: CSV-Import der Unterrichtsverteilung (Q-SP-14) |
+| Lehrbefähigung, Wertrechnung/Faktoren, faire Aufsichtsverteilung, ICS-Abo, Matrix-Ansicht, Epochen | nein | Kann | nur auf Nachfrage (SP-G-17 … SP-G-23) |
+| Oberstufen-Blockung aus Kurswahlen | Kurswahl → Gruppen + Lehraufträge | ja | eigene Phase nach SP2 (SP-G-24, braucht Bänder) |
+| Mehrere Zeitraster/Minutenplan/Samstag · Standorte/Wegezeiten/Abteilungen · Mehrarbeits-Abrechnung · Import/Export im Austauschformat fremder Software · Plan-Versionen | nein | **bewusst** | nicht geplant (Q-SP-16) |
+
+### 6.3 Ergänzungen vor GATE SP (in bestehende Runden, je klein)
+
+| ID | Ergänzung | Runde |
+|---|---|---|
+| SP-G-03 | Machbarkeits-Vorprüfung vor dem Lauf (je Lehrkraft/Gruppe Bedarf vs. freie, ungesperrte Slots inkl. fixierter Stunden; je Raumart Bedarf vs. Räume × Slots) als Hinweis bzw. Protokoll-Warnung; konkreter Grund je nicht gesetzter Einheit aus der `feasible()`-Zählung („Lehrkraft in 0 von 45 Slots frei“, „Sperrzeit Klasse“) | SP-06 (Logik), SP-07 (Anzeige) |
+| SP-G-04a | Doppelstunde nicht über große Pause/Mittag: `doublePairs` aus dem Zeitraster (Pause ≥ 20 Min trennt), `span()` prüft das Paar; Setzhilfe/Diagnose gleich mit | SP-06 |
+| SP-G-13 | Warnung „n Kurse mit Lehrauftrag ohne Mitglieder – Konflikte unbekannt“ | SP-06 |
+| SP-G-15 | Synthetischer Benchmark (große Schule, ~1 500 Einheiten) mit Laufzeit, nicht gesetzt, Hohlstunden; Grenzwert dokumentieren | SP-06 |
+| Qualität A/B | Warnung vor dem Lauf, wenn A/B-Stunden mit Lehrauftrag nicht fixiert sind (die Übernahme würde sie ersetzen) | SP-06 |
+| Q-SP-13 | Einheiten-/`result`-Format bandfähig: `units[].parts[]` (je Teil Gruppe(n), Lehrkraft, Fach, Raum) statt flacher `groupIds × teacherIds` – Bänder selbst erst in SP2 | SP-06 |
+| SP-G-16 | `lateFrom` als zusätzliches Feld der „eigenen“ Gewichte | SP-07 |
+| SP-G-02 | Raum je Kopplungsteil (gleiche Lehrkraft → gleicher Raum), Test bis zur Übernahme | SP-09 |
+| SP-G-Fachtausch | Vertretung mit abweichendem Fach (§6.4) | **SP-12** (neu) |
+
+### 6.4 SP-12 – Vertretung mit abweichendem Fach (Zusatzwunsch Projektleitung 2026-10-19)
+
+Wunsch: „Bei den Vertretungen soll auch ein abweichendes Fach möglich sein, nicht nur eine Arbeitsaufgabe. Aus Sport darf also auch
+mal Mathe werden, gerade wenn es eine Lehrkraft gibt, die frei ist und die Klasse schon kennt.“ Heute hat `timetable_substitutions`
+kein Fach; alle Anzeigen nehmen das Fach der regulären Stunde.
+
+| Baustein | Umsetzung (so einfach wie möglich – ein Feld, kein neuer `kind`) |
+|---|---|
+| Datenmodell | `timetable_substitutions.subject_id` nullable, FK `subjects.id`; leer = reguläres Fach; Check `subject_id is null or kind = 'substitute'` (bei Entfall/Raumänderung serverseitig `null`). Migration: nächste freie Nummer. Löschklasse folgt der Vertretung |
+| Speichern | `SubstitutionInput.subjectId`; Fach muss existieren, gleiches Fach wie die Stunde → `null`; bei Kopplungen für alle Teile derselben Lehrkraft; Audit nennt das Fach |
+| Formular | Feld „Fach“ (Vorgabe reguläres Fach) neben „Vertretung durch“, nur bei Vertretung aktiv; Hinweis, wenn die Gruppe an dem Tag eine Klausur im gewählten Fach hat |
+| Vorschläge | je Kandidat `suggestedSubjectId` = Fach, das die Lehrkraft regulär in dieser Gruppe gibt (bei mehreren das mit den meisten Wochenstunden); Grund „kann eigenes Fach geben: Mathe“ (+10) nur, wenn sie die Gruppe kennt, aber nicht das ausgefallene Fach unterrichtet. Rangfolge bleibt: frei durch Freisetzung > kennt Klasse > kennt Fach > Hohlstunde. Knopf „→ Mathe“ übernimmt Lehrkraft **und** Fach |
+| Anzeige | Slot zeigt das abweichende Fach (Name/Farbe) mit „statt Sport“: Mein Stundenplan, Tagesleiste, Klassen-/Lehrkraft-/Raumplan, Druck, Vertretungsplan, Druck Vertretungsplan, Monitor („Mathe (statt Sport)“) |
+| Gong | „Vertretung Di, 3. Std: Mathe statt Sport (7b) …“, Eltern-Bündelung unverändert |
+| Klassenbuch | Eintrag der Vertretungsstunde trägt das tatsächliche Fach |
+| Statistik | Zähler „davon mit eigenem Fach“ in Vertretungsstatistik und Mein Deputat (rein informativ) |
+| Ohne Wirkung | Notenbuch (hängt an Lehraufträgen), Unterrichtsverteilung, Solver |
+| Bewusst nicht | eigener `kind` „Fachtausch“, Fachwechsel bei Entfall/Raumänderung, Verrechnung im Deputat, automatische Übernahme des Vorschlags |
+
+---
+
+## 7. Folgeblock „SP2 – Planungstiefe“ (nach GATE SP, eigener GATE)
+
+Entscheidungen der Projektleitung 2026-10-19 (Q-SP-13 … Q-SP-16): Zielschule ist **jetzt Sek I sauber**; Bänder (heterogene
+Kopplung, E/G, WP, Reli/Philo, Oberstufen-Schienen) und Tagesgrenzen/Ganztag kommen im Folgeblock SP2. Dazu der CSV-Import der
+Unterrichtsverteilung (nur Lehraufträge – kein Import von Plänen oder fremden Austauschformaten) und die Vertretung Stufe 2.
+Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des Blocks. **Kern** = Solver-Kernlogik.
+
+| ID | Titel | Größe | Kern | hängt ab von | Quelle |
+|---|---|---|---|---|---|
+| **SP2-01** | Bänder – Datenmodell und Unterrichtsverteilung: `timetable_bands` (Schuljahr, Name, Wochenstunden, Doppelstunden) mit n Lehraufträgen als Mitglieder; Lehraufträge bleiben 1 Fach, 1 Gruppe, 1–2 Lehrkräfte; „Gekoppelt mit“ wird zum Band; Pflege-UI, Soll/verplant je Band | M | – | GATE SP | SP-G-01 |
+| **SP2-02** | Bänder im Solver, in Setzhilfe und Übernahme: Einheit = Band mit `parts[]` (eigene Lehrkraft/Fach/Raum je Teil), `chooseRoom` je Teil, eine `coupling_id` je Band-Stunde, Setzhilfe setzt/verschiebt das Band als Einheit; Kursband zählt für Klassen-Hohlstunden | L | **ja** | SP2-01 | SP-G-01 |
+| **SP2-03** | Tagesgrenzen und Ganztag je Jahrgangsstufe: `maxPerDay`, `afternoonsPerWeek`, `lunchAfterPeriod` (Mittagspause Pflicht bei Unterricht danach), Vorgaben aus dem Schulform-Katalog; hart im Solver, Diagnose-Kategorie | M | **ja** | GATE SP | SP-G-04b |
+| **SP2-04** | Lehrkraft-Tagesregeln und Fachverteilung: optional `maxPerDay`/`maxDays` je Lehrkraft (Deputats-Seite), weiche Kosten Anwesenheitstage; Kosten `subjectSpread` (nicht an Folgetagen geballt), Gewichte in den Voreinstellungen | S–M | **ja** | SP2-03 | SP-G-05, SP-G-06 |
+| **SP2-05** | Hohlstunden Oberstufe/Kursband im Solver (Jahrgang ohne Klasse) + Diagnose-Kategorie Zeitwünsche (gesperrt belegt = Fehler, −3/−2 = Warnung; Tausch in der Setzhilfe prüft Sperren) | S–M | **ja** | SP2-02 | SP-G-11, SP-G-12 |
+| **SP2-06** | CSV-Import der Unterrichtsverteilung (Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch]) mit Vorschau, Zuordnung über Kürzel, Fehlerliste und Trockenlauf; nur Lehraufträge, kein Plan | S | – | GATE SP | Q-SP-14 |
+| **SP2-07** | Vertretung Stufe 2: Verlegung (Stunde auf einen Entfall-Slot vorziehen/tauschen), Zusammenlegung/Mitbetreuung (Gruppe geht zu Gruppe Y), Bereitschaft (Reserve je Slot, oben in den Vorschlägen); Anzeige/Gong/Monitor/Druck mitziehen | M | – | GATE SP | SP-G-08, Q-SP-15 |
+| **SP2-08** | Dauervertretung für den Zeitraum einer Abwesenheit (erzeugt Vertretungen für alle Tage) + Vertretungsbedarf im Wochenblick (nächste 5 Schultage) | S–M | – | SP2-07 | SP-G-09, SP-G-10 |
+| **SP2-09** | Lehrauftrag mit Gültigkeit (`valid_from/until`, Vorgabe Schuljahr; Verteilung und Solver am Stichtag, Übernahme bis `valid_until`) | M | teilw. | SP2-02 | SP-G-07 |
+| **SP2-10** | Drucke/Exporte: Gesamtübersicht alle Klassen/alle Lehrkräfte, Unterrichtsverteilung, Deputate, Aufsichtsplan, Vertretungsstatistik (Druck + CSV) | S–M | – | GATE SP | SP-G-14 |
+| **SP2-11** | E2E-Szenario „Gesamtschule“ (Band E/G Mathe 7 + WP + Tagesgrenze → Lauf → Übernahme; Verlegung/Bereitschaft; CSV-Import) + Review-PR **GATE SP2** | S | – | SP2-01 … SP2-10 | – |
+| **GATE SP2** | Review mit der Projektleitung – merged nur die Projektleitung | – | – | SP2-11 | – |
+
+Nur auf Nachfrage von Schulen (Kann): A/B-Wochen im Solver (SP-G-17), Lehrbefähigung (SP-G-18), Wertrechnung/Faktoren (SP-G-19),
+faire Aufsichtsverteilung (SP-G-20), ICS-Abo des Stundenplans (SP-G-21), Matrix Lehrkraft × Fach (SP-G-22). Oberstufen-Blockung
+aus Kurswahlen (SP-G-24) wird eine eigene Phase nach SP2 (braucht Bänder).
+
+**Bewusst nicht (Q-SP-16):** mehrere Zeitraster je Jahrgang, Minutenstundenplan, Samstag · Standorte/Wegezeiten/Abteilungen ·
+Mehrarbeits-Abrechnung (Zähler bleiben) · Import/Export von Plänen im Austauschformat fremder Software · Plan-Versionen (Q-SP-12).
