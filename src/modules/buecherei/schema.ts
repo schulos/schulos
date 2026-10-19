@@ -78,6 +78,12 @@ export const buechereiLoans = pgTable(
     /** Befund bei der Rückgabe (Sache, keine Namen), z. B. „Wasserschaden“, „CD fehlt“ */
     finding: text("finding"),
     findingResolvedOn: date("finding_resolved_on"),
+    /** BU-04: Fälligkeit, an die schon erinnert wurde (Verlängern verschiebt die Fälligkeit → neue Erinnerung) */
+    remindedDueOn: date("reminded_due_on"),
+    /** BU-04: Mahnstufe 0–3 – lebt nur mit der offenen Ausleihe (Rückgabe löscht bzw. setzt zurück, Verlängern setzt zurück) */
+    dunningLevel: integer("dunning_level").notNull().default(0),
+    /** BU-04: Tag der letzten Mahnung (nächste Stufe frühestens nach dem eingestellten Abstand) */
+    dunnedOn: date("dunned_on"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -96,6 +102,8 @@ export const buechereiStats = pgTable(
     mediaType: buechereiMediaTypeEnum("media_type").notNull(),
     loans: integer("loans").notNull().default(0),
     renewals: integer("renewals").notNull().default(0),
+    /** BU-04: verschickte Mahnungen (alle Stufen) – nur gezählt, ohne Person */
+    dunnings: integer("dunnings").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.month, t.mediaType] })],
 );

@@ -652,6 +652,13 @@
       "when": 1792419069316,
       "tag": "0092_kurswahl_lesen",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1792426209853,
+      "tag": "0093_buecherei_mahnungen",
+      "breakpoints": true
     }
   ]
 }

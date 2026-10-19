@@ -26,7 +26,7 @@ export default defineModule({
     beratung: ["buecherei.use"],
     verwaltung: ["buecherei.use", "buecherei.desk", "buecherei.stock", "buecherei.materials"],
   },
-  // BU-02: Leihfrist je Medienart, Verlängerungen; BU-03: Abholfrist, Vormerkungen je Person
+  // BU-02: Leihfrist je Medienart, Verlängerungen; BU-03: Abholfrist, Vormerkungen je Person; BU-04: Erinnerung, Mahnabstand, Mail
   settings: BUECHEREI_SETTINGS,
   nav: [
     { href: "/buecherei", label: "Bücherei", requires: ["buecherei.use", "buecherei.desk", "buecherei.stock"] },
@@ -38,11 +38,11 @@ export default defineModule({
       table: "buecherei_loans",
       scope: "offene Ausleihen",
       purpose: "Ausleihe von Medien der Schulbücherei (wer hat welches Exemplar bis wann)",
-      categories: ["Person (Konto)", "Exemplar", "Ausleihdatum", "Fälligkeit", "Zahl der Verlängerungen"],
+      categories: ["Person (Konto)", "Exemplar", "Ausleihdatum", "Fälligkeit", "Zahl der Verlängerungen", "Erinnerung verschickt", "Mahnstufe und Tag der letzten Mahnung"],
       class: "LK-KONTO",
       start: "user_id",
       where: "returned_on is null",
-      note: "Rückgabe ohne Befund löscht die Ausleihe sofort (nur ein Zähler je Monat und Medienart bleibt, ohne Person); Kontolöschung entfernt die Person, das Exemplar bleibt als ausgeliehen sichtbar",
+      note: "Rückgabe ohne Befund löscht die Ausleihe sofort (nur ein Zähler je Monat und Medienart bleibt, ohne Person); Kontolöschung entfernt die Person, das Exemplar bleibt als ausgeliehen sichtbar. Mahnstufe und Erinnerung leben nur mit der offenen Ausleihe: Rückgabe löscht bzw. leert sie, Verlängern setzt sie zurück (BU-04)",
     },
     {
       table: "buecherei_loans",
@@ -73,13 +73,13 @@ export default defineModule({
   ],
   processing: {
     title: "Schulbücherei: Ausleihe",
-    purpose: "Medien der Schulbücherei ausleihen und zurücknehmen, Fristen und Schäden nachhalten",
+    purpose: "Medien der Schulbücherei ausleihen und zurücknehmen, Fristen und Schäden nachhalten, vor Fristende erinnern und Überfälliges mahnen",
     subjects: ["Schüler:innen", "Lehrkräfte", "weiteres Personal"],
     recipients: [
-      "Büchereiteam an der Theke (Recht „Theke“, auch Schüler-Helfer:innen): nur Name, Klasse und offene Ausleihen der Person",
+      "Büchereiteam an der Theke (Recht „Theke“, auch Schüler-Helfer:innen): nur Name, Klasse und offene Ausleihen der Person; Mahnliste der überfälligen Ausleihen – Mahnstufen nur Erwachsene im Team",
       "Verwaltung mit „Schulbuchausleihe“: Rückgaben mit Befund",
-      "die Person selbst („Meine Ausleihen“: offene Ausleihen und Vormerkungen), Eltern minderjähriger Schüler:innen lesend",
+      "die Person selbst („Meine Ausleihen“: offene Ausleihen und Vormerkungen; Erinnerung und Mahnungen als Benachrichtigung, optional Mail), Eltern minderjähriger Schüler:innen lesend und ab der 2. Mahnstufe als Benachrichtigung (optional Mail)",
     ],
-    note: "Kein Ausleihverlauf je Person: Die Rückgabe ohne Befund löscht die Ausleihe sofort, es bleiben nur Zähler je Monat und Medienart ohne Personenbezug. Ausleihe und Rückgabe stehen nicht im Audit-Log, nur Befunde. Büchereiausweise tragen Name, Klasse und einen zufälligen Code ohne Namen oder Kontonummer; Ersatz macht den alten Code ungültig. Vormerkungen nur für ganz ausgeliehene Titel; andere sehen nur ihre Zahl, keine Namen – auch die Theke nicht (sie erfährt nur „liegt für eine andere Person bereit“). Keine Leseempfehlungen oder Auswertungen aus dem Ausleihverhalten.",
+    note: "Kein Ausleihverlauf je Person: Die Rückgabe ohne Befund löscht die Ausleihe sofort, es bleiben nur Zähler je Monat und Medienart ohne Personenbezug. Ausleihe und Rückgabe stehen nicht im Audit-Log, nur Befunde. Büchereiausweise tragen Name, Klasse und einen zufälligen Code ohne Namen oder Kontonummer; Ersatz macht den alten Code ungültig. Vormerkungen nur für ganz ausgeliehene Titel; andere sehen nur ihre Zahl, keine Namen – auch die Theke nicht (sie erfährt nur „liegt für eine andere Person bereit“). Erinnerungen und Mahnungen (Stufe 1–3, nur an Schultagen) nennen keinen Titel – welche Medien, steht nur nach der Anmeldung; Mahnungen werden nur gezählt (je Monat und Medienart), nicht je Person aufbewahrt. Keine Leseempfehlungen oder Auswertungen aus dem Ausleihverhalten.",
   },
 });
