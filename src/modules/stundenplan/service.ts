@@ -119,7 +119,7 @@ export async function listSlots(
   target: PlanTarget,
   fromYmd: string,
   toYmd: string,
-  /** Q5-11: Änderungen an Entwurfstagen mitlesen – nur für die Planung (`stundenplan.manage`); sonst gilt der veröffentlichte Stand */
+  /** Q5-11: Änderungen an Entwurfstagen mitlesen – nur für die Vertretungsplanung (`stundenplan.substitute`); sonst gilt der veröffentlichte Stand */
   opts: { drafts?: boolean } = {},
 ): Promise<LessonSlot[]> {
   const tc = await targetCondition(db, target);

@@ -116,7 +116,9 @@ describe("Offen für dich (Q5-07)", () => {
     expect(need).toMatchObject({ tone: "danger", href: `/verwaltung/vertretungen?datum=${TODAY}` });
     expect(need.detail).toMatch(/^Mo\., 5\.10\.: \d+/);
     // keine Planungszahlen für Lehrkräfte, Eltern
-    expect(ids(await items("u-tobias.kleine")).filter((i) => i.startsWith("stundenplan:"))).toEqual([]);
+    expect(ids(await items("u-murat.yilmaz")).filter((i) => i.startsWith("stundenplan:"))).toEqual([]);
+    // SP-02 (FEINSCHLIFF I-27): Schulleitung (Gruppe mit `stundenplan.substitute`) sieht den Vertretungsbedarf
+    expect(ids(await items("u-tobias.kleine"))).toContain("stundenplan:bedarf");
     expect(ids(await items(mother)).filter((i) => i.startsWith("stundenplan:"))).toEqual([]);
 
     await writeModuleSetting(h.db, SUBSTITUTION_RELEASE, "freigabe");

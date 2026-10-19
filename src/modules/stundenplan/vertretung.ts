@@ -297,7 +297,7 @@ export interface DaySubstitution {
 
 /**
  * Alle Änderungen an einem oder mehreren Tagen (Vertretungsplan, Monitor, Verwaltung). Q5-11: Tage im Entwurf nur mit
- * `drafts: true` (Planung mit `stundenplan.manage`) – alle anderen sehen den veröffentlichten Stand.
+ * `drafts: true` (Vertretungsplanung mit `stundenplan.substitute`) – alle anderen sehen den veröffentlichten Stand.
  */
 export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: boolean } = {}): Promise<DaySubstitution[]> {
   if (dates.length === 0) return [];

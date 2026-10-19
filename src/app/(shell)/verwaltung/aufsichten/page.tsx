@@ -38,7 +38,10 @@ const STATUS = {
 /** Pausenaufsichten: Tagesansicht mit offenen Aufsichten, Aufsichtsplan je Bereich, Bereiche. */
 export default async function AufsichtenPage({ searchParams }: { searchParams: Promise<{ datum?: string; fehler?: string }> }) {
   const { perms } = await requireUser();
-  if (!hasPermission(perms, "stundenplan.manage")) notFound();
+  // SP-02: Aufsichtsplan und Bereiche = Jahresplanung (`manage`), Tagesansicht mit Vertretung = Tagesgeschäft (`substitute`)
+  const canManage = hasPermission(perms, "stundenplan.manage");
+  const canSubstitute = hasPermission(perms, "stundenplan.substitute");
+  if (!canManage && !canSubstitute) notFound();
   const sp = await searchParams;
   const db = await getDb();
   const cal = await loadSchoolCalendar(db);
@@ -91,7 +94,9 @@ export default async function AufsichtenPage({ searchParams }: { searchParams: P
                   <td className={d.absent ? "text-muted line-through" : undefined}>{d.teacherCode}</td>
                   <td>{d.status !== "regular" && <Badge tone={STATUS[d.status].tone}>{STATUS[d.status].label}</Badge>}</td>
                   <td>
-                    {d.status === "open" ? (
+                    {!canSubstitute ? (
+                      (d.change?.substituteCode ?? null)
+                    ) : d.status === "open" ? (
                       <span className="flex flex-wrap items-center gap-2">
                         <form action={setDutyChangeAction.bind(null, d.id, date)} className="flex items-center gap-2">
                           <Select name="substituteId" aria-label={`Vertretung ${d.breakLabel} ${d.areaName}`} className="h-9 w-48" required>
@@ -129,89 +134,93 @@ export default async function AufsichtenPage({ searchParams }: { searchParams: P
         )}
       </section>
 
-      <section aria-labelledby="plan-title" className="flex flex-col gap-3">
-        <h2 id="plan-title" className="font-display text-xl font-bold">
-          Aufsichtsplan
-        </h2>
-        {breaks.length === 0 ? (
-          <EmptyState title="Keine Pausen im Zeitraster">Pausen ergeben sich aus Lücken von mindestens 10 Minuten zwischen zwei Stunden.</EmptyState>
-        ) : (
-          <>
-            <Card>
-              <DutyForm
-                action={addDutyAction}
-                areas={areas.map((a) => ({ value: a.id, label: a.name }))}
-                weekdays={WEEKDAYS.map((w, i) => ({ value: String(i), label: w }))}
-                breaks={breaks.map((b) => ({ value: String(b.afterPeriod), label: `${b.label} (${b.startsAt}–${b.endsAt})` }))}
-                teachers={teachers.map((t) => ({ value: t.id, label: `${t.code} – ${t.name}` }))}
-              />
-            </Card>
-            {areas.map((a) => (
-              <Table key={a.id}>
-                <caption className="px-4 pt-3 text-left font-semibold">{a.name}</caption>
-                <thead>
-                  <tr>
-                    <th>Pause</th>
-                    {WEEKDAYS.map((w) => (
-                      <th key={w}>{w}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {breaks.map((b) => (
-                    <tr key={b.afterPeriod}>
-                      <td className="whitespace-nowrap">
-                        {b.label}
-                        <span className="block text-xs text-muted">
-                          {b.startsAt}–{b.endsAt}
-                        </span>
-                      </td>
-                      {WEEKDAYS.map((w, wd) => (
-                        <td key={w}>
-                          <span className="flex flex-wrap gap-1">
-                            {plan
-                              .filter((p) => p.areaId === a.id && p.weekday === wd && p.afterPeriod === b.afterPeriod)
-                              .map((p) => (
-                                <form key={p.id} action={removeDutyAction.bind(null, p.id)}>
-                                  <button
-                                    type="submit"
-                                    className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold ring-1 ring-border hover:ring-border-strong"
-                                    aria-label={`${p.teacherCode} aus ${a.name} ${w} ${b.label} entfernen`}
-                                  >
-                                    {p.teacherCode} <X aria-hidden className="size-3" />
-                                  </button>
-                                </form>
-                              ))}
-                          </span>
-                        </td>
+      {canManage && (
+        <section aria-labelledby="plan-title" className="flex flex-col gap-3">
+          <h2 id="plan-title" className="font-display text-xl font-bold">
+            Aufsichtsplan
+          </h2>
+          {breaks.length === 0 ? (
+            <EmptyState title="Keine Pausen im Zeitraster">Pausen ergeben sich aus Lücken von mindestens 10 Minuten zwischen zwei Stunden.</EmptyState>
+          ) : (
+            <>
+              <Card>
+                <DutyForm
+                  action={addDutyAction}
+                  areas={areas.map((a) => ({ value: a.id, label: a.name }))}
+                  weekdays={WEEKDAYS.map((w, i) => ({ value: String(i), label: w }))}
+                  breaks={breaks.map((b) => ({ value: String(b.afterPeriod), label: `${b.label} (${b.startsAt}–${b.endsAt})` }))}
+                  teachers={teachers.map((t) => ({ value: t.id, label: `${t.code} – ${t.name}` }))}
+                />
+              </Card>
+              {areas.map((a) => (
+                <Table key={a.id}>
+                  <caption className="px-4 pt-3 text-left font-semibold">{a.name}</caption>
+                  <thead>
+                    <tr>
+                      <th>Pause</th>
+                      {WEEKDAYS.map((w) => (
+                        <th key={w}>{w}</th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </Table>
-            ))}
-          </>
-        )}
-      </section>
+                  </thead>
+                  <tbody>
+                    {breaks.map((b) => (
+                      <tr key={b.afterPeriod}>
+                        <td className="whitespace-nowrap">
+                          {b.label}
+                          <span className="block text-xs text-muted">
+                            {b.startsAt}–{b.endsAt}
+                          </span>
+                        </td>
+                        {WEEKDAYS.map((w, wd) => (
+                          <td key={w}>
+                            <span className="flex flex-wrap gap-1">
+                              {plan
+                                .filter((p) => p.areaId === a.id && p.weekday === wd && p.afterPeriod === b.afterPeriod)
+                                .map((p) => (
+                                  <form key={p.id} action={removeDutyAction.bind(null, p.id)}>
+                                    <button
+                                      type="submit"
+                                      className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold ring-1 ring-border hover:ring-border-strong"
+                                      aria-label={`${p.teacherCode} aus ${a.name} ${w} ${b.label} entfernen`}
+                                    >
+                                      {p.teacherCode} <X aria-hidden className="size-3" />
+                                    </button>
+                                  </form>
+                                ))}
+                            </span>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              ))}
+            </>
+          )}
+        </section>
+      )}
 
-      <section aria-labelledby="areas-title" className="flex flex-col gap-3">
-        <h2 id="areas-title" className="font-display text-xl font-bold">
-          Bereiche
-        </h2>
-        <ul className="flex flex-wrap gap-2">
-          {areas.map((a) => (
-            <li key={a.id} className="flex items-center gap-1 rounded-xl border border-border bg-surface py-1 pr-1 pl-3 text-sm">
-              {a.name}
-              <form action={deleteAreaAction.bind(null, a.id)}>
-                <Button type="submit" size="sm" variant="ghost" aria-label={`Bereich ${a.name} löschen`}>
-                  Löschen
-                </Button>
-              </form>
-            </li>
-          ))}
-        </ul>
-        <AreaForm action={createAreaAction} />
-      </section>
+      {canManage && (
+        <section aria-labelledby="areas-title" className="flex flex-col gap-3">
+          <h2 id="areas-title" className="font-display text-xl font-bold">
+            Bereiche
+          </h2>
+          <ul className="flex flex-wrap gap-2">
+            {areas.map((a) => (
+              <li key={a.id} className="flex items-center gap-1 rounded-xl border border-border bg-surface py-1 pr-1 pl-3 text-sm">
+                {a.name}
+                <form action={deleteAreaAction.bind(null, a.id)}>
+                  <Button type="submit" size="sm" variant="ghost" aria-label={`Bereich ${a.name} löschen`}>
+                    Löschen
+                  </Button>
+                </form>
+              </li>
+            ))}
+          </ul>
+          <AreaForm action={createAreaAction} />
+        </section>
+      )}
     </main>
   );
 }

@@ -23,7 +23,8 @@ import { ValidationError } from "@/modules/verwaltung/users";
 import { absenceCovers, ABSENCE_LABELS, createAbsence } from "./abwesenheit";
 import { listSlots, type LessonSlot } from "./service";
 
-export const MANAGE = "stundenplan.manage";
+/** SP-02: Vertretungsplanung (Tagesgeschäft) – bekommt Selbstmeldungen und sieht/pflegt das Material */
+export const SUBSTITUTE = "stundenplan.substitute";
 export const APPROVE = "stundenplan.absence_approve";
 /** Gründe, die eine Lehrkraft selbst melden kann (feste Liste, bei Krankheit nur „krank“) */
 export const SELF_REASONS = ["krank", "fortbildung", "dienstlich", "sonstiges"] as const;
@@ -65,7 +66,7 @@ async function notifyPlanners(
   a: Pick<TimetableAbsence, "teacherId" | "startsOn" | "endsOn" | "fromPeriod" | "toPeriod">,
   title: string,
 ): Promise<void> {
-  const ids = (await usersWithPermission(db, MANAGE)).filter((id) => id !== a.teacherId);
+  const ids = (await usersWithPermission(db, SUBSTITUTE)).filter((id) => id !== a.teacherId);
   await notify(db, ids, {
     moduleId: "stundenplan",
     title: `${title}: ${await teacherLabel(db, a.teacherId!)}`,
@@ -266,7 +267,7 @@ const cleanFileName = (raw: string) =>
 export async function saveMaterial(db: Db, storage: FileStorage, perms: PermissionSet, input: MaterialInput, now = new Date()): Promise<string | null> {
   const [a] = await db.select().from(timetableAbsences).where(eq(timetableAbsences.id, input.absenceId));
   if (!a || !a.teacherId) throw new ValidationError({ material: "Diese Abwesenheit gibt es nicht (mehr)" });
-  if (a.teacherId !== perms.userId && !hasPermission(perms, MANAGE)) throw new ForbiddenError(MANAGE);
+  if (a.teacherId !== perms.userId && !hasPermission(perms, SUBSTITUTE)) throw new ForbiddenError(SUBSTITUTE);
   if (a.status === "abgelehnt") throw new ValidationError({ material: "Der Antrag ist abgelehnt" });
   const lesson = (await affectedLessons(db, a)).find((l) => l.lessonId === input.lessonId && l.date === input.date);
   if (!lesson) throw new ValidationError({ material: "Diese Stunde gehört nicht zur Abwesenheit" });
@@ -336,7 +337,7 @@ export async function saveMaterial(db: Db, storage: FileStorage, perms: Permissi
 
 /** Darf `perms` dieses Material sehen? Lehrkraft selbst, Planung, Vertretung dieser Stunde, Schüler:innen der Gruppe (nur mit Häkchen). */
 async function mayView(db: Db, perms: PermissionSet, m: TimetableAbsenceMaterial, teacherId: string | null): Promise<boolean> {
-  if (teacherId === perms.userId || hasPermission(perms, MANAGE)) return true;
+  if (teacherId === perms.userId || hasPermission(perms, SUBSTITUTE)) return true;
   const [sub] = await db
     .select({ id: timetableSubstitutions.id })
     .from(timetableSubstitutions)

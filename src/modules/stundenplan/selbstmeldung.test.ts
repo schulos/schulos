@@ -27,7 +27,8 @@ const MO = "2026-10-05";
 const DI = "2026-10-06";
 const JANA = "u-jana.brandt";
 const PETRA = "u-petra.lindner"; // Schulleitung
-const SABINE = "u-sabine.kowalski"; // Planung (stundenplan.manage)
+const SABINE = "u-sabine.kowalski"; // Planung (stundenplan.manage/.substitute)
+const OTHER = "u-murat.yilmaz"; // Lehrkraft ohne Planungsrecht (Tobias Kleine ist Schulleitung → seit SP-02 `substitute`)
 const LEA = "u-lea.schaefer"; // 7b
 
 function memStorage(): FileStorage & { files: Map<string, Uint8Array> } {
@@ -151,7 +152,7 @@ describe("Abwesenheit selbst melden (P4-74) und Vertretungsmaterial (Q5-12)", ()
       material: "Diese Stunde gehört nicht zur Abwesenheit",
     });
     await expect(
-      saveMaterial(h.db, storage, await p("u-tobias.kleine"), { absenceId: a!.id, lessonId: lesson, date: MO, text: "x", forStudents: false }),
+      saveMaterial(h.db, storage, await p(OTHER), { absenceId: a!.id, lessonId: lesson, date: MO, text: "x", forStudents: false }),
     ).rejects.toBeInstanceOf(ForbiddenError);
     const id = (await saveMaterial(h.db, storage, await p(JANA), {
       absenceId: a!.id,
@@ -166,7 +167,7 @@ describe("Abwesenheit selbst melden (P4-74) und Vertretungsmaterial (Q5-12)", ()
     expect(gong.some((n) => n.title === "Vertretungsmaterial: 1. Std Klasse 7b" && n.href === `/stundenplan/material/${id}`)).toBe(true);
     for (const who of [JANA, "u-sophie.wagner", SABINE]) expect((await materialFor(h.db, await p(who), id))?.text).toBe("Buch S. 34, Nr. 1–4");
     expect(await materialFor(h.db, await p(LEA), id)).toBeNull();
-    expect(await materialFor(h.db, await p("u-tobias.kleine"), id)).toBeNull();
+    expect(await materialFor(h.db, await p(OTHER), id)).toBeNull();
     // Häkchen für Schüler:innen: Lea (7b) sieht es, eine Schülerin einer anderen Klasse nicht
     await saveMaterial(h.db, storage, await p(JANA), { absenceId: a!.id, lessonId: lesson, date: MO, text: "Buch S. 34, Nr. 1–4", forStudents: true });
     expect((await materialFor(h.db, await p(LEA), id))?.fileName).toBe("Arbeitsblatt.pdf");

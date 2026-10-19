@@ -10,11 +10,16 @@ export default defineModule({
   order: 10,
   mobile: 2,
   permissions: {
-    "stundenplan.manage": "Stundenplan pflegen",
+    // SP-02: Jahresplanung (Pflege, Verteilung, Deputate, Zeitwünsche, Aufsichtsplan, Solver, Kurswahl-Übernahme)
+    "stundenplan.manage": "Stundenplan planen (Pflege, Unterrichtsverteilung, Deputate, Zeitwünsche, Aufsichtsplan, automatisch planen)",
+    // SP-02: Tagesgeschäft – getrennt vergebbar (Sekretariat, Schulleitung morgens)
+    "stundenplan.substitute": "Vertretungen planen (Vertretungen, Abwesenheiten, Veröffentlichen, Raumsperren, Aufsichtsvertretung)",
     // I-26: Fortbildung/dienstliche Abwesenheit, die eine Lehrkraft selbst meldet, genehmigt die Schulleitung
     "stundenplan.absence_approve": "Selbst gemeldete Abwesenheiten von Lehrkräften genehmigen (Fortbildung, dienstlich – Schulleitung)",
   },
-  defaultGrants: { verwaltung: ["stundenplan.manage"] },
+  // SP-02 (Q-SP-3): keine Rollen-Vorgabe mehr – geplant wird über die Funktionsgruppe „Stundenplanung“ (Migration 0088 legt sie an).
+  // Bestehende Installationen behalten ihren Grant `verwaltung → stundenplan.manage` (grants.synced merkt sich das Paar).
+  defaultGrants: {},
   nav: [
     { href: "/stundenplan", label: "Stundenplan" },
     { href: "/stundenplan/raeume", label: "Räume", icon: "DoorOpen", roles: ["lehrkraft", "verwaltung", "admin"] },

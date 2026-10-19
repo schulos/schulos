@@ -175,6 +175,8 @@ export const REDUCTION_REASONS = [
   "personalrat",
   "sonstige_aufgabe",
   "sonstige_ermaessigung",
+  // SP-02: Anrechnungsstunden für die Stundenplanung (Projektleitung 2026-10-19)
+  "stundenplanung",
 ] as const;
 export type ReductionReason = (typeof REDUCTION_REASONS)[number];
 export const reductionReasonEnum = pgEnum("reduction_reason", REDUCTION_REASONS);

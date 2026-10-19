@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbHandle } from "@/core/db/client";
 import { groups, users } from "@/core/db/schema";
@@ -66,7 +67,7 @@ describe("Stammdaten · Schuljahre", () => {
 
     // neue Klassen hängen am aktuellen Schuljahr
     const gid = await createGroup(h.db, "u-admin", { name: "Klasse 5a", kind: "klasse" });
-    const [g] = await h.db.select({ y: groups.schoolYearId }).from(groups);
+    const [g] = await h.db.select({ y: groups.schoolYearId }).from(groups).where(eq(groups.id, gid));
     expect(g!.y).toBe(b!.id);
     expect(gid).toBeTruthy();
 

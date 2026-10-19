@@ -90,7 +90,7 @@ export default async function VertretungsplanPage() {
   const [entries, mine, drafts] = await Promise.all([
     substitutionsOn(db, days),
     myGroups(user.id, user.role),
-    hasPermission(perms, "stundenplan.manage") ? draftDays(db, days) : Promise.resolve(new Set<string>()),
+    hasPermission(perms, "stundenplan.substitute") ? draftDays(db, days) : Promise.resolve(new Set<string>()),
   ]);
 
   return (

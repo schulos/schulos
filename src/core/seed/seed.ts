@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import type { Db } from "@/core/db/client";
 import {
@@ -44,6 +45,7 @@ import { seedTafeln } from "@/modules/tafeln/seed";
 import { seedTexte } from "@/modules/texte/seed";
 import { seedNews } from "@/modules/news/seed";
 import { seedStundenplan } from "@/modules/stundenplan/seed";
+import { PLAN_MANAGE, PLAN_SUBSTITUTE, PLANNING_GROUP, PLANNING_GROUP_PERMISSIONS } from "@/modules/stundenplan/rechte";
 import { applyCurriculumTemplate, ensureGradeLevels } from "@/modules/verwaltung/stammdaten";
 import { LINDENHOF_LOGO_DARK_SVG, LINDENHOF_LOGO_SVG, LINDENHOF_SYMBOL_SVG } from "./lindenhof-logo";
 import {
@@ -74,6 +76,7 @@ type GroupRow = {
   subjectId?: string;
   schoolYearId?: string;
   ownerId?: string;
+  description?: string;
 };
 
 export interface SeedSummary {
@@ -272,6 +275,12 @@ export async function seedDemoSchool(
   groupRows.push({ id: "g-hausmeisterei", name: "Hausmeisterei", slug: "hausmeisterei", kind: "frei" });
   addMember("g-hausmeisterei", hausmeister);
 
+  // Funktionsgruppe Stundenplanung (SP-02, Q-SP-8): legt Migration 0088 an – nach demo-reset (alle Tabellen leer) die Demo selbst.
+  // Frank Schulte (SLT, Lehrkraft PH/IF, weder Schulleitung noch Klassenleitung der 7b) plant.
+  const [planningGroup] = await db.select({ id: groups.id }).from(groups).where(eq(groups.id, PLANNING_GROUP.id));
+  if (!planningGroup) groupRows.push({ id: PLANNING_GROUP.id, name: PLANNING_GROUP.name, slug: PLANNING_GROUP.slug, kind: "gremium", description: PLANNING_GROUP.description });
+  addMember(PLANNING_GROUP.id, teacher("SLT"), "leader");
+
   // Schulbücherei (BU-01): Team aus einer Lehrkraft und zwei Schüler-Helfer:innen – Theke und Bestand über die Gruppe
   groupRows.push({ id: "g-buecherei", name: "Büchereiteam", slug: "buechereiteam", kind: "frei" });
   addMember("g-buecherei", teacher("DEM"), "leader");
@@ -324,7 +333,21 @@ export async function seedDemoSchool(
     { permission: "notenbuch.unlock", groupId: "g-schulleitung" },
     // G5A-S01: Notenbuch-Teil der Auskunft (Art. 15) – ausdrücklich, kein Admin-Override
     { permission: "notenbuch.auskunft", groupId: "g-schulleitung" },
+    // SP-02 (Q-SP-8, FEINSCHLIFF I-27): Schulleitung sieht Vertretungsbedarf, Entwürfe und „Offen für dich“ – plant aber nicht
+    { permission: PLAN_SUBSTITUTE, groupId: "g-schulleitung" },
   ]);
+  // Rechte der Funktionsgruppe (Migration 0088 legt sie schon an, nach demo-reset fehlen sie)
+  await db
+    .insert(grants)
+    .values(PLANNING_GROUP_PERMISSIONS.map((permission) => ({ permission, groupId: PLANNING_GROUP.id })))
+    .onConflictDoNothing();
+  // Übergang bis SP-03: die Planungsseiten liegen noch unter /verwaltung (braucht `verwaltung.access`), die E2E-Tests planen noch
+  // als Sekretariat. Die Demo verhält sich deshalb wie eine aktualisierte Bestandsinstallation (Rollen-Grant bleibt, Migration 0088
+  // ergänzt `substitute`). SP-03 entfernt das mit dem Umzug nach /planung und stellt die Tests auf frank.schulte um.
+  await db
+    .insert(grants)
+    .values([PLAN_MANAGE, PLAN_SUBSTITUTE].map((permission) => ({ permission, role: "verwaltung" as const })))
+    .onConflictDoNothing();
   await seedNews(db);
   await seedKalender(db);
   await seedDateien(db);
@@ -363,5 +386,5 @@ export async function seedDemoSchool(
 
   const byRole = { schueler: 0, lehrkraft: 0, eltern: 0, personal: 0, beratung: 0, verwaltung: 0, admin: 0 } satisfies Record<Role, number>;
   for (const u of userRows) byRole[u.role!]++;
-  return { users: userRows.length, byRole, groups: groupRows.length, memberships: members.length };
+  return { users: userRows.length, byRole, groups: groupRows.length + (planningGroup ? 1 : 0), memberships: members.length };
 }

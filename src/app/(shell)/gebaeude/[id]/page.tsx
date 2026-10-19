@@ -123,7 +123,7 @@ export default async function TicketPage({ params, searchParams }: { params: Pro
                   <p>
                     Raum {block.block.roomId} {block.active ? "gesperrt" : "war gesperrt"}: <span className="font-medium">{block.span}</span>
                   </p>
-                  {block.active && hasPermission(perms, "stundenplan.manage") && (
+                  {block.active && hasPermission(perms, "stundenplan.substitute") && (
                     <Link href="/stundenplan/raeume?ansicht=sperrungen" className="font-medium text-accent-ink hover:underline">
                       Betroffene Stunden und Ausweichräume
                     </Link>
