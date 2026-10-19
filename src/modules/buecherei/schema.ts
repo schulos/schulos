@@ -50,6 +50,12 @@ export const buechereiCopies = pgTable(
     condition: buechereiConditionEnum("condition").notNull().default("gut"),
     withdrawnOn: date("withdrawn_on"),
     withdrawnReason: text("withdrawn_reason"),
+    /** BU-05: Etikett gedruckt am – leer = Exemplar steht in der Druckwarteschlange */
+    labelPrintedAt: timestamp("label_printed_at", { withTimezone: true }),
+    /** BU-05: Zahl der Ausleihen dieses Exemplars (Statistik „nie ausgeliehen“, Aussonderungsvorschläge) – ohne Person */
+    loanCount: integer("loan_count").notNull().default(0),
+    /** BU-05: Monat der letzten Ausleihe („2026-10“) – nur der Monat, ohne Person */
+    lastLoanMonth: text("last_loan_month"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("buecherei_copies_title_idx").on(t.titleId), uniqueIndex("buecherei_copies_seq_idx").on(t.seq)],

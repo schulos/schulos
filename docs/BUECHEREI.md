@@ -34,7 +34,7 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 | Tabelle | Inhalt | Aufgabe |
 |---|---|---|
 | `buecherei_titles` | Titel, Autor:in, ISBN, Verlag, Jahr, Schlagwörter, Altersempfehlung, Medienart (Buch/Film/Spiel/Gerät/Sonstiges) | BU-01 |
-| `buecherei_copies` | Exemplarnummer (= Barcode, Präfix + laufende Nummer + Prüfziffer), Signatur, Standort, Zustand, ausgesondert | BU-01 |
+| `buecherei_copies` | Exemplarnummer (= Barcode, Präfix + laufende Nummer + Prüfziffer), Signatur, Standort, Zustand, ausgesondert; Etikett gedruckt am, Zahl der Ausleihen und Monat der letzten (ohne Person) | BU-01/05 |
 | `buecherei_loans` | Exemplar, Person, ausgeliehen, fällig, zurück, Verlängerungen, Mahnstufe (BU-04: Stufe, letzte Mahnung, erinnerte Fälligkeit); Personenbezug wird bei Rückgabe ohne Befund entfernt | BU-02/04 |
 | `buecherei_cards` | pseudonymer Ausweis-Code je Konto (zufällig, bei Verlust neu = alter ungültig) | BU-07 |
 | `buecherei_reservations` | Vormerkung Titel ↔ Person | BU-03 |

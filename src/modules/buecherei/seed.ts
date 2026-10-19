@@ -1,7 +1,7 @@
 // Demo: kleiner Bücherei-Bestand (Jugendbuch, Sachbuch, Film, Spiel) mit Exemplaren, eins davon ausgesondert; einige offene
 // Ausleihen (eine überfällig, 2. Mahnung – BU-04), eine Rückgabe mit Befund und anonyme Zähler der letzten Monate (BU-02), eine
-// Vormerkung (BU-03).
-import { eq, inArray } from "drizzle-orm";
+// Vormerkung (BU-03), Nutzung je Exemplar und Druckwarteschlange (BU-05).
+import { eq, inArray, lte } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { buechereiCopies, buechereiLoans, buechereiReservations, buechereiStats, buechereiTitles } from "@/core/db/schema";
 import { addDays, toBerlinDate } from "@/core/time";
@@ -57,6 +57,28 @@ export async function seedBuecherei(db: Db, opts: { now?: Date; borrowers?: read
   }
   // ein ausgesondertes Exemplar (beschädigt)
   await db.update(buechereiCopies).set({ withdrawnOn: toBerlinDate(now), withdrawnReason: "Wasserschaden" }).where(eq(buechereiCopies.seq, 2));
+
+  // BU-05: Nutzung je Exemplar (ohne Person) und Etiketten – zwei Exemplare stehen noch in der Druckwarteschlange; ein
+  // Exemplar lange nicht ausgeliehen, eins in schlechtem Zustand, der Atlas seit Jahren nie ausgeliehen (Aussonderungsvorschläge)
+  const ym = (back: number) => {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  };
+  const usage: Record<number, { loanCount: number; lastLoanMonth: string | null; condition?: "schlecht"; createdAt?: Date }> = {
+    1: { loanCount: 6, lastLoanMonth: ym(0) },
+    3: { loanCount: 4, lastLoanMonth: ym(50) },
+    4: { loanCount: 3, lastLoanMonth: ym(0) },
+    5: { loanCount: 2, lastLoanMonth: ym(1) },
+    6: { loanCount: 5, lastLoanMonth: ym(2) },
+    7: { loanCount: 5, lastLoanMonth: ym(1) },
+    8: { loanCount: 2, lastLoanMonth: ym(6), condition: "schlecht" },
+    9: { loanCount: 1, lastLoanMonth: ym(1) },
+    10: { loanCount: 1, lastLoanMonth: ym(3) },
+    11: { loanCount: 0, lastLoanMonth: null, createdAt: new Date(Date.UTC(now.getUTCFullYear() - 5, 0, 15)) },
+    12: { loanCount: 2, lastLoanMonth: ym(1) },
+  };
+  for (const [s, u] of Object.entries(usage)) await db.update(buechereiCopies).set(u).where(eq(buechereiCopies.seq, Number(s)));
+  await db.update(buechereiCopies).set({ labelPrintedAt: now }).where(lte(buechereiCopies.seq, 11));
 
   // BU-02: Ausleihen der Demo-Schüler:innen (nie die feste Demo-Schülerin – die E2E-Tests leihen selbst aus)
   const [a, b, c] = opts.borrowers ?? [];
