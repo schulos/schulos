@@ -130,6 +130,8 @@ describe("Abbild einrichten (erster Start)", () => {
     expect(steps.at(-1)).toMatchObject({ kind: "write", path: CONFIGURED_FILE });
     // GATE-4f C-03: eingerichtet = fertig installiert – das Startmenü eines Mediums startet dann die Platte
     expect(steps.at(-2)).toMatchObject({ kind: "write", path: "/boot/grub/schulos-installiert" });
+    // INST-08: auch auf der EFI-Partition – das Startmenü eines Mediums startet unter UEFI die GRUB der Platte
+    expect(steps.at(-3)).toMatchObject({ kind: "write", path: "/boot/efi/EFI/schulos/installiert" });
   });
 
   it("Backupserver: Kopplungscode für die Konsole (0600), Neustart-Timer im Wartungsfenster", async () => {

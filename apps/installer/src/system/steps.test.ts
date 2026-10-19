@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { InstallPlan } from "../generate";
 import type { Answers } from "../questions";
-import { INSTALLED_MARKER, layout, partition } from "./layout";
+import { ESP_MARKER, INSTALLED_MARKER, layout, partition } from "./layout";
 import { extractRecoveryKey } from "./run";
 import { installSteps, type Step } from "./steps";
 import { consoleSetupFile, crypttab, dracutConf, fstab, keyboardFile, networkFile, sshdConf } from "./target-config";
@@ -174,6 +174,10 @@ describe("Startmenü des Mediums erkennt nur fertige Installationen (GATE-4f C-0
       const marked = installSteps(plan({ "disk.devices": devices, "disk.encryption": "tpm2" }), { ...O, marker: { version: "v0.3.2", date: "2026-10-12" } });
       expect(written(marked.steps, `/target/boot/${INSTALLED_MARKER}`)).toBe("SchulOS ist installiert.\nrolle=main\nversion=v0.3.2\ndatum=2026-10-12\n");
       expect(argvs(steps).findIndex((a) => a.includes("update-grub"))).toBeGreaterThan(-1);
+      // INST-08: dieselbe Markierung auf jeder EFI-Partition, direkt vor der auf /boot (also auch erst ganz am Ende)
+      const esp = devices.map((_, i) => `/target/boot/efi${i ? i + 1 : ""}/${ESP_MARKER}`);
+      expect(steps.slice(-2 - devices.length, -2).map((s) => (s.kind === "write" ? s.path : s.kind))).toEqual(esp);
+      for (const p of esp) expect(written(marked.steps, p)).toBe("SchulOS ist installiert.\nrolle=main\nversion=v0.3.2\ndatum=2026-10-12\n");
     }
   });
 
@@ -188,10 +192,26 @@ describe("Startmenü des Mediums erkennt nur fertige Installationen (GATE-4f C-0
     expect(cfg).not.toMatch(/search[^\n]*--label schulos-boot/);
     // Vorgabe erst ganz am Ende: Installer, außer fertig installiert UND kein SCHULOSCFG/schulos.unbeaufsichtigt
     const tailCfg = cfg.slice(at("set default=schulos-installieren"));
-    expect(tailCfg).toMatch(/if \[ -n "\$\{schulos_boot\}" \]; then\s+if \[ -z "\$\{schulos_antworten\}" \]; then\s+set default=schulos-platte/);
+    expect(tailCfg).toMatch(/if \[ -n "\$\{schulos_installiert\}" \]; then\s+if \[ -z "\$\{schulos_antworten\}" \]; then\s+set default=schulos-platte/);
     expect(at("search --no-floppy --label SCHULOSCFG --set=schulos_antworten")).toBeLessThan(at("set default=schulos-installieren"));
     expect(cfg).toContain("regexp 'schulos\\.unbeaufsichtigt'");
     expect(cfg).toContain('menuentry "SchulOS installieren" --id schulos-installieren');
     expect(cfg).toContain('--id schulos-platte');
+  });
+
+  it("ISO-GRUB unter Secure Boot (INST-08): Markierung auf der EFI-Partition, GRUB der Platte per chainloader, mdraid nur ohne Sperre", () => {
+    const cfg = readFileSync(path.resolve(__dirname, "../../../../iso/live/config/bootloaders/grub-pc/grub.cfg"), "utf8");
+    expect(cfg).toContain(`search --no-floppy --file /${ESP_MARKER} --set=schulos_esp`);
+    // nur unter UEFI; zuerst die GRUB der Platte (PCR 7 wie ohne Medium), der shim nur als Rückfall
+    expect(cfg).toMatch(/if \[ "\$\{grub_platform\}" = "efi" \]; then\s+if \[ -n "\$\{schulos_esp\}" \]; then\s+set schulos_installiert=esp/);
+    const entry = cfg.slice(cfg.indexOf('if [ "${schulos_installiert}" = "esp" ]'), cfg.indexOf("elif [ -n \"${schulos_boot}\" ]"));
+    expect(entry).toContain('set root="${schulos_esp}"');
+    expect(entry.indexOf("chainloader /EFI/BOOT/grubx64.efi")).toBeGreaterThan(-1);
+    expect(entry.indexOf("chainloader /EFI/BOOT/BOOTX64.EFI")).toBeGreaterThan(entry.indexOf("chainloader /EFI/BOOT/grubx64.efi"));
+    // alter Weg (BIOS, Installationen ohne Markierung auf der EFI-Partition) bleibt
+    expect(cfg).toMatch(/elif \[ -n "\$\{schulos_boot\}" \]; then\s+set schulos_installiert=boot/);
+    expect(cfg).toContain("configfile /grub/grub.cfg");
+    // Module nachladen ist unter Secure Boot verboten – nur ohne Sperre versuchen (sonst je eine Fehlermeldung)
+    expect(cfg).toMatch(/if \[ "\$\{lockdown\}" != "y" \]; then\s+insmod mdraid1x\s+insmod mdraid09\s+fi/);
   });
 });

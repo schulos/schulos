@@ -4,6 +4,7 @@ import { GRUB_PASSWORD_KEY, type InstallPlan } from "../generate";
 import type { Answers } from "../questions";
 import {
   BOOT_LABEL,
+  ESP_MARKER,
   INSTALLED_MARKER,
   BOOT_MD_NAME,
   BOOT_PART_LABEL,
@@ -384,7 +385,14 @@ export function packageLists(): { debootstrap: string[]; apt: string[] } {
 export function installSteps(plan: InstallPlan, o: StepOptions & { dist?: string; marker?: MarkerInfo }): { steps: Step[]; cleanup: Step[] } {
   const schulos = o.dist ? [...schulosSteps(plan, { ...o, dist: o.dist }), ...updateSteps(plan, { ...o, dist: o.dist })] : [];
   return {
-    steps: [...diskSteps(plan, o), ...baseSystemSteps(plan, o), ...schulos, installedMarker(o.target, { role: plan.role, ...o.marker }), flushBoot(o.target)],
+    steps: [
+      ...diskSteps(plan, o),
+      ...baseSystemSteps(plan, o),
+      ...schulos,
+      ...espMarkers(o.target, planLayout(plan).esps.map((e) => e.mount), { role: plan.role, ...o.marker }),
+      installedMarker(o.target, { role: plan.role, ...o.marker }),
+      flushBoot(o.target),
+    ],
     cleanup: cleanupSteps(plan, o),
   };
 }
@@ -406,4 +414,13 @@ export function flushBoot(t: string): Step {
  */
 export function installedMarker(t: string, info: MarkerInfo = {}): Step {
   return write("Installation als abgeschlossen markieren (Startmenü des Mediums)", `${t}/boot/${INSTALLED_MARKER}`, markerContent(info));
+}
+
+/**
+ * INST-08: dieselbe Markierung auf jeder EFI-Partition (`mounts` = Einhängepunkte, z. B. /boot/efi, /boot/efi2) – direkt vor
+ * der Markierung auf /boot, also ebenfalls erst am Ende. Das Startmenü des Mediums startet damit unter UEFI den shim der Platte
+ * (auch unter Secure Boot und im Spiegel); /grub/schulos-installiert bleibt für den Überschreibschutz und ältere Installationen.
+ */
+export function espMarkers(t: string, mounts: string[], info: MarkerInfo = {}): Step[] {
+  return mounts.map((m) => write(`Installation auf der EFI-Partition markieren (${m})`, `${t}${m}/${ESP_MARKER}`, markerContent(info)));
 }

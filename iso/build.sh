@@ -128,9 +128,10 @@ check() { xorriso -indev "$ISO" -find "$1" 2>/dev/null | grep -q . || { echo "fe
 for p in /schulos/node/bin/node /schulos/schulosctl.mjs /schulos/STUECKLISTE.json /schulos/compose.yaml /schulos/images/images.env /schulos/grub.d/41_schulos-rueckweg \
   /debian/dists/trixie/Release /live/filesystem.squashfs /EFI/boot/bootx64.efi; do check "$p"; done
 xorriso -indev "$ISO" -osirrox on -extract /boot/grub/grub.cfg "$WORK/grub.cfg" >/dev/null 2>&1
-# GATE-4f C-03/C-04: Platte nur über die Markierung, Spiegel (mdraid1x) lesbar
+# GATE-4f C-03/C-04: Platte nur über die Markierung, Spiegel (mdraid1x) lesbar; INST-08: unter UEFI über die EFI-Partition
 grep -q 'menuentry "SchulOS installieren"' "$WORK/grub.cfg" && ! grep -q '@KERNEL_LIVE@' "$WORK/grub.cfg" && grep -q 'console=ttyS0' "$WORK/grub.cfg" &&
-  grep -q 'search --no-floppy --file /grub/schulos-installiert' "$WORK/grub.cfg" && grep -q 'insmod mdraid1x' "$WORK/grub.cfg" ||
+  grep -q 'search --no-floppy --file /grub/schulos-installiert' "$WORK/grub.cfg" && grep -q 'insmod mdraid1x' "$WORK/grub.cfg" &&
+  grep -q 'search --no-floppy --file /EFI/schulos/installiert' "$WORK/grub.cfg" && grep -q 'chainloader /EFI/BOOT/grubx64.efi' "$WORK/grub.cfg" ||
   { echo "Bootmenü nicht wie erwartet:" >&2; cat "$WORK/grub.cfg" >&2; exit 1; }
 # INST-07: den CI-Testmodus setzt nur die Test-Kopie (iso/testmodus-iso.sh) – nie die gebaute ISO selbst
 if grep -qE '^[[:space:]]*linux[[:space:]].*schulos\.testmodus|schulos_kernel=".*schulos\.testmodus' "$WORK/grub.cfg"; then

@@ -40,8 +40,9 @@ Ehrlich aufgeschrieben – diese Punkte sind offen, bevor eine Schule SchulOS mi
   Dienstgeräten. Die Rechtstexte sind Vorlagen, keine geprüften Zusagen.
 - **Pilotbetrieb** an einer Schule über mindestens ein Halbjahr, mit Rückweg. Bisher gibt es nur die Demo-Schule und
   einen simulierten Lasttest (`docs/LASTTEST.md`, ~300 gleichzeitige Anmeldungen auf einer kleinen VM).
-- **Startmenü der ISO unter Secure Boot (INST-08):** Mit eingelegtem Installationsmedium startet unter Secure Boot wieder
-  der Installer statt der installierten Platte. Bis zur Behebung: Medium nach der Installation entfernen.
+- **Installationsmedium nach der Installation entfernen:** Seit 0.5.6 startet das Startmenü der ISO eine fertige Installation
+  auch unter Secure Boot (INST-08). Ist die Platte aber schon per TPM2 gebunden, verlangt ein Start über das Medium den
+  Wiederherstellungsschlüssel (der Start über das Medium misst andere Werte).
 - **Barrierefreiheit:** automatische Prüfung (axe, Tastatur) für die Kernseiten; ein Durchgang mit Screenreader
   (NVDA/VoiceOver) und die restlichen Seiten fehlen (A11Y-01j). Die Erklärung zur Barrierefreiheit ist eine Vorlage.
 - **Langzeitbetrieb:** Updates über mehrere Versionen, Schuljahreswechsel und Wiederherstellung sind automatisch getestet

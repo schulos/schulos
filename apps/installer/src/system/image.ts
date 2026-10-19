@@ -5,9 +5,9 @@
 // Rein – ausgeführt von run.ts.
 import { formatGrubPassword } from "@schulos/server/boot-hardening";
 import { GRUB_PASSWORD_KEY, type InstallPlan } from "../generate";
-import { layout } from "./layout";
+import { ESP_MOUNT, layout } from "./layout";
 import { GRUB_PASSWORD_CONSOLE_FILE, LIB_DIR, PAIRING_CODE_FILE, schulosConfigSteps, schulosImageSteps, type Role } from "./schulos-steps";
-import { bootSteps, debianSteps, grubConfigSteps, installedMarker, layoutCleanupSteps, layoutDiskSteps, systemConfigSteps, type Step, type StepOptions } from "./steps";
+import { bootSteps, debianSteps, espMarkers, grubConfigSteps, installedMarker, layoutCleanupSteps, layoutDiskSteps, systemConfigSteps, type Step, type StepOptions } from "./steps";
 import { IMAGE_PACKAGES, networkFile } from "./target-config";
 import { updateConfigSteps, updateImageSteps } from "./update-steps";
 
@@ -206,6 +206,8 @@ export function configureSteps(plan: InstallPlan): Step[] {
     plan.role === "main"
       ? run("Wartungsfenster übernehmen", ["systemctl", "try-restart", "--no-block", "schulos-wartung.timer"], { allowFail: true })
       : run("Neustart-Timer starten", ["systemctl", "start", "--no-block", "schulos-neustart.timer"]),
+    // INST-08: auch auf der EFI-Partition (Abbild: eine Platte) – das Startmenü eines Mediums startet dann deren shim
+    ...espMarkers("", [ESP_MOUNT], { role: plan.role }),
     installedMarker("", { role: plan.role }),
     write("Einrichtung abgeschlossen", CONFIGURED_FILE, "eingerichtet\n"),
   ];

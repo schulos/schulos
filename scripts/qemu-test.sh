@@ -89,18 +89,18 @@ host-record=schulos.schulos.test,192.168.250.3
 host-record=demo.schulos.test,192.168.250.4
 EOF
 sudo dnsmasq --conf-file="$W/dnsmasq.conf" --pid-file="$W/dnsmasq.pid"
-# SEC-09: Secure Boot (OVMF mit Microsoft-Schlüsseln, SMM) nur für das Hauptsystem – gezielt für Schritt 2b (TPM2 an PCR
-# 7+8+9, Neu-Binden nach Initramfs-Update); es startet nach der Installation ohne Medium von der Platte. Alle anderen
-# Maschinen wie vor 4e ohne Secure Boot: Backupserver und Demo starten mit eingelegtem Medium (Startmenü der ISO: Markierung,
-# Spiegel, Überschreibschutz) – die signierte GRUB der ISO lädt unter Secure Boot keine Module nach und findet die
-# Installation dann nicht (Q-4E-60, INST-08); das Ersatz-Hauptsystem (Schritt 6) braucht es nicht. Ohne Secure Boot erlaubt
-# der Installer TPM2 nur im CI-Testmodus.
+# SEC-09: Secure Boot (OVMF mit Microsoft-Schlüsseln, SMM) für das Hauptsystem – gezielt für Schritt 2b (TPM2 an PCR 7+8+9,
+# Neu-Binden nach Initramfs-Update); es startet nach der Installation ohne Medium von der Platte. INST-08: auch der
+# Backupserver (Spiegel) – er startet mit eingelegtem Medium, das Startmenü der ISO muss die Installation unter Secure Boot
+# erkennen (Markierung auf der EFI-Partition) und den shim der Platte starten (Q-4E-60). Demo (Überschreibschutz, Installer
+# mit Medium) und Ersatz-Hauptsystem (Schritt 6) wie vor 4e ohne Secure Boot. Ohne Secure Boot erlaubt der Installer TPM2
+# nur im CI-Testmodus.
 OVMF_CODE=${OVMF_CODE:-/usr/share/OVMF/OVMF_CODE_4M.secboot.fd}
 OVMF_VARS=${OVMF_VARS:-/usr/share/OVMF/OVMF_VARS_4M.ms.fd}
 OVMF_CODE_PLAIN=${OVMF_CODE_PLAIN:-/usr/share/OVMF/OVMF_CODE_4M.fd}
 OVMF_VARS_PLAIN=${OVMF_VARS_PLAIN:-/usr/share/OVMF/OVMF_VARS_4M.fd}
 [ -f "$OVMF_CODE" ] && [ -f "$OVMF_VARS" ] || fail "OVMF mit Secure Boot fehlt ($OVMF_CODE, $OVMF_VARS)"
-secure_boot_for() { [ "$1" = main ]; }
+secure_boot_for() { [ "$1" = main ] || [ "$1" = backup ]; }
 ssh-keygen -q -t ed25519 -N "" -f "$W/id" <<<y >/dev/null
 PUB=$(cat "$W/id.pub")
 SSH=(ssh -i "$W/id" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR)
@@ -297,7 +297,7 @@ reinstall_refused() { # <name> <mac> <yaml>
 }
 # GATE-4f C-03/C-04: im Startmenü der ISO „Von der Festplatte starten“ erkannt und gewählt (nicht wieder der Installer)
 iso_bootet_platte() { # <name>
-  grep -aq "Von der Festplatte starten" "$W/$1.serial" || fail "$1: Startmenü der ISO bot die Platte nicht an (Markierung/mdraid1x)"
+  grep -aq "Von der Festplatte starten" "$W/$1.serial" || fail "$1: Startmenü der ISO bot die Platte nicht an (Markierung auf der EFI-Partition, INST-08)"
   if grep -aq "SCHULOS-INSTALLER: start" "$W/$1.serial"; then fail "$1: mit eingelegtem Medium wieder im Installer gelandet"; fi
 }
 https_ok() { curl -skf --resolve "$1:443:$2" "https://$1$3"; }

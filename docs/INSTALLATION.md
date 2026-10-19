@@ -162,8 +162,9 @@ ein Stick allein löst sie nie aus.
   vor der Bestätigung gesetzt; ist die Eingabe weg (EOF), bleibt der Schlüssel stehen und es wird nicht neu gestartet; Strg+C
   beendet die Fragen nicht. Neu gestartet wird nur auf Tastendruck (Enter bzw. `a` = ausschalten), nie per Zeitablauf.
 - **Bootmenü der ISO:** Findet es eine **fertige** SchulOS-Installation (Markierung `/grub/schulos-installiert` auf der
-  Boot-Partition, schreibt der Installer als letzten Schritt; auch auf dem Spiegel über `mdraid1x`), ist „Von der Festplatte
-  starten“ die Vorgabe (nach 5 s) – auch wenn eine Firmware die Startreihenfolge nicht übernommen hat. Eine abgebrochene
+  Boot-Partition, schreibt der Installer als letzten Schritt; auch auf dem Spiegel über `mdraid1x`; seit INST-08 zusätzlich
+  `/EFI/schulos/installiert` auf jeder EFI-Partition – unter UEFI startet das Menü dann die GRUB der Platte, auch unter Secure
+  Boot), ist „Von der Festplatte starten“ die Vorgabe (nach 5 s) – auch wenn eine Firmware die Startreihenfolge nicht übernommen hat. Eine abgebrochene
   Installation zählt nicht. Liegt ein Antworten-Laufwerk `SCHULOSCFG` bei (bzw. steht `schulos.unbeaufsichtigt` in der
   Kernel-Zeile), bleibt der Installer die Vorgabe – eine unbeaufsichtigte (Neu-)Installation startet nie von selbst die alte
   Platte (GATE-4f C-03/C-04). Neu installieren: „SchulOS installieren“ wählen. Dass ein solcher Neustart mit noch steckendem
@@ -281,10 +282,17 @@ auf UTF-8 und laden die passende Größe (`konsole.sh` vor jedem Neuzeichnen); o
   `tpm-neu-binden`).
   Der Backupserver hat kein `schulosctl`: `schulosctl.mjs` vom Hauptsystem (bzw. aus dem Release) hinüberkopieren und
   `sudo node schulosctl.mjs sicherheit-nachruesten` ausführen.
-- **Bekannte Grenze (Q-4E-60):** Unter Secure Boot lädt die signierte GRUB der ISO keine Module nach („prohibited by secure
-  boot policy“) und erkennt eine fertige Installation auf der Platte (Markierung, Spiegel) nicht – mit eingelegtem Medium startet
-  dann wieder der Installer (der Überschreibschutz INST-06 verhindert das Löschen). Bis zur Lösung: nach der Installation das
-  Medium entfernen bzw. in der Firmware die Platte zuerst starten (der Installer trägt sie vorn in die Startreihenfolge ein).
+- **Startmenü der ISO unter Secure Boot (INST-08, Q-4E-60):** Die signierte GRUB der ISO (Debians CD-Abbild) hat `mdraid1x`
+  nicht eingebaut und darf unter Secure Boot nichts nachladen – /boot im Spiegel sieht sie nicht. Seit 0.5.6 schreibt der
+  Installer die Abschluss-Markierung deshalb auch auf jede EFI-Partition (`/EFI/schulos/installiert`); unter UEFI startet das
+  Menü damit per `chainloader` die GRUB der Platte (`\EFI\BOOT\grubx64.efi`, geprüft über den shim des Mediums; Rückfall: der
+  shim der Platte). Gemessen in QEMU (OVMF + Secure Boot + swtpm): PCR 7 ist dabei gleich wie beim Start ohne Medium – der
+  **erste Start** mit eingelegtem Medium entsperrt also per TPM2 (bis dahin nur an PCR 7 gebunden); `tpm-binden.sh` bindet mit
+  Medium nicht an 7+8+9. Den shim der Platte zu starten hieße einen zweiten shim, der sich erneut in PCR 7 misst. PCR 8/9
+  (GRUB-Befehle, gelesene Dateien) unterscheiden sich mit Medium immer – **nach** der Bindung an 7+8+9 verlangt ein Start mit
+  eingelegtem Medium den Wiederherstellungsschlüssel. Deshalb weiter: Medium nach der Installation entfernen. Installationen vor
+  0.5.6 haben die Markierung auf der EFI-Partition nicht – für sie bleibt der alte Weg (Einzelplatte geht, Spiegel unter
+  Secure Boot nicht; Abhilfe: Medium entfernen bzw. Platte zuerst starten).
 - **Getestet:** Dateien, Schritte und `tpm-binden.sh` (echt in bash mit Attrappen, auch „gebunden → nachrüsten → prüfen →
   Start“, Sprachdatei/ESP/shim) per Vitest; der echte Ablauf – OVMF mit Secure Boot, swtpm, erster Start bindet,
   Initramfs-Update, Neustart ohne Eingabe, neu gebunden, Nachrüsten auf dem gebundenen System mit erneutem Neustart, Überwachung
@@ -1097,9 +1105,9 @@ Release-ISO trägt ihn nie (`iso/build.sh` bricht sonst ab); aus einer Datei auf
   Block 8, dann Neustart bzw. Ausschalten per Tastendruck – auch mit `danach-aus` (wirkt erst nach der Bestätigung). Ohne Terminal
   oder bei geschlossener Eingabe wartet der Installer. Das Abbild hat keinen Schlüssel und endet von selbst.
 - **Kennzeichnung:** Abschlusszeilen und -bildschirm beginnen mit „TESTINSTALLATION (CI-Testmodus …)“.
-- **Secure Boot im QEMU-Test:** nur das Hauptsystem läuft mit OVMF + Secure Boot (gezielt für SEC-09, Schritt 2b; es startet
-  ohne Medium von der Platte). Backupserver, Demo und Ersatz-Hauptsystem laufen wie vor 4e ohne – Backupserver und Demo prüfen
-  das Startmenü der ISO mit eingelegtem Medium, das unter Secure Boot nicht funktioniert (Q-4E-60, INST-08).
+- **Secure Boot im QEMU-Test:** Hauptsystem (SEC-09, Schritt 2b; startet ohne Medium von der Platte) und seit INST-08 wieder der
+  Backupserver (Spiegel + TPM2, startet mit eingelegtem Medium – prüft das Startmenü der ISO unter Secure Boot) laufen mit OVMF +
+  Secure Boot. Demo (Überschreibschutz) und Ersatz-Hauptsystem laufen wie vor 4e ohne.
   Nur im Testmodus (`SCHULOS_TESTMODUS` aus `start-installer.sh`) bietet der Installer TPM2 auch ohne Secure Boot an.
 - Der Installer selbst verweigert `--unbeaufsichtigt --installieren`, `--ohne-bestaetigung`, `--abbild` und `--vorschau-verstanden`
   ohne `--testmodus` (`apps/installer/src/cli.ts`); das Einrichten eines Abbilds (`--konfigurieren`, Cloud-Init) löscht keine Platte

@@ -45,6 +45,15 @@ export const BOOT_LABEL = "schulos-boot";
  * (iso/live/config/bootloaders/grub-pc/grub.cfg sucht `/grub/schulos-installiert`).
  */
 export const INSTALLED_MARKER = "grub/schulos-installiert";
+/**
+ * INST-08 (Q-4E-60): dieselbe Markierung zusätzlich auf jeder EFI-Partition (FAT, nie im Spiegel). Die signierte GRUB der ISO
+ * (Debians CD-Abbild gcdx64) hat mdraid1x/mdraid09 nicht eingebaut und darf unter Secure Boot nichts nachladen – sie sieht
+ * /boot im Spiegel nicht. Die EFI-Partition liest sie immer; von dort startet sie per `chainloader` die GRUB der Platte
+ * (grub-install --removable --uefi-secure-boot: EFI/BOOT/grubx64.efi neben dem shim BOOTX64.EFI).
+ */
+export const ESP_MARKER = "EFI/schulos/installiert";
+/** Einhängepunkt der ersten EFI-Partition (weitere im Spiegel: /boot/efi2) */
+export const ESP_MOUNT = "/boot/efi";
 export const PART_LABEL = "schulos-system";
 export const BOOT_PART_LABEL = "schulos-boot";
 export const MD_NAME = "schulos";
@@ -61,7 +70,7 @@ export function partition(disk: string, n: number): string {
 export function layout(disks: string[], encryption: Encryption): Layout {
   if (disks.length < 1 || disks.length > 2) throw new Error("Eine oder zwei Platten");
   const mirror = disks.length === 2;
-  const esps = disks.map((d, i) => ({ device: partition(d, 1), label: i === 0 ? "EFI" : `EFI${i + 1}`, mount: i === 0 ? "/boot/efi" : `/boot/efi${i + 1}` }));
+  const esps = disks.map((d, i) => ({ device: partition(d, 1), label: i === 0 ? "EFI" : `EFI${i + 1}`, mount: i === 0 ? ESP_MOUNT : `${ESP_MOUNT}${i + 1}` }));
   const bootParts = disks.map((d) => partition(d, 2));
   const bootMd = mirror ? `/dev/md/${BOOT_MD_NAME}` : null;
   const parts = disks.map((d) => partition(d, 3));
