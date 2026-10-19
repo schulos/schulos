@@ -67,6 +67,9 @@ export default async function VertretungsstatistikPage({ searchParams }: { searc
                 <th className="text-right" title="Mehrarbeit">
                   vertreten
                 </th>
+                <th className="text-right" title="Vertretung mit eigenem statt dem ausgefallenen Fach">
+                  davon mit eigenem Fach
+                </th>
                 <th className="text-right">abgegeben</th>
                 <th className="text-right">Entfall</th>
               </tr>
@@ -79,6 +82,7 @@ export default async function VertretungsstatistikPage({ searchParams }: { searc
                     <span className="text-muted"> · {t.name}</span>
                   </td>
                   <td className="text-right font-semibold tabular-nums">{t.substitutions}</td>
+                  <td className="text-right tabular-nums">{t.ownSubject}</td>
                   <td className="text-right tabular-nums">{t.given}</td>
                   <td className="text-right tabular-nums">{t.cancelled}</td>
                 </tr>
@@ -101,6 +105,7 @@ export default async function VertretungsstatistikPage({ searchParams }: { searc
               <tr>
                 <th>Klasse/Kurs</th>
                 <th className="text-right">vertreten</th>
+                <th className="text-right">davon mit anderem Fach</th>
                 <th className="text-right">Entfall</th>
               </tr>
             </thead>
@@ -109,6 +114,7 @@ export default async function VertretungsstatistikPage({ searchParams }: { searc
                 <tr key={g.id}>
                   <td className="font-medium">{g.name}</td>
                   <td className="text-right tabular-nums">{g.substituted}</td>
+                  <td className="text-right tabular-nums">{g.ownSubject}</td>
                   <td className="text-right tabular-nums">{g.cancelled}</td>
                 </tr>
               ))}

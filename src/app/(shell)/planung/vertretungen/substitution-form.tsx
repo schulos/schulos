@@ -20,6 +20,9 @@ export function SubstitutionForm({
   initial,
   teachers,
   rooms,
+  subjects,
+  regularSubjectId,
+  exams,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   removeAction?: () => Promise<void>;
@@ -27,17 +30,24 @@ export function SubstitutionForm({
   date: string;
   /** z. B. „3. Std · Mathematik · Klasse 7b“ – für eindeutige Feldnamen */
   label: string;
-  initial: { kind: string; substituteId: string; roomId: string; note: string };
+  initial: { kind: string; substituteId: string; roomId: string; note: string; subjectId: string };
   teachers: Teacher[];
   rooms: { id: string; label: string }[];
+  /** SP-12 (Fachtausch): alle Fächer; Vorgabe ist das reguläre Fach der Stunde */
+  subjects: { id: string; label: string }[];
+  regularSubjectId: string;
+  /** Arbeiten der Gruppe an dem Tag – Hinweis, wenn das gewählte Fach eine hat */
+  exams: { subjectId: string; label: string }[];
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const v = { ...initial, ...state.values };
   const [kind, setKind] = useState(v.kind || "substitute");
+  const [subjectId, setSubjectId] = useState(v.subjectId || regularSubjectId);
+  const exam = kind === "substitute" ? exams.find((e) => e.subjectId === subjectId) : undefined;
   const fe = state.fieldErrors ?? {};
   // key: nach dem Speichern liefert der Server neue Werte → Formular neu aufbauen (React setzt es sonst auf alte Vorgaben zurück)
   return (
-    <form key={JSON.stringify([initial, state.values ?? null])} action={formAction} aria-label={label} className="grid gap-3 sm:grid-cols-[10rem_1fr_9rem] lg:grid-cols-[10rem_1fr_9rem_1fr_auto] lg:items-end">
+    <form key={JSON.stringify([initial, state.values ?? null])} action={formAction} aria-label={label} className="grid gap-3 sm:grid-cols-[10rem_1fr_11rem_9rem] lg:grid-cols-[10rem_1fr_11rem_9rem_1fr_auto] lg:items-end">
       <input type="hidden" name="lessonId" value={lessonId} />
       <input type="hidden" name="date" value={date} />
       <Field label="Art" error={fe.kind}>
@@ -70,6 +80,15 @@ export function SubstitutionForm({
           </optgroup>
         </Select>
       </Field>
+      <Field label="Fach" error={fe.subjectId}>
+        <Select name="subjectId" value={subjectId} onChange={(e) => setSubjectId(e.target.value)} disabled={kind !== "substitute"}>
+          {subjects.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.id === regularSubjectId ? `${x.label} (regulär)` : x.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
       <Field label="Raum" error={fe.roomId}>
         <Select name="roomId" defaultValue={v.roomId} disabled={kind === "cancel"}>
           <option value="">wie sonst</option>
@@ -80,7 +99,7 @@ export function SubstitutionForm({
           ))}
         </Select>
       </Field>
-      <Field label="Hinweis" error={fe.note} className="sm:col-span-2 lg:col-span-1">
+      <Field label="Hinweis" error={fe.note} className="sm:col-span-3 lg:col-span-1">
         <Input name="note" defaultValue={v.note} placeholder="z. B. Arbeitsheft S. 24" maxLength={200} />
       </Field>
       <div className="flex gap-2">
@@ -93,6 +112,11 @@ export function SubstitutionForm({
           </Button>
         )}
       </div>
+      {exam && (
+        <p role="note" className="text-sm font-medium text-warn sm:col-span-full">
+          Achtung: An diesem Tag steht für die Gruppe eine {exam.label} an.
+        </p>
+      )}
       {state.error && (
         <p role="alert" className="text-sm text-danger sm:col-span-full">
           {state.error}

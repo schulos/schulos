@@ -167,6 +167,7 @@ export async function saveSubstitutionAction(_prev: FormState, form: FormData): 
     substituteId: str("substituteId") || null,
     roomId: str("roomId") || null,
     note: str("note") || null,
+    subjectId: str("subjectId") || null,
   };
   try {
     await saveSubstitution(await getDb(), user.id, input);
@@ -388,11 +389,11 @@ export async function cancelReleasedAction(date: string): Promise<void> {
   redirect(needsPage(date));
 }
 
-/** Vertretungsvorschlag übernehmen (P2b-19). */
-export async function applySuggestionAction(lessonId: string, date: string, teacherId: string, back: string): Promise<void> {
+/** Vertretungsvorschlag übernehmen (P2b-19); SP-12: mit `subjectId` gibt die Lehrkraft ihr eigenes Fach („→ Mathe“). */
+export async function applySuggestionAction(lessonId: string, date: string, teacherId: string, back: string, subjectId: string | null): Promise<void> {
   const { user } = await requirePermission("stundenplan.substitute");
   try {
-    await saveSubstitution(await getDb(), user.id, { lessonId, date, kind: "substitute", substituteId: teacherId, roomId: null, note: null });
+    await saveSubstitution(await getDb(), user.id, { lessonId, date, kind: "substitute", substituteId: teacherId, roomId: null, note: null, subjectId });
   } catch (err) {
     if (err instanceof ValidationError) redirect(`${back}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
     throw err;

@@ -13,6 +13,8 @@ import { draftDaysBetween } from "./freigabe";
 export interface OwnSubstitutions {
   /** Mehrarbeit: Stunden, die die Person vertreten hat */
   covered: number;
+  /** SP-12: davon mit eigenem (abweichendem) Fach – rein informativ */
+  coveredOwnSubject: number;
   /** eigene Stunden, die jemand anderes vertreten hat */
   given: number;
   /** eigene Stunden, die entfallen sind */
@@ -22,7 +24,7 @@ export interface OwnSubstitutions {
 /** Vertretungszähler einer Person in [from, to] (wie die Vertretungsstatistik, aber nur diese Person). */
 export async function ownSubstitutions(db: Db, teacherId: string, from: string, to: string): Promise<OwnSubstitutions> {
   const rows = await db
-    .select({ date: timetableSubstitutions.date, kind: timetableSubstitutions.kind, substituteId: timetableSubstitutions.substituteId, teacherId: timetableLessons.teacherId })
+    .select({ date: timetableSubstitutions.date, kind: timetableSubstitutions.kind, substituteId: timetableSubstitutions.substituteId, subjectId: timetableSubstitutions.subjectId, teacherId: timetableLessons.teacherId })
     .from(timetableSubstitutions)
     .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
     .where(
@@ -32,7 +34,7 @@ export async function ownSubstitutions(db: Db, teacherId: string, from: string, 
         or(eq(timetableSubstitutions.substituteId, teacherId), eq(timetableLessons.teacherId, teacherId)),
       ),
     );
-  const out: OwnSubstitutions = { covered: 0, given: 0, cancelled: 0 };
+  const out: OwnSubstitutions = { covered: 0, coveredOwnSubject: 0, given: 0, cancelled: 0 };
   // Q5-11: Entwürfe zählen erst, wenn sie veröffentlicht sind
   const drafts = rows.length ? await draftDaysBetween(db, from, to) : new Set<string>();
   for (const r of rows) {
@@ -40,7 +42,10 @@ export async function ownSubstitutions(db: Db, teacherId: string, from: string, 
     if (r.kind === "cancel") {
       if (r.teacherId === teacherId) out.cancelled++;
     } else {
-      if (r.substituteId === teacherId) out.covered++;
+      if (r.substituteId === teacherId) {
+        out.covered++;
+        if (r.subjectId) out.coveredOwnSubject++;
+      }
       if (r.teacherId === teacherId) out.given++;
     }
   }

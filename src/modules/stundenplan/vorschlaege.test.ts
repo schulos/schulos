@@ -34,6 +34,26 @@ describe("scoreCandidates", () => {
     expect(r[0]!.reasons.map((x) => x.label)).toEqual(["unterrichtet das Fach", "Hohlstunde"]);
   });
 
+  it("SP-12: kennt die Klasse, nicht das Fach → eigenes Fach vorschlagen (+10); wer das Fach kennt, bekommt keinen Fachtausch", () => {
+    const own = new Map([
+      ["b", { id: "D", name: "Deutsch" }],
+      ["c", { id: "E", name: "Englisch" }],
+    ]);
+    const r = scoreCandidates(base({ ownSubjectInGroup: own, teachesGroup: new Map([["b", new Set(["7b"])], ["c", new Set(["7b"])]]) }));
+    const b = r.find((x) => x.code === "BBB")!;
+    expect(b.reasons).toContainEqual({ label: "kann eigenes Fach geben: Deutsch", points: WEIGHTS.ownSubject });
+    expect(b.suggestedSubject).toEqual({ id: "D", name: "Deutsch" });
+    expect(b.score).toBe(20 + 10 - 10);
+    // CCC unterrichtet Mathe: kennt Klasse + Fach, kein Fachwechsel
+    const c = r.find((x) => x.code === "CCC")!;
+    expect(c.suggestedSubject).toBeNull();
+    expect(c.score).toBe(20 + 15 + 10);
+    // ohne Klassenbezug kein Vorschlag, auch wenn ein Fach bekannt wäre
+    expect(scoreCandidates(base({ ownSubjectInGroup: new Map([["a", { id: "D", name: "Deutsch" }]]) })).find((x) => x.code === "AAA")!.suggestedSubject).toBeNull();
+    // Rangfolge bleibt: Klasse + Fach vor Klasse + eigenes Fach
+    expect(WEIGHTS.knowsGroup + WEIGHTS.knowsSubject).toBeGreaterThan(WEIGHTS.knowsGroup + WEIGHTS.ownSubject);
+  });
+
   it("Freisetzung zählt viel, viele Vertretungen und zweimal heute senken", () => {
     const r = scoreCandidates(base({ released: new Set(["d"]), countYear: new Map([["c", 10]]), countToday: new Map([["c", 2]]) }));
     expect(r[0]!.code).toBe("DDD");

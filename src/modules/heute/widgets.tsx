@@ -124,7 +124,9 @@ async function OffenFuerDich({ current }: { current: CurrentUser }) {
 }
 
 export const heuteWidgets: WidgetDef[] = [
-  { id: "heute.offen", moduleId: "heute", order: 3, roles: ["eltern", "schueler", "lehrkraft", "verwaltung", "admin"], Component: OffenFuerDich },
+  // SP-12 (Hinweis aus SP-05): ohne Rollenliste – jede Rolle sieht „Offen für dich“ (auch Personal/Beratung, etwa mit der Funktionsgruppe
+  // Stundenplanung); was darin steht, entscheiden die Lieferanten selbst nach Rechten (src/modules/open-items.ts)
+  { id: "heute.offen", moduleId: "heute", order: 3, Component: OffenFuerDich },
   { id: "heute.kinder", moduleId: "heute", order: 5, roles: ["eltern"], Component: MeineKinder },
   { id: "heute.gruppen", moduleId: "heute", order: 90, roles: ["schueler", "lehrkraft", "verwaltung"], Component: MeineGruppen },
 ];

@@ -15,6 +15,11 @@ export interface SlotDisplay {
 const room = (id: string | null | undefined) => (id ? `R ${id}` : null);
 const join = (...parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(" · ");
 
+/** SP-12: „Mathe statt Sport“ – Fach mit dem regulären Fach, wenn die Vertretung ein anderes gibt. */
+export function subjectLabel(name: string, insteadOf: string | null | undefined): string {
+  return insteadOf ? `${name} statt ${insteadOf}` : name;
+}
+
 /** `long`: ausgeschriebene Namen statt Kürzel (Tagesleiste). */
 export function slotDisplay(s: LessonSlot, view: PlanView, long = false): SlotDisplay {
   const teacher = long ? (s.teacherName ?? s.teacherCode) : (s.teacherCode ?? s.teacherName);
@@ -22,6 +27,8 @@ export function slotDisplay(s: LessonSlot, view: PlanView, long = false): SlotDi
   const substitute = c ? (long ? (c.substituteName ?? c.substituteCode) : (c.substituteCode ?? c.substituteName)) : null;
   const effRoom = c?.roomId ?? s.roomId;
   const note = c?.note ?? null;
+  // SP-12: Fachtausch – der Slot trägt schon das tatsächliche Fach, die Zeile darunter nennt das reguläre
+  const instead = c?.kind === "substitute" && c.insteadOf ? `statt ${c.insteadOf}` : null;
   const regular = view === "teacher" ? join(s.groupName, room(s.roomId)) : view === "room" ? join(s.groupName, teacher) : join(teacher, room(s.roomId));
 
   if (c?.kind === "cancel") return { tone: "off", tag: "Entfällt", detail: regular, note, struck: true };
@@ -32,12 +39,12 @@ export function slotDisplay(s: LessonSlot, view: PlanView, long = false): SlotDi
   }
   if (s.perspective === "covering") {
     return view === "room"
-      ? { tone: "sub", tag: "Verlegt hierher", detail: join(s.groupName, c?.kind === "substitute" ? substitute : teacher), note, struck: false }
-      : { tone: "sub", tag: "Vertretung", detail: join(s.groupName, room(effRoom), teacher && `für ${s.teacherCode ?? teacher}`), note, struck: false };
+      ? { tone: "sub", tag: "Verlegt hierher", detail: join(instead, s.groupName, c?.kind === "substitute" ? substitute : teacher), note, struck: false }
+      : { tone: "sub", tag: "Vertretung", detail: join(instead, s.groupName, room(effRoom), teacher && `für ${s.teacherCode ?? teacher}`), note, struck: false };
   }
   if (c?.kind === "substitute") {
     const who = view === "teacher" || view === "room" ? s.groupName : substitute;
-    return { tone: "sub", tag: "Vertretung", detail: join(who, room(effRoom)), note, struck: false };
+    return { tone: "sub", tag: "Vertretung", detail: join(instead, who, room(effRoom)), note, struck: false };
   }
   if (c?.kind === "room") {
     return { tone: "sub", tag: "Raumänderung", detail: view === "teacher" ? join(s.groupName, room(effRoom)) : join(teacher, room(effRoom)), note, struck: false };

@@ -673,6 +673,13 @@
       "when": 1792441637256,
       "tag": "0095_buecherei_etiketten",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1792446492382,
+      "tag": "0096_sp12_fachtausch",
+      "breakpoints": true
     }
   ]
 }
