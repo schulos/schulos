@@ -35,10 +35,10 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 |---|---|---|
 | `buecherei_titles` | Titel, Autor:in, ISBN, Verlag, Jahr, Schlagwörter, Altersempfehlung, Medienart (Buch/Film/Spiel/Gerät/Sonstiges) | BU-01 |
 | `buecherei_copies` | Exemplarnummer (= Barcode, Präfix + laufende Nummer + Prüfziffer), Signatur, Standort, Zustand, ausgesondert | BU-01 |
-| `buecherei_loans` | Exemplar, Person, ausgeliehen, fällig, zurück, Verlängerungen, Mahnstufe; Personenbezug wird bei Rückgabe ohne Befund entfernt | BU-02 |
+| `buecherei_loans` | Exemplar, Person, ausgeliehen, fällig, zurück, Verlängerungen, Mahnstufe (BU-04: Stufe, letzte Mahnung, erinnerte Fälligkeit); Personenbezug wird bei Rückgabe ohne Befund entfernt | BU-02/04 |
 | `buecherei_cards` | pseudonymer Ausweis-Code je Konto (zufällig, bei Verlust neu = alter ungültig) | BU-07 |
 | `buecherei_reservations` | Vormerkung Titel ↔ Person | BU-03 |
-| `buecherei_stats` | Zähler ohne Personenbezug (Ausleihen je Monat/Medienart) | BU-02/05 |
+| `buecherei_stats` | Zähler ohne Personenbezug (Ausleihen, Verlängerungen, Mahnungen je Monat/Medienart) | BU-02/04/05 |
 | `buecherei_teaching_materials`, `buecherei_compensations` | Lernmittel ↔ Jahrgang/Fach, Ersatzforderungen | Stufe 2 |
 
 ## Rechte
@@ -58,6 +58,11 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 - Vormerkungen mit der Ausleihe bzw. `LK-90`; Ausweis-Code gehört zum Konto (`LK-KONTO`). Vormerken nur bei ganz ausgeliehenen
   Titeln; Abholfrist (Vorgabe 1 Woche) danach rückt die nächste nach; andere sehen nur die Zahl, nie Namen; der Gong nennt keinen Titel.
 - „Meine Ausleihen“ zeigt nur Aktuelles (offene Ausleihen, Vormerkungen) – keinen Verlauf.
+- Erinnerung und Mahnungen (BU-04) nennen keinen Titel (Benachrichtigung und Mail), nur „Meine Ausleihen“ nach der Anmeldung.
+  Die Mahnstufe hängt an der offenen Ausleihe und endet mit Rückgabe oder Verlängern; Mahnungen werden nur je Monat und
+  Medienart gezählt. Eltern ab der 2. Stufe nur bei Minderjährigen (Zuordnung „handelt für“, nicht bei Eigenständigen – auch
+  nicht mit Einwilligung „Eltern informieren“: eine Mahnung fordert zum Handeln auf, das tut dann die Person selbst).
+  Mahnliste fürs Team: Mahnstufen nur für Erwachsene, Schüler-Helfer:innen sehen nur „fällig seit“.
 - Schulbuchausleihe: Zuordnung Exemplar ↔ Person nur im laufenden Schuljahr, nach Rücknahme entkoppelt.
 - Abgang: offene Ausleihen blockieren die Löschung nicht, erscheinen aber als Hinweis.
 - Auskunft (Art. 15) und Eigenexport: eigene offene Ausleihen, Vormerkungen, Forderungen.

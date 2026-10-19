@@ -55,7 +55,7 @@ export interface Borrower {
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
 /** Klassen (aktive Klassengruppe) von Schüler:innen – „7b“ statt „Klasse 7b“; Lehrkräfte als Gruppenmitglied zählen nicht. */
-async function classNamesOf(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
+export async function classNamesOf(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
   if (!ids.length) return new Map();
   const rows = await db
     .select({ userId: groupMembers.userId, name: groups.name })
@@ -101,6 +101,8 @@ export interface OpenLoan {
   dueOn: string;
   renewals: number;
   overdue: boolean;
+  /** BU-04: Mahnstufe 0–3 (nur für die Person selbst bzw. ihre Eltern – die Theke bekommt sie nicht) */
+  dunningLevel: number;
 }
 
 /** Offene Ausleihen einer Person (Theke, „Meine Ausleihen“) – Rückgaben mit Befund gehören nicht dazu. */
@@ -115,6 +117,7 @@ export async function openLoansOf(db: Db, userId: string, today: string): Promis
       loanedOn: buechereiLoans.loanedOn,
       dueOn: buechereiLoans.dueOn,
       renewals: buechereiLoans.renewals,
+      dunningLevel: buechereiLoans.dunningLevel,
     })
     .from(buechereiLoans)
     .innerJoin(buechereiCopies, eq(buechereiCopies.id, buechereiLoans.copyId))
@@ -133,7 +136,9 @@ export async function deskPerson(db: Db, viewer: PermissionSet, userId: string, 
   const [u] = await db.select({ id: users.id, name: users.name, role: users.role, status: users.status }).from(users).where(eq(users.id, userId));
   if (!u || !BORROWER_ROLES.includes(u.role)) return null;
   const cls = await classNamesOf(db, [u.id]);
-  return { id: u.id, name: u.name, className: cls.get(u.id) ?? null, active: u.status === "active", loans: await openLoansOf(db, u.id, today) };
+  // BU-04: Mahnstufen gehen die Theke nichts an (auch Schüler-Helfer:innen) – „überfällig“ genügt
+  const loans = (await openLoansOf(db, u.id, today)).map((l) => ({ id: l.id, titleId: l.titleId, barcode: l.barcode, title: l.title, mediaType: l.mediaType, loanedOn: l.loanedOn, dueOn: l.dueOn, renewals: l.renewals, overdue: l.overdue }));
+  return { id: u.id, name: u.name, className: cls.get(u.id) ?? null, active: u.status === "active", loans };
 }
 
 /** Kopfzahlen der Theke ohne Personenbezug. */
@@ -234,7 +239,8 @@ export async function checkin(
   if (!note) {
     await db.delete(buechereiLoans).where(eq(buechereiLoans.id, loan.id));
   } else {
-    await db.update(buechereiLoans).set({ returnedOn: today, finding: note }).where(eq(buechereiLoans.id, loan.id));
+    // BU-04: Mahnstufe und Erinnerung enden mit der Rückgabe – der Befund braucht sie nicht
+    await db.update(buechereiLoans).set({ returnedOn: today, finding: note, dunningLevel: 0, dunnedOn: null, remindedDueOn: null }).where(eq(buechereiLoans.id, loan.id));
     await audit(db, viewer.userId, "buecherei.loan.finding", loan.id, { barcode: copy.barcode, finding: note });
   }
   await promoteReservations(db, copy.titleId, today);
@@ -279,7 +285,8 @@ async function renewChecked(db: Db, loanId: string, today: string, owner: string
   const dueOn = next > l.dueOn ? next : l.dueOn;
   const [r] = await db
     .update(buechereiLoans)
-    .set({ dueOn, renewals: l.renewals + 1 })
+    // BU-04: neue Frist → Mahnstufe und Erinnerung beginnen von vorn
+    .set({ dueOn, renewals: l.renewals + 1, dunningLevel: 0, dunnedOn: null, remindedDueOn: null })
     .where(and(eq(buechereiLoans.id, l.id), eq(buechereiLoans.renewals, l.renewals), isNull(buechereiLoans.returnedOn)))
     .returning({ renewals: buechereiLoans.renewals });
   if (!r) throw new ValidationError({ loan: "Ausleihe wurde gerade geändert – bitte neu laden" });

@@ -68,4 +68,40 @@ export const MAX_RESERVATIONS = defineSetting({
   default: "5",
 });
 
-export const BUECHEREI_SETTINGS: readonly ModuleSettingDecl[] = [...MEDIA_TYPES.map((m) => LOAN_DAYS[m]), MAX_RENEWALS, HOLD_DAYS, MAX_RESERVATIONS];
+/** BU-04: Erinnerung vor Fristende – so viele Tage vor der Fälligkeit (`buecherei.remind_days`, „0“ = aus). */
+export const REMIND_DAYS = defineSetting({
+  key: "buecherei.remind_days",
+  label: "Erinnerung vor Fristende",
+  help: "Benachrichtigung an die ausleihende Person, so viele Tage vor der Fälligkeit (ohne Titel – welche Medien, steht unter „Meine Ausleihen“).",
+  options: [
+    { value: "0", label: "aus" },
+    { value: "1", label: "1 Tag vorher" },
+    { value: "2", label: "2 Tage vorher" },
+    { value: "3", label: "3 Tage vorher" },
+    { value: "5", label: "5 Tage vorher" },
+  ],
+  default: "2",
+});
+
+/** BU-04: Abstand der Mahnstufen in Tagen (`buecherei.dunning_days`). */
+export const DUNNING_DAYS = defineSetting({
+  key: "buecherei.dunning_days",
+  label: "Abstand der Mahnungen",
+  help: "Die 1. Mahnung geht am ersten Schultag nach der Fälligkeit raus, die 2. und 3. jeweils frühestens so viele Tage nach der vorigen – nur an Schultagen. Ab der 2. Mahnung werden bei Minderjährigen auch die Eltern benachrichtigt.",
+  options: [3, 7, 10, 14].map((d) => ({ value: String(d), label: dayLabel(d) })),
+  default: "7",
+});
+
+/** BU-04: Mahnungen zusätzlich per Mail (`buecherei.dunning_mail`, Vorgabe aus) – nur an bestätigte Adressen. */
+export const DUNNING_MAIL = defineSetting({
+  key: "buecherei.dunning_mail",
+  label: "Mahnungen auch per Mail",
+  help: "Zusätzlich zur Benachrichtigung eine Mail an bestätigte Adressen (ausleihende Person, ab der 2. Mahnung die Eltern Minderjähriger) – ohne Titel, nur mit Link zur Anmeldung. Braucht eingerichteten Mailversand.",
+  options: [
+    { value: "0", label: "aus" },
+    { value: "1", label: "an" },
+  ],
+  default: "0",
+});
+
+export const BUECHEREI_SETTINGS: readonly ModuleSettingDecl[] = [...MEDIA_TYPES.map((m) => LOAN_DAYS[m]), MAX_RENEWALS, HOLD_DAYS, MAX_RESERVATIONS, REMIND_DAYS, DUNNING_DAYS, DUNNING_MAIL];

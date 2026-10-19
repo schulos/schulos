@@ -1,7 +1,7 @@
 // Schulbücherei – Bestand (BU-01): Büchereiteam legt einen Titel mit Exemplaren an, ergänzt und sondert aus, prüft einen
 // CSV-Import in der Vorschau; Lehrkraft ohne Teamrecht bekommt 404. Theke (BU-02): Person suchen, scannen, verlängern,
 // Rückgabe nur scannen, Rückgabe mit Befund; Befunde nur für die Verwaltung. Ausweise (BU-07): drucken, scannen, ersetzen.
-// Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht.
+// Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht. Mahnliste und Widget (BU-04).
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch } from "./helpers";
 
@@ -204,6 +204,36 @@ test.describe("Bücherei", () => {
     const nav = page.getByRole("navigation", { name: "Bücherei" });
     await expect(nav.getByRole("link")).toHaveText(["Katalog", "Meine Ausleihen"]);
     expect((await page.goto("/buecherei/bestand"))?.status()).toBe(404);
+    await logoutForSwitch(page);
+  });
+
+  test("BU-04: Widget und Mahnliste fürs Team (mit Mahnstufe), Lehrkraft ohne Teamrecht 404", async ({ page }) => {
+    const errors = collectErrors(page);
+    const FILM = "Reise zum Mond (Dokumentation)";
+    await login(page, "aylin.demir"); // Lehrkraft, Leitung Büchereiteam
+    await page.goto("/");
+    const widget = page.locator('[data-widget="buecherei.mahnliste"]');
+    await expect(widget).toContainText("überfällig");
+    await expect(widget).toContainText("2. Mahnung");
+    await widget.getByRole("link", { name: "Zur Mahnliste" }).click();
+    await expect(page).toHaveURL("/buecherei/mahnliste");
+    await expect(page.getByRole("heading", { name: "Mahnliste" })).toBeVisible();
+    // Demo: der Film ist seit gut zwei Wochen überfällig und zweimal gemahnt
+    const row = page.getByRole("table", { name: "Überfällige Ausleihen" }).getByRole("row").filter({ hasText: FILM });
+    await expect(row).toContainText("2. Mahnung");
+    await expect(row).toContainText("16 Tage");
+    // von der Mahnliste zur Person an der Theke
+    await row.getByRole("link").first().click();
+    await expect(page).toHaveURL(/\/buecherei\/theke\?person=/);
+    await expect(page.getByRole("heading", { name: "Offene Ausleihen" })).toBeVisible();
+    await expect(page.getByText("2. Mahnung")).toHaveCount(0); // die Theke zeigt keine Mahnstufen
+    expect(errors).toEqual([]);
+    await logoutForSwitch(page);
+
+    await login(page, "jana.brandt");
+    expect((await page.goto("/buecherei/mahnliste"))?.status()).toBe(404);
+    await page.goto("/");
+    await expect(page.locator('[data-widget="buecherei.mahnliste"]')).toHaveCount(0);
     await logoutForSwitch(page);
   });
 
