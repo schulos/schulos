@@ -12,7 +12,7 @@ import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
-import { SpecForm, type FieldSpec } from "../spec-form";
+import { SpecForm, type FieldSpec } from "@/ui/spec-form";
 import { GebaeudeNav } from "../ui";
 
 export const metadata: Metadata = { title: "Wartung" };

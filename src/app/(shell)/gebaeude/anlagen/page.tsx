@@ -12,7 +12,7 @@ import { Field, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { toBerlinDate } from "@/core/time";
-import { SpecForm } from "../spec-form";
+import { SpecForm } from "@/ui/spec-form";
 import { GebaeudeNav } from "../ui";
 
 export const metadata: Metadata = { title: "Anlagen und Geräte" };

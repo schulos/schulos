@@ -25,3 +25,4 @@ export * from "../../modules/kurswahl/schema";
 export * from "../../modules/sitzplan/schema";
 export * from "../../modules/notenbuch/schema";
 export * from "../../modules/kurse/schema";
+export * from "../../modules/buecherei/schema";

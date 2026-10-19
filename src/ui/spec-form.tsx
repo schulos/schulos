@@ -30,7 +30,7 @@ export interface FieldSpec {
 }
 
 /**
- * Formular aus Feldbeschreibungen für die Pflegeseiten von Gebäude & Technik (Prüfarten, Anlagen, Prüfungen, Wartung).
+ * Formular aus Feldbeschreibungen für Pflegeseiten (Gebäude & Technik, Bücherei).
  * Erfolgsmeldung: `okText` oder `values.result` aus der Action.
  */
 export function SpecForm({

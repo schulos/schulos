@@ -24,6 +24,8 @@ import { SUBJECT_TEMPLATE, defaultTimeGrid } from "@/core/school/templates";
 import { MODULES } from "@/modules";
 import { seedAufgaben } from "@/modules/aufgaben/seed";
 import { seedBuchungen } from "@/modules/buchungen/seed";
+import buecherei from "@/modules/buecherei/manifest";
+import { seedBuecherei } from "@/modules/buecherei/seed";
 import { seedDateien } from "@/modules/dateien/seed";
 import { seedElternbriefe } from "@/modules/elternbriefe/seed";
 import anmeldung from "@/modules/anmeldung/manifest";
@@ -270,6 +272,12 @@ export async function seedDemoSchool(
   groupRows.push({ id: "g-hausmeisterei", name: "Hausmeisterei", slug: "hausmeisterei", kind: "frei" });
   addMember("g-hausmeisterei", hausmeister);
 
+  // Schulbücherei (BU-01): Team aus einer Lehrkraft und zwei Schüler-Helfer:innen – Theke und Bestand über die Gruppe
+  groupRows.push({ id: "g-buecherei", name: "Büchereiteam", slug: "buechereiteam", kind: "frei" });
+  addMember("g-buecherei", teacher("DEM"), "leader");
+  addMember("g-buecherei", sek1Students[40]!);
+  addMember("g-buecherei", sek1Students[90]!);
+
   // --- AGs
   for (const ag of AGS) {
     const groupId = `g-${ag.slug}`;
@@ -300,6 +308,8 @@ export async function seedDemoSchool(
     { permission: "elternbriefe.send_all", groupId: "g-schulleitung" },
     { permission: "klausurplan.manage", groupId: "g-schulleitung" },
     { permission: "gebaeude.manage", groupId: "g-hausmeisterei" },
+    { permission: "buecherei.desk", groupId: "g-buecherei" },
+    { permission: "buecherei.stock", groupId: "g-buecherei" },
     // Schulanmeldung (P4-32): die Schulleitung entscheidet (§ 46 SchulG NRW), das Sekretariat bearbeitet über die Rolle
     { permission: "anmeldung.decide", groupId: "g-schulleitung" },
     { permission: "anmeldung.view", groupId: "g-schulleitung" },
@@ -338,6 +348,9 @@ export async function seedDemoSchool(
   // verlangen wie beim Kern keine Zwei-Faktor-Anmeldung (Q-5A-4)
   await setModuleEnabled(db, notenbuch, true);
   await seedGebaeude(db, { groupId: "g-hausmeisterei", hausmeisterId: hausmeister });
+  // Schulbücherei (BU-01): bis GATE BU1 ab Werk aus, in der Demo an
+  await setModuleEnabled(db, buecherei, true);
+  await seedBuecherei(db);
   // Demo-Logo (P4-05) – nur mit Dateispeicher (db:reset, Erststart, demo-reset); Tests ohne Speicher bleiben ohne Logo
   if (opts.storage) {
     const svg = (s: string) => new TextEncoder().encode(s);

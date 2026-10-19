@@ -38,7 +38,7 @@ describe("Gruppenverwaltung", () => {
 
   it("listet mit Mitgliederzahl, Leitung und Filter", async () => {
     const all = await listGroups(h.db);
-    expect(all).toHaveLength(47); // inkl. Hausmeisterei (P4-10)
+    expect(all).toHaveLength(48); // inkl. Hausmeisterei (P4-10) und Büchereiteam (BU-01)
     const k7b = (await listGroups(h.db, { q: "7b" })).find((g) => g.slug === "7b");
     expect(k7b?.members).toBeGreaterThanOrEqual(26);
     expect(k7b?.leaders).toEqual(["BRA"]);
