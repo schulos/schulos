@@ -28,6 +28,7 @@ export const NOT_STORAGE_KEY_COLUMNS: Record<string, string> = {
   "auth_throttle.key": "Benutzername bzw. IP des Fehlversuchszählers",
   "passkeys.public_key": "öffentlicher Schlüssel eines Sicherheitsschlüssels (SEC-03), keine Datei",
   "gebaeude_inspection_types.template_key": "Schlüssel des Vorlage-Eintrags einer Prüfart (pruefarten.ts)",
+  "buecherei_titles.keywords": "Schlagwörter eines Bücherei-Titels (Freitext), keine Datei",
   "app_settings.key": "Name einer Einstellung – Dateischlüssel in Werten (Schullogo) meldet src/core/school/logo.ts per registerStorageKeySource",
 };
 

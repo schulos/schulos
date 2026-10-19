@@ -258,6 +258,8 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   gebaeude_responsibilities: "Zuständige Gruppe je Meldungskategorie (Gruppe, keine Personen)",
   gebaeude_assets: "Anlagen und Geräte (Inventar) – keine Personen",
   gebaeude_inspection_types: "Prüfarten (Name, Intervall, Quelle) – keine Personen",
+  buecherei_titles: "Bücherei-Bestand: Titel (bibliografische Angaben) – keine Personen",
+  buecherei_copies: "Bücherei-Bestand: Exemplare (Nummer, Signatur, Standort, Zustand, Aussonderung) – keine Personen",
 };
 
 export interface RetentionEntry {

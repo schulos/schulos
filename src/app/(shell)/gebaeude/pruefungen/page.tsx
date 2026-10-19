@@ -13,7 +13,7 @@ import { Button } from "@schulos/ui/button";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { Field, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
-import { SpecForm } from "../spec-form";
+import { SpecForm } from "@/ui/spec-form";
 import { GebaeudeNav } from "../ui";
 
 export const metadata: Metadata = { title: "Prüfungen" };

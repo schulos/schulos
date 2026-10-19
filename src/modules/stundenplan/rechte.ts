@@ -6,7 +6,7 @@ export const PLAN_MANAGE = "stundenplan.manage";
 /** Tagesgeschäft: Vertretungen, Abwesenheiten, Vorschläge, Veröffentlichen, Raumsperren, Aufsichtsvertretung, „Offen für dich“ */
 export const PLAN_SUBSTITUTE = "stundenplan.substitute";
 
-/** Funktionsgruppe, die Migration 0087 anlegt (feste ID, Slug `stundenplanung`, Art `gremium`, ohne Mitglieder) */
+/** Funktionsgruppe, die Migration 0088 anlegt (feste ID, Slug `stundenplanung`, Art `gremium`, ohne Mitglieder) */
 export const PLANNING_GROUP = {
   id: "g-stundenplanung",
   slug: "stundenplanung",

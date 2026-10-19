@@ -16,7 +16,7 @@ import { listInspectionTypes } from "@/modules/gebaeude/pruefungen";
 import { listResponsibilities } from "@/modules/gebaeude/service";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
-import { SpecForm, type FieldSpec } from "../spec-form";
+import { SpecForm, type FieldSpec } from "@/ui/spec-form";
 
 type TypeRow = Awaited<ReturnType<typeof listInspectionTypes>>[number];
 

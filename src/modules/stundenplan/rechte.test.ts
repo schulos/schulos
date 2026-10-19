@@ -1,4 +1,4 @@
-// SP-02: Planungsrechte – Migration 0087 (Upgrade ohne Rechteverlust, idempotent), Funktionsgruppe, Vorgaben, 2FA, Demo, SEC-04.
+// SP-02: Planungsrechte – Migration 0088 (Upgrade ohne Rechteverlust, idempotent), Funktionsgruppe, Vorgaben, 2FA, Demo, SEC-04.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -15,9 +15,9 @@ import { addReduction, REDUCTION_LABELS, reductionKind } from "./deputate";
 import manifest from "./manifest";
 import { PLAN_MANAGE, PLAN_SUBSTITUTE, PLANNING_GROUP } from "./rechte";
 
-/** Daten-Teil der Migration 0087 (ohne den Enum-Wert, den die Test-DB schon hat) – simuliert das Update einer Bestandsinstallation. */
+/** Daten-Teil der Migration 0088 (ohne den Enum-Wert, den die Test-DB schon hat) – simuliert das Update einer Bestandsinstallation. */
 async function runDataMigration(db: Db) {
-  const file = readFileSync(join(process.cwd(), "drizzle", "0087_stundenplanung.sql"), "utf8");
+  const file = readFileSync(join(process.cwd(), "drizzle", "0088_stundenplanung.sql"), "utf8");
   const statements = file
     .split("--> statement-breakpoint")
     .map((s) => s.trim())
@@ -60,11 +60,11 @@ describe("Planungsrechte (SP-02)", () => {
     });
   });
 
-  describe("Update einer Bestandsinstallation (Migration 0087)", () => {
+  describe("Update einer Bestandsinstallation (Migration 0088)", () => {
     let h: DbHandle;
     beforeAll(async () => {
       h = await createTestDb();
-      // Stand vor 0087: keine Funktionsgruppe, Vorgabe verwaltung → manage (gesynct), eine eigene Planungsgruppe der Schule
+      // Stand vor 0088: keine Funktionsgruppe, Vorgabe verwaltung → manage (gesynct), eine eigene Planungsgruppe der Schule
       await h.db.delete(groups).where(eq(groups.id, PLANNING_GROUP.id));
       await h.db.insert(grants).values({ role: "verwaltung", permission: PLAN_MANAGE });
       await h.db.insert(appSettings).values({ key: "grants.synced.stundenplan", value: ["verwaltung:stundenplan.manage"] });

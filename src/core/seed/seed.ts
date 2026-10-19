@@ -25,6 +25,8 @@ import { SUBJECT_TEMPLATE, defaultTimeGrid } from "@/core/school/templates";
 import { MODULES } from "@/modules";
 import { seedAufgaben } from "@/modules/aufgaben/seed";
 import { seedBuchungen } from "@/modules/buchungen/seed";
+import buecherei from "@/modules/buecherei/manifest";
+import { seedBuecherei } from "@/modules/buecherei/seed";
 import { seedDateien } from "@/modules/dateien/seed";
 import { seedElternbriefe } from "@/modules/elternbriefe/seed";
 import anmeldung from "@/modules/anmeldung/manifest";
@@ -273,11 +275,17 @@ export async function seedDemoSchool(
   groupRows.push({ id: "g-hausmeisterei", name: "Hausmeisterei", slug: "hausmeisterei", kind: "frei" });
   addMember("g-hausmeisterei", hausmeister);
 
-  // Funktionsgruppe Stundenplanung (SP-02, Q-SP-8): legt Migration 0087 an – nach demo-reset (alle Tabellen leer) die Demo selbst.
+  // Funktionsgruppe Stundenplanung (SP-02, Q-SP-8): legt Migration 0088 an – nach demo-reset (alle Tabellen leer) die Demo selbst.
   // Frank Schulte (SLT, Lehrkraft PH/IF, weder Schulleitung noch Klassenleitung der 7b) plant.
   const [planningGroup] = await db.select({ id: groups.id }).from(groups).where(eq(groups.id, PLANNING_GROUP.id));
   if (!planningGroup) groupRows.push({ id: PLANNING_GROUP.id, name: PLANNING_GROUP.name, slug: PLANNING_GROUP.slug, kind: "gremium", description: PLANNING_GROUP.description });
   addMember(PLANNING_GROUP.id, teacher("SLT"), "leader");
+
+  // Schulbücherei (BU-01): Team aus einer Lehrkraft und zwei Schüler-Helfer:innen – Theke und Bestand über die Gruppe
+  groupRows.push({ id: "g-buecherei", name: "Büchereiteam", slug: "buechereiteam", kind: "frei" });
+  addMember("g-buecherei", teacher("DEM"), "leader");
+  addMember("g-buecherei", sek1Students[40]!);
+  addMember("g-buecherei", sek1Students[90]!);
 
   // --- AGs
   for (const ag of AGS) {
@@ -309,6 +317,8 @@ export async function seedDemoSchool(
     { permission: "elternbriefe.send_all", groupId: "g-schulleitung" },
     { permission: "klausurplan.manage", groupId: "g-schulleitung" },
     { permission: "gebaeude.manage", groupId: "g-hausmeisterei" },
+    { permission: "buecherei.desk", groupId: "g-buecherei" },
+    { permission: "buecherei.stock", groupId: "g-buecherei" },
     // Schulanmeldung (P4-32): die Schulleitung entscheidet (§ 46 SchulG NRW), das Sekretariat bearbeitet über die Rolle
     { permission: "anmeldung.decide", groupId: "g-schulleitung" },
     { permission: "anmeldung.view", groupId: "g-schulleitung" },
@@ -326,13 +336,13 @@ export async function seedDemoSchool(
     // SP-02 (Q-SP-8, FEINSCHLIFF I-27): Schulleitung sieht Vertretungsbedarf, Entwürfe und „Offen für dich“ – plant aber nicht
     { permission: PLAN_SUBSTITUTE, groupId: "g-schulleitung" },
   ]);
-  // Rechte der Funktionsgruppe (Migration 0087 legt sie schon an, nach demo-reset fehlen sie)
+  // Rechte der Funktionsgruppe (Migration 0088 legt sie schon an, nach demo-reset fehlen sie)
   await db
     .insert(grants)
     .values(PLANNING_GROUP_PERMISSIONS.map((permission) => ({ permission, groupId: PLANNING_GROUP.id })))
     .onConflictDoNothing();
   // Übergang bis SP-03: die Planungsseiten liegen noch unter /verwaltung (braucht `verwaltung.access`), die E2E-Tests planen noch
-  // als Sekretariat. Die Demo verhält sich deshalb wie eine aktualisierte Bestandsinstallation (Rollen-Grant bleibt, Migration 0087
+  // als Sekretariat. Die Demo verhält sich deshalb wie eine aktualisierte Bestandsinstallation (Rollen-Grant bleibt, Migration 0088
   // ergänzt `substitute`). SP-03 entfernt das mit dem Umzug nach /planung und stellt die Tests auf frank.schulte um.
   await db
     .insert(grants)
@@ -361,6 +371,9 @@ export async function seedDemoSchool(
   // verlangen wie beim Kern keine Zwei-Faktor-Anmeldung (Q-5A-4)
   await setModuleEnabled(db, notenbuch, true);
   await seedGebaeude(db, { groupId: "g-hausmeisterei", hausmeisterId: hausmeister });
+  // Schulbücherei (BU-01): bis GATE BU1 ab Werk aus, in der Demo an
+  await setModuleEnabled(db, buecherei, true);
+  await seedBuecherei(db);
   // Demo-Logo (P4-05) – nur mit Dateispeicher (db:reset, Erststart, demo-reset); Tests ohne Speicher bleiben ohne Logo
   if (opts.storage) {
     const svg = (s: string) => new TextEncoder().encode(s);

@@ -614,8 +614,15 @@
     {
       "idx": 87,
       "version": "7",
-      "when": 1792384685583,
-      "tag": "0087_stundenplanung",
+      "when": 1792387801028,
+      "tag": "0087_buecherei_bestand",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1792394367795,
+      "tag": "0088_stundenplanung",
       "breakpoints": true
     }
   ]

@@ -143,7 +143,7 @@ describe("Stammdaten · Fächer und Zeitraster", () => {
     expect(list.at(-1)).toMatchObject({ color: "#0C8599", roomKind: "nw" });
     const [lesson] = await h.db.select().from(timetableLessons);
     expect(lesson!.subjectId).toBe("MA");
-    expect((await listGroups(h.db)).length).toBe(2); // + Funktionsgruppe Stundenplanung (Migration 0087)
+    expect((await listGroups(h.db)).length).toBe(2); // + Funktionsgruppe Stundenplanung (Migration 0088)
     const [g] = await h.db.select({ subjectId: groups.subjectId }).from(groups).where(ne(groups.slug, "stundenplanung"));
     expect(g!.subjectId).toBe("MA");
   });
