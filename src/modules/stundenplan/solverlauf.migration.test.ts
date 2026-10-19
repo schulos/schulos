@@ -1,5 +1,5 @@
-// SP-06: Update einer Bestandsinstallation – Migration 0093 auf einer Datenbank mit Läufen und Stunden aus der Zeit davor.
-// Dafür wird eine In-Memory-DB zunächst nur bis 0092 migriert (Journal gekürzt), mit alten Daten gefüllt und dann vollständig.
+// SP-06: Update einer Bestandsinstallation – Migration 0094 auf einer Datenbank mit Läufen und Stunden aus der Zeit davor.
+// Dafür wird eine In-Memory-DB zunächst nur bis 0093 migriert (Journal gekürzt), mit alten Daten gefüllt und dann vollständig.
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,9 +11,9 @@ import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { timetableLessons, timetableSolverRuns } from "@/core/db/schema";
 import { getRun, listRuns, proposedLessons } from "./solverlauf";
 
-const UNTIL = "0092_kurswahl_lesen";
+const UNTIL = "0093_buecherei_mahnungen";
 
-describe("Migration 0093 (Solver-Läufe) auf Bestandsdaten", () => {
+describe("Migration 0094 (Solver-Läufe) auf Bestandsdaten", () => {
   let h: DbHandle;
   let tmp: string;
   beforeAll(async () => {
@@ -23,7 +23,7 @@ describe("Migration 0093 (Solver-Läufe) auf Bestandsdaten", () => {
     const journal = JSON.parse(readFileSync(join(tmp, "meta", "_journal.json"), "utf8")) as { entries: { tag: string }[] };
     const cut = journal.entries.findIndex((e) => e.tag === UNTIL);
     expect(cut).toBeGreaterThan(0);
-    expect(journal.entries[cut + 1]?.tag).toMatch(/^0093_/);
+    expect(journal.entries[cut + 1]?.tag).toMatch(/^0094_/);
     writeFileSync(join(tmp, "meta", "_journal.json"), JSON.stringify({ ...journal, entries: journal.entries.slice(0, cut + 1) }));
     h = openDb();
     await migrate(h.db as unknown as PgliteDatabase, { migrationsFolder: tmp });
@@ -34,7 +34,7 @@ describe("Migration 0093 (Solver-Läufe) auf Bestandsdaten", () => {
   });
 
   it("alte Läufe und Stunden bleiben lesbar, neue Spalten mit Vorgaben; Enum um queued/cancelled erweitert; Löschen eines Laufs leert nur die Herkunft", async () => {
-    // Stand vor 0093: ein fertiger Lauf im alten Format (Einheiten ohne Teile) und ein rechnender
+    // Stand vor 0094: ein fertiger Lauf im alten Format (Einheiten ohne Teile) und ein rechnender
     await h.db.execute(sql`insert into school_years (id, name, starts_on, ends_on, is_current) values ('sj', '2026/27', '2026-08-01', '2027-07-31', true)`);
     await h.db.execute(sql`insert into subjects (id, name, color) values ('M', 'Mathematik', '#123456')`);
     await h.db.execute(sql`insert into groups (id, name, slug, kind) values ('g7a', 'Klasse 7a', '7a', 'klasse')`);
@@ -51,7 +51,7 @@ describe("Migration 0093 (Solver-Läufe) auf Bestandsdaten", () => {
     const columnsBefore = rowsOf(await h.db.execute(sql`select column_name from information_schema.columns where table_name = 'timetable_solver_runs'`)).map((r) => r.column_name);
     expect(columnsBefore).not.toContain("params");
 
-    // Update: Rest der Migrationen (0093 …)
+    // Update: Rest der Migrationen (0094 …)
     await h.migrate();
     const columns = rowsOf(await h.db.execute(sql`select column_name from information_schema.columns where table_name = 'timetable_solver_runs'`)).map((r) => r.column_name);
     for (const c of ["label", "params", "metrics", "log", "cancel_requested", "heartbeat_at", "applied_by", "applied_at", "undo"]) expect(columns).toContain(c);

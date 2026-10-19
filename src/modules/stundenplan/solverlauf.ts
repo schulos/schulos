@@ -293,10 +293,16 @@ export async function failInterruptedRuns(db: Db): Promise<number> {
 /** Rechnende Läufe ohne Lebenszeichen seit STALE_RUN_MS (Prozess abgestürzt, Sperre abgelaufen) → fehlgeschlagen. */
 export async function reapStaleRuns(db: Db, now = new Date(), staleMs = STALE_RUN_MS): Promise<number> {
   const cutoff = new Date(now.getTime() - staleMs);
+  // kein `Date` als Parameter in rohem SQL (postgres-js serialisiert ihn dort nicht) – darum zwei typisierte Vergleiche
   const rows = await db
     .update(timetableSolverRuns)
     .set({ status: "failed", error: "Abgebrochen: keine Rückmeldung der Berechnung (Prozess beendet?)", finishedAt: now })
-    .where(and(eq(timetableSolverRuns.status, "running"), lt(sql`coalesce(${timetableSolverRuns.heartbeatAt}, ${timetableSolverRuns.createdAt})`, cutoff)))
+    .where(
+      and(
+        eq(timetableSolverRuns.status, "running"),
+        or(lt(timetableSolverRuns.heartbeatAt, cutoff), and(isNull(timetableSolverRuns.heartbeatAt), lt(timetableSolverRuns.createdAt, cutoff))),
+      ),
+    )
     .returning({ id: timetableSolverRuns.id });
   return rows.length;
 }

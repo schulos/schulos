@@ -1,5 +1,6 @@
 // Demo: kleiner Bücherei-Bestand (Jugendbuch, Sachbuch, Film, Spiel) mit Exemplaren, eins davon ausgesondert; einige offene
-// Ausleihen (eine überfällig), eine Rückgabe mit Befund und anonyme Zähler der letzten Monate (BU-02), eine Vormerkung (BU-03).
+// Ausleihen (eine überfällig, 2. Mahnung – BU-04), eine Rückgabe mit Befund und anonyme Zähler der letzten Monate (BU-02), eine
+// Vormerkung (BU-03).
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { buechereiCopies, buechereiLoans, buechereiReservations, buechereiStats, buechereiTitles } from "@/core/db/schema";
@@ -66,7 +67,8 @@ export async function seedBuecherei(db: Db, opts: { now?: Date; borrowers?: read
   );
   await db.insert(buechereiLoans).values([
     { copyId: copies.get(1)!, userId: a, loanedOn: addDays(today, -20), dueOn: addDays(today, 8) },
-    { copyId: copies.get(12)!, userId: a, loanedOn: addDays(today, -30), dueOn: addDays(today, -16) },
+    // BU-04: überfällig, schon zweimal gemahnt
+    { copyId: copies.get(12)!, userId: a, loanedOn: addDays(today, -30), dueOn: addDays(today, -16), dunningLevel: 2, dunnedOn: addDays(today, -2) },
     { copyId: copies.get(4)!, userId: b, loanedOn: addDays(today, -3), dueOn: addDays(today, 25), renewals: 0 },
     { copyId: copies.get(9)!, userId: c, loanedOn: addDays(today, -35), dueOn: addDays(today, -7), returnedOn: addDays(today, -2), finding: "Seiten eingerissen" },
   ]);
@@ -83,6 +85,6 @@ export async function seedBuecherei(db: Db, opts: { now?: Date; borrowers?: read
     { month: month(1), mediaType: "buch", loans: 31, renewals: 6 },
     { month: month(1), mediaType: "spiel", loans: 2 },
     { month: month(0), mediaType: "buch", loans: 9, renewals: 1 },
-    { month: month(0), mediaType: "film", loans: 1 },
+    { month: month(0), mediaType: "film", loans: 1, dunnings: 2 },
   ]);
 }

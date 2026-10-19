@@ -24,3 +24,12 @@ export async function dueDate(db: Db, today: string, days: number): Promise<stri
     .where(and(lte(schoolClosures.startsOn, addDays(target, 400)), gte(schoolClosures.endsOn, target)));
   return nextOpenDay(target, closures);
 }
+
+/** BU-04: Ist heute Schultag (kein Wochenende, keine Schließzeit)? Mahnungen gehen nur an Schultagen raus. */
+export async function isOpenDay(db: Db, today: string): Promise<boolean> {
+  const closures = await db
+    .select({ startsOn: schoolClosures.startsOn, endsOn: schoolClosures.endsOn })
+    .from(schoolClosures)
+    .where(and(lte(schoolClosures.startsOn, today), gte(schoolClosures.endsOn, today)));
+  return nextOpenDay(today, closures) === today;
+}

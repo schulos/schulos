@@ -1,5 +1,5 @@
 {
-  "id": "66ecab2d-aeb0-47da-bbce-1d5abfed690b",
+  "id": "e34dae08-1810-4a13-ac27-ecd8a0a4561b",
   "prevId": "c2cccc48-fba6-4032-beda-8bdb74c975ed",
   "version": "7",
   "dialect": "postgresql",
@@ -5525,12 +5525,6 @@
           "notNull": true,
           "default": false
         },
-        "solver_run_id": {
-          "name": "solver_run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5545,21 +5539,6 @@
           "columns": [
             {
               "expression": "coupling_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "timetable_lessons_solver_run_idx": {
-          "name": "timetable_lessons_solver_run_idx",
-          "columns": [
-            {
-              "expression": "solver_run_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5699,19 +5678,6 @@
           ],
           "onDelete": "set null",
           "onUpdate": "cascade"
-        },
-        "timetable_lessons_solver_run_id_timetable_solver_runs_id_fk": {
-          "name": "timetable_lessons_solver_run_id_timetable_solver_runs_id_fk",
-          "tableFrom": "timetable_lessons",
-          "tableTo": "timetable_solver_runs",
-          "columnsFrom": [
-            "solver_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -6054,61 +6020,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "params": {
-          "name": "params",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "metrics": {
-          "name": "metrics",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "log": {
-          "name": "log",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cancel_requested": {
-          "name": "cancel_requested",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "heartbeat_at": {
-          "name": "heartbeat_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "applied_by": {
-          "name": "applied_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "applied_at": {
-          "name": "applied_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "undo": {
-          "name": "undo",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {},
@@ -6132,19 +6043,6 @@
           "tableTo": "users",
           "columnsFrom": [
             "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "timetable_solver_runs_applied_by_users_id_fk": {
-          "name": "timetable_solver_runs_applied_by_users_id_fk",
-          "tableFrom": "timetable_solver_runs",
-          "tableTo": "users",
-          "columnsFrom": [
-            "applied_by"
           ],
           "columnsTo": [
             "id"
@@ -14108,6 +14006,25 @@
           "primaryKey": false,
           "notNull": false
         },
+        "reminded_due_on": {
+          "name": "reminded_due_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dunning_level": {
+          "name": "dunning_level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "dunned_on": {
+          "name": "dunned_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -14323,6 +14240,13 @@
         },
         "renewals": {
           "name": "renewals",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "dunnings": {
+          "name": "dunnings",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -14615,9 +14539,7 @@
         "running",
         "done",
         "failed",
-        "applied",
-        "queued",
-        "cancelled"
+        "applied"
       ]
     },
     "public.substitution_kind": {

@@ -210,6 +210,7 @@ export async function libraryAuskunft(db: Db, userId: string) {
         ausgeliehen: buechereiLoans.loanedOn,
         faellig: buechereiLoans.dueOn,
         verlaengert: buechereiLoans.renewals,
+        mahnstufe: buechereiLoans.dunningLevel,
         zurueck: buechereiLoans.returnedOn,
         befund: buechereiLoans.finding,
         befundErledigt: buechereiLoans.findingResolvedOn,
@@ -237,7 +238,7 @@ export function libraryText(data: Awaited<ReturnType<typeof libraryAuskunft>>): 
   const findings = data.loans.filter((l) => l.zurueck);
   if (open.length) {
     lines.push("Ausgeliehen:");
-    for (const l of open) lines.push(`- ${l.titel} (${l.exemplar}), ausgeliehen am ${fmtDay(l.ausgeliehen)}, fällig am ${fmtDay(l.faellig)}${l.verlaengert ? `, ${l.verlaengert}-mal verlängert` : ""}`);
+    for (const l of open) lines.push(`- ${l.titel} (${l.exemplar}), ausgeliehen am ${fmtDay(l.ausgeliehen)}, fällig am ${fmtDay(l.faellig)}${l.verlaengert ? `, ${l.verlaengert}-mal verlängert` : ""}${l.mahnstufe ? `, ${l.mahnstufe}. Mahnung` : ""}`);
     lines.push("");
   }
   if (findings.length) {

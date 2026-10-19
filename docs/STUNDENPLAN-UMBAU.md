@@ -171,7 +171,7 @@ Schüler:innen (für Lehraufträge – Gruppe, Fach, Stunden, Lehrkraft – nich
 Ausweitung auf eine fremde Gruppe gleichen Namens), idempotent, sonst keine Grants; Seed ebenso. Navigation „Kurswahlen“ für Beschäftigte mit
 `view` oder `manage`. Das Sekretariat (nur `kurswahl.manage`) sieht weiter „legt die Stundenplanung an“.
 
-**Umsetzungsstand SP-06 (2026-10-19, Migration 0093):** `timetable_solver_runs` um `label`, `params` (`{ effort, seed, weights, preset }`),
+**Umsetzungsstand SP-06 (2026-10-19, Migration 0094 – 0093 hat BU-04 belegt):** `timetable_solver_runs` um `label`, `params` (`{ effort, seed, weights, preset }`),
 `metrics`, `log` (≤ 50 Einträge), `cancel_requested`, `heartbeat_at`, `applied_by`/`applied_at`, `undo` (Spalte für SP-09) erweitert, Status-Enum
 um `queued`/`cancelled` (hinten angefügt, Vorgabe bleibt `running`); `timetable_lessons.solver_run_id` (`on delete set null`, Index) wird bei der
 Übernahme gesetzt. **Ausführung** (`solverlauf.ts`): `createRun` prüft die Eingabe (L-02: Zeitraster, Lehraufträge mit Gruppe, aktive Räume →

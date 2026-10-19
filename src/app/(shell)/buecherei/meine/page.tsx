@@ -55,7 +55,7 @@ function LibraryView({ lib, who, own }: { lib: Library; who: string; own: boolea
                   {day(l.dueOn)}
                   {l.overdue && (
                     <Badge tone="danger" className="ml-2">
-                      überfällig
+                      {l.dunningLevel > 0 ? `${l.dunningLevel}. Mahnung` : "überfällig"}
                     </Badge>
                   )}
                   {l.renewals > 0 && <span className="block text-xs text-muted">{l.renewals}-mal verlängert</span>}

@@ -20,6 +20,7 @@ import { runSprechtagReminders } from "@/modules/sprechtag/erinnerung";
 import { runKurswahlReminders } from "@/modules/kurswahl/erinnerung";
 import { purgeExpiredOfflineDevices } from "@/modules/notenbuch/offline";
 import { runReservations } from "@/modules/buecherei/reservations";
+import { runDunning } from "@/modules/buecherei/mahnungen";
 import { cleanupRuns, executeQueued } from "@/modules/stundenplan/solverlauf";
 
 export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
@@ -136,6 +137,18 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
       const m = MODULES.find((x) => x.id === "buecherei");
       if (!m || !isEnabled(m, await loadModuleStates(db))) return;
       return runReservations(db, toBerlinDate(now));
+    },
+  },
+  {
+    // BU-04: Erinnerung vor Fristende, Mahnstufen 1–3 (nur an Schultagen; Eltern Minderjähriger ab Stufe 2; Mail optional)
+    name: "buecherei-mahnungen",
+    at: "06:45",
+    until: "20:00",
+    ttlMs: 10 * 60_000,
+    run: async (db, now) => {
+      const m = MODULES.find((x) => x.id === "buecherei");
+      if (!m || !isEnabled(m, await loadModuleStates(db))) return;
+      return runDunning(db, toBerlinDate(now), { mail: mailAvailable(), school: (await readSchoolSettings(db)).name }, now);
     },
   },
 ];

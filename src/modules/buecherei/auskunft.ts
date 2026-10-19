@@ -12,7 +12,7 @@ export const buechereiAuskunft: ReadableExport = {
       {
         table: "ausleihen",
         purpose: "Schulbücherei: offene Ausleihen und Rückgaben mit Befund (ein Verlauf wird nicht gespeichert)",
-        categories: ["Titel", "Exemplar", "ausgeliehen", "fällig", "Verlängerungen", "Rückgabe mit Befund"],
+        categories: ["Titel", "Exemplar", "ausgeliehen", "fällig", "Verlängerungen", "Mahnstufe", "Rückgabe mit Befund"],
         rows: loans,
       },
       {
