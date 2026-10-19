@@ -66,7 +66,9 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 - Schulbuchausleihe: Zuordnung Exemplar ↔ Person nur im laufenden Schuljahr, nach Rücknahme entkoppelt.
 - Abgang: offene Ausleihen blockieren die Löschung nicht, erscheinen aber als Hinweis.
 - Auskunft (Art. 15) und Eigenexport: eigene offene Ausleihen, Vormerkungen, Forderungen.
-- Externe ISBN-Abfrage überträgt nur die ISBN; Vorgabe aus, im VVT als Empfänger genannt.
+- Externe ISBN-Abfrage überträgt nur die ISBN; Vorgabe aus, im VVT als Empfänger genannt. Umgesetzt (BU-06): Schalter
+  `buecherei.isbn` und je Quelle `buecherei.isbn_dnb`, `_lobid`, `_openlibrary` (nur mit `verwaltung.privacy`), Zeitlimit 5 s,
+  Zwischenspeicher im Arbeitsspeicher, Dublette ohne Anfrage nach außen, Hinweis „Externer Dienst“ vor dem Nachschlagen.
 
 ## Entscheidungen (Projektleitung 2026-10-17, Freigabe 2026-10-19)
 

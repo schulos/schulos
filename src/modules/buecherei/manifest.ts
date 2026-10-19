@@ -26,7 +26,8 @@ export default defineModule({
     beratung: ["buecherei.use"],
     verwaltung: ["buecherei.use", "buecherei.desk", "buecherei.stock", "buecherei.materials"],
   },
-  // BU-02: Leihfrist je Medienart, Verlängerungen; BU-03: Abholfrist, Vormerkungen je Person; BU-04: Erinnerung, Mahnabstand, Mail
+  // BU-02: Leihfrist je Medienart, Verlängerungen; BU-03: Abholfrist, Vormerkungen je Person; BU-04: Erinnerung, Mahnabstand, Mail;
+  // BU-06: ISBN-Abfrage (ab Werk aus) und ihre Quellen
   settings: BUECHEREI_SETTINGS,
   nav: [
     { href: "/buecherei", label: "Bücherei", requires: ["buecherei.use", "buecherei.desk", "buecherei.stock"] },
@@ -78,6 +79,7 @@ export default defineModule({
     recipients: [
       "Büchereiteam an der Theke (Recht „Theke“, auch Schüler-Helfer:innen): nur Name, Klasse und offene Ausleihen der Person; Mahnliste der überfälligen Ausleihen – Mahnstufen nur Erwachsene im Team",
       "Verwaltung mit „Schulbuchausleihe“: Rückgaben mit Befund",
+      "nur wenn die ISBN-Abfrage eingeschaltet ist (ab Werk aus, BU-06): öffentliche Bibliothekskataloge (Deutsche Nationalbibliothek, Verbundkatalog des Hochschulbibliothekszentrums NRW, Open Library) – sie erhalten vom Server nur die ISBN eines Titels, keine Personendaten",
       "die Person selbst („Meine Ausleihen“: offene Ausleihen und Vormerkungen; Erinnerung und Mahnungen als Benachrichtigung, optional Mail), Eltern minderjähriger Schüler:innen lesend und ab der 2. Mahnstufe als Benachrichtigung (optional Mail)",
     ],
     note: "Kein Ausleihverlauf je Person: Die Rückgabe ohne Befund löscht die Ausleihe sofort, es bleiben nur Zähler je Monat und Medienart ohne Personenbezug. Ausleihe und Rückgabe stehen nicht im Audit-Log, nur Befunde. Büchereiausweise tragen Name, Klasse und einen zufälligen Code ohne Namen oder Kontonummer; Ersatz macht den alten Code ungültig. Vormerkungen nur für ganz ausgeliehene Titel; andere sehen nur ihre Zahl, keine Namen – auch die Theke nicht (sie erfährt nur „liegt für eine andere Person bereit“). Erinnerungen und Mahnungen (Stufe 1–3, nur an Schultagen) nennen keinen Titel – welche Medien, steht nur nach der Anmeldung; Mahnungen werden nur gezählt (je Monat und Medienart), nicht je Person aufbewahrt. Keine Leseempfehlungen oder Auswertungen aus dem Ausleihverhalten: Die Statistik kennt nur Zähler je Monat und Medienart und je Exemplar (Zahl der Ausleihen, Monat der letzten), keine Personen.",
