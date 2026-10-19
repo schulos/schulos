@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
-import { Field, Input, Select } from "@schulos/ui/field";
+import { Field, FieldActions, Input, Select } from "@schulos/ui/field";
 
 type Option = { value: string; label: string };
 
@@ -29,7 +29,7 @@ export function RoomBlockForm({
       key={JSON.stringify(state.values ?? null) + String(state.ok ?? "")}
       action={formAction}
       aria-label="Raum sperren"
-      className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end"
+      className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
     >
       <Field label="Raum" error={fe.roomId}>
         <Select name="roomId" defaultValue={v.roomId ?? ""} required>
@@ -80,9 +80,11 @@ export function RoomBlockForm({
       <Field label="Ergänzung" error={fe.note}>
         <Input name="note" maxLength={80} defaultValue={v.note ?? ""} placeholder="z. B. Abiturklausur Mathe" />
       </Field>
-      <Button type="submit" variant="primary" disabled={pending}>
-        Raum sperren
-      </Button>
+      <FieldActions>
+        <Button type="submit" variant="primary" disabled={pending}>
+          Raum sperren
+        </Button>
+      </FieldActions>
       {state.error && (
         <p role="alert" className="text-sm text-danger sm:col-span-2 lg:col-span-4">
           {state.error}

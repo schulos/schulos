@@ -87,3 +87,21 @@ test("P4-74/Q5-12: Lehrkraft meldet Abwesenheit, hinterlegt Material, Schulleitu
   await expect(page.getByText("Keine Abwesenheit eingetragen")).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("#16: Felder im Formular „Abwesenheit melden“ stehen je Zeile auf einer Linie – mit und ohne Hinweis", async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await login(page, "jana.brandt");
+  await page.goto("/stundenplan/abwesenheit");
+  const form = page.getByRole("form", { name: "Abwesenheit melden" });
+  const top = async (loc: ReturnType<typeof form.getByLabel>) => Math.round((await loc.boundingBox())!.y);
+  const row1 = await Promise.all(["Grund", "von Tag", "bis Tag", "Ergänzung"].map((l) => top(form.getByLabel(l, { exact: true }))));
+  expect(new Set(row1).size, `Zeile 1: ${row1.join(", ")}`).toBe(1);
+  const row2 = await Promise.all([
+    top(form.getByLabel("ab Stunde", { exact: true })),
+    top(form.getByLabel("bis Stunde", { exact: true })),
+    top(form.getByRole("button", { name: "Abwesenheit melden" })),
+  ]);
+  expect(new Set(row2).size, `Zeile 2: ${row2.join(", ")}`).toBe(1);
+  expect(errors).toEqual([]);
+});

@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
-import { Field, Input, Select, Textarea } from "@schulos/ui/field";
+import { Field, FieldActions, Input, Select, Textarea } from "@schulos/ui/field";
 
 type Option = { value: string; label: string };
 
@@ -23,7 +23,7 @@ export function SelfAbsenceForm({
   const fe = state.fieldErrors ?? {};
   const v = state.ok ? {} : (state.values ?? {});
   return (
-    <form key={JSON.stringify(state)} action={formAction} aria-label="Abwesenheit melden" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+    <form key={JSON.stringify(state)} action={formAction} aria-label="Abwesenheit melden" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Field label="Grund" hint="Fortbildung und dienstlich genehmigt die Schulleitung" error={fe.reason}>
         <Select name="reason" defaultValue={v.reason ?? ""} required>
           <option value="">Grund wählen</option>
@@ -63,11 +63,11 @@ export function SelfAbsenceForm({
           ))}
         </Select>
       </Field>
-      <div>
+      <FieldActions>
         <Button type="submit" variant="primary" disabled={pending}>
           Abwesenheit melden
         </Button>
-      </div>
+      </FieldActions>
       {state.error && (
         <p role="alert" className="text-sm text-danger sm:col-span-2 lg:col-span-4">
           {state.error}

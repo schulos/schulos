@@ -6,7 +6,7 @@ import { subjects } from "@/core/db/schema";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card, CardHeader } from "@schulos/ui/card";
-import { Field, Input, Select } from "@schulos/ui/field";
+import { Field, FieldActions, Input, Select } from "@schulos/ui/field";
 import { Avatar, EmptyState, Kbd, PageHeader, Progress, SubjectBar } from "@schulos/ui/misc";
 import { ThemeSwitch } from "@schulos/ui/theme";
 
@@ -61,6 +61,26 @@ function Showcase({ subjectList }: { subjectList: { id: string; name: string; co
           </Field>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader title="Formular-Raster" />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="von Tag">
+            <Input type="date" />
+          </Field>
+          <Field label="bis Tag" hint="leer = nur ein Tag">
+            <Input type="date" />
+          </Field>
+          <Field label="ab Stunde" hint="leer = ganzer Tag">
+            <Select defaultValue="">
+              <option value="">ganzer Tag</option>
+            </Select>
+          </Field>
+          <FieldActions>
+            <Button variant="primary">Speichern</Button>
+          </FieldActions>
+        </div>
+      </Card>
 
       <Card>
         <CardHeader title="Personen & Fachfarben" />
