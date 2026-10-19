@@ -2,19 +2,28 @@
 # CI-01: PR erst mergen, wenn alle Prüfungen fertig sind und keine fehlgeschlagen/abgebrochen ist.
 # Ersatz für Branch-Protection (privates Repo ohne GitHub Pro: keine Pflicht-Prüfungen; `gh pr merge --auto` merged dann
 # sofort – so ist Gate-PR #28 vor Ende der CI gemergt worden). Nie `--auto` verwenden, immer dieses Skript.
-#   bash scripts/pr-merge.sh <PR-Nummer> [--max-minuten 90]
-# Regeln: der CI-Abschluss-Job „ergebnis“ muss dabei sein; „übersprungen“ zählt als grün; Gate-PRs (Titel „Gate…“) merged
-# nur die Projektleitung; gemerged wird genau der geprüfte Kopf-Commit (--match-head-commit). Filtert mit `gh --jq` (kein jq nötig).
+#   bash scripts/pr-merge.sh <PR-Nummer> [--max-minuten 90] [--gate]
+# Regeln: der CI-Abschluss-Job „ergebnis“ muss dabei sein; „übersprungen“ zählt als grün; Gate-PRs (Titel „Gate…“) nur mit
+# ausdrücklichem `--gate` (Projektleitung 2026-10-19: Gate-PRs bis auf Widerruf vom Agenten nach grüner CI mergen – nur, wenn
+# die Prüfliste des Gates trägt); gemerged wird genau der geprüfte Kopf-Commit (--match-head-commit). Filtert mit `gh --jq`.
 set -euo pipefail
-nr=${1:?Aufruf: bash scripts/pr-merge.sh <PR-Nummer> [--max-minuten 90]}
+nr=${1:?Aufruf: bash scripts/pr-merge.sh <PR-Nummer> [--max-minuten 90] [--gate]}
+shift
 max=90
-[ "${2:-}" = --max-minuten ] && max=${3:?Minuten fehlen}
+gate=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --max-minuten) max=${2:?Minuten fehlen}; shift 2 ;;
+    --gate) gate=1; shift ;;
+    *) echo "Unbekannte Option: $1"; exit 2 ;;
+  esac
+done
 
 info=$(gh pr view "$nr" --json state,isDraft,title,headRefOid -q '[.state, (.isDraft|tostring), .headRefOid, .title] | join("|")')
 IFS='|' read -r state draft head title <<<"$info"
 [ "$state" = OPEN ] || { echo "PR #$nr ist nicht offen ($state)"; exit 1; }
 [ "$draft" = false ] || { echo "PR #$nr ist ein Entwurf"; exit 1; }
-case "$title" in [Gg][Aa][Tt][Ee]*) echo "PR #$nr ist ein Gate-PR – den merged nur die Projektleitung"; exit 1 ;; esac
+case "$title" in [Gg][Aa][Tt][Ee]*) [ "$gate" = 1 ] || { echo "PR #$nr ist ein Gate-PR – mergen nur mit --gate (Freigabe der Projektleitung)"; exit 1; } ;; esac
 
 ende=$(( $(date +%s) + max * 60 ))
 while :; do

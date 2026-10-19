@@ -67,7 +67,8 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 - Abgang: offene Ausleihen blockieren die Löschung nicht, erscheinen aber als Hinweis.
 - Auskunft (Art. 15) und Eigenexport: eigene offene Ausleihen, Vormerkungen, Forderungen.
 - Externe ISBN-Abfrage überträgt nur die ISBN; Vorgabe aus, im VVT als Empfänger genannt. Umgesetzt (BU-06): Schalter
-  `buecherei.isbn` und je Quelle `buecherei.isbn_dnb`, `_lobid`, `_openlibrary` (nur mit `verwaltung.privacy`), Zeitlimit 5 s,
+  `buecherei.isbn` und je Quelle `buecherei.isbn_dnb`, `_lobid`, `_openlibrary` (nur mit `verwaltung.privacy`; GATE BU1: ab Werk nur
+  die beiden deutschen Kataloge, Open Library – Empfänger außerhalb der EU – ab Werk aus), Zeitlimit 5 s,
   Zwischenspeicher im Arbeitsspeicher, Dublette ohne Anfrage nach außen, Hinweis „Externer Dienst“ vor dem Nachschlagen.
 
 ## Entscheidungen (Projektleitung 2026-10-17, Freigabe 2026-10-19)
@@ -91,3 +92,26 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
     nicht das Büchereiteam.
 12. Ausleihen dürfen alle Rollen außer Eltern und Admin (`buecherei.use` ab Werk für Schüler:innen, Lehrkräfte, weiteres
     Personal, Beratung und Verwaltung).
+
+## GATE BU1 – Prüfliste Stufe 1 (2026-10-20)
+
+Umfang: BU-01, BU-02, BU-07, BU-03, BU-04, BU-05, BU-06 (PRs #24, #26, #28, #30, #34, #36, #38), Migrationen 0087, 0089–0091,
+0093, 0095; SICHERHEIT S73–S78; DSB-FRAGEN §18. Abnahme: Review-PR, nach grüner CI vom Agenten gemerged (Projektleitung
+2026-10-19: Gate-PRs bis auf Widerruf).
+
+| # | Prüfpunkt | Ergebnis |
+|---|---|---|
+| 1 | Nach Rückgabe ohne Befund sind alle Personendaten weg | ✅ Querschnittstest `gate-bu1.test.ts`: nach Vormerkung, Ausleihe, Erinnerung, 2. Mahnung (Eltern + Mail), Rückgabe, Nachrücken, Ausleihe an die Vormerkende und deren Rückgabe nennt keine Zeile einer `buecherei_*`-Tabelle die Personen – einzige Ausnahme der Ausweis (`buecherei_cards`: nur Konto, Code, angelegt am; `LK-KONTO`). Exemplar nur `loan_count`/`last_loan_month`, Zähler nur Monat/Medienart/Zahlen, kein Audit-Eintrag zu Ausleihe/Rückgabe. Dazu `loans.test.ts`, `statistik.test.ts`, `mahnungen.test.ts` |
+| 2 | Schüler-Helfer:innen sehen keine Mahnstufen und keine Befunde | ✅ `mahnungen.test.ts` „S76 …“ (Theke ohne Stufe, Mahnliste/Widget ohne Stufe für die Rolle Schüler:in), `loans.test.ts` „Rückgabe mit Befund …“ (Befunde nur `buecherei.materials`, Helfer:in `ForbiddenError`); Code-Review Seiten Theke/Mahnliste/Widget |
+| 3 | Gong, Benachrichtigungen und Mails nennen nie einen Titel | ✅ `mahnungen.test.ts` (Erinnerung, Stufen 1–3, Eltern, Mail), `katalog.test.ts` (Vormerkung bereit), `gate-bu1.test.ts` (alle Bücherei-Gongs und -Mails eines Durchlaufs); Code-Review: alle fünf `notify`/`enqueueMail`-Stellen nutzen feste Texte |
+| 4 | ISBN-Abfrage ab Werk aus, nur mit `verwaltung.privacy`, nur die ISBN nach außen | ✅ `isbn.test.ts` (Vorgabe aus, Recht je Schalter, nur ISBN in der Adresse, keine Cookies, Dublette ohne Anfrage), E2E BU-06 |
+| 5 | Open Library (außerhalb der EU) ab Werk aus | ✅ **umgestellt** (Entscheidung G-BU1-02, datensparsam): ab Werk nur Deutsche Nationalbibliothek und Verbundkatalog; Open Library einzeln zuschaltbar (dann als letzte Quelle), Hinweis „außerhalb der EU“ an der Einstellung. Test `isbn.test.ts` „GATE BU1 …“, E2E BU-06; VVT, DATENSCHUTZ §3.4, DSB-FRAGEN §18, SICHERHEIT S78, INSTALLATION §8.2 nachgezogen |
+| 6 | Code-Review `isbn.ts`, `loans.ts`, `mahnungen.ts` | ✅ ein echter Fehler behoben: **G-BU1-01** gleichzeitiges Verbuchen desselben Exemplars (zwei Theken, Doppelscan) endete als Serverfehler (Verletzung des eindeutigen Index) → jetzt Meldung „wurde gerade ausgeliehen“, genau eine Ausleihe, Zähler einmal (Test in `gate-bu1.test.ts`, ohne Fix rot). Sonst ohne Befund: Rechte in jedem Service, Mahnstufe/Verlängern/Vormerken mit bedingtem UPDATE bzw. eindeutigem Index, Termine als Berliner Datum, Fristen auf Schultage verschoben, Mahnungen nur an Schultagen; ISBN nur feste HTTPS-Ziele, Zeitlimit gesamt, Fehler → „nicht erreichbar“. Hinweise ohne Handlungsbedarf: Antwortgröße wird nach dem Lesen geprüft (begrenzt durch das Zeitlimit); eine gleichzeitige Rückgabe zweier Exemplare kann eine Vormerkung zu viel „bereit“ setzen (harmlos, die Theke prüft beim Ausleihen erneut) |
+| 7 | Volle Tests | ✅ `npm run check` grün (2140 Vitest in 293 Dateien), Build grün, volle E2E: 275 bestanden, 1 übersprungen; 3 Ausfälle unter Last (`offline-notenbuch.spec.ts:51` mit 5 Folgetests, `pinnwaende.spec.ts:4/56` – Anmeldung lief ins Zeitlimit, drei Agenten parallel) auf frisch geseedeter DB einzeln nachgeprüft: 9/9 grün, ohne Bezug zur Bücherei; CI grün (Gate-PR) |
+| 8 | Nur auf echter Hardware prüfbar | ⏳ offen für die Projektleitung, blockiert das Gate nicht: echtes Etikettenblatt (A4-Bogen) und Ausweiskarte drucken und mit einem Handscanner scannen (Code 128, Prüfziffer); Format am Etikettendrucker (62 × 29 / 54 × 25 mm, Browserdruck ohne Ränder) |
+| 9 | Modul ab Werk aus | ✅ bleibt so (`defaultEnabled: false`): Die Bücherei verarbeitet Ausleihen mit Personenbezug, braucht ein Büchereiteam und eine Belehrung (Baustein §18) – Schulen schalten sie bewusst ein; der Plan sagt nichts anderes |
+| 10 | Offene DSB-Fragen §18 | ⏳ bleiben offen, blockieren das Gate nicht: Schüler-Helfer:innen an der Theke (Belehrung genügt?), Eltern sehen Vormerkungen Minderjähriger, Elternmahnung ab Stufe 2, Mail-Mahnung ab Werk aus, Open Library zuschaltbar? |
+
+Für Stufe 2 (BU-10 ff.): Schulbücher haben eine eigene Zuordnung Exemplar ↔ Person im laufenden Schuljahr (nicht die
+Ausleihe der Stufe 1); Elternmahnung bei Schulbüchern von Anfang an (Entscheidung 4); Befunde/Ersatzforderungen hängen an
+`buecherei.materials` – die Rückgaben mit Befund aus Stufe 1 sind ihr Ausgangspunkt.

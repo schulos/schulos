@@ -7,7 +7,9 @@ import { writeModuleSetting, type ModuleSettingDecl } from "@/core/modules/setti
 import { ForbiddenError, loadPermissions } from "@/core/permissions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { newTitleFields } from "@/app/(shell)/buecherei/bestand/title-fields";
-import { ISBN_LOOKUP, ISBN_SOURCE_SETTINGS, LOOKUP_BUDGET_MS, clearIsbnCache, lookupIsbn, parseDnb, parseLobid, parseOpenLibrary, personName, yearOf, type FetchText } from "./isbn";
+import { like } from "drizzle-orm";
+import { appSettings } from "@/core/db/schema";
+import { ISBN_LOOKUP, ISBN_SOURCE_SETTINGS, LOOKUP_BUDGET_MS, clearIsbnCache, isbnLookupConfig, lookupIsbn, parseDnb, parseLobid, parseOpenLibrary, personName, yearOf, type FetchText } from "./isbn";
 import { MAX_COPIES_AT_ONCE } from "./service";
 import { BUECHEREI_SETTINGS } from "./settings";
 
@@ -79,6 +81,11 @@ describe("ISBN-Abfrage – rein", () => {
     expect(ISBN_LOOKUP.default).toBe("0");
     expect(ISBN_LOOKUP.permission).toBe("verwaltung.privacy");
     for (const s of Object.values(ISBN_SOURCE_SETTINGS)) expect(s.permission).toBe("verwaltung.privacy");
+    // GATE BU1: ab Werk nur die Kataloge in Deutschland; Open Library (außerhalb der EU) muss die Schule bewusst zuschalten
+    expect(ISBN_SOURCE_SETTINGS.dnb.default).toBe("1");
+    expect(ISBN_SOURCE_SETTINGS.lobid.default).toBe("1");
+    expect(ISBN_SOURCE_SETTINGS.openlibrary.default).toBe("0");
+    expect(ISBN_SOURCE_SETTINGS.openlibrary.help).toMatch(/außerhalb der EU/);
     const keys = BUECHEREI_SETTINGS.map((s) => s.key);
     expect(keys).toEqual(expect.arrayContaining(["buecherei.isbn", "buecherei.isbn_dnb", "buecherei.isbn_lobid", "buecherei.isbn_openlibrary"]));
   });
@@ -110,6 +117,21 @@ describe("ISBN-Abfrage", () => {
     const f = fakeFetch({});
     await expect(lookupIsbn(h.db, await p(SABINE), ISBN, { fetchImpl: f.impl })).rejects.toBeInstanceOf(ValidationError);
     expect(f.calls).toHaveLength(0);
+  });
+
+  it("GATE BU1: nur der Hauptschalter an → nur die deutschen Kataloge, Open Library (außerhalb der EU) wird nie gefragt", async () => {
+    await h.db.delete(appSettings).where(like(appSettings.key, "module.buecherei.isbn\\_%"));
+    const cfg = await isbnLookupConfig(h.db);
+    expect(cfg.sources.map((s) => s.id)).toEqual(["dnb", "lobid"]);
+    const f = fakeFetch({ "services.dnb.de": { body: DNB_EMPTY }, "lobid.org": { body: LOBID_EMPTY }, "openlibrary.org": { body: OPENLIB } });
+    expect(await lookupIsbn(h.db, await p(SABINE), ISBN, { fetchImpl: f.impl })).toMatchObject({ kind: "none" });
+    expect(f.calls.map((c) => new URL(c.url).host)).toEqual(["services.dnb.de", "lobid.org"]);
+    // bewusst zugeschaltet: als letzte Quelle
+    clearIsbnCache();
+    await set(ISBN_SOURCE_SETTINGS.openlibrary, "1");
+    const g = fakeFetch({ "services.dnb.de": { body: DNB_EMPTY }, "lobid.org": { body: LOBID_EMPTY }, "openlibrary.org": { body: OPENLIB } });
+    expect(await lookupIsbn(h.db, await p(SABINE), ISBN, { fetchImpl: g.impl })).toMatchObject({ kind: "found", source: "Open Library" });
+    expect(g.calls.map((c) => new URL(c.url).host)).toEqual(["services.dnb.de", "lobid.org", "openlibrary.org"]);
   });
 
   it("nur mit `buecherei.stock`; ungültige ISBN geht nicht raus", async () => {
