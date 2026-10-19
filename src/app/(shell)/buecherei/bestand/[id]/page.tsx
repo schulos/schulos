@@ -68,6 +68,11 @@ export default async function TitelPage({ params }: { params: Promise<{ id: stri
                         ausgesondert {day(c.withdrawnOn)}
                       </Badge>
                     )}
+                    {c.loanDueOn && (
+                      <Badge tone="soft" className="ml-2">
+                        ausgeliehen bis {day(c.loanDueOn)}
+                      </Badge>
+                    )}
                     {c.withdrawnReason && <span className="block text-xs text-muted">{c.withdrawnReason}</span>}
                   </td>
                   <td>{c.signature ?? "–"}</td>

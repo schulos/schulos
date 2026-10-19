@@ -624,6 +624,13 @@
       "when": 1792394367795,
       "tag": "0088_stundenplanung",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1792397512183,
+      "tag": "0089_buecherei_theke",
+      "breakpoints": true
     }
   ]
 }

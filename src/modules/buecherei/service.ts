@@ -4,7 +4,7 @@ import { and, count, eq, ilike, inArray, isNotNull, isNull, max, or, sql, type S
 import { audit } from "@/core/audit";
 import { detectSeparator, splitCsvLine } from "@/core/csv";
 import type { Db } from "@/core/db/client";
-import { buechereiCopies, buechereiTitles } from "@/core/db/schema";
+import { buechereiCopies, buechereiLoans, buechereiTitles } from "@/core/db/schema";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { COPY_CONDITIONS, MEDIA_TYPE_LABELS, MEDIA_TYPES, copyNumber, normalizeIsbn, type CopyCondition, type MediaType } from "./labels";
@@ -182,6 +182,8 @@ export async function withdrawCopy(db: Db, viewer: PermissionSet, copyId: string
   requireStock(viewer);
   const why = reason.trim();
   if (why.length < 2 || why.length > 200) throw new ValidationError({ reason: "Grund mit 2 bis 200 Zeichen" });
+  const [open] = await db.select({ id: buechereiLoans.id }).from(buechereiLoans).where(and(eq(buechereiLoans.copyId, copyId), isNull(buechereiLoans.returnedOn)));
+  if (open) throw new ValidationError({ reason: "Exemplar ist ausgeliehen – erst an der Theke zurückbuchen (bei Verlust mit Befund)" });
   const [r] = await db
     .update(buechereiCopies)
     .set({ withdrawnOn: today, withdrawnReason: why })
@@ -254,7 +256,16 @@ export async function getTitle(db: Db, viewer: PermissionSet, id: string) {
   requireStock(viewer);
   const [title] = await db.select().from(buechereiTitles).where(eq(buechereiTitles.id, id));
   if (!title) return null;
-  const copies = await db.select().from(buechereiCopies).where(eq(buechereiCopies.titleId, id)).orderBy(buechereiCopies.seq);
+  const rows = await db.select().from(buechereiCopies).where(eq(buechereiCopies.titleId, id)).orderBy(buechereiCopies.seq);
+  // BU-02: offene Ausleihe nur mit Fälligkeit, ohne Person
+  const loans = rows.length
+    ? await db
+        .select({ copyId: buechereiLoans.copyId, dueOn: buechereiLoans.dueOn })
+        .from(buechereiLoans)
+        .where(and(inArray(buechereiLoans.copyId, rows.map((c) => c.id)), isNull(buechereiLoans.returnedOn)))
+    : [];
+  const due = new Map(loans.map((l) => [l.copyId, l.dueOn]));
+  const copies = rows.map((c) => ({ ...c, loanDueOn: due.get(c.id) ?? null }));
   return { title, copies };
 }
 
