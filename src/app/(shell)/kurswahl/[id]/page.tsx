@@ -7,7 +7,7 @@ import type { KurswahlVerfahren } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { toBerlinDate } from "@/core/time";
 import { createAngebotAction, deleteAngebotAction, deleteVerfahrenAction, updateAngebotAction, updateVerfahrenAction } from "@/modules/kurswahl/actions";
-import { CHOOSER_LABEL, KIND_LABEL, MANAGE, STATE_LABEL, classesOfGrade, getVerfahren, listAngebote, neededChoices, offerShortage, rankLabel, verfahrenState, type AngebotView } from "@/modules/kurswahl/service";
+import { CHOOSER_LABEL, KIND_LABEL, MANAGE, STATE_LABEL, canViewKurswahl, classesOfGrade, getVerfahren, listAngebote, neededChoices, offerShortage, rankLabel, verfahrenState, type AngebotView } from "@/modules/kurswahl/service";
 import { formOptions, progress } from "@/modules/kurswahl/uebersicht";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -17,7 +17,7 @@ import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { AngebotForm, ConfirmButton, EMPTY_ANGEBOT, VerfahrenForm } from "../forms";
 import { WahlenPart } from "./wahlen";
 import { UebernahmePart } from "./uebernahme";
-import { ZuteilungPart } from "./zuteilung";
+import { ZuteilungPart, ZuteilungSummary } from "./zuteilung";
 
 export const metadata: Metadata = { title: "Kurswahl" };
 
@@ -27,14 +27,17 @@ const formatDay = (ymd: string) => dayFmt.format(new Date(`${ymd}T12:00:00Z`));
 export default async function KurswahlDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { perms } = await requireUser();
-  if (!hasPermission(perms, MANAGE)) notFound();
+  // SP-05: lesen mit `kurswahl.view` (Stundenplanung) – ohne Wahlen einzelner Schüler:innen und ohne Änderungen
+  if (!canViewKurswahl(perms)) notFound();
+  const manage = hasPermission(perms, MANAGE);
   const db = await getDb();
   const v = await getVerfahren(db, id);
   if (!v) notFound();
   const today = toBerlinDate(new Date());
   const state = verfahrenState(v, today);
   const [opts, offers, stats, classes] = await Promise.all([formOptions(db), listAngebote(db, v.id), progress(db, v), classesOfGrade(db, v.gradeLevel)]);
-  const locked = state === "uebernommen";
+  // ohne `manage` wie abgeschlossen: keine Formulare
+  const locked = state === "uebernommen" || !manage;
 
   return (
     <main className="flex flex-col gap-6">
@@ -46,7 +49,7 @@ export default async function KurswahlDetailPage({ params }: { params: Promise<{
             <Button asChild variant="ghost" size="sm">
               <Link href="/kurswahl">Alle Wahlverfahren</Link>
             </Button>
-            <ConfirmButton action={deleteVerfahrenAction.bind(null, v.id)} question={`„${v.title}“ mit allen Angeboten und Wahlen löschen?`} label="Löschen" ariaLabel="Wahlverfahren löschen" />
+            {manage && <ConfirmButton action={deleteVerfahrenAction.bind(null, v.id)} question={`„${v.title}“ mit allen Angeboten und Wahlen löschen?`} label="Löschen" ariaLabel="Wahlverfahren löschen" />}
           </>
         }
       />
@@ -129,9 +132,11 @@ export default async function KurswahlDetailPage({ params }: { params: Promise<{
 
       <Preview v={v} offers={offers} />
 
-      {offers.length > 0 && <WahlenPart perms={perms} v={v} offers={offers} state={state} />}
+      {manage && offers.length > 0 && <WahlenPart perms={perms} v={v} offers={offers} state={state} />}
 
-      {offers.length > 0 && <ZuteilungPart perms={perms} v={v} offers={offers} />}
+      {manage && offers.length > 0 && <ZuteilungPart perms={perms} v={v} offers={offers} />}
+
+      {!manage && offers.length > 0 && <ZuteilungSummary perms={perms} v={v} />}
 
       <UebernahmePart perms={perms} v={v} state={state} />
 

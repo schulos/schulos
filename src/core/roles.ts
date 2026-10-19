@@ -6,3 +6,24 @@
 // sieht selbst nur Erwachsene der Schule, Mitglieder eigener Gruppen und Personen mit bestehendem Chat; keine Fallakte.
 export const ROLES = ["schueler", "lehrkraft", "eltern", "personal", "beratung", "verwaltung", "admin"] as const;
 export type Role = (typeof ROLES)[number];
+
+/**
+ * SP-05 (FEINSCHLIFF L-01): Beschäftigte der Schule – alle außer Schüler:innen und Eltern. Sie sehen Stundenpläne aller Klassen,
+ * Lehrkräfte und Räume sowie die Raumbelegung (keine Schüler- oder Elterndaten). Ersetzt die verstreuten `STAFF`-Listen
+ * `["lehrkraft","verwaltung","admin"]` im Stundenplan-Umfeld, an denen Personal und Beratung mit 404 scheiterten.
+ */
+export const STAFF_ROLES = ["lehrkraft", "personal", "beratung", "verwaltung", "admin"] as const satisfies readonly Role[];
+
+export function isStaffRole(role: string): boolean {
+  return (STAFF_ROLES as readonly string[]).includes(role);
+}
+
+/**
+ * Rollen, die unterrichten bzw. Unterricht verwalten (Klassenbuch, Lehrkraft-Pläne). Personal und Beratung bewusst nicht:
+ * das Klassenbuch enthält Schülerdaten (Fehlzeiten, Bemerkungen).
+ */
+export const TEACHING_ROLES = ["lehrkraft", "verwaltung", "admin"] as const satisfies readonly Role[];
+
+export function isTeachingRole(role: string): boolean {
+  return (TEACHING_ROLES as readonly string[]).includes(role);
+}

@@ -5,13 +5,14 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
+import { isStaffRole } from "@/core/roles";
 import { groups, users } from "@/core/db/schema";
 import { dayOffLabel, loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, addDays, fromBerlinLocal, isoWeek, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { mergeCoupled, slotDisplay, type PlanView } from "@/modules/stundenplan/display";
 import { WEEKDAYS } from "@/modules/stundenplan/manage";
 import { myDutiesBetween, myDutyWeek } from "@/modules/stundenplan/aufsichten";
-import { canViewPlan, listSlots, regularSlots, timetableMasterData, weekOf, type LessonSlot, type PlanTarget } from "@/modules/stundenplan/service";
+import { canViewPlan, listSlots, seesAllPlans, regularSlots, timetableMasterData, weekOf, type LessonSlot, type PlanTarget } from "@/modules/stundenplan/service";
 import { Button } from "@schulos/ui/button";
 import { cn } from "@schulos/ui/cn";
 import { PrintButton } from "@schulos/ui/print-button";
@@ -61,7 +62,7 @@ export default async function StundenplanDruckPage({ searchParams }: { searchPar
     const [u] = await db.select({ name: users.name, code: users.shortCode, role: users.role }).from(users).where(eq(users.id, target.id));
     if (!u) notFound();
     title = u.code ? `${u.name} (${u.code})` : u.name;
-    view = target.kind === "teacher" || ["lehrkraft", "verwaltung", "admin"].includes(u.role) ? "teacher" : "student";
+    view = target.kind === "teacher" || isStaffRole(u.role) ? "teacher" : "student";
   } else {
     title = `Raum ${target.id}`;
     view = "room";
@@ -74,7 +75,7 @@ export default async function StundenplanDruckPage({ searchParams }: { searchPar
   const subtitle = regular ? `Regelplan · Stand ${fmt(ref)}` : `KW ${isoWeek(monday)} (${weekOf(monday)}-Woche) · ${fmt(monday)} – ${fmt(days[4]!)} · mit Vertretungen`;
 
   // Q5-09: Pausenaufsichten der Lehrkraft (eigener Plan oder Kollegium; Schüler:innen/Eltern sehen sie nicht)
-  const dutyTeacher = view === "teacher" && (target.kind === "teacher" || target.kind === "user") && (target.id === user.id || ["lehrkraft", "verwaltung", "admin"].includes(user.role)) ? target.id : null;
+  const dutyTeacher = view === "teacher" && (target.kind === "teacher" || target.kind === "user") && (target.id === user.id || seesAllPlans(perms)) ? target.id : null;
   const duties = !dutyTeacher
     ? []
     : regular

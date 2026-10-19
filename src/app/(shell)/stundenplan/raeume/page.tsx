@@ -12,7 +12,7 @@ import { ROOM_EQUIPMENT_LABELS, ROOM_KIND_LABELS } from "@/core/labels";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, fromBerlinLocal, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { bookableRooms, listRooms, occupancyOn, searchRooms, weekUtilization, type Occupancy } from "@/modules/stundenplan/raeume";
-import { timetableMasterData } from "@/modules/stundenplan/service";
+import { seesAllPlans, timetableMasterData } from "@/modules/stundenplan/service";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { cn } from "@schulos/ui/cn";
@@ -23,7 +23,6 @@ import { RoomBlockForm } from "./block-form";
 
 export const metadata: Metadata = { title: "Räume" };
 
-const STAFF = ["lehrkraft", "verwaltung", "admin"];
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 
@@ -62,10 +61,10 @@ function OccCell({ o }: { o: Occupancy | undefined }) {
 
 /** Raumsuche und Belegung aller Räume (Lehrkräfte, Verwaltung, Gebäude & Technik). */
 export default async function RaeumePage({ searchParams }: { searchParams: Promise<Search> }) {
-  const { user, perms } = await requireUser();
-  // Lehrkräfte/Verwaltung wie bisher; die Hausmeisterei (Recht `gebaeude.manage`, z. B. Rolle Personal) darf die Belegung lesen (Q5-08)
-  // – nur bei eingeschaltetem Gebäude-Modul (Modulsperre, Security-Review Gate 4a Hinweis 4)
-  if (!STAFF.includes(user.role) && !(hasPermission(perms, "gebaeude.manage") && (await moduleOn("gebaeude")))) notFound();
+  const { perms } = await requireUser();
+  // SP-05 (FEINSCHLIFF L-01): alle Beschäftigten (auch Personal/Hausmeisterei und Beratung, Q5-08) und wer plant – statt fester
+  // Rollenliste mit `gebaeude.manage`-Ausnahme. Schüler:innen und Eltern nicht (Belegung zeigt Lehrkraftkürzel).
+  if (!seesAllPlans(perms)) notFound();
   const sp = await searchParams;
   const db = await getDb();
   const today = toBerlinDate(new Date());

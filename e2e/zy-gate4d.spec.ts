@@ -62,12 +62,17 @@ test("Gate 4d: WP-I-Wahl 7b → Zuteilung → Gruppen → Kursraum", async ({ pa
   await uebernahme.getByRole("button", { name: "In Gruppen übernehmen" }).click();
   await expect(page.getByText("Übernommen – die Familien sehen jetzt ihren Kurs.")).toBeVisible();
   await expect(page.getByRole("row", { name: /7 Französisch G4d Jana Brandt 4 vorgeschlagen/ })).toBeVisible();
-  // SP-03: Lehraufträge legt die Stundenplanung an – das Sekretariat sieht nur den Hinweis. Demo: Wahlen und Planung in einer Hand
-  // hat nur die Administration (Gruppe Stundenplanung ohne `kurswahl.manage`).
+  // SP-03: Lehraufträge legt die Stundenplanung an – das Sekretariat sieht nur den Hinweis. SP-05: die Gruppe Stundenplanung liest
+  // die Kurswahl (`kurswahl.view`) und legt die Lehraufträge selbst an, ohne die Wahlen verwalten zu dürfen.
   await expect(page.getByText("Die vorgeschlagenen Lehraufträge legt die Stundenplanung an.")).toBeVisible();
   await logoutForSwitch(page);
-  await login(page, "admin");
+  await login(page, "frank.schulte");
   await page.goto(url);
+  // nur lesen: keine Wahlen einzelner Schüler:innen, kein Löschen, keine Einstellungen
+  await expect(page.getByRole("button", { name: "Wahlverfahren löschen" })).toHaveCount(0);
+  await expect(page.getByRole("form", { name: "Wahlverfahren speichern" })).toHaveCount(0);
+  await expect(page.getByText("Schäfer, Lea")).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /Französisch G4d 1 .* 1/ })).toBeVisible();
   await page.getByRole("button", { name: "Vorgeschlagene Lehraufträge anlegen" }).click();
   await expect(page.getByRole("row", { name: /7 Französisch G4d Jana Brandt 4 angelegt/ })).toBeVisible();
   await logoutForSwitch(page);

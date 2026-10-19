@@ -14,5 +14,8 @@ export const PLANNING_GROUP = {
   description: "Funktionsgruppe: Stundenplan planen und Vertretungen planen",
 } as const;
 
-/** Rechte der Funktionsgruppe */
-export const PLANNING_GROUP_PERMISSIONS = [PLAN_MANAGE, PLAN_SUBSTITUTE] as const;
+/** SP-05 (Projektleitung 2026-10-19): Kurswahlen lesen, um daraus Lehraufträge anzulegen (Recht des Moduls `kurswahl`) */
+export const KURSWAHL_VIEW = "kurswahl.view";
+
+/** Rechte der Funktionsgruppe (Migration 0088: die beiden Planungsrechte, Migration 0091 ff.: Kurswahl lesen) */
+export const PLANNING_GROUP_PERMISSIONS = [PLAN_MANAGE, PLAN_SUBSTITUTE, KURSWAHL_VIEW] as const;

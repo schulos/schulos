@@ -10,7 +10,7 @@ import { TZ, addDays, fromBerlinLocal, isoWeek, mondayOf, toBerlinDate, toBerlin
 import { plannableGroups, teacherOptions, WEEKDAYS } from "@/modules/stundenplan/manage";
 import { examIndex, examLabel, listExams, type ExamRow } from "@/modules/klausurplan/service";
 import { mergeCoupled, slotDisplay, type PlanView } from "@/modules/stundenplan/display";
-import { canViewPlan, listSlots, planOwners, timetableMasterData, weekOf, type LessonSlot, type PlanTarget } from "@/modules/stundenplan/service";
+import { canViewPlan, listSlots, seesAllPlans, planOwners, timetableMasterData, weekOf, type LessonSlot, type PlanTarget } from "@/modules/stundenplan/service";
 import { Button } from "@schulos/ui/button";
 import { cn } from "@schulos/ui/cn";
 import { Select } from "@schulos/ui/field";
@@ -19,7 +19,6 @@ import { PlanPicker } from "./plan-picker";
 
 export const metadata: Metadata = { title: "Stundenplan" };
 
-const STAFF = ["lehrkraft", "verwaltung", "admin"];
 const shortDate = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short", timeZone: TZ });
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 const fmt = (f: Intl.DateTimeFormat, ymd: string) => f.format(fromBerlinLocal(ymd));
@@ -61,7 +60,8 @@ export default async function StundenplanPage({ searchParams }: { searchParams: 
   const sp = await searchParams;
   const db = await getDb();
   const owners = await planOwners(db, perms);
-  const isStaff = STAFF.includes(user.role);
+  // SP-05: Auswahl aller Klassen/Lehrkräfte/Räume nach `seesAllPlans` (Beschäftigte + Planungsrecht) statt fester Rollenliste
+  const isStaff = seesAllPlans(perms);
 
   const target: PlanTarget | null = targetFrom(sp) ?? (owners[0] ? { kind: "user", id: owners[0].id } : null);
   if (target && !(await canViewPlan(db, perms, target))) notFound();

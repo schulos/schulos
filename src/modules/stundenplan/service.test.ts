@@ -4,7 +4,7 @@ import { timetableLessons } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { loadPermissions } from "@/core/permissions";
 import { listUsers } from "@/modules/verwaltung/users";
-import { canViewPlan, lessonActiveOn, listSlots, planOwners, regularSlots, weekOf } from "./service";
+import { canViewPlan, lessonActiveOn, listSlots, planOwners, regularSlots, seesAllPlans, weekOf } from "./service";
 
 const MO = "2026-10-05"; // Montag, KW 41 → A-Woche
 const NEXT_MO = "2026-10-12"; // KW 42 → B-Woche
@@ -90,6 +90,15 @@ describe("Stundenplan", () => {
     expect(await canViewPlan(h.db, m, { kind: "user", id: "u-lea.schaefer" })).toBe(true);
     expect(await canViewPlan(h.db, m, { kind: "user", id: fremd })).toBe(false);
     expect(await canViewPlan(h.db, await p("u-jana.brandt"), { kind: "room", id: "112" })).toBe(true);
+    // SP-05 (FEINSCHLIFF L-01): Personal (Hausmeisterei) und Beratung sind Beschäftigte – sehen alle Pläne; Schüler:innen/Eltern nicht
+    for (const u of ["u-klaus.berger", "u-nina.ostermann"]) {
+      const perms = await p(u);
+      expect(seesAllPlans(perms), u).toBe(true);
+      expect(await canViewPlan(h.db, perms, { kind: "group", id: "g-9a" }), u).toBe(true);
+      expect(await canViewPlan(h.db, perms, { kind: "teacher", id: "u-jana.brandt" }), u).toBe(true);
+    }
+    expect(seesAllPlans(lea)).toBe(false);
+    expect(seesAllPlans(m)).toBe(false);
   });
 
   it("Regelplan (Druck): A- und B-Woche zusammen, Gültigkeit am Stichtag, Tage der Stichtagswoche", async () => {

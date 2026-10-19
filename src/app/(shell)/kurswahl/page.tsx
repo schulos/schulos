@@ -5,7 +5,7 @@ import { getDb } from "@/core/db/client";
 import { hasPermission, type PermissionSet } from "@/core/permissions";
 import { addDays, toBerlinDate } from "@/core/time";
 import { createVerfahrenAction } from "@/modules/kurswahl/actions";
-import { KIND_LABEL, MANAGE, STATE_LABEL, listVerfahren, verfahrenState } from "@/modules/kurswahl/service";
+import { KIND_LABEL, MANAGE, STATE_LABEL, canViewKurswahl, listVerfahren, verfahrenState } from "@/modules/kurswahl/service";
 import { formOptions, progress } from "@/modules/kurswahl/uebersicht";
 import { Badge } from "@schulos/ui/badge";
 import { Card } from "@schulos/ui/card";
@@ -17,16 +17,17 @@ export const metadata: Metadata = { title: "Kurswahl" };
 
 export default async function KurswahlPage() {
   const { perms } = await requireUser();
-  const manage = hasPermission(perms, MANAGE);
+  // SP-05: `kurswahl.view` (Stundenplanung) sieht die Liste lesend, ohne „Wahlverfahren anlegen“
+  const staffView = canViewKurswahl(perms);
   return (
     <main className="flex flex-col gap-6">
-      <PageHeader eyebrow="Unterricht" title={manage ? "Kurswahlen" : "Kurswahl"} />
-      {manage ? <ManageList perms={perms} /> : <FamilyOverview perms={perms} />}
+      <PageHeader eyebrow="Unterricht" title={staffView ? "Kurswahlen" : "Kurswahl"} />
+      {staffView ? <ManageList perms={perms} manage={hasPermission(perms, MANAGE)} /> : <FamilyOverview perms={perms} />}
     </main>
   );
 }
 
-async function ManageList({ perms }: { perms: PermissionSet }) {
+async function ManageList({ perms, manage }: { perms: PermissionSet; manage: boolean }) {
   const db = await getDb();
   const today = toBerlinDate(new Date());
   const [list, opts] = await Promise.all([listVerfahren(db, perms), formOptions(db)]);
@@ -34,6 +35,12 @@ async function ManageList({ perms }: { perms: PermissionSet }) {
   const firstGrade = opts.grades.find((g) => g.value === "7")?.value ?? opts.grades[0]?.value ?? "";
   return (
     <>
+      {!manage && (
+        <p role="note" className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">
+          Nur lesen: Verfahren, Angebote und Zahlen. Wahlen einzelner Schüler:innen und Änderungen bleiben bei der Kurswahl-Verwaltung.
+        </p>
+      )}
+      {manage && (
       <Card aria-labelledby="neu">
         <h2 id="neu" className="text-base font-semibold">
           Wahlverfahren anlegen
@@ -62,6 +69,7 @@ async function ManageList({ perms }: { perms: PermissionSet }) {
           }}
         />
       </Card>
+      )}
       <section aria-labelledby="liste" className="flex flex-col gap-3">
         <h2 id="liste" className="font-display text-xl font-bold">
           Wahlverfahren

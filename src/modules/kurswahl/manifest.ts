@@ -1,4 +1,5 @@
 import { defineModule } from "@/core/modules/types";
+import { STAFF_ROLES } from "@/core/roles";
 
 export default defineModule({
   id: "kurswahl",
@@ -9,12 +10,14 @@ export default defineModule({
   order: 40,
   permissions: {
     "kurswahl.manage": "Wahlverfahren anlegen, Wahlen einsehen, Kurse zuteilen und in Gruppen übernehmen",
+    // SP-05: nur lesen, ohne Wahlen einzelner Schüler:innen – für die Stundenplanung (Lehraufträge aus der Kurswahl)
+    "kurswahl.view": "Kurswahlen lesen (Verfahren, Angebote, Zahlen, übernommene Gruppen – ohne Wahlen einzelner Schüler:innen)",
   },
   // gewählt wird per Rolle: Eltern minderjähriger Kinder bzw. Schüler:innen (je Verfahren), Volljährige selbst
   defaultGrants: { verwaltung: ["kurswahl.manage"] },
   nav: [
     { href: "/kurswahl", label: "Kurswahl", roles: ["schueler", "eltern"] },
-    { href: "/kurswahl", label: "Kurswahlen", requires: "kurswahl.manage", roles: ["lehrkraft", "verwaltung", "admin"] },
+    { href: "/kurswahl", label: "Kurswahlen", requires: ["kurswahl.manage", "kurswahl.view"], roles: [...STAFF_ROLES] },
   ],
   retention: [
     {

@@ -638,6 +638,13 @@
       "when": 1792401964232,
       "tag": "0090_buecherei_ausweis",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1792417847669,
+      "tag": "0091_kurswahl_lesen",
+      "breakpoints": true
     }
   ]
 }

@@ -371,7 +371,10 @@ Phase 2 als eigener Block folgen.
   Kurs, keine Wahlen anderer und keine Nachfrage. Gewählt wird je Verfahren von den Eltern (Minderjährige) oder von der
   Schüler:in (optional mit Eltern-Häkchen); Volljährige mit dem Kennzeichen „eigenständig“ wählen selbst, ihre Eltern sehen
   die Wahl nur mit Einwilligung und nur lesend (Q5-05). Alle Wahlen, Nachfrage und Zuteilung sieht nur, wer Kurswahlen
-  verwaltet. Die Zuteilung ist deterministisch (Wünsche, Kapazitäten, Mindestgröße, Los mit protokolliertem Seed) und je
+  verwaltet. Das Leserecht `kurswahl.view` (SP-05, Projektleitung 2026-10-19; Gruppe „Stundenplanung“, um Lehraufträge aus der
+  Kurswahl anzulegen) zeigt nur Verfahren, Angebote, Teilnehmerzahlen, Nachfrage und Zugeteilte **je Angebot** und die übernommenen
+  Gruppen – keine Wunschlisten, keine Zuteilung oder Begründung einzelner Schüler:innen, keine Übernahme-Vorschau (nennt Namen):
+  für Lehraufträge (Gruppe, Fach, Stunden, Lehrkraft) braucht es keine Personenebene (Datensparsamkeit, Art. 5 Abs. 1 lit. c). Die Zuteilung ist deterministisch (Wünsche, Kapazitäten, Mindestgröße, Los mit protokolliertem Seed) und je
   Person begründet; Korrekturen von Hand stehen im Protokoll ohne Namen. Keine Prüfung der Belegungsvorschriften der Oberstufe.
   Erinnerungen an Nichtwähler nur als Gong, ohne Namen anderer.
 - **Sitzpläne** (P5-01…P5-04): sehen und ändern nur Lehrkräfte der Lerngruppe und die Klassenleitung; im Klassenbuch-Eintrag zusätzlich, wer die Stunde an dem Tag hält (Vertretung). Schüler:innen, Eltern, Verwaltung und Admin ohne Bezug zur Gruppe sehen nichts (404). Am Platz Initialen, ein Foto nur als Profilbild mit Einwilligung (DS-09) und nur, solange die Moduleinstellung es erlaubt; der Druck enthält nie Fotos. Keine Bemerkungen zu Personen am Platz.

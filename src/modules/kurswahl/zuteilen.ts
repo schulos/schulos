@@ -6,7 +6,7 @@ import type { Db } from "@/core/db/client";
 import { kurswahlVerfahren, kurswahlWahlen, type KurswahlVerfahren, type KurswahlWahl } from "@/core/db/schema";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { MANAGE, getVerfahren, listAngebote, neededChoices, targetStudents } from "./service";
+import { MANAGE, VIEW, canViewKurswahl, getVerfahren, listAngebote, neededChoices, targetStudents } from "./service";
 import { allocate, demand, type AllocPlace, type AllocStudent, type AllocationResult, type Demand } from "./zuteilung";
 
 /** Eingaben der Zuteilung: Angebote, abgegebene Wahlen der Zielgruppe und Zuteilungen von Hand. */
@@ -132,7 +132,8 @@ export interface OfferStat {
 
 /** Statistik: Nachfrage je Angebot und Rang (abgegebene Wahlen der Zielgruppe) und aktuell Zugeteilte. */
 export async function statistics(db: Db, perms: PermissionSet, v: KurswahlVerfahren): Promise<OfferStat[]> {
-  if (!hasPermission(perms, MANAGE)) throw new ForbiddenError(MANAGE);
+  // nur Zahlen je Angebot – auch für `kurswahl.view` (SP-05)
+  if (!canViewKurswahl(perms)) throw new ForbiddenError(VIEW);
   const { offers, students, wahlen } = await inputs(db, v);
   // P4-67: Nachfrage über alle Plätze (je Platz eine Wunschliste)
   const lists = students.flatMap((s) => (s.places ?? [{ choices: s.choices }]).map((p) => ({ choices: p.choices })));

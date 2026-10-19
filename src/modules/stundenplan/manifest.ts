@@ -1,4 +1,5 @@
 import { defineModule } from "@/core/modules/types";
+import { STAFF_ROLES } from "@/core/roles";
 import { STUNDENPLAN_SETTINGS } from "./settings";
 
 export default defineModule({
@@ -22,9 +23,8 @@ export default defineModule({
   defaultGrants: {},
   nav: [
     { href: "/stundenplan", label: "Stundenplan" },
-    { href: "/stundenplan/raeume", label: "Räume", icon: "DoorOpen", roles: ["lehrkraft", "verwaltung", "admin"] },
-    // Hausmeisterei: Belegung lesen, um Arbeiten ohne Unterrichtsstörung zu planen (Q5-08)
-    { href: "/stundenplan/raeume", label: "Räume", icon: "DoorOpen", roles: ["personal"], requires: "gebaeude.manage", requiresModule: "gebaeude" },
+    // SP-05: alle Beschäftigten (auch Hausmeisterei/Personal und Beratung, Q5-08) – wie die Seite (`seesAllPlans`)
+    { href: "/stundenplan/raeume", label: "Räume", icon: "DoorOpen", roles: [...STAFF_ROLES] },
     // Q5-09: eigene Zahlen (Deputat, Vertretungsstunden), nur für die Lehrkraft selbst
     { href: "/stundenplan/deputat", label: "Mein Deputat", icon: "ListChecks", roles: ["lehrkraft"] },
     // P4-74: eigene Abwesenheit melden (krank sofort, Fortbildung/dienstlich mit Genehmigung) und Vertretungsmaterial hinterlegen

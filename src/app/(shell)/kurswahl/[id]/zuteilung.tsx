@@ -130,3 +130,43 @@ export async function ZuteilungPart({ perms, v, offers }: { perms: PermissionSet
     </section>
   );
 }
+
+/**
+ * SP-05: Lesesicht für `kurswahl.view` (Stundenplanung) – nur Zahlen je Angebot (Nachfrage über alle Wünsche, zugeteilt), keine
+ * Wahlen oder Zuteilungen einzelner Schüler:innen und kein Protokoll.
+ */
+export async function ZuteilungSummary({ perms, v }: { perms: PermissionSet; v: KurswahlVerfahren }) {
+  const db = await getDb();
+  const stats = await statistics(db, perms, v);
+  return (
+    <section aria-labelledby="zuteilung" className="flex flex-col gap-3">
+      <h2 id="zuteilung" className="font-display text-xl font-bold">
+        Nachfrage und Zuteilung
+      </h2>
+      <Table>
+        <thead>
+          <tr>
+            <th>Angebot</th>
+            <th>Wünsche</th>
+            <th>Plätze</th>
+            <th>zugeteilt</th>
+          </tr>
+        </thead>
+        <tbody>
+          {stats.map((s) => (
+            <tr key={s.id}>
+              <td>{s.title}</td>
+              <td className="tabular-nums">{s.demand.total}</td>
+              <td className="tabular-nums">
+                {s.minSize > 0 ? `${s.minSize}–` : ""}
+                {s.maxSize ?? "∞"}
+              </td>
+              <td className="tabular-nums">{v.allocatedAt ? s.assigned : "–"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+      <p className="text-sm text-muted">{v.allocatedAt ? `Zuteilung berechnet am ${stamp.format(v.allocatedAt)}.` : "Noch keine Zuteilung berechnet."}</p>
+    </section>
+  );
+}

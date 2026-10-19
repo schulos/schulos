@@ -167,3 +167,46 @@ describe("Planungsrechte (SP-02)", () => {
     }
   });
 });
+
+describe("Kurswahl lesen für die Funktionsgruppe (SP-05, Migration 0091)", () => {
+  const migration0091 = () => readFileSync(join(process.cwd(), "drizzle", "0091_kurswahl_lesen.sql"), "utf8");
+  const viewGrants = async (db: Db) =>
+    (await db.select({ g: grants.groupId, r: grants.role }).from(grants).where(eq(grants.permission, "kurswahl.view"))).map((x) => x.g ?? `rolle:${x.r}`).sort();
+
+  it("neue Installation: nur die Funktionsgruppe bekommt `kurswahl.view`; erneuter Lauf ändert nichts", async () => {
+    const h = await createTestDb();
+    try {
+      expect(await viewGrants(h.db)).toEqual([PLANNING_GROUP.id]);
+      const before = await h.db.select({ n: sql<number>`count(*)` }).from(grants);
+      await h.db.execute(sql.raw(migration0091()));
+      expect(await viewGrants(h.db)).toEqual([PLANNING_GROUP.id]);
+      expect(await h.db.select({ n: sql<number>`count(*)` }).from(grants)).toEqual(before);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("eine eigene Gruppe „stundenplanung“ der Schule (andere ID) bekommt kein Recht", async () => {
+    const h = await createTestDb();
+    try {
+      await h.db.delete(grants).where(eq(grants.permission, "kurswahl.view"));
+      await h.db.delete(groups).where(eq(groups.id, PLANNING_GROUP.id));
+      await h.db.insert(groups).values({ id: "g-eigene", name: "Stundenplanung (eigene)", slug: "stundenplanung", kind: "frei" });
+      await h.db.execute(sql.raw(migration0091()));
+      expect(await viewGrants(h.db)).toEqual([]);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("Demo: frank.schulte liest Kurswahlen, verwaltet sie aber nicht", async () => {
+    const h = await createSeededTestDb();
+    try {
+      const frank = await loadPermissions(h.db, "u-frank.schulte");
+      expect(hasPermission(frank, "kurswahl.view")).toBe(true);
+      expect(hasPermission(frank, "kurswahl.manage")).toBe(false);
+    } finally {
+      await h.close();
+    }
+  }, 60_000);
+});
