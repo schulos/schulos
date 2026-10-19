@@ -1,7 +1,7 @@
 // Schulbücherei – Bestand (BU-01): Büchereiteam legt einen Titel mit Exemplaren an, ergänzt und sondert aus, prüft einen
 // CSV-Import in der Vorschau; Lehrkraft ohne Teamrecht bekommt 404. Theke (BU-02): Person suchen, scannen, verlängern,
 // Rückgabe nur scannen, Rückgabe mit Befund; Befunde nur für die Verwaltung. Ausweise (BU-07): drucken, scannen, ersetzen.
-// Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht. Mahnliste und Widget (BU-04). Etiketten und Statistik (BU-05).
+// Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht. Mahnliste und Widget (BU-04). Etiketten und Statistik (BU-05). ISBN-Abfrage (BU-06) ohne Netz: Schalter, Hinweis, Dublette, ungültige ISBN.
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch } from "./helpers";
 
@@ -341,5 +341,50 @@ test.describe("Bücherei", () => {
     expect((await page.goto("/buecherei/etiketten"))?.status()).toBe(404);
     expect((await page.goto("/druck/buecherei-etiketten?quelle=warteschlange"))?.status()).toBe(404);
     await logoutForSwitch(page);
+  });
+  test("BU-06: ISBN-Abfrage ab Werk aus; eingeschaltet mit Hinweis „Externer Dienst“, Dublette ohne Anfrage nach außen", async ({ browser }) => {
+    test.setTimeout(90_000);
+    const SETTING = "ISBN-Abfrage bei Bibliothekskatalogen";
+    const admin = await (await browser.newContext()).newPage();
+    const team = await (await browser.newContext()).newPage();
+    const errors = collectErrors(team);
+    await login(admin, "admin");
+    await login(team, "aylin.demir");
+
+    // ab Werk aus: keine Karte
+    await team.goto("/buecherei/bestand");
+    await expect(team.getByRole("heading", { name: "Per ISBN nachschlagen" })).toHaveCount(0);
+
+    const settings = async (value: "0" | "1") => {
+      await admin.goto("/verwaltung/rechte");
+      const select = admin.getByRole("region", { name: "Einstellungen Bücherei" }).getByLabel(SETTING);
+      await expect(select).toHaveValue(value === "1" ? "0" : "1");
+      await select.selectOption(value);
+      await admin.reload();
+      await expect(admin.getByRole("region", { name: "Einstellungen Bücherei" }).getByLabel(SETTING)).toHaveValue(value);
+    };
+    await settings("1");
+    try {
+      await team.goto("/buecherei/bestand");
+      await expect(team.getByRole("heading", { name: "Per ISBN nachschlagen" })).toBeVisible();
+      await expect(team.getByText("Externer Dienst:")).toBeVisible();
+      await expect(team.getByText(/services\.dnb\.de/)).toBeVisible();
+      const form = team.getByRole("form", { name: "ISBN nachschlagen" });
+      // ungültige Prüfziffer → Fehler am Feld, nichts geht raus
+      await form.getByLabel("ISBN").fill("978-3-00-000001-1");
+      await form.getByRole("button", { name: "Nachschlagen" }).click();
+      await expect(form.getByText("keine gültige ISBN (Prüfziffer)")).toBeVisible();
+      // Dublette im eigenen Bestand → Hinweis mit Link, ohne externe Anfrage
+      await form.getByLabel("ISBN").fill("978-3-00-000001-0");
+      await form.getByRole("button", { name: "Nachschlagen" }).click();
+      await expect(team.getByRole("status").filter({ hasText: "gehört schon zu „Die Nacht im Leuchtturm“" })).toBeVisible();
+      await team.getByRole("link", { name: "dort weitere Exemplare anlegen" }).click();
+      await expect(team.getByRole("heading", { name: "Die Nacht im Leuchtturm" })).toBeVisible();
+      expect(errors).toEqual([]);
+    } finally {
+      await settings("0"); // gemeinsame E2E-Datenbank: zurück auf die Vorgabe
+    }
+    await admin.context().close();
+    await team.context().close();
   });
 });

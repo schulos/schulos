@@ -1150,6 +1150,19 @@ Läuft vor jedem getaggten Release (`release.yml`) und von Hand (`ci.yml`, workf
 | `SCHULOS_SOURCE_URL` | Ziel des Links „Quellcode (AGPL)“ auf der Anmeldeseite und im Benutzermenü (AGPL § 13) – **Pflicht für veränderte Fassungen**: das eigene Repo (nur `https://`). Vorgabe: der Stand der laufenden Version in `schulos/schulos` |
 | `SCHULOS_ISSUE_URL` | Ziel von „Problem melden“ im Benutzermenü (nur Verwaltung/Admin, nur `https://`). Vorgabe: Fehler-Formular in `schulos/schulos` mit Version und Bereich (Seitenpfad ohne IDs/Namen); ein eigener Tracker wird unverändert verlinkt. Es wird nichts automatisch gesendet |
 
+### 8.2 Ausgehende Verbindungen
+
+SchulOS braucht im Betrieb keinen Internetzugang. Nur zwei abschaltbare Funktionen rufen von sich aus nach außen (HTTPS, Port 443):
+
+| Funktion | Ziel | Was übertragen wird | Schalter |
+|---|---|---|---|
+| Ferienabruf (B-20, nächtlich oder auf Knopfdruck) | `openholidaysapi.org` (oder `SCHULOS_HOLIDAYS_URL`) | Bundesland und Zeitraum | Verwaltung → Stammdaten, „Automatischer Abruf“; `SCHULOS_JOBS=0` stoppt alle Hintergrundjobs |
+| ISBN-Abfrage der Bücherei (BU-06, nur auf Knopfdruck) | `services.dnb.de`, `lobid.org`, `openlibrary.org` (der Reihe nach) | nur die ISBN | `buecherei.isbn` (ab Werk aus) und je Quelle, Verwaltung → Rechte & Module → Bücherei |
+
+Im **Schulnetz ohne Außenzugang** schlagen beide ohne Absturz fehl (ISBN: Hinweis „nicht erreichbar“ nach höchstens 5 s); für die
+Firewall genügt eine Freigabe genau dieser Ziele. Muss der Server über einen Proxy ins Internet, `HTTPS_PROXY=http://proxy:port`
+und `NODE_USE_ENV_PROXY=1` in `schulos.env` setzen (Node nutzt den Proxy sonst nicht).
+
 **Backupserver (Stand B-22):** Image `docker build -f apps/backup/Dockerfile -t schulos-backup .` (aus dem Repo-Root), Port 3100,
 Daten unter `/srv/schulos-backup/{db,config}`. Konfiguration `backup.env` im Config-Verzeichnis mit denselben `SCHULOS_ADMIN_*`-Variablen
 wie oben (Erststart legt das Admin-Konto an, ohne sie bricht der Start ab) und `BETTER_AUTH_URL`; `secret.env` entsteht beim ersten

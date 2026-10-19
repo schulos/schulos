@@ -1,4 +1,5 @@
 import { defineSetting, type ModuleSettingDecl } from "@/core/modules/settings";
+import { ISBN_SETTINGS } from "./isbn";
 import { MEDIA_TYPE_LABELS, MEDIA_TYPES, type MediaType } from "./labels";
 
 // Schulbücherei – Moduleinstellungen (BU-02): Leihfrist je Medienart und wie oft verlängert werden darf. Keine Löschfristen –
@@ -104,4 +105,4 @@ export const DUNNING_MAIL = defineSetting({
   default: "0",
 });
 
-export const BUECHEREI_SETTINGS: readonly ModuleSettingDecl[] = [...MEDIA_TYPES.map((m) => LOAN_DAYS[m]), MAX_RENEWALS, HOLD_DAYS, MAX_RESERVATIONS, REMIND_DAYS, DUNNING_DAYS, DUNNING_MAIL];
+export const BUECHEREI_SETTINGS: readonly ModuleSettingDecl[] = [...MEDIA_TYPES.map((m) => LOAN_DAYS[m]), MAX_RENEWALS, HOLD_DAYS, MAX_RESERVATIONS, REMIND_DAYS, DUNNING_DAYS, DUNNING_MAIL, ...ISBN_SETTINGS];

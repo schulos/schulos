@@ -5,7 +5,8 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { createTitleAction, importTitlesAction } from "@/modules/buecherei/actions";
 import { MEDIA_TYPE_LABELS, MEDIA_TYPES, formatIsbn, type MediaType } from "@/modules/buecherei/labels";
-import { MAX_COPIES_AT_ONCE, canStock, listTitles, stockSummary } from "@/modules/buecherei/service";
+import { isbnLookupConfig } from "@/modules/buecherei/isbn";
+import { canStock, listTitles, stockSummary } from "@/modules/buecherei/service";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card, CardHeader } from "@schulos/ui/card";
@@ -14,6 +15,8 @@ import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { SpecForm } from "@/ui/spec-form";
 import { BuechereiNav } from "../ui";
+import { IsbnLookup } from "./isbn-lookup";
+import { newTitleFields } from "./title-fields";
 
 export const metadata: Metadata = { title: "Bücherei-Bestand" };
 
@@ -29,7 +32,7 @@ export default async function BestandPage({ searchParams }: { searchParams: Prom
   const sp = await searchParams;
   const mediaType = MEDIA_TYPES.find((k): k is MediaType => k === sp.art);
   const q = sp.q?.trim() ?? "";
-  const [titles, sum] = await Promise.all([listTitles(db, perms, { q, mediaType, withdrawn: sp.alle === "1" }), stockSummary(db, perms)]);
+  const [titles, sum, isbn] = await Promise.all([listTitles(db, perms, { q, mediaType, withdrawn: sp.alle === "1" }), stockSummary(db, perms), isbnLookupConfig(db)]);
   const filtered = !!(q || mediaType);
 
   return (
@@ -103,6 +106,13 @@ export default async function BestandPage({ searchParams }: { searchParams: Prom
         </Table>
       )}
 
+      {isbn.enabled && (
+        <Card aria-labelledby="isbn-abfrage">
+          <CardHeader title={<span id="isbn-abfrage">Per ISBN nachschlagen</span>} />
+          <IsbnLookup sources={isbn.sources.map((x) => `${x.label} (${x.host})`)} />
+        </Card>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card aria-labelledby="titel-anlegen">
           <CardHeader title={<span id="titel-anlegen">Titel anlegen</span>} />
@@ -110,19 +120,7 @@ export default async function BestandPage({ searchParams }: { searchParams: Prom
             action={createTitleAction}
             label="Titel anlegen"
             submit="Anlegen"
-            fields={[
-              { name: "title", label: "Titel", type: "text", required: true, maxLength: 200, wide: true },
-              { name: "author", label: "Autor:in", type: "text", maxLength: 120 },
-              { name: "isbn", label: "ISBN", type: "text", maxLength: 20, hint: "ISBN-10 oder -13, Prüfziffer wird geprüft" },
-              { name: "mediaType", label: "Medienart", type: "select", options: MEDIA_OPTIONS, defaultValue: "buch" },
-              { name: "publisher", label: "Verlag", type: "text", maxLength: 120 },
-              { name: "year", label: "Jahr", type: "number", min: 1450, max: 2100 },
-              { name: "ageFrom", label: "Altersempfehlung ab", type: "number", min: 0, max: 21, hint: "Jahre" },
-              { name: "keywords", label: "Schlagwörter", type: "text", maxLength: 300, wide: true, hint: "durch Komma getrennt" },
-              { name: "count", label: "Exemplare", type: "number", min: 0, max: MAX_COPIES_AT_ONCE, defaultValue: "1", hint: "Exemplarnummern vergibt SchulOS" },
-              { name: "signature", label: "Signatur", type: "text", maxLength: 40 },
-              { name: "location", label: "Standort", type: "text", maxLength: 80, wide: true, placeholder: "z. B. Regal 3, Jugendbuch" },
-            ]}
+            fields={newTitleFields()}
           />
         </Card>
         <Card aria-labelledby="import">

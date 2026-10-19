@@ -10,6 +10,7 @@ import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { classMemberIds, ensureCards, replaceCard } from "./cards";
 import { markLabelsPrinted, markQueuePrinted, requeueLabel } from "./etiketten";
+import { lookupIsbn } from "./isbn";
 import { checkin, renewLoan, renewOwnLoan, resolveFinding, scanAtDesk } from "./loans";
 import { cancelReservation, reserve } from "./reservations";
 import { MAX_TITLE_CSV_BYTES, addCopies, createTitle, deleteTitle, importTitles, restoreCopy, updateCopy, updateTitle, withdrawCopy, type TitleInput } from "./service";
@@ -278,4 +279,39 @@ export async function requeueLabelAction(copyId: string): Promise<void> {
   const { perms } = await requireUser();
   await requeueLabel(await getDb(), perms, copyId);
   revalidatePath("/buecherei", "layout");
+}
+
+// ---------------------------------------------------------------- ISBN-Abfrage (BU-06)
+
+/**
+ * Titelangaben zu einer ISBN nachschlagen (nur wenn eingeschaltet): Ergebnis als Vorschlag in `values` – angelegt wird erst
+ * über das Formular, nach Prüfung durch das Team. Bei einer Dublette geht nichts nach außen.
+ */
+export async function lookupIsbnAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const isbn = String(form.get("isbn") ?? "");
+  try {
+    const r = await lookupIsbn(await getDb(), perms, isbn);
+    if (r.kind === "found") {
+      const s = r.suggestion;
+      return {
+        ok: true,
+        values: {
+          kind: "found",
+          source: r.source,
+          isbn: s.isbn,
+          title: s.title,
+          author: s.author ?? "",
+          publisher: s.publisher ?? "",
+          year: s.year ? String(s.year) : "",
+          result: `Vorschlag aus: ${r.source}${r.cached ? " (zwischengespeichert)" : ""} – bitte prüfen und ergänzen`,
+        },
+      };
+    }
+    if (r.kind === "duplicate") return { ok: true, values: { kind: "duplicate", titleId: r.titleId, title: r.title, result: `Diese ISBN gehört schon zu „${r.title}“` } };
+    if (r.kind === "none") return { ok: true, values: { kind: "none", isbn, result: `Nichts gefunden (gefragt: ${r.asked.join(", ")}) – bitte von Hand anlegen` } };
+    return { ok: true, values: { kind: "unreachable", isbn, result: "Bibliothekskataloge nicht erreichbar (kein Internetzugang oder Zeitüberschreitung) – bitte von Hand anlegen" } };
+  } catch (err) {
+    return fail(err, form);
+  }
 }
