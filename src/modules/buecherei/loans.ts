@@ -209,6 +209,11 @@ export async function checkout(db: Db, viewer: PermissionSet, userId: string, ra
     const tx = raw as unknown as Db;
     await tx.insert(buechereiLoans).values({ copyId: copy.id, userId, loanedOn: today, dueOn });
     await bumpStats(tx, today, copy.mediaType, "loans");
+    // BU-05: Nutzung je Exemplar (Zahl und Monat der letzten Ausleihe) – ohne Person
+    await tx
+      .update(buechereiCopies)
+      .set({ loanCount: sql`${buechereiCopies.loanCount} + 1`, lastLoanMonth: today.slice(0, 7) })
+      .where(eq(buechereiCopies.id, copy.id));
     if (reservation) await tx.delete(buechereiReservations).where(eq(buechereiReservations.id, reservation.id));
   });
   return { title: copy.title, barcode: copy.barcode, dueOn };

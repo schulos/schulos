@@ -416,9 +416,7 @@ mal Mathe werden, gerade wenn es eine Lehrkraft gibt, die frei ist und die Klass
 kein Fach; alle Anzeigen nehmen das Fach der regulären Stunde.
 
 | Baustein | Umsetzung (so einfach wie möglich – ein Feld, kein neuer `kind`) |
-|**Umgesetzt (SP-12, Migration 0095):** Spalte `subject_id` + Check `timetable_substitutions_subject`; `listSlots` setzt bei Fachtausch Fach/Farbe des Slots auf das tatsächliche Fach (außer in der Sicht „away“ der abgebenden Lehrkraft) und trägt `change.insteadOf`; `slotDisplay` zeigt darunter „statt Sport“, `substitutionsOn`/Vertretungsplan/Druck „Mathe statt Sport“, Monitor „Mathe (statt Sport)“, Gong „Vertretung Mo., 3. Std: Mathe statt Sport (7b)“. Vorschlag: `suggestedSubject` = Fach mit den meisten Wochenstunden der Lehrkraft in der Gruppe (A/B halb), zweiter Knopf „→ Mathe“ neben „übernehmen“. Klassenbuch-Eintrag mit tatsächlichem Fach (auch Kopplungsteile; Fehlzeiten je Fach folgen). Zähler „davon mit eigenem Fach“ in Statistik (Lehrkräfte + Klassen) und Mein Deputat. Klausur-Hinweis: `examSubjectsOn()` (nur Fach + Art, keine Titel). Notenbuch/Verteilung/Solver unberührt.
-
----|---|
+|---|---|
 | Datenmodell | `timetable_substitutions.subject_id` nullable, FK `subjects.id`; leer = reguläres Fach; Check `subject_id is null or kind = 'substitute'` (bei Entfall/Raumänderung serverseitig `null`). Migration: nächste freie Nummer. Löschklasse folgt der Vertretung |
 | Speichern | `SubstitutionInput.subjectId`; Fach muss existieren, gleiches Fach wie die Stunde → `null`; bei Kopplungen für alle Teile derselben Lehrkraft; Audit nennt das Fach |
 | Formular | Feld „Fach“ (Vorgabe reguläres Fach) neben „Vertretung durch“, nur bei Vertretung aktiv; Hinweis, wenn die Gruppe an dem Tag eine Klausur im gewählten Fach hat |
@@ -429,6 +427,8 @@ kein Fach; alle Anzeigen nehmen das Fach der regulären Stunde.
 | Statistik | Zähler „davon mit eigenem Fach“ in Vertretungsstatistik und Mein Deputat (rein informativ) |
 | Ohne Wirkung | Notenbuch (hängt an Lehraufträgen), Unterrichtsverteilung, Solver |
 | Bewusst nicht | eigener `kind` „Fachtausch“, Fachwechsel bei Entfall/Raumänderung, Verrechnung im Deputat, automatische Übernahme des Vorschlags |
+
+**Umgesetzt (SP-12, Migration 0096):** Spalte `subject_id` + Check `timetable_substitutions_subject`; `listSlots` setzt bei Fachtausch Fach/Farbe des Slots auf das tatsächliche Fach (außer in der Sicht „away“ der abgebenden Lehrkraft) und trägt `change.insteadOf`; `slotDisplay` zeigt darunter „statt Sport“, `substitutionsOn`/Vertretungsplan/Druck „Mathe statt Sport“, Monitor „Mathe (statt Sport)“, Gong „Vertretung Mo., 3. Std: Mathe statt Sport (7b)“. Vorschlag: `suggestedSubject` = Fach mit den meisten Wochenstunden der Lehrkraft in der Gruppe (A/B halb), zweiter Knopf „→ Mathe“ neben „übernehmen“. Klassenbuch-Eintrag mit tatsächlichem Fach (auch Kopplungsteile; Fehlzeiten je Fach folgen). Zähler „davon mit eigenem Fach“ in Statistik (Lehrkräfte + Klassen) und Mein Deputat. Klausur-Hinweis: `examSubjectsOn()` (nur Fach + Art, keine Titel). Notenbuch/Verteilung/Solver unberührt.
 
 ---
 

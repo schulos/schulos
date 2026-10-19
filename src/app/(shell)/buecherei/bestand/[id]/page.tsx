@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
-import { addCopiesAction, deleteTitleAction, restoreCopyAction, updateCopyAction, updateTitleAction, withdrawCopyAction } from "@/modules/buecherei/actions";
+import { addCopiesAction, deleteTitleAction, requeueLabelAction, restoreCopyAction, updateCopyAction, updateTitleAction, withdrawCopyAction } from "@/modules/buecherei/actions";
 import { CONDITION_LABELS, COPY_CONDITIONS, MEDIA_TYPE_LABELS, MEDIA_TYPES, formatIsbn } from "@/modules/buecherei/labels";
 import { MAX_COPIES_AT_ONCE, canStock, getTitle } from "@/modules/buecherei/service";
 import { Badge } from "@schulos/ui/badge";
@@ -43,7 +43,10 @@ export default async function TitelPage({ params }: { params: Promise<{ id: stri
       </p>
 
       <Card aria-labelledby="exemplare">
-        <CardHeader title={<span id="exemplare">Exemplare</span>} />
+        <CardHeader
+          title={<span id="exemplare">Exemplare</span>}
+          action={active.length > 0 ? { href: `/druck/buecherei-etiketten?titel=${t.id}`, label: "Etiketten drucken" } : undefined}
+        />
         {copies.length === 0 ? (
           <p className="text-sm text-muted">Noch keine Exemplare.</p>
         ) : (
@@ -62,7 +65,7 @@ export default async function TitelPage({ params }: { params: Promise<{ id: stri
               {copies.map((c) => (
                 <tr key={c.id}>
                   <td className="font-mono tabular-nums">
-                    {c.barcode}
+                    <span>{c.barcode}</span>
                     {c.withdrawnOn && (
                       <Badge tone="neutral" className="ml-2">
                         ausgesondert {day(c.withdrawnOn)}
@@ -71,6 +74,11 @@ export default async function TitelPage({ params }: { params: Promise<{ id: stri
                     {c.loanDueOn && (
                       <Badge tone="soft" className="ml-2">
                         ausgeliehen bis {day(c.loanDueOn)}
+                      </Badge>
+                    )}
+                    {!c.withdrawnOn && !c.labelPrintedAt && (
+                      <Badge tone="neutral" className="ml-2">
+                        Etikett offen
                       </Badge>
                     )}
                     {c.withdrawnReason && <span className="block text-xs text-muted">{c.withdrawnReason}</span>}
@@ -89,6 +97,20 @@ export default async function TitelPage({ params }: { params: Promise<{ id: stri
                       <details className="text-left">
                         <summary className="cursor-pointer text-sm font-medium text-accent-ink">ändern / aussondern</summary>
                         <div className="mt-3 flex min-w-72 flex-col gap-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button asChild size="sm" variant="secondary">
+                              <Link href={`/druck/buecherei-etiketten?exemplar=${c.id}&vorlage=rolle-62x29`} aria-label={`Etikett ${c.barcode} drucken`}>
+                                Etikett drucken
+                              </Link>
+                            </Button>
+                            {c.labelPrintedAt && (
+                              <form action={requeueLabelAction.bind(null, c.id)}>
+                                <Button type="submit" size="sm" variant="ghost" aria-label={`Etikett ${c.barcode} in die Warteschlange`}>
+                                  in die Warteschlange
+                                </Button>
+                              </form>
+                            )}
+                          </div>
                           <SpecForm
                             action={updateCopyAction.bind(null, c.id)}
                             label={`Exemplar ${c.barcode} ändern`}

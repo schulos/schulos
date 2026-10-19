@@ -1,5 +1,5 @@
 {
-  "id": "79006e9b-231f-4ee8-b134-c5574245b213",
+  "id": "acefd080-8271-440a-991a-b814a6650b72",
   "prevId": "55bf10ba-bc24-48bf-9874-49558f75a4d9",
   "version": "7",
   "dialect": "postgresql",
@@ -6277,12 +6277,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "subject_id": {
-          "name": "subject_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_by": {
           "name": "created_by",
           "type": "text",
@@ -6396,19 +6390,6 @@
           "onDelete": "set null",
           "onUpdate": "cascade"
         },
-        "timetable_substitutions_subject_id_subjects_id_fk": {
-          "name": "timetable_substitutions_subject_id_subjects_id_fk",
-          "tableFrom": "timetable_substitutions",
-          "tableTo": "subjects",
-          "columnsFrom": [
-            "subject_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "cascade"
-        },
         "timetable_substitutions_created_by_users_id_fk": {
           "name": "timetable_substitutions_created_by_users_id_fk",
           "tableFrom": "timetable_substitutions",
@@ -6426,12 +6407,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "timetable_substitutions_subject": {
-          "name": "timetable_substitutions_subject",
-          "value": "\"timetable_substitutions\".\"subject_id\" is null or \"timetable_substitutions\".\"kind\" = 'substitute'"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.timetable_time_pref_submissions": {
@@ -14000,6 +13976,25 @@
         },
         "withdrawn_reason": {
           "name": "withdrawn_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "label_printed_at": {
+          "name": "label_printed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "loan_count": {
+          "name": "loan_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_loan_month": {
+          "name": "last_loan_month",
           "type": "text",
           "primaryKey": false,
           "notNull": false

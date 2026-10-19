@@ -1,7 +1,7 @@
 // Schulbücherei – Bestand (BU-01): Büchereiteam legt einen Titel mit Exemplaren an, ergänzt und sondert aus, prüft einen
 // CSV-Import in der Vorschau; Lehrkraft ohne Teamrecht bekommt 404. Theke (BU-02): Person suchen, scannen, verlängern,
 // Rückgabe nur scannen, Rückgabe mit Befund; Befunde nur für die Verwaltung. Ausweise (BU-07): drucken, scannen, ersetzen.
-// Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht. Mahnliste und Widget (BU-04).
+// Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht. Mahnliste und Widget (BU-04). Etiketten und Statistik (BU-05).
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch } from "./helpers";
 
@@ -287,6 +287,59 @@ test.describe("Bücherei", () => {
     await expect(page.getByRole("table", { name: "Vormerkungen von mir" })).toHaveCount(0);
     await page.reload();
     await expect(page.getByRole("table", { name: "Vormerkungen von mir" })).toHaveCount(0);
+    await logoutForSwitch(page);
+  });
+  test("BU-05: Etiketten aus der Warteschlange drucken und markieren, Testseite, Statistik ohne Personen", async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = collectErrors(page);
+    await login(page, "aylin.demir");
+    await page.goto("/buecherei/etiketten");
+    await expect(page.getByRole("heading", { name: "Etiketten", exact: true })).toBeVisible();
+    // Demo: Brettspiel und Film warten auf ein Etikett
+    const queue = page.getByRole("table", { name: "Exemplare in der Druckwarteschlange" });
+    await expect(queue.getByRole("row").filter({ hasText: "Brückenbauer (Brettspiel)" })).toBeVisible();
+    const form = page.getByRole("form", { name: "Warteschlange drucken" });
+    await form.getByLabel("Vorlage").selectOption("a4-3x8");
+    await form.getByLabel("Startposition").fill("4");
+    await form.getByRole("button", { name: "Druckansicht öffnen" }).click();
+    await expect(page).toHaveURL(/\/druck\/buecherei-etiketten\?quelle=warteschlange/);
+    await expect(page.getByText(/ab Position 4/)).toBeVisible();
+    const sheet = page.getByRole("region", { name: "Bogen 1" });
+    await expect(sheet.getByRole("img", { name: /^Strichcode B-\d{6}-\d$/ }).first()).toBeVisible();
+    await expect(sheet.getByText("SP BRU")).toBeVisible();
+    // Etikettendrucker: ein Etikett je Seite
+    await page.getByRole("link", { name: "Etikettendrucker 62 × 29 mm" }).click();
+    await expect(page.getByRole("region", { name: "Etikett 1" })).toBeVisible();
+    await page.getByRole("form", { name: "Als gedruckt markieren" }).getByRole("button").click();
+    await expect(page).toHaveURL(/\/buecherei\/etiketten\?gedruckt=\d+/);
+    await expect(page.getByRole("status")).toContainText("als gedruckt markiert");
+    await expect(page.getByRole("table", { name: "Exemplare in der Druckwarteschlange" }).getByText("Brückenbauer (Brettspiel)")).toHaveCount(0);
+    // Testseite: Rahmen mit Nummern
+    await page.getByRole("link", { name: "Testseite A4-Bogen 4 × 10 (52,5 × 29,7 mm)" }).click();
+    await expect(page.getByRole("region", { name: "Bogen 1" }).getByText("40", { exact: true })).toBeVisible();
+
+    // Einzeletikett aus dem Bestand
+    await page.goto("/buecherei/bestand?q=Atlas");
+    await page.getByRole("link", { name: "Atlas der Welt" }).click();
+    await page.getByText("ändern / aussondern").first().click();
+    await page.getByRole("link", { name: /^Etikett B-\d{6}-\d drucken$/ }).click();
+    await expect(page.getByRole("region", { name: "Etikett 1" }).getByText("NS ATL")).toBeVisible();
+
+    // Statistik: Monate, nie ausgeliehen, Aussonderungsvorschläge – ohne Namen
+    await page.goto("/buecherei/statistik");
+    await expect(page.getByRole("heading", { name: "Statistik", exact: true })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Ausleihen je Monat und Medienart" }).getByRole("row")).toHaveCount(14);
+    await expect(page.getByRole("table", { name: "Nie ausgeliehene Titel" }).getByText("Atlas der Welt")).toBeVisible();
+    const sug = page.getByRole("table", { name: "Aussonderungsvorschläge" });
+    await expect(sug.getByRole("row").filter({ hasText: "Vulkane und Erdbeben" })).toContainText("Zustand schlecht");
+    await expect(page.locator("body")).not.toContainText("Schäfer");
+    expect(errors).toEqual([]);
+    await logoutForSwitch(page);
+
+    await login(page, "jana.brandt");
+    expect((await page.goto("/buecherei/statistik"))?.status()).toBe(404);
+    expect((await page.goto("/buecherei/etiketten"))?.status()).toBe(404);
+    expect((await page.goto("/druck/buecherei-etiketten?quelle=warteschlange"))?.status()).toBe(404);
     await logoutForSwitch(page);
   });
 });
