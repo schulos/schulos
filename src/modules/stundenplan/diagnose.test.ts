@@ -84,6 +84,34 @@ describe("diagnose", () => {
     expect(messages(fs, "subjectDay")).toEqual(["7a: Mathematik am Di 2× getrennt (3., 5.)", "7b: Deutsch am Mi 3 Stunden am Stück (1., 2., 3.)"]);
   });
 
+  it("Doppelstunde über die große Pause (SP-G-04a): nur als Hinweis, nur wenn der Lehrauftrag Doppelstunden vorsieht", () => {
+    const lessons = [
+      lesson({ groupId: "7a", subjectId: "D", weekday: 1, periodNr: 2 }),
+      lesson({ groupId: "7a", subjectId: "D", weekday: 1, periodNr: 3 }),
+      lesson({ groupId: "7a", subjectId: "M", weekday: 1, periodNr: 4 }),
+      lesson({ groupId: "7a", subjectId: "M", weekday: 1, periodNr: 5 }),
+    ];
+    const assignment = (subjectId: string, doubleLessons: number) => ({
+      id: `a-${subjectId}`,
+      subjectId,
+      subjectName: subjectId,
+      color: "#000",
+      hours: 2,
+      doubleLessons,
+      roomId: null,
+      note: null,
+      groups: [{ id: "7a", name: "7a" }],
+      teachers: [],
+      planned: 2,
+      otherTeacher: false,
+    });
+    const dist = { assignments: [assignment("D", 1), assignment("M", 0)], unmatched: [], curriculum: new Map() };
+    // ohne Pausenangabe nichts; mit Pause nach der 2. und 4.: Deutsch (Doppelstunde gewünscht) → Hinweis, Mathe (keine) → nichts
+    expect(messages(diagnose(base(lessons, { distribution: dist })), "subjectDay")).toEqual([]);
+    const fs = diagnose(base(lessons, { distribution: dist, breakAfter: [2, 4] }));
+    expect(fs.filter((f) => f.category === "subjectDay").map((f) => [f.severity, f.message])).toEqual([["info", "Deutsch am Di: Doppelstunde über die große Pause (2., 3.)"]]);
+  });
+
   it("Räume: falsche Art, inaktiv, zu klein (Kopplung im selben Raum zählt zusammen), ohne Raum – je Fach zusammengefasst", () => {
     const fs = diagnose(
       base([

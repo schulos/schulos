@@ -9,6 +9,7 @@ import { readSchoolSettings } from "@/core/settings";
 import { defaultObligation, deputyAccounts, type DeputyAccount } from "./deputate";
 import { WEEKDAYS } from "./manage";
 import type { LESSON_WEEKS } from "./schema";
+import { longBreaksAfter } from "./solver-check";
 import { distribution, planningYear, PLANNED_GROUP_KINDS, type Distribution } from "./verteilung";
 
 export const DIAGNOSIS_CATEGORIES = ["open", "gaps", "subjectDay", "curriculum", "room", "deputy"] as const;
@@ -53,6 +54,8 @@ export interface DiagLesson {
 export interface DiagnoseInput {
   lessons: DiagLesson[];
   periods: number[];
+  /** Stunden, nach denen eine große Pause folgt (SP-G-04a): eine gewünschte Doppelstunde darüber hinweg ist ein Hinweis */
+  breakAfter?: number[];
   groups: { id: string; name: string; kind: string; gradeLevel: number | null; size: number }[];
   teachers: { id: string; code: string | null; name: string }[];
   subjects: { id: string; name: string; roomKind: RoomKind | null }[];
@@ -176,7 +179,10 @@ export function diagnose(input: DiagnoseInput): Finding[] {
     gapFindings(groupTarget(gid), days, "warn", (wd) => band?.get(wd) ?? []);
   }
 
-  // ---------------------------------------------------------- Fach mehrfach am Tag
+  // ---------------------------------------------------------- Fach mehrfach am Tag, Doppelstunde über die große Pause
+  const breaks = new Set(input.breakAfter ?? []);
+  // Gruppe × Fach, für die der Lehrauftrag Doppelstunden vorsieht – nur dort ist ein Zweier-Block über die Pause ein Hinweis
+  const wantsDouble = new Set(input.distribution.assignments.filter((a) => a.doubleLessons > 0).flatMap((a) => a.groups.map((g) => `${g.id}|${a.subjectId}`)));
   for (const [gid, days] of byDay(input.lessons, (l) => l.groupId)) {
     for (const [wd, ls] of [...days.entries()].sort((a, b) => a[0] - b[0])) {
       for (const sid of [...new Set(ls.map((l) => l.subjectId))].sort()) {
@@ -191,6 +197,12 @@ export function diagnose(input: DiagnoseInput): Finding[] {
             out.push({ category: "subjectDay", severity: "warn", target: groupTarget(gid), message: `${subjectName(sid)} am ${WEEKDAYS[wd]}${week} ${items.length}× getrennt (${periodList(all)})` });
           else if (all.length > 2)
             out.push({ category: "subjectDay", severity: "warn", target: groupTarget(gid), message: `${subjectName(sid)} am ${WEEKDAYS[wd]}${week} ${all.length} Stunden am Stück (${periodList(all)})` });
+          if (breaks.size && wantsDouble.has(`${gid}|${sid}`))
+            for (const blk of items) {
+              const over = blk.filter((p, i) => i + 1 < blk.length && breaks.has(p));
+              if (over.length)
+                out.push({ category: "subjectDay", severity: "info", target: groupTarget(gid), message: `${subjectName(sid)} am ${WEEKDAYS[wd]}${week}: Doppelstunde über die große Pause (${periodList(over.flatMap((p) => [p, p + 1]))})` });
+            }
         }
       }
     }
@@ -303,7 +315,7 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
       })
       .from(timetableLessons)
       .where(and(lte(timetableLessons.validFrom, ref), or(isNull(timetableLessons.validUntil), gte(timetableLessons.validUntil, ref)))),
-    db.select({ nr: periods.nr }).from(periods).orderBy(periods.nr),
+    db.select({ nr: periods.nr, startsAt: periods.startsAt, endsAt: periods.endsAt }).from(periods).orderBy(periods.nr),
     db.select({ id: subjects.id, name: subjects.name, roomKind: subjects.roomKind }).from(subjects),
     db.select({ id: rooms.id, kind: rooms.kind, capacity: rooms.capacity, active: rooms.active }).from(rooms),
     db.select({ groupId: groupMembers.groupId, n: count() }).from(groupMembers).where(eq(groupMembers.role, "member")).groupBy(groupMembers.groupId),
@@ -314,6 +326,7 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
   const findings = diagnose({
     lessons: lessonRows,
     periods: periodRows.map((p) => p.nr),
+    breakAfter: longBreaksAfter(periodRows),
     groups: d.groups.filter((g) => planned.has(g.kind)).map((g) => ({ id: g.id, name: g.name, kind: g.kind, gradeLevel: g.gradeLevel, size: sizeOf.get(g.id) ?? 0 })),
     teachers: d.teachers,
     subjects: subjectRows,

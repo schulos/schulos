@@ -9,7 +9,7 @@ import { timetableLessons } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { applySolverAction, startSolverAction } from "@/modules/stundenplan/actions";
+import { applySolverAction, cancelSolverAction, startSolverAction } from "@/modules/stundenplan/actions";
 import { DIAGNOSIS_LABELS } from "@/modules/stundenplan/diagnose";
 import { plannableGroups, teacherOptions, WEEKDAYS } from "@/modules/stundenplan/manage";
 import { timetableMasterData } from "@/modules/stundenplan/service";
@@ -28,9 +28,11 @@ export const metadata: Metadata = { title: "Automatisch planen" };
 const timeFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "short", timeStyle: "short", timeZone: TZ });
 const dayFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: TZ });
 const STATUS = {
+  queued: { label: "wartet", tone: "neutral" },
   running: { label: "rechnet", tone: "warn" },
   done: { label: "fertig", tone: "success" },
   failed: { label: "Fehler", tone: "danger" },
+  cancelled: { label: "abgebrochen", tone: "neutral" },
   applied: { label: "übernommen", tone: "soft" },
 } as const;
 
@@ -54,7 +56,8 @@ export default async function SolverPage({
     loadSchoolCalendar(db),
   ]);
   const run = sp.lauf ? await getRun(db, sp.lauf) : (runs[0] ?? null);
-  const running = runs.some((r) => r.status === "running");
+  // SP-06: weitere Läufe warten in der Reihe – die Seite lädt nach, solange einer rechnet oder wartet
+  const running = runs.some((r) => r.status === "running" || r.status === "queued") || run?.status === "running" || run?.status === "queued";
   const stored = run?.stored ?? null;
   // Vorschlag + Stunden, die bleiben (fixiert bzw. ohne Lehrauftrag)
   const kept = stored?.keptLessonIds.length ? await db.select().from(timetableLessons).where(inArray(timetableLessons.id, stored.keptLessonIds)) : [];
@@ -119,9 +122,10 @@ export default async function SolverPage({
           <Field label="Startwert" hint="anderer Wert = andere Lösung" className="w-40">
             <Input type="number" name="seed" min={1} max={99999} defaultValue={(runs[0]?.seed ?? 0) + 1} />
           </Field>
-          <Button type="submit" variant="primary" disabled={running}>
+          <Button type="submit" variant="primary">
             Plan berechnen
           </Button>
+          {running && <p className="basis-full text-sm text-muted">Es rechnet schon ein Lauf – ein neuer wartet und startet danach automatisch.</p>}
         </form>
       </Card>
 
@@ -168,18 +172,38 @@ export default async function SolverPage({
         </section>
       )}
 
-      {run?.status === "running" && (
+      {(run?.status === "running" || run?.status === "queued") && (
         <Card aria-labelledby="prog-title">
           <h2 id="prog-title" className="text-base font-semibold">
-            Berechnung läuft …
+            {run.status === "queued" ? "Wartet auf die Berechnung …" : "Berechnung läuft …"}
           </h2>
           <Progress value={run.progress} label="Fortschritt" />
-          <p className="text-sm text-muted">{run.progress} % – die Seite aktualisiert sich selbst.</p>
+          <p className="text-sm text-muted">
+            {run.status === "queued" ? "Ein anderer Lauf rechnet gerade; dieser startet danach automatisch." : `${run.progress} %`}
+            {run.cancelRequested ? " Abbruch angefordert …" : ""} – die Seite aktualisiert sich selbst.
+          </p>
+          {!run.cancelRequested && (
+            <form action={cancelSolverAction.bind(null, run.id)} aria-label="Lauf abbrechen">
+              <Button type="submit" variant="ghost" size="sm">
+                Abbrechen
+              </Button>
+            </form>
+          )}
         </Card>
       )}
       {run?.status === "failed" && (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           Der Lauf ist fehlgeschlagen: {run.error}
+        </p>
+      )}
+      {run?.status === "cancelled" && (
+        <p role="status" className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">
+          Der Lauf wurde abgebrochen, bevor ein Plan entstand.
+        </p>
+      )}
+      {run?.metrics?.cancelledAt !== undefined && (
+        <p role="status" className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">
+          Vorzeitig beendet bei {run.metrics.cancelledAt} % – der Vorschlag ist ein gültiger Plan.
         </p>
       )}
 

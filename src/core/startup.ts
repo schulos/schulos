@@ -11,9 +11,9 @@ import { scrubConfigPassword } from "@schulos/server/admin";
 import { jobsEnabled } from "./jobs";
 import { releaseNote } from "./school/freigabe";
 import { readSchoolSettings } from "./settings";
-import { startAlarmChecks, startMailOutbox, startScheduler } from "./scheduler";
+import { startAlarmChecks, startMailOutbox, startScheduler, startSolverQueue } from "./scheduler";
 import { mailConfig } from "@schulos/server/mail";
-import { failInterruptedRuns } from "@/modules/stundenplan/solverlauf";
+import { executeQueued, failInterruptedRuns } from "@/modules/stundenplan/solverlauf";
 import { syncHolidays } from "@/modules/verwaltung/ferien-abruf";
 import { toBerlinDate } from "./time";
 import { syncModules } from "./modules/registry";
@@ -61,9 +61,14 @@ export async function startup(): Promise<void> {
 
   const interrupted = await failInterruptedRuns(db);
   if (interrupted) console.log(`[schulos] ${interrupted} unterbrochene Stundenplan-Berechnung(en) als abgebrochen markiert`);
+  // wartende Läufe (SP-06) weiterrechnen – im Hintergrund, der Start wartet nicht darauf
+  void executeQueued(db, toBerlinDate(new Date())).then((r) => {
+    if (r.executed.length) console.log(`[schulos] ${r.executed.length} wartende Stundenplan-Berechnung(en) nach dem Start gerechnet`);
+  });
   if (jobsEnabled(process.env)) {
     startScheduler(db);
     startMailOutbox(db);
+    startSolverQueue(db);
     // Alarm-Mails (B-38) nur mit SMTP-Konfiguration; fehlerhafte Angaben melden statt den Start zu verhindern
     try {
       if (mailConfig()) {

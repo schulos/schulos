@@ -171,6 +171,35 @@ Schüler:innen (für Lehraufträge – Gruppe, Fach, Stunden, Lehrkraft – nich
 Ausweitung auf eine fremde Gruppe gleichen Namens), idempotent, sonst keine Grants; Seed ebenso. Navigation „Kurswahlen“ für Beschäftigte mit
 `view` oder `manage`. Das Sekretariat (nur `kurswahl.manage`) sieht weiter „legt die Stundenplanung an“.
 
+**Umsetzungsstand SP-06 (2026-10-19, Migration 0094 – 0093 hat BU-04 belegt):** `timetable_solver_runs` um `label`, `params` (`{ effort, seed, weights, preset }`),
+`metrics`, `log` (≤ 50 Einträge), `cancel_requested`, `heartbeat_at`, `applied_by`/`applied_at`, `undo` (Spalte für SP-09) erweitert, Status-Enum
+um `queued`/`cancelled` (hinten angefügt, Vorgabe bleibt `running`); `timetable_lessons.solver_run_id` (`on delete set null`, Index) wird bei der
+Übernahme gesetzt. **Ausführung** (`solverlauf.ts`): `createRun` prüft die Eingabe (L-02: Zeitraster, Lehraufträge mit Gruppe, aktive Räume →
+Hinweis statt Lauf) und legt den Lauf als `queued` an; `executeQueued` rechnet unter der Job-Sperre `solver` (TTL 2 min, je Heartbeat verlängert –
+`runExclusive` reicht dafür `lock.extend()` durch) den ältesten wartenden Lauf, dann den nächsten (eine Sperrlogik, L-03). Zeitscheiben ~25 ms +
+`setImmediate`, auch die Konstruktion (Schwierigkeit und Platzierung in Scheiben); Heartbeat jede Sekunde schreibt Fortschritt/`heartbeat_at`, verlängert
+die Sperre und liest `cancel_requested`. Abbruch: wartend → `cancelled` sofort; während der Konstruktion → `cancelled` ohne Ergebnis; danach → `done`
+mit Vermerk „vorzeitig beendet bei x %“ (`metrics.cancelledAt`). Serverstart: `running` → `failed` („Server neu gestartet“), danach `executeQueued`;
+Takt `startSolverQueue` (30 s, nur mit Jobs) sammelt verwaiste Läufe ohne Lebenszeichen seit 5 min ein (`reapStaleRuns`) und startet Wartende, wenn
+die Sperre eines anderen Prozesses frei wird. Nachtjob `solver-aufraeumen` (03:00): `failed`/`cancelled` ohne Ergebnis nach 7 Tagen weg, je Schuljahr
+nur die neuesten 20 `done` mit `result`, ältere nur `metrics`/`log` („Ergebnis entfernt“, `applyRun` lehnt sie ab); `deleteRun`/`cancelRun` mit Audit
+`stundenplan.solver.delete`/`.cancel`. Gewichtungs-Voreinstellungen `WEIGHT_PRESETS` (ausgewogen, lehrkräfteschonend, klassenkompakt, raumtreu) +
+„eigene“ (alle acht Felder inkl. `lateFrom`, geprüft in `parseParams`). Die Solver-Seite zeigt vorerst nur Status `wartet`/`abgebrochen`, den Abbruch-Knopf
+und den Vermerk – alles Weitere ist SP-07.
+**Kern-Ergänzungen (§6.3):** `units[].parts[]` (Q-SP-13: je Teil Lehrauftrag, Gruppen, Lehrkräfte, Fach, Raumwunsch/-art, Stammraum, Größe; heute genau ein
+Teil je Einheit, `unitParts()` ergänzt alte Läufe ohne Teile, `proposedLessons` erzeugt die Zeilen je Teil); **SP-G-04a** `SolverInput.breakAfter`
+(große Pausen ≥ 20 min aus dem Zeitraster, `longBreaksAfter()` in `solver-check.ts`) – `span()` lässt keine Doppelstunde darüber zu (hart, auch in
+`validate`); Diagnose meldet eine Doppelstunde über die große Pause als Hinweis (`info`), nur wenn der Lehrauftrag Doppelstunden vorsieht; die Setzhilfe
+setzt Einzelstunden und braucht nichts; **SP-G-03** `precheck()` (Bedarf je Lehrkraft/Gruppe gegen Slots minus Sperrzeiten minus fixierte Stunden, je
+Raumart gegen Räume × Slots, Doppelstunden-Paare) als Protokolleintrag `precheck` mit Fehlern/Warnungen, und je nicht gesetzter Einheit `causes[]`
+(Beteiligter: frei/belegt/gesperrt von n Slots) + lesbarer Grund („kein Slot frei – Lehrkraft LIN: 0 von 30 Slots frei (25 belegt, 5 gesperrt) · …“);
+**SP-G-13** Warnung „n Kurse mit Lehrauftrag ohne Mitglieder“ und **A/B-Warnung** (nicht fixierte A/B-Stunden mit Lehrauftrag) aus `checkInput()` im
+Protokoll (`warning`); **SP-G-15** Benchmark `solver.benchmark.test.ts` (7-zügig 5–10 + 120 Oberstufenkurse in Schienen, 1 323 Einheiten/1 653 Stunden,
+70 Lehrkräfte): Konstruktion 0,3 s, gesamt 0,9 s bei 40 000 Schritten, 9 Einheiten (0,7 %) nicht gesetzt – alle Oberstufenkurse mit dichten
+Konfliktmengen über Schienen hinweg (das löst erst die Blockung, SP-G-24), Hohlstunden Klassen 13 (max. 3), Lehrkräfte 169 (max. 10). Die Konstruktion
+bewertet die Schwierigkeit jetzt einmal je Einheit statt im Sortier-Vergleich (gleiche Reihenfolge, ~10× schneller). Messwerte Zeitscheiben: `LASTTEST.md`
+„Solver-Lauf im App-Prozess“; Q-SP-9 bleibt bei „im Prozess“ (kein Worker-Thread nötig).
+
 **Außenzugang:** bleibt wie für Lehrkräfte (Gerätezertifikat nach Schuleinstellung); die Planung ist **kein** Verwaltungsrecht im Sinne von
 S28 (keine Außen-Sperre). Begründung: Vertretungsplanung findet morgens um 7 Uhr auch von zu Hause statt.
 
@@ -288,7 +317,7 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | **SP-03** ✅ | Bereich `/planung`: Layout, `@schulos/ui/sub-nav`, Umzug der sechs Seiten (`git mv`), Nav-Eintrag, Eyebrow, `revalidatePath`/`redirect`-Pfade, `redirects()` in `next.config.ts`, Verwaltung ohne die vier Reiter, E2E/a11y/Unit-Tests auf neue URLs, CLAUDE.md/README Demo-Login | L | Opus | SP-02 | – | `npm run verify`; E2E „alte URL leitet weiter“, „Sekretariat sieht `/planung` nicht“ |
 | **SP-04** ✅ | Übersicht `/planung` (Kacheln aus vorhandenen Services, Links, Leerzustände), Kachel in der Verwaltungs-Übersicht, mobiler Durchgang der Planungsseiten mit `shot.mjs --mobile` | S | Opus | SP-03 | – | Service-Test der Kachel-Zahlen, E2E Übersicht, a11y-Pfade |
 | **SP-05** ✅ | Rechte- statt Rollen-Gates: `isStaffRole()` in `core/roles.ts`, `stundenplan/page.tsx` und `raeume/page.tsx` ohne `STAFF`-Liste, Sperren-Reiter an `substitute` | S | Opus | SP-02 | – | `registry.test` (Navigation), E2E „Personal sieht Wochenplan/Räume“ |
-| **SP-06** (**Kern**) | Solver-Läufe Datenmodell + Ausführung: Migration 0089 bzw. nächste freie Nummer (`label`, `params`, `metrics`, `log`, `cancel_requested`, `heartbeat_at`, `applied_by`/`applied_at`, `undo`, Status `queued`/`cancelled`, `timetable_lessons.solver_run_id`), Zeitscheiben statt fester Blöcke, Heartbeat-Sperre, Warteschlange, Abbruch, Startup (queued weiter, running → failed), Validierung vor dem Start, Nachtjob `solver-aufraeumen`, Messung der Antwortzeiten während eines Laufs. **Aus der Gap-Analyse (§6.3):** Einheiten-/`result`-Format bandfähig (`units[].parts[]`, Q-SP-13), Machbarkeits-Vorprüfung + konkrete Gründe „nicht gesetzt“ (SP-G-03), Doppelstunde nicht über große Pause/Mittag (SP-G-04a), Warnung „Kurse mit Lehrauftrag ohne Mitglieder“ (SP-G-13), Warnung vor A/B-Stunden mit Lehrauftrag, synthetischer Groß-Benchmark (SP-G-15) | M | **Fable** | SP-03 | **0089** (oder nächste freie) | `solverlauf.test` (Warteschlange, Abbruch vor/nach Konstruktion, Heartbeat, Aufräumen, Validierung, Vorprüfung), `solver.test` (Doppelstunde über Pause, Gründe je Einheit, `parts`), Benchmark-Test, `retention.test` |
+| **SP-06** ✅ (**Kern**) | Solver-Läufe Datenmodell + Ausführung: Migration 0089 bzw. nächste freie Nummer (`label`, `params`, `metrics`, `log`, `cancel_requested`, `heartbeat_at`, `applied_by`/`applied_at`, `undo`, Status `queued`/`cancelled`, `timetable_lessons.solver_run_id`), Zeitscheiben statt fester Blöcke, Heartbeat-Sperre, Warteschlange, Abbruch, Startup (queued weiter, running → failed), Validierung vor dem Start, Nachtjob `solver-aufraeumen`, Messung der Antwortzeiten während eines Laufs. **Aus der Gap-Analyse (§6.3):** Einheiten-/`result`-Format bandfähig (`units[].parts[]`, Q-SP-13), Machbarkeits-Vorprüfung + konkrete Gründe „nicht gesetzt“ (SP-G-03), Doppelstunde nicht über große Pause/Mittag (SP-G-04a), Warnung „Kurse mit Lehrauftrag ohne Mitglieder“ (SP-G-13), Warnung vor A/B-Stunden mit Lehrauftrag, synthetischer Groß-Benchmark (SP-G-15) | M | **Fable** | SP-03 | **0089** (oder nächste freie) | `solverlauf.test` (Warteschlange, Abbruch vor/nach Konstruktion, Heartbeat, Aufräumen, Validierung, Vorprüfung), `solver.test` (Doppelstunde über Pause, Gründe je Einheit, `parts`), Benchmark-Test, `retention.test` |
 | **SP-07** | Solver-Läufe UI: Liste aller Läufe (Filter), Start-Formular mit Bezeichnung/Gründlichkeit/Startwert/Gewichtungs-Voreinstellung + „eigene“ (alle Felder von `SolverWeights` **plus `lateFrom`**, SP-G-16), Detailseite `/planung/solver/[id]` (Fortschritt, Protokoll, Konflikte vollständig **mit Grund je Einheit** aus SP-G-03, Ergebnis der Vorprüfung, Kostenposten mit Filter, Vorschau Klasse **und** Lehrkraft), Abbrechen, Löschen | M | Opus | SP-06 | – | `npm run verify`; E2E Lauf starten → abbrechen → zweiter Lauf |
 | **SP-08** | Vergleich `/planung/solver/vergleich?laeufe=…` (2–3 Läufe, bester Wert markiert, Delta, Vorschau nebeneinander) | S | Opus | SP-07 | – | Service-Test der Delta-Berechnung, E2E Vergleich |
 | **SP-09** (**Kern**) | Übernahme: `solver_run_id` an Stunden, `undo` schreiben, „Übernahme zurücknehmen“ bis zum Stichtag, Stichtag = Schultag, Hinweis mit Zahl der entfallenden Vertretungen; Randfälle Kopplungen/A-B-Woche/Vertretungen am Stichtag; **Raum je Kopplungsteil** (SP-G-02: `chooseRoom` je Teil, gleiche Lehrkraft → gleicher Raum) | M | **Fable** | SP-06 | – (Spalten aus SP-06) | `solverlauf.test` (Übernahme/Zurücknehmen mit Kopplungen, bleibenden Stunden, Vertretungen), `solver.test` (geteilte Klasse mit zwei Lehrkräften → zwei Räume, bis zur Übernahme), E2E Übernahme → zurücknehmen |
@@ -297,7 +326,7 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | **SP-11** | E2E-Szenario „Stundenplaner:in“ (Login `frank.schulte` → Übersicht → Lauf mit Parametern → Abbruch → zweiter Lauf → Vergleich → Übernahme ab Stichtag → zurücknehmen; **Vertretung mit Fachtausch**; Sekretariat 404 auf `/planung`; alte URLs leiten weiter) + **Review-PR GATE SP** (erledigte IDs, Tests, Fragen) | S | Opus | SP-10, SP-12 | – | `e2e/zx-gate-sp.spec.ts` |
 | **GATE SP** | Review mit der Projektleitung (Review-PR aus SP-11; `/code-review ultra` nach Wunsch) – merged nur die Projektleitung | – | – | SP-11 | – | – |
 
-Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ → SP-05 ✅ → SP-06 ‖ SP-12 → SP-07 → SP-08 ‖ SP-09 → SP-10 → SP-11 → **GATE SP**.
+Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ → SP-05 ✅ → SP-06 ✅ ‖ SP-12 → SP-07 → SP-08 ‖ SP-09 → SP-10 → SP-11 → **GATE SP**.
 Parallelisierbar: SP-05 neben SP-03; SP-12 neben SP-06/SP-07 (kein Solver-Kern, berührt nur das Tagesgeschäft); SP-08 neben SP-09.
 Migrationsnummern werden in der Reihenfolge des Mergens vergeben (SP-06 und SP-12 nehmen jeweils die nächste freie Nummer).
 Zwischenstand zum Melden nach SP-04 (Bereich steht, Verwaltung aufgeräumt) und nach SP-07 (Läufe bedienbar). Release-Vorschlag nach

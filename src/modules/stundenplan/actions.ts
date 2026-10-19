@@ -12,7 +12,7 @@ import { createLesson, deleteCoupling, deleteLesson, saveCoupling, updateLesson,
 import { ABSENCE_LABELS, createAbsence, deleteAbsence, needsOn } from "./abwesenheit";
 import { addDuty, clearDutyChange, createArea, deleteArea, removeDuty, setDutyChange } from "./aufsichten";
 import { copyPeriod } from "./periode";
-import { applyRun, createRun, executeRunExclusive, setFixed } from "./solverlauf";
+import { applyRun, cancelRun, createRun, deleteRun, executeQueued, setFixed } from "./solverlauf";
 import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
 import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenster";
 import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
@@ -533,21 +533,51 @@ export async function closePrefWindowAction(): Promise<void> {
 
 const SOLVER_PAGE = "/planung/solver";
 
-/** Lauf anlegen und im Hintergrund rechnen lassen (Seite zeigt den Fortschritt). */
+/** Lauf anlegen und im Hintergrund rechnen lassen (Seite zeigt den Fortschritt); rechnet schon einer, wartet der neue (SP-06). */
 export async function startSolverAction(form: FormData): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
-  const effort = String(form.get("effort") ?? "normal");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  const num = (k: string) => (str(k) === "" ? undefined : Number(str(k)));
+  const weightKeys = ["pref", "teacherGap", "classGap", "subjectTwice", "roomWish", "noRoom", "late", "lateFrom"] as const;
+  const weights = Object.fromEntries(weightKeys.map((k) => [k, num(`w_${k}`)]).filter(([, v]) => v !== undefined));
+  const today = toBerlinDate(new Date());
   let id: string;
   try {
-    id = await createRun(db, user.id, { seed: Number(form.get("seed")) || 1, effort });
+    id = await createRun(db, user.id, { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset: str("preset") || "ausgewogen", weights }, today);
   } catch (err) {
     if (err instanceof ValidationError) redirect(`${SOLVER_PAGE}?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
     throw err;
   }
-  // bewusst nicht abwarten: läuft im Serverprozess weiter (unter der Job-Sperre), Fortschritt steht in der Datenbank
-  void executeRunExclusive(db, id, toBerlinDate(new Date()), effort);
+  // bewusst nicht abwarten: läuft im Serverprozess weiter (unter der Job-Sperre „solver“), Fortschritt steht in der Datenbank
+  void executeQueued(db, today);
   redirect(`${SOLVER_PAGE}?lauf=${id}`);
+}
+
+/** Lauf abbrechen: wartende enden sofort, rechnende in der nächsten Zeitscheibe (nach der Konstruktion mit dem bisherigen Stand). */
+export async function cancelSolverAction(runId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await cancelRun(await getDb(), user.id, runId);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${SOLVER_PAGE}?lauf=${runId}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
+  revalidatePath(SOLVER_PAGE);
+  redirect(`${SOLVER_PAGE}?lauf=${runId}`);
+}
+
+/** Lauf löschen (nicht während er rechnet). */
+export async function deleteSolverAction(runId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await deleteRun(await getDb(), user.id, runId);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${SOLVER_PAGE}?lauf=${runId}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
+  revalidatePath(SOLVER_PAGE);
+  redirect(SOLVER_PAGE);
 }
 
 export async function applySolverAction(runId: string, form: FormData): Promise<void> {

@@ -4,7 +4,7 @@
 // Nur Zähler, keine Auswertung je Lehrkraft (wie „Offen für dich“).
 import { desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { timetableSolverRuns } from "@/core/db/schema";
+import { SOLVER_RUN_STATUS, timetableSolverRuns } from "@/core/db/schema";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { readSchoolSettings } from "@/core/settings";
 import { needsOn } from "./abwesenheit";
@@ -43,7 +43,7 @@ export interface YearPlanningFigures {
   prefWindow: { state: PrefWindowState; opensOn: string | null; closesOn: string | null; submitted: number; teachers: number };
   lastRun: {
     id: string;
-    status: "running" | "done" | "failed" | "applied";
+    status: (typeof SOLVER_RUN_STATUS)[number];
     progress: number;
     createdAt: Date;
     finishedAt: Date | null;
