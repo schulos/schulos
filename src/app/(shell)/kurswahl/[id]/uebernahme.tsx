@@ -82,9 +82,13 @@ export async function UebernahmePart({ perms, v, state }: { perms: PermissionSet
               ))}
             </tbody>
           </Table>
-          {hasPermission(perms, "stundenplan.manage") && suggestions.some((s) => !s.exists && !s.missing.length) && (
-            <ActionButton action={assignmentsAction.bind(null, v.id)} label="Vorgeschlagene Lehraufträge anlegen" doneText="%n Lehraufträge angelegt." variant="secondary" />
-          )}
+          {suggestions.some((s) => !s.exists && !s.missing.length) &&
+            (hasPermission(perms, "stundenplan.manage") ? (
+              <ActionButton action={assignmentsAction.bind(null, v.id)} label="Vorgeschlagene Lehraufträge anlegen" doneText="%n Lehraufträge angelegt." variant="secondary" />
+            ) : (
+              // SP-03: Lehraufträge gehören zur Jahresplanung – die Stundenplanung legt sie an (Recht „Stundenplan planen“)
+              <p className="text-sm text-muted">Die vorgeschlagenen Lehraufträge legt die Stundenplanung an.</p>
+            ))}
         </>
       )}
     </section>

@@ -1,7 +1,7 @@
 // „Mein Deputat / meine Vertretungsstunden“ (Q5-09, I-20): die eigenen Zahlen einer Lehrkraft, nur lesend.
 // Datenschutz: jede Funktion rechnet nur für die übergebene Person – Aufrufer übergeben immer die angemeldete Lehrkraft.
 // Kein Vergleich mit anderen, keine Ranglisten (Mitbestimmung, DATENSCHUTZ §5); die Planung sieht weiter alles unter
-// Verwaltung → Unterricht bzw. Vertretungen → Statistik.
+// Stundenplanung → Unterrichtsverteilung bzw. Vertretungen → Statistik.
 import { and, eq, gte, lte, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { timetableLessons, timetableSubstitutions } from "@/core/db/schema";

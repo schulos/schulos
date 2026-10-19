@@ -40,7 +40,7 @@ const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone
 function href(p: Record<string, string | undefined>): string {
   const q = new URLSearchParams(Object.entries(p).filter((e): e is [string, string] => Boolean(e[1])));
   const s = q.toString();
-  return `/verwaltung/unterricht${s ? `?${s}` : ""}`;
+  return `/planung/unterricht${s ? `?${s}` : ""}`;
 }
 
 /** verplant gegen Soll: grün = passt, gelb = offen, rot = zu viel */
@@ -64,7 +64,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   if (!year) {
     return (
       <main className="flex flex-col gap-6">
-        <PageHeader eyebrow="Verwaltung" title="Unterrichtsverteilung" />
+        <PageHeader eyebrow="Stundenplanung" title="Unterrichtsverteilung" />
         <EmptyState title="Kein Schuljahr angelegt">Lege unter Stammdaten → Schuljahre zuerst ein Schuljahr an.</EmptyState>
       </main>
     );
@@ -127,7 +127,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   return (
     <main className="flex flex-col gap-6">
       <PageHeader
-        eyebrow="Verwaltung"
+        eyebrow="Stundenplanung"
         title="Unterrichtsverteilung"
         actions={
           <>
@@ -171,7 +171,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
           </Link>
         </Button>
         <Button asChild size="sm" variant="ghost">
-          <Link href="/verwaltung/unterricht/zeitwuensche">Zeitwünsche</Link>
+          <Link href="/planung/zeitwuensche">Zeitwünsche</Link>
         </Button>
       </nav>
       {form}

@@ -12,7 +12,7 @@ const SEVERITY: Record<Severity, { label: string; tone: "danger" | "warn" | "neu
 
 const unterricht = (p: Record<string, string | undefined>) => {
   const q = new URLSearchParams(Object.entries(p).filter((e): e is [string, string] => Boolean(e[1])));
-  return `/verwaltung/unterricht?${q.toString()}`;
+  return `/planung/unterricht?${q.toString()}`;
 };
 
 /** Link zum Lehrauftrag (öffnet das Bearbeiten-Formular in der Unterrichtsverteilung) */
@@ -113,7 +113,7 @@ export function DiagnosisView({ report, category, refLabel }: { report: Diagnosi
                 </Link>
                 <span className="text-xs font-normal text-muted">{f.target.kind === "teacher" ? "Lehrkraft" : "Klasse/Kurs"}</span>
                 {f.target.kind === "group" && (
-                  <Link href={`/verwaltung/stundenplan?gruppe=${encodeURIComponent(f.target.id)}`} className="ml-auto text-sm font-normal text-accent-ink hover:underline">
+                  <Link href={`/planung/stundenplan?gruppe=${encodeURIComponent(f.target.id)}`} className="ml-auto text-sm font-normal text-accent-ink hover:underline">
                     Plan bearbeiten
                   </Link>
                 )}

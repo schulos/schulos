@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { toBerlinDate } from "@/core/time";
-import { PrefGrid } from "@/app/(shell)/verwaltung/unterricht/zeitwuensche/pref-grid";
+import { PrefGrid } from "@/app/(shell)/planung/zeitwuensche/pref-grid";
 import { saveOwnPrefsAction } from "@/modules/stundenplan/actions";
 import { WEEKDAYS } from "@/modules/stundenplan/manage";
 import { timetableMasterData } from "@/modules/stundenplan/service";

@@ -165,7 +165,9 @@ test("P4-64: nach dem Wahlende übernimmt das Sekretariat in Gruppen (mit Hinwei
   await expect(page.getByText("Übernommen – die Familien sehen jetzt ihren Kurs.")).toBeVisible();
   await expect(page.getByRole("row", { name: /7 Spanisch Jana Brandt 3 vorgeschlagen/ })).toBeVisible();
   // Anlegen der Lehraufträge prüft das Gate (zy-gate4d.spec.ts) – hier nicht, sonst ändert es die Diagnose in unterricht.spec
-  await expect(page.getByRole("button", { name: "Vorgeschlagene Lehraufträge anlegen" })).toBeVisible();
+  // SP-03: das Sekretariat plant nicht – Lehraufträge legt die Stundenplanung an
+  await expect(page.getByRole("button", { name: "Vorgeschlagene Lehraufträge anlegen" })).toHaveCount(0);
+  await expect(page.getByText("Die vorgeschlagenen Lehraufträge legt die Stundenplanung an.")).toBeVisible();
   // die Gruppe steht in der Gruppenverwaltung, Leitung Jana Brandt
   await page.getByRole("link", { name: "7 Spanisch" }).click();
   await expect(page.getByRole("heading", { name: "7 Spanisch" })).toBeVisible();

@@ -60,7 +60,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     Promise.all(lessons.map((l) => teacherAvailability(db, l.lessonId, date))),
     Promise.all(lessons.map((l) => (l.change?.kind === "substitute" || l.change?.kind === "cancel" ? Promise.resolve([]) : suggestSubstitutes(db, l.lessonId, date)))),
   ]);
-  const here = `/verwaltung/vertretungen?datum=${date}${sp.lehrkraft ? `&lehrkraft=${sp.lehrkraft}` : ""}${sp.gruppe ? `&gruppe=${sp.gruppe}` : ""}`;
+  const here = `/planung/vertretungen?datum=${date}${sp.lehrkraft ? `&lehrkraft=${sp.lehrkraft}` : ""}${sp.gruppe ? `&gruppe=${sp.gruppe}` : ""}`;
   const openCount = needs.open.filter((o) => o.status === "open").length;
   // Q5-12: „Material liegt vor“ je offener Stunde
   const materials = await materialsFor(db, perms, needs.open.map((o) => ({ lessonId: o.lessonId, date })));
@@ -69,11 +69,11 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   return (
     <main className="flex flex-col gap-6">
       <PageHeader
-        eyebrow="Verwaltung"
+        eyebrow="Stundenplanung"
         title="Vertretungen"
         actions={
           <Button asChild>
-            <Link href="/verwaltung/vertretungen/statistik">Statistik</Link>
+            <Link href="/planung/vertretungen/statistik">Statistik</Link>
           </Button>
         }
       />
@@ -90,7 +90,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           return (
             <Link
               key={d}
-              href={`/verwaltung/vertretungen?datum=${d}`}
+              href={`/planung/vertretungen?datum=${d}`}
               aria-current={d === date ? "date" : undefined}
               className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-1.5 hover:border-border-strong aria-[current=date]:border-accent"
             >
@@ -237,7 +237,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                       </td>
                       <td className="text-right">
                         <Button asChild size="sm">
-                          <a href={`/verwaltung/vertretungen?datum=${date}&lehrkraft=${o.teacherId}#lessons-title`}>{o.status === "open" ? "Vertretung eintragen" : "Ändern"}</a>
+                          <a href={`/planung/vertretungen?datum=${date}&lehrkraft=${o.teacherId}#lessons-title`}>{o.status === "open" ? "Vertretung eintragen" : "Ändern"}</a>
                         </Button>
                       </td>
                     </tr>

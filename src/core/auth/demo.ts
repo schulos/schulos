@@ -34,6 +34,7 @@ const FIXED = [
   { username: "jana.brandt", label: "Lehrkraft · Klassenleitung 7b" },
   { username: "petra.lindner", label: "Schulleitung" },
   { username: "sabine.kowalski", label: "Sekretariat" },
+  { username: "frank.schulte", label: "Lehrkraft · Stundenplanung" },
   { username: "klaus.berger", label: "Hausmeister" },
   { username: "nina.ostermann", label: "Schulsozialarbeit" },
   { username: "admin", label: "Administration" },

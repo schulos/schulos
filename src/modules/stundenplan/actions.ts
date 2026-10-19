@@ -43,7 +43,7 @@ function readInput(form: FormData): LessonInput {
 
 /** Pflege-Seite der Gruppe; liegt `from` in der Zukunft (neue Periode), bleibt dieser Planungsstand eingestellt. */
 const pageOf = (groupId: string, from?: string | null) =>
-  `/verwaltung/stundenplan?gruppe=${encodeURIComponent(groupId)}${from && from > toBerlinDate(new Date()) ? `&stand=${from}` : ""}`;
+  `/planung/stundenplan?gruppe=${encodeURIComponent(groupId)}${from && from > toBerlinDate(new Date()) ? `&stand=${from}` : ""}`;
 
 export async function saveLessonAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
@@ -115,11 +115,11 @@ export async function copyPeriodAction(cutoff: string): Promise<void> {
   try {
     n = await copyPeriod(await getDb(), user.id, cutoff, toBerlinDate(new Date()));
   } catch (err) {
-    if (err instanceof ValidationError) redirect(`/verwaltung/stundenplan?periode=${encodeURIComponent(cutoff)}&fehler=${encodeURIComponent(firstError(err))}`);
+    if (err instanceof ValidationError) redirect(`/planung/stundenplan?periode=${encodeURIComponent(cutoff)}&fehler=${encodeURIComponent(firstError(err))}`);
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(`/verwaltung/stundenplan?kopiert=${n}&ab=${cutoff}`);
+  redirect(`/planung/stundenplan?kopiert=${n}&ab=${cutoff}`);
 }
 
 // ---------------------------------------------------------------- Setzhilfe
@@ -191,18 +191,18 @@ export async function publishDayAction(date: string): Promise<void> {
   try {
     n = await publishDay(await getDb(), user.id, date);
   } catch (err) {
-    if (err instanceof ValidationError) redirect(`/verwaltung/vertretungen?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    if (err instanceof ValidationError) redirect(`/planung/vertretungen?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(`/verwaltung/vertretungen?datum=${date}&veroeffentlicht=${n ?? "0"}`);
+  redirect(`/planung/vertretungen?datum=${date}&veroeffentlicht=${n ?? "0"}`);
 }
 
 // ---------------------------------------------------------------- Unterrichtsverteilung
 
 /** nur interne Rücksprünge auf die Verteilungsseite */
 function backTo(raw: string): string {
-  return raw.startsWith("/verwaltung/unterricht") ? raw : "/verwaltung/unterricht";
+  return raw.startsWith("/planung/unterricht") ? raw : "/planung/unterricht";
 }
 
 export async function saveAssignmentAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
@@ -231,14 +231,14 @@ export async function saveAssignmentAction(id: string | null, _prev: FormState, 
     }
     throw err;
   }
-  revalidatePath("/verwaltung/unterricht");
+  revalidatePath("/planung/unterricht");
   redirect(backTo(str("back")));
 }
 
 export async function deleteAssignmentAction(id: string, back: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   await deleteAssignment(await getDb(), user.id, id);
-  revalidatePath("/verwaltung/unterricht");
+  revalidatePath("/planung/unterricht");
   redirect(backTo(back));
 }
 
@@ -247,14 +247,14 @@ export async function importAssignmentsAction(): Promise<void> {
   const db = await getDb();
   const year = await planningYear(db);
   const n = year ? await assignmentsFromTimetable(db, user.id, year, toBerlinDate(new Date())) : 0;
-  revalidatePath("/verwaltung/unterricht");
-  redirect(`/verwaltung/unterricht?uebernommen=${n}`);
+  revalidatePath("/planung/unterricht");
+  redirect(`/planung/unterricht?uebernommen=${n}`);
 }
 
 // ---------------------------------------------------------------- Deputate
 
 const hoursOf = (raw: string) => Number(raw.replace(",", "."));
-const teacherPage = (teacherId: string) => `/verwaltung/unterricht?ansicht=lehrkraefte&lehrkraft=${encodeURIComponent(teacherId)}`;
+const teacherPage = (teacherId: string) => `/planung/unterricht?ansicht=lehrkraefte&lehrkraft=${encodeURIComponent(teacherId)}`;
 
 export async function saveObligationAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
@@ -267,7 +267,7 @@ export async function saveObligationAction(teacherId: string, _prev: FormState, 
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
-  revalidatePath("/verwaltung/unterricht");
+  revalidatePath("/planung/unterricht");
   return { ok: true };
 }
 
@@ -282,14 +282,14 @@ export async function addReductionAction(teacherId: string, _prev: FormState, fo
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
-  revalidatePath("/verwaltung/unterricht");
+  revalidatePath("/planung/unterricht");
   return { ok: true };
 }
 
 export async function deleteReductionAction(id: string, teacherId: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   await deleteReduction(await getDb(), user.id, id);
-  revalidatePath("/verwaltung/unterricht");
+  revalidatePath("/planung/unterricht");
   redirect(teacherPage(teacherId));
 }
 
@@ -341,7 +341,7 @@ export async function applyAlternativeRoomAction(lessonId: string, date: string,
 
 // ---------------------------------------------------------------- Abwesenheiten (P2b-18)
 
-const needsPage = (date: string) => `/verwaltung/vertretungen?datum=${date}`;
+const needsPage = (date: string) => `/planung/vertretungen?datum=${date}`;
 
 export async function createAbsenceAction(_prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.substitute");
@@ -403,7 +403,7 @@ export async function applySuggestionAction(lessonId: string, date: string, teac
 
 // ---------------------------------------------------------------- Pausenaufsichten (P2b-20)
 
-const dutyPage = (date?: string) => `/verwaltung/aufsichten${date ? `?datum=${date}` : ""}`;
+const dutyPage = (date?: string) => `/planung/aufsichten${date ? `?datum=${date}` : ""}`;
 const firstMsg = (err: ValidationError) => Object.values(err.fieldErrors)[0] ?? "Das ging nicht";
 
 export async function createAreaAction(_prev: FormState, form: FormData): Promise<FormState> {
@@ -414,14 +414,14 @@ export async function createAreaAction(_prev: FormState, form: FormData): Promis
     if (err instanceof ValidationError) return { error: firstMsg(err), fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
-  revalidatePath("/verwaltung/aufsichten");
+  revalidatePath("/planung/aufsichten");
   return { ok: true };
 }
 
 export async function deleteAreaAction(id: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   await deleteArea(await getDb(), user.id, id);
-  revalidatePath("/verwaltung/aufsichten");
+  revalidatePath("/planung/aufsichten");
   redirect(dutyPage());
 }
 
@@ -491,7 +491,7 @@ export async function savePrefsAction(kind: string, targetId: string, _prev: For
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", values: formValues(form) };
     throw err;
   }
-  revalidatePath("/verwaltung/unterricht/zeitwuensche");
+  revalidatePath("/planung/zeitwuensche");
   return { ok: true };
 }
 
@@ -519,19 +519,19 @@ export async function setPrefWindowAction(_prev: FormState, form: FormData): Pro
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
-  revalidatePath("/verwaltung/unterricht/zeitwuensche");
+  revalidatePath("/planung/zeitwuensche");
   return { ok: true };
 }
 
 export async function closePrefWindowAction(): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   await closePrefWindow(await getDb(), user.id);
-  revalidatePath("/verwaltung/unterricht/zeitwuensche");
+  revalidatePath("/planung/zeitwuensche");
 }
 
 // ---------------------------------------------------------------- Automatische Planung (P2b-23)
 
-const SOLVER_PAGE = "/verwaltung/stundenplan/solver";
+const SOLVER_PAGE = "/planung/solver";
 
 /** Lauf anlegen und im Hintergrund rechnen lassen (Seite zeigt den Fortschritt). */
 export async function startSolverAction(form: FormData): Promise<void> {
@@ -568,6 +568,6 @@ export async function applySolverAction(runId: string, form: FormData): Promise<
 export async function toggleFixedAction(lessonId: string, groupId: string, fixed: boolean, stand: string | null): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   await setFixed(await getDb(), user.id, lessonId, fixed);
-  revalidatePath("/verwaltung/stundenplan");
+  revalidatePath("/planung/stundenplan");
   redirect(pageOf(groupId, stand));
 }

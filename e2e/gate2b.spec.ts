@@ -6,10 +6,10 @@ import { collectErrors, login, publishIfDraft } from "./helpers";
 test("Gate 2b – Lehrkraft krank → offene Stunden → Vorschlag übernehmen → Monitor zeigt die Vertretung; Raumsperrung → Raumvorschlag", async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
+  await login(page, "frank.schulte");
 
   // 1. Lehrkraft krank melden
-  await page.goto("/verwaltung/vertretungen");
+  await page.goto("/planung/vertretungen");
   const form = page.getByRole("form", { name: "Abwesenheit eintragen" });
   await form.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: "BRA – Jana Brandt" });
   await form.getByLabel("Grund").selectOption({ label: "krank" });
@@ -62,7 +62,7 @@ test("Gate 2b – Lehrkraft krank → offene Stunden → Vorschlag übernehmen �
   // aufräumen: Sperrung und Abwesenheit aufheben (Vertretung/Raumänderung bleiben als Änderungen stehen)
   await page.getByRole("button", { name: "Sperrung 106 aufheben" }).click();
   await expect(page.getByText("Keine Sperrungen")).toBeVisible();
-  await page.goto("/verwaltung/vertretungen");
+  await page.goto("/planung/vertretungen");
   await page.getByRole("button", { name: "Abwesenheit BRA aufheben" }).click();
   await expect(page.getByText("Für diesen Tag ist keine Abwesenheit eingetragen.")).toBeVisible();
   expect(errors).toEqual([]);

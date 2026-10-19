@@ -27,7 +27,7 @@ import { Table } from "@schulos/ui/table";
 import { CouplingForm, type CouplingFormValues } from "./coupling-form";
 import { LessonForm, type LessonFormValues } from "./lesson-form";
 import { MoveLink, OpenPanel, PlacementCell } from "./setzhilfe-ui";
-import { FindingList } from "../unterricht/diagnosis";
+import { FindingList } from "@/app/(shell)/planung/unterricht/diagnosis";
 
 export const metadata: Metadata = { title: "Stundenplan pflegen" };
 
@@ -51,11 +51,11 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
   const header = (
     <>
       <PageHeader
-        eyebrow="Verwaltung"
+        eyebrow="Stundenplanung"
         title="Stundenplan pflegen"
         actions={
           <Button asChild>
-            <Link href="/verwaltung/stundenplan/solver">
+            <Link href="/planung/solver">
               <Wand2 aria-hidden /> Automatisch planen
             </Link>
           </Button>
@@ -104,8 +104,8 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
   const periodStarts = [...new Set(upcoming.map((r) => r.l.validFrom).filter((d) => d > today))].sort().slice(0, 4);
   const parts = await couplingParts(db, [...new Set(lessons.map((r) => r.l.couplingId).filter((c): c is string => Boolean(c)))]);
   const partsOf = (cid: string) => parts.filter((p) => p.couplingId === cid);
-  const base = `/verwaltung/stundenplan?gruppe=${encodeURIComponent(group.id)}${stand ? `&stand=${stand}` : ""}`;
-  const groupBase = `/verwaltung/stundenplan?gruppe=${encodeURIComponent(group.id)}`;
+  const base = `/planung/stundenplan?gruppe=${encodeURIComponent(group.id)}${stand ? `&stand=${stand}` : ""}`;
+  const groupBase = `/planung/stundenplan?gruppe=${encodeURIComponent(group.id)}`;
   // Setzhilfe: offene Lehraufträge, Freiraster beim Setzen bzw. Verschieben
   const [open, planFindings] = await Promise.all([openAssignments(db, group.id, view), groupPlanFindings(db, group.id, view)]);
   const placing = sp.setzen ? open.find((a) => a.id === sp.setzen) : undefined;
@@ -358,7 +358,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
               Keine {DIAGNOSIS_LABELS.gaps}, kein Fach mehrfach am Tag, alle Räume passen.
             </p>
           )}
-          <Link href="/verwaltung/unterricht?ansicht=diagnose" className="text-sm text-accent-ink hover:underline">
+          <Link href="/planung/unterricht?ansicht=diagnose" className="text-sm text-accent-ink hover:underline">
             Diagnose der ganzen Schule
           </Link>
         </section>

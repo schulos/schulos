@@ -71,7 +71,7 @@ async function notifyPlanners(
     moduleId: "stundenplan",
     title: `${title}: ${await teacherLabel(db, a.teacherId!)}`,
     body: `${spanText(a)} – Vertretung planen`,
-    href: `/verwaltung/vertretungen?datum=${a.startsOn}`,
+    href: `/planung/vertretungen?datum=${a.startsOn}`,
   });
 }
 

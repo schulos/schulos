@@ -115,7 +115,7 @@ export default async function VertretungsplanPage() {
       {drafts.size > 0 && (
         <p role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
           Entwurf für {[...drafts].map((d) => longDay.format(fromBerlinLocal(d))).join(" und ")} noch nicht veröffentlicht – hier steht, was alle sehen.{" "}
-          <Link href={`/verwaltung/vertretungen?datum=${[...drafts][0]}`} className="font-semibold underline">
+          <Link href={`/planung/vertretungen?datum=${[...drafts][0]}`} className="font-semibold underline">
             Zum Entwurf
           </Link>
         </p>

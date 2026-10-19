@@ -87,10 +87,12 @@ describe("Kurswahlen – Übernahme in Gruppen und Lehraufträge", () => {
       ["7 Informatik", ["Wochenstunden"]],
     ]);
     const [{ id: fGroup }] = (await h.db.select({ id: groups.id }).from(groups).where(and(eq(groups.name, "7 Französisch")))) as [{ id: string }];
-    expect(await createSuggestedAssignments(h.db, await p(SABINE), id)).toBe(1);
+    // SP-03: das Sekretariat plant nicht (kein `stundenplan.manage`) – anlegen darf nur, wer Wahlen und Planung hat (Demo: Admin)
+    await expect(createSuggestedAssignments(h.db, await p(SABINE), id)).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await createSuggestedAssignments(h.db, await p("u-admin"), id)).toBe(1);
     expect(await h.db.select().from(timetableAssignmentGroups).where(eq(timetableAssignmentGroups.groupId, fGroup))).toHaveLength(1);
     expect((await assignmentSuggestions(h.db, await p(SABINE), v))[0]!.exists).toBe(true);
-    expect(await createSuggestedAssignments(h.db, await p(SABINE), id)).toBe(0);
+    expect(await createSuggestedAssignments(h.db, await p("u-admin"), id)).toBe(0);
   });
 });
 

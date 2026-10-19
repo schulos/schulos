@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { moduleOn } from "@/core/modules/guard";
 import { hasPermission } from "@/core/permissions";
-import { SubNav } from "./sub-nav";
+import { SubNav } from "@schulos/ui/sub-nav";
 
 export default async function VerwaltungLayout({ children }: { children: React.ReactNode }) {
   const { perms } = await requireUser();
@@ -18,10 +18,6 @@ export default async function VerwaltungLayout({ children }: { children: React.R
     hasPermission(perms, "verwaltung.groups") && { href: "/verwaltung/gruppen", label: "Gruppen" },
     hasPermission(perms, "verwaltung.rights") && { href: "/verwaltung/rechte", label: "Rechte & Module" },
     hasPermission(perms, "verwaltung.users") && { href: "/verwaltung/import", label: "Import" },
-    hasPermission(perms, "stundenplan.manage") && { href: "/verwaltung/stundenplan", label: "Stundenplan" },
-    hasPermission(perms, "stundenplan.manage") && { href: "/verwaltung/unterricht", label: "Unterrichtsverteilung" },
-    hasPermission(perms, "stundenplan.substitute") && { href: "/verwaltung/vertretungen", label: "Vertretungen" },
-    (hasPermission(perms, "stundenplan.manage") || hasPermission(perms, "stundenplan.substitute")) && { href: "/verwaltung/aufsichten", label: "Aufsichten" },
     hasPermission(perms, "monitor.manage") && { href: "/verwaltung/monitore", label: "Monitore" },
     gebaeude && { href: "/verwaltung/gebaeude", label: "Gebäude & Technik" },
     anmeldung && { href: "/verwaltung/anmeldung", label: "Schulanmeldung" },
@@ -33,7 +29,7 @@ export default async function VerwaltungLayout({ children }: { children: React.R
   ].filter((t): t is { href: string; label: string } => Boolean(t));
   return (
     <div className="flex flex-col gap-6">
-      <SubNav tabs={tabs} />
+      <SubNav tabs={tabs} label="Verwaltung" root="/verwaltung" />
       {children}
     </div>
   );

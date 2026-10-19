@@ -22,8 +22,8 @@ test("Mein Deputat: Lehrkraft sieht eigene Zahlen, Schülerin bekommt 404", asyn
 
 test("Stundenplan-Druck der Lehrkraft listet ihre Pausenaufsichten", async ({ page, browser }) => {
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/aufsichten");
+  await login(page, "frank.schulte");
+  await page.goto("/planung/aufsichten");
   const plan = page.getByRole("form", { name: "Aufsicht einteilen" });
   await plan.getByLabel("Bereich").selectOption({ label: "Mensa" });
   await plan.getByLabel("Tag").selectOption({ label: "Fr" });

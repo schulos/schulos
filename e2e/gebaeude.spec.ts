@@ -70,7 +70,7 @@ test.describe("Gebäude & Technik", () => {
 
     // 3. Stundenplan: Sperre mit Grund „Defekt“ und Verweis auf die Meldung, betroffene Stunden als Vertretungsbedarf
     await logoutForSwitch(page);
-    await login(page, "sabine.kowalski");
+    await login(page, "frank.schulte");
     await page.goto("/stundenplan/raeume?ansicht=sperrungen");
     await expect(page.getByRole("table", { name: "Raumsperrungen" }).getByRole("row").filter({ hasText: ROOM })).toContainText(`Defekt · ${number}`);
     await expect(page.getByRole("table", { name: "Stunden in gesperrten Räumen" }).getByRole("row").filter({ hasText: ROOM }).first()).toBeVisible();

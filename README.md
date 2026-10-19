@@ -91,7 +91,8 @@ npm run dev        # http://localhost:3000
 ```
 
 Demo-Logins (Passwort überall `schulos`): `admin`, `sabine.kowalski` (Sekretariat), `petra.lindner` (Schulleitung),
-`jana.brandt` (Lehrkraft), `lea.schaefer` (Schülerin). Alle Personen der Demo-Schule sind erfunden.
+`jana.brandt` (Lehrkraft), `frank.schulte` (Lehrkraft, Gruppe Stundenplanung – plant unter `/planung`), `lea.schaefer` (Schülerin).
+Alle Personen der Demo-Schule sind erfunden.
 
 | Befehl | Zweck |
 |---|---|

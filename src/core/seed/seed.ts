@@ -45,7 +45,7 @@ import { seedTafeln } from "@/modules/tafeln/seed";
 import { seedTexte } from "@/modules/texte/seed";
 import { seedNews } from "@/modules/news/seed";
 import { seedStundenplan } from "@/modules/stundenplan/seed";
-import { PLAN_MANAGE, PLAN_SUBSTITUTE, PLANNING_GROUP, PLANNING_GROUP_PERMISSIONS } from "@/modules/stundenplan/rechte";
+import { PLAN_SUBSTITUTE, PLANNING_GROUP, PLANNING_GROUP_PERMISSIONS } from "@/modules/stundenplan/rechte";
 import { applyCurriculumTemplate, ensureGradeLevels } from "@/modules/verwaltung/stammdaten";
 import { LINDENHOF_LOGO_DARK_SVG, LINDENHOF_LOGO_SVG, LINDENHOF_SYMBOL_SVG } from "./lindenhof-logo";
 import {
@@ -341,13 +341,8 @@ export async function seedDemoSchool(
     .insert(grants)
     .values(PLANNING_GROUP_PERMISSIONS.map((permission) => ({ permission, groupId: PLANNING_GROUP.id })))
     .onConflictDoNothing();
-  // Übergang bis SP-03: die Planungsseiten liegen noch unter /verwaltung (braucht `verwaltung.access`), die E2E-Tests planen noch
-  // als Sekretariat. Die Demo verhält sich deshalb wie eine aktualisierte Bestandsinstallation (Rollen-Grant bleibt, Migration 0088
-  // ergänzt `substitute`). SP-03 entfernt das mit dem Umzug nach /planung und stellt die Tests auf frank.schulte um.
-  await db
-    .insert(grants)
-    .values([PLAN_MANAGE, PLAN_SUBSTITUTE].map((permission) => ({ permission, role: "verwaltung" as const })))
-    .onConflictDoNothing();
+  // SP-03: Das Sekretariat plant in der Demo nicht mehr – geplant wird unter /planung über die Gruppe „Stundenplanung“
+  // (frank.schulte). Migration 0088 legt auf frischer DB keinen Rollen-Grant an; ein alter aus einer Bestands-DB bleibt unberührt.
   await seedNews(db);
   await seedKalender(db);
   await seedDateien(db);

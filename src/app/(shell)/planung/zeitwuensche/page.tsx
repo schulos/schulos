@@ -59,10 +59,10 @@ export default async function ZeitwuenschePage({ searchParams }: { searchParams:
 
   return (
     <main className="flex flex-col gap-6">
-      <Link href="/verwaltung/unterricht" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+      <Link href="/planung/unterricht" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
         <ArrowLeft aria-hidden className="size-4" /> Unterrichtsverteilung
       </Link>
-      <PageHeader eyebrow="Verwaltung" title="Zeitwünsche" />
+      <PageHeader eyebrow="Stundenplanung" title="Zeitwünsche" />
       <p className="-mt-3 text-sm text-muted">
         −3 = sehr ungünstig … +3 = sehr erwünscht. „Gesperrt“ ist eine harte Regel: Setzhilfe und automatische Planung legen dort keine Stunde hin.
       </p>
@@ -104,7 +104,7 @@ export default async function ZeitwuenschePage({ searchParams }: { searchParams:
       <nav aria-label="Art" className="flex flex-wrap gap-2">
         {TIME_PREF_KINDS.map((k) => (
           <Button key={k} asChild size="sm" variant={k === kind ? "secondary" : "ghost"}>
-            <Link href={`/verwaltung/unterricht/zeitwuensche?art=${k}`} aria-current={k === kind ? "page" : undefined}>
+            <Link href={`/planung/zeitwuensche?art=${k}`} aria-current={k === kind ? "page" : undefined}>
               {TIME_PREF_LABELS[k]}
             </Link>
           </Button>
@@ -146,7 +146,7 @@ export default async function ZeitwuenschePage({ searchParams }: { searchParams:
           <ul className="flex flex-wrap gap-2">
             {withPrefs.map((t) => (
               <li key={t.id}>
-                <Link href={`/verwaltung/unterricht/zeitwuensche?art=${kind}&id=${encodeURIComponent(t.id)}`} className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm hover:border-border-strong">
+                <Link href={`/planung/zeitwuensche?art=${kind}&id=${encodeURIComponent(t.id)}`} className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-1.5 text-sm hover:border-border-strong">
                   {t.label}
                   {t.own && <Badge tone="soft">selbst abgegeben</Badge>}
                   {t.blocked > 0 && <Badge tone="danger">{t.blocked} gesperrt</Badge>}

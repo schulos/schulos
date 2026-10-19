@@ -8,8 +8,8 @@ test("Vertretungsplan mit Freigabe: Monitor und Schülerin sehen keinen Entwurf,
   test.setTimeout(90_000);
   const NOTE = "Freigabe-Test E2E";
   const errors = collectErrors(page);
-  await login(page, "sabine.kowalski");
-  await page.goto("/verwaltung/vertretungen");
+  await login(page, "frank.schulte");
+  await page.goto("/planung/vertretungen");
   const days = page.getByRole("navigation", { name: "Tage im Vertretungsplan" });
   await days.getByRole("link").filter({ hasText: "keine Änderungen" }).first().click();
   await expect(page).toHaveURL(/datum=\d{4}-\d{2}-\d{2}/);

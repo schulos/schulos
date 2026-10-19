@@ -32,18 +32,18 @@ export default async function VertretungsstatistikPage({ searchParams }: { searc
 
   return (
     <main className="flex flex-col gap-6">
-      <Link href="/verwaltung/vertretungen" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+      <Link href="/planung/vertretungen" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
         <ArrowLeft aria-hidden className="size-4" /> Vertretungen
       </Link>
-      <PageHeader eyebrow="Verwaltung" title="Vertretungsstatistik" />
+      <PageHeader eyebrow="Stundenplanung" title="Vertretungsstatistik" />
       <nav aria-label="Zeitraum" className="flex flex-wrap items-center gap-2">
         <Button asChild size="sm" variant={month ? "ghost" : "secondary"}>
-          <Link href="/verwaltung/vertretungen/statistik" aria-current={month ? undefined : "page"}>
+          <Link href="/planung/vertretungen/statistik" aria-current={month ? undefined : "page"}>
             Schuljahr{year ? ` ${year.name}` : ""}
           </Link>
         </Button>
         <Button asChild size="sm" variant={month ? "secondary" : "ghost"}>
-          <Link href="/verwaltung/vertretungen/statistik?zeitraum=monat" aria-current={month ? "page" : undefined}>
+          <Link href="/planung/vertretungen/statistik?zeitraum=monat" aria-current={month ? "page" : undefined}>
             Dieser Monat
           </Link>
         </Button>

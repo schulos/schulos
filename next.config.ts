@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
 import { STATIC_SECURITY_HEADERS } from "@schulos/server/security-headers";
 
+/** Alte Verwaltungspfade der Stundenplanung → neue Pfade unter /planung (SP-03) */
+const PLANUNG_REDIRECTS: [string, string][] = [
+  ["/verwaltung/stundenplan/solver", "/planung/solver"],
+  ["/verwaltung/stundenplan", "/planung/stundenplan"],
+  ["/verwaltung/unterricht/zeitwuensche", "/planung/zeitwuensche"],
+  ["/verwaltung/unterricht", "/planung/unterricht"],
+  ["/verwaltung/vertretungen", "/planung/vertretungen"],
+  ["/verwaltung/aufsichten", "/planung/aufsichten"],
+];
+
 const nextConfig: NextConfig = {
   // Container-Image (Dockerfile): eigenständiger Server unter .next/standalone
   output: "standalone",
@@ -29,6 +39,11 @@ const nextConfig: NextConfig = {
         ],
       },
     ];
+  },
+  // SP-03 (docs/STUNDENPLAN-UMBAU.md §2.3, Q-SP-7): die Planungsseiten sind aus der Verwaltung nach /planung umgezogen. Die alten
+  // Pfade leiten dauerhaft weiter (Lesezeichen, Monitore, Links in älteren Gongs); 307, Query bleibt erhalten. Spezifische zuerst.
+  async redirects() {
+    return PLANUNG_REDIRECTS.map(([from, to]) => ({ source: `${from}/:path*`, destination: `${to}/:path*`, permanent: false }));
   },
   experimental: {
     // Aufgaben-Abgaben mit Dateien laufen über Server Actions (Limit je Datei: 25 MB im Service).

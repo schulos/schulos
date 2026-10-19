@@ -27,7 +27,8 @@ const MO = "2026-10-05";
 const DI = "2026-10-06";
 const JANA = "u-jana.brandt";
 const PETRA = "u-petra.lindner"; // Schulleitung
-const SABINE = "u-sabine.kowalski"; // Planung (stundenplan.manage/.substitute)
+const SEKRETARIAT = "u-sabine.kowalski"; // keine Lehrkraft, plant nicht (SP-03)
+const PLANUNG = "u-frank.schulte"; // Gruppe Stundenplanung (stundenplan.manage/.substitute)
 const OTHER = "u-murat.yilmaz"; // Lehrkraft ohne Planungsrecht (Tobias Kleine ist Schulleitung → seit SP-02 `substitute`)
 const LEA = "u-lea.schaefer"; // 7b
 
@@ -77,7 +78,7 @@ describe("Abwesenheit selbst melden (P4-74) und Vertretungsmaterial (Q5-12)", ()
   afterAll(() => h.close());
 
   it("nur Lehrkräfte, ab heute, höchstens 14 Tage, bei „krank“ keine Ergänzung", async () => {
-    await expect(reportOwnAbsence(h.db, await p(SABINE), krank, TODAY)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(reportOwnAbsence(h.db, await p(SEKRETARIAT), krank, TODAY)).rejects.toBeInstanceOf(ForbiddenError);
     expect(await fe(reportOwnAbsence(h.db, await p(JANA), { ...krank, startsOn: "2026-10-01", endsOn: "2026-10-01" }, TODAY))).toEqual({
       startsOn: "Rückwirkend trägt die Vertretungsplanung ein",
     });
@@ -96,7 +97,7 @@ describe("Abwesenheit selbst melden (P4-74) und Vertretungsmaterial (Q5-12)", ()
     const needs = await needsOn(h.db, MO);
     expect(needs.open.map((o) => o.periodNr)).toEqual([1, 3]);
     expect(needs.absences[0]).toMatchObject({ selfReported: true, status: "aktiv" });
-    const gong = await h.db.select().from(notifications).where(eq(notifications.userId, SABINE));
+    const gong = await h.db.select().from(notifications).where(eq(notifications.userId, PLANUNG));
     const g = gong.find((n) => n.title.startsWith("Abwesenheit gemeldet"))!;
     expect(g.title).toBe("Abwesenheit gemeldet: Jana Brandt (BRA)");
     expect(`${g.title} ${g.body}`).not.toContain("krank");
@@ -144,7 +145,7 @@ describe("Abwesenheit selbst melden (P4-74) und Vertretungsmaterial (Q5-12)", ()
       .where(and(eq(timetableAbsences.teacherId, JANA), eq(timetableAbsences.status, "aktiv")));
     const lesson = ids["g-7b-0-1"]!;
     // Vertretung steht schon fest → Gong beim ersten Material
-    await saveSubstitution(h.db, SABINE, { lessonId: lesson, date: MO, kind: "substitute", substituteId: "u-sophie.wagner", roomId: null, note: null });
+    await saveSubstitution(h.db, PLANUNG, { lessonId: lesson, date: MO, kind: "substitute", substituteId: "u-sophie.wagner", roomId: null, note: null });
     // nur eine betroffene Stunde der Abwesenheit
     expect(
       await fe(saveMaterial(h.db, storage, await p(JANA), { absenceId: a!.id, lessonId: ids["g-9a-0-1"]!, date: MO, text: "x", forStudents: false })),
@@ -165,7 +166,7 @@ describe("Abwesenheit selbst melden (P4-74) und Vertretungsmaterial (Q5-12)", ()
     expect(storage.files.size).toBe(1);
     const gong = await h.db.select().from(notifications).where(eq(notifications.userId, "u-sophie.wagner"));
     expect(gong.some((n) => n.title === "Vertretungsmaterial: 1. Std Klasse 7b" && n.href === `/stundenplan/material/${id}`)).toBe(true);
-    for (const who of [JANA, "u-sophie.wagner", SABINE]) expect((await materialFor(h.db, await p(who), id))?.text).toBe("Buch S. 34, Nr. 1–4");
+    for (const who of [JANA, "u-sophie.wagner", PLANUNG]) expect((await materialFor(h.db, await p(who), id))?.text).toBe("Buch S. 34, Nr. 1–4");
     expect(await materialFor(h.db, await p(LEA), id)).toBeNull();
     expect(await materialFor(h.db, await p(OTHER), id)).toBeNull();
     // Häkchen für Schüler:innen: Lea (7b) sieht es, eine Schülerin einer anderen Klasse nicht
