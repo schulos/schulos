@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getDb } from "@/core/db/client";
 import type { KurswahlVerfahren } from "@/core/db/schema";
 import { hasPermission, type PermissionSet } from "@/core/permissions";
-import type { VerfahrenState } from "@/modules/kurswahl/service";
+import { MANAGE, type VerfahrenState } from "@/modules/kurswahl/service";
 import { assignmentSuggestions, TRANSFER_GROUPS, transferPreview } from "@/modules/kurswahl/uebernahme";
 import { assignmentsAction, transferAction } from "@/modules/kurswahl/uebernahme-actions";
 import { Badge } from "@schulos/ui/badge";
@@ -16,12 +16,15 @@ export async function UebernahmePart({ perms, v, state }: { perms: PermissionSet
   if (!v.allocatedAt) return null;
   const db = await getDb();
   const done = Boolean(v.transferredAt);
-  const [preview, suggestions] = await Promise.all([done ? null : transferPreview(db, perms, v), done ? assignmentSuggestions(db, perms, v) : []]);
+  // SP-05: die Vorschau nennt Schüler:innen (Konflikte) – nur für `kurswahl.manage`; `kurswahl.view` sieht erst die übernommenen Gruppen
+  const manage = hasPermission(perms, MANAGE);
+  const [preview, suggestions] = await Promise.all([done || !manage ? null : transferPreview(db, perms, v), done ? assignmentSuggestions(db, perms, v) : []]);
   return (
     <section aria-labelledby="uebernahme" className="flex flex-col gap-3">
       <h2 id="uebernahme" className="font-display text-xl font-bold">
         Übernahme in Gruppen
       </h2>
+      {!done && !manage && <p className="text-sm text-muted">Noch nicht in Gruppen übernommen – die Lehraufträge lassen sich danach hier anlegen.</p>}
       {preview && (
         <Card className="flex flex-col gap-3">
           <ul className="flex flex-col gap-1">

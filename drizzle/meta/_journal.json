@@ -645,6 +645,13 @@
       "when": 1792410823607,
       "tag": "0091_buecherei_vormerkung",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1792419069316,
+      "tag": "0092_kurswahl_lesen",
+      "breakpoints": true
     }
   ]
 }

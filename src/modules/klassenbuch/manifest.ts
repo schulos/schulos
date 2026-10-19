@@ -1,4 +1,5 @@
 import { defineModule } from "@/core/modules/types";
+import { TEACHING_ROLES } from "@/core/roles";
 import { KLASSENBUCH_SETTINGS } from "./settings";
 
 export default defineModule({
@@ -12,7 +13,8 @@ export default defineModule({
     "klassenbuch.view_all": "Alle Klassenbücher einsehen",
     "klassenbuch.manage": "Alle Einträge bearbeiten",
   },
-  nav: [{ href: "/klassenbuch", label: "Klassenbuch", roles: ["lehrkraft", "verwaltung", "admin"] }],
+  // SP-05: dieselbe Rollenliste wie die Seite (Personal/Beratung bewusst nicht – Schülerdaten)
+  nav: [{ href: "/klassenbuch", label: "Klassenbuch", roles: [...TEACHING_ROLES] }],
   settings: KLASSENBUCH_SETTINGS,
   retention: [
     {

@@ -32,6 +32,15 @@ import { isCalendarDate, toBerlinDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 
 export const MANAGE = "kurswahl.manage";
+/**
+ * SP-05 (Projektleitung 2026-10-19): nur lesen – Verfahren, Angebote, Teilnehmerzahlen, Nachfrage/Zuteilung je Angebot und die
+ * übernommenen Gruppen, z. B. für die Stundenplanung (Lehraufträge aus der Kurswahl). Keine Wunschlisten oder Zuteilungen einzelner
+ * Schüler:innen – die braucht die Lehrauftrags-Übernahme nicht (Datensparsamkeit). `kurswahl.manage` schließt das Lesen ein.
+ */
+export const VIEW = "kurswahl.view";
+
+/** Darf Kurswahlen lesen (Verwaltungssicht ohne Personenebene)? `manage` oder `view`. */
+export const canViewKurswahl = (perms: PermissionSet) => hasPermission(perms, MANAGE) || hasPermission(perms, VIEW);
 
 export const KIND_LABEL: Record<KurswahlKind, string> = {
   wp1: "Wahlpflicht I",
@@ -214,7 +223,7 @@ export async function getVerfahren(db: Db, id: string): Promise<KurswahlVerfahre
 }
 
 export async function listVerfahren(db: Db, perms: PermissionSet): Promise<KurswahlVerfahren[]> {
-  if (!hasPermission(perms, MANAGE)) throw new ForbiddenError(MANAGE);
+  if (!canViewKurswahl(perms)) throw new ForbiddenError(VIEW);
   return db.select().from(kurswahlVerfahren).orderBy(desc(kurswahlVerfahren.closesOn), asc(kurswahlVerfahren.title));
 }
 

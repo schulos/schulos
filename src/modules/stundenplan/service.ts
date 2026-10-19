@@ -4,13 +4,14 @@ import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/core/db/client";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { groupMembers, groups, parentChild, periods, rooms, subjects, timetableLessons, timetableSubstitutions, users } from "@/core/db/schema";
-import type { PermissionSet } from "@/core/permissions";
+import { hasPermission, type PermissionSet } from "@/core/permissions";
+import { isStaffRole } from "@/core/roles";
 import { addDays, isoWeek, weekdayMon0 } from "@/core/time";
 import { parentInformedSql } from "@/core/school/majority";
 import { de } from "@/core/db/sort";
 import { draftDaysBetween } from "./freigabe";
 
-const STAFF = ["lehrkraft", "verwaltung", "admin"];
+import { PLAN_MANAGE, PLAN_SUBSTITUTE } from "./rechte";
 
 export type PlanTarget =
   | { kind: "user"; id: string }
@@ -107,9 +108,9 @@ async function targetCondition(db: Db, target: PlanTarget): Promise<{ cond: SQL 
   if (target.kind === "group") return { cond: eq(timetableLessons.groupId, target.id), teacherId: null };
   if (target.kind === "teacher") return { cond: eq(timetableLessons.teacherId, target.id), teacherId: target.id };
   if (target.kind === "room") return { cond: eq(timetableLessons.roomId, target.id), teacherId: null };
-  // Personal: nur selbst gehaltene Stunden (Klassenleitung heißt nicht, alle Stunden der Klasse zu geben)
+  // Beschäftigte: nur selbst gehaltene Stunden (Klassenleitung heißt nicht, alle Stunden der Klasse zu geben)
   const [u] = await db.select({ role: users.role }).from(users).where(eq(users.id, target.id));
-  if (u && STAFF.includes(u.role)) return { cond: eq(timetableLessons.teacherId, target.id), teacherId: target.id };
+  if (u && isStaffRole(u.role)) return { cond: eq(timetableLessons.teacherId, target.id), teacherId: target.id };
   const gids = await groupIdsOf(db, target.id);
   return gids.length ? { cond: inArray(timetableLessons.groupId, gids), teacherId: null } : null;
 }
@@ -258,9 +259,14 @@ export async function planOwners(db: Db, viewer: PermissionSet): Promise<{ id: s
   return [];
 }
 
-/** Darf der Betrachter diesen Plan sehen? Personal alles; sonst eigener Plan, Plan der Kinder, eigene Gruppen. */
+/** SP-05: Alle Pläne sehen Beschäftigte der Schule (`isStaffRole`) und wer plant (Planungsrecht) – unabhängig von der Rolle. */
+export function seesAllPlans(viewer: PermissionSet): boolean {
+  return isStaffRole(viewer.role) || hasPermission(viewer, PLAN_MANAGE) || hasPermission(viewer, PLAN_SUBSTITUTE);
+}
+
+/** Darf der Betrachter diesen Plan sehen? Beschäftigte und Planung alles; sonst eigener Plan, Plan der Kinder, eigene Gruppen. */
 export async function canViewPlan(db: Db, viewer: PermissionSet, target: PlanTarget): Promise<boolean> {
-  if (STAFF.includes(viewer.role)) return true;
+  if (seesAllPlans(viewer)) return true;
   if (target.kind === "user") return (await planOwners(db, viewer)).some((o) => o.id === target.id);
   if (target.kind === "group") return viewer.memberOf.has(target.id);
   return false;

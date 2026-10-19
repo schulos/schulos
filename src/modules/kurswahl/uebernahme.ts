@@ -8,7 +8,7 @@ import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permis
 import { createAssignment, planningYear } from "@/modules/stundenplan/verteilung";
 import { addMembers, createGroup } from "@/modules/verwaltung/groups";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { KIND_GROUP, MANAGE, getVerfahren, listAngebote, targetStudents, verfahrenState } from "./service";
+import { KIND_GROUP, MANAGE, VIEW, canViewKurswahl, getVerfahren, listAngebote, targetStudents, verfahrenState } from "./service";
 
 export interface PlannedGroup {
   offerId: string;
@@ -175,7 +175,8 @@ export interface AssignmentSuggestion {
 
 /** Lehraufträge-Vorschlag: je übernommener Gruppe Fach, Stunden und Lehrkraft aus dem Angebot. */
 export async function assignmentSuggestions(db: Db, perms: PermissionSet, v: KurswahlVerfahren): Promise<AssignmentSuggestion[]> {
-  if (!hasPermission(perms, MANAGE)) throw new ForbiddenError(MANAGE);
+  // Gruppe, Fach, Stunden, Lehrkraft – keine Schülerdaten; auch für `kurswahl.view` (SP-05)
+  if (!canViewKurswahl(perms)) throw new ForbiddenError(VIEW);
   const yearId = await yearOf(db, v);
   const offers = (await listAngebote(db, v.id)).filter((o) => o.groupId);
   if (offers.length === 0) return [];
@@ -207,9 +208,12 @@ export async function assignmentSuggestions(db: Db, perms: PermissionSet, v: Kur
   });
 }
 
-/** Vorgeschlagene Lehraufträge anlegen (Recht `stundenplan.manage`); übersprungen wird, was fehlt oder schon da ist. */
+/**
+ * Vorgeschlagene Lehraufträge anlegen: `stundenplan.manage` und Kurswahl lesen (`kurswahl.view` oder `.manage`, SP-05 – die
+ * Stundenplanung braucht die Wahlen nicht zu verwalten); übersprungen wird, was fehlt oder schon da ist.
+ */
 export async function createSuggestedAssignments(db: Db, perms: PermissionSet, verfahrenId: string): Promise<number> {
-  if (!hasPermission(perms, MANAGE)) throw new ForbiddenError(MANAGE);
+  if (!canViewKurswahl(perms)) throw new ForbiddenError(VIEW);
   if (!hasPermission(perms, "stundenplan.manage")) throw new ForbiddenError("stundenplan.manage");
   const v = await getVerfahren(db, verfahrenId);
   if (!v?.transferredAt) throw new ValidationError({ assignments: "Erst in Gruppen übernehmen" });
