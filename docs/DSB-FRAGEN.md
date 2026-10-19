@@ -537,4 +537,7 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
   (Verlängern setzt sie zurück); es bleibt nur ein Zähler je Monat und Medienart. Die Mahnliste des Büchereiteams zeigt Name,
   Klasse, Titel und Überfälligkeit wie die Theke, Mahnstufen nur Erwachsenen im Team. **Fragen:** Ist die Elternbenachrichtigung
   ab der 2. Stufe als Information der Erziehungsberechtigten gedeckt? Sollen Mahnungen per Mail ab Werk aus bleiben (Vorgabe)?
+- **Ergänzung BU-05:** Die Statistik zählt nur je Monat und Medienart (Ausleihen, Verlängerungen, Mahnungen) und je Exemplar
+  (wie oft ausgeliehen, Monat der letzten Ausleihe) – ohne Person. Daraus entstehen „nie ausgeliehen“ und Aussonderungsvorschläge;
+  wer was gelesen hat, lässt sich nicht auswerten. Keine Fragen offen.
 - **Vorschlag:** Vorgaben übernehmen; Büchereiteam schriftlich belehren (Baustein), Befunde wie vorgesehen.

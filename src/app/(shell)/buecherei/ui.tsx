@@ -13,11 +13,13 @@ const SECTIONS = [
   { key: "mahnliste", href: "/buecherei/mahnliste", label: "Mahnliste", allowed: canDesk },
   { key: "bestand", href: "/buecherei/bestand", label: "Bestand", allowed: canStock },
   { key: "ausweise", href: "/buecherei/ausweise", label: "Ausweise", allowed: canDesk },
+  { key: "etiketten", href: "/buecherei/etiketten", label: "Etiketten", allowed: canStock },
+  { key: "statistik", href: "/buecherei/statistik", label: "Statistik", allowed: canStock },
 ] as const;
 
 export type BuechereiSection = (typeof SECTIONS)[number]["key"];
 
-/** Bereiche der Bücherei nach Recht (Katalog: `use`, Meine Ausleihen: `use` oder Eltern, Theke, Mahnliste und Ausweise: `desk`, Bestand: `stock`). */
+/** Bereiche der Bücherei nach Recht (Katalog: `use`, Meine Ausleihen: `use` oder Eltern, Theke, Mahnliste und Ausweise: `desk`, Bestand, Etiketten und Statistik: `stock`). */
 export function BuechereiNav({ current, perms }: { current: BuechereiSection; perms: PermissionSet }) {
   const visible = SECTIONS.filter((s) => s.allowed(perms));
   if (visible.length < 2) return null;

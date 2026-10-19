@@ -9,6 +9,7 @@ import { toBerlinDate } from "@/core/time";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { classMemberIds, ensureCards, replaceCard } from "./cards";
+import { markLabelsPrinted, markQueuePrinted, requeueLabel } from "./etiketten";
 import { checkin, renewLoan, renewOwnLoan, resolveFinding, scanAtDesk } from "./loans";
 import { cancelReservation, reserve } from "./reservations";
 import { MAX_TITLE_CSV_BYTES, addCopies, createTitle, deleteTitle, importTitles, restoreCopy, updateCopy, updateTitle, withdrawCopy, type TitleInput } from "./service";
@@ -251,4 +252,30 @@ export async function replaceCardAction(userId: string): Promise<void> {
   const { perms } = await requireUser();
   await replaceCard(await getDb(), perms, userId);
   redirect(`/druck/buecherei-ausweise?person=${encodeURIComponent(userId)}`);
+}
+
+// ---------------------------------------------------------------- Etiketten (BU-05)
+
+/** Aus der Druckansicht: genau die gedruckten Exemplare als gedruckt markieren (aus der Warteschlange nehmen). */
+export async function markLabelsPrintedAction(form: FormData): Promise<void> {
+  const { perms } = await requireUser();
+  const ids = form.getAll("copyId").map(String);
+  const n = await markLabelsPrinted(await getDb(), perms, ids, new Date());
+  revalidatePath("/buecherei", "layout");
+  redirect(`/buecherei/etiketten?gedruckt=${n}`);
+}
+
+/** Ganze Warteschlange als gedruckt markieren (Altbestand mit vorhandenen Etiketten). */
+export async function markQueuePrintedAction(): Promise<void> {
+  const { perms } = await requireUser();
+  const n = await markQueuePrinted(await getDb(), perms, new Date());
+  revalidatePath("/buecherei", "layout");
+  redirect(`/buecherei/etiketten?gedruckt=${n}`);
+}
+
+/** Exemplar wieder in die Druckwarteschlange (Etikett beschädigt oder verloren). */
+export async function requeueLabelAction(copyId: string): Promise<void> {
+  const { perms } = await requireUser();
+  await requeueLabel(await getDb(), perms, copyId);
+  revalidatePath("/buecherei", "layout");
 }
