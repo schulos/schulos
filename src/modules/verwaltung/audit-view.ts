@@ -140,6 +140,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "buecherei.import": "Bücherei: Bestand importiert",
   "buecherei.loan.finding": "Bücherei: Rückgabe mit Befund",
   "buecherei.loan.resolve": "Bücherei: Befund erledigt",
+  "buecherei.card.create": "Bücherei: Ausweise angelegt",
+  "buecherei.card.replace": "Bücherei: Ausweis ersetzt",
   "kurse.konferenz.setzen": "Kursraum: Konferenzlink gesetzt",
   "kurse.konferenz.entfernen": "Kursraum: Konferenzlink entfernt",
   "notenbuch.anlegen": "Notenbuch angelegt",

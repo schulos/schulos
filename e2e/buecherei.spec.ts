@@ -1,6 +1,6 @@
 // Schulbücherei – Bestand (BU-01): Büchereiteam legt einen Titel mit Exemplaren an, ergänzt und sondert aus, prüft einen
 // CSV-Import in der Vorschau; Lehrkraft ohne Teamrecht bekommt 404. Theke (BU-02): Person suchen, scannen, verlängern,
-// Rückgabe nur scannen, Rückgabe mit Befund; Befunde nur für die Verwaltung.
+// Rückgabe nur scannen, Rückgabe mit Befund; Befunde nur für die Verwaltung. Ausweise (BU-07): drucken, scannen, ersetzen.
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch } from "./helpers";
 
@@ -76,7 +76,7 @@ test.describe("Bücherei", () => {
 
     await page.goto("/buecherei/theke");
     const scan = page.getByRole("form", { name: "Scannen" });
-    const field = scan.getByLabel("Exemplar scannen");
+    const field = scan.getByLabel("Ausweis oder Exemplar scannen");
     await expect(field).toBeFocused();
     // ohne Person: nicht ausgeliehenes Exemplar → Hinweis
     await field.fill(barcode);
@@ -140,6 +140,50 @@ test.describe("Bücherei", () => {
     await expect(row).toContainText("Lea Schäfer (7b)");
     await row.getByRole("button", { name: `Befund ${barcode} erledigt` }).click();
     await expect(findings.getByText(barcode)).toHaveCount(0);
+    await logoutForSwitch(page);
+  });
+
+  test("BU-07: Ausweis drucken, an der Theke scannen, ersetzen, klassenweise drucken", async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = collectErrors(page);
+    await login(page, "aylin.demir");
+    await page.goto(`/buecherei/theke?q=${encodeURIComponent("Schäfer 7b")}`);
+    await page.getByRole("list", { name: "Suchergebnis" }).getByRole("link", { name: /Lea Schäfer/ }).click();
+    await expect(page.getByText("Ausleihe für Lea Schäfer")).toBeVisible();
+    await page.getByRole("button", { name: "Ausweis drucken" }).click();
+    await expect(page).toHaveURL(/\/druck\/buecherei-ausweise\?person=/);
+    const card = page.getByRole("region", { name: "Ausweis Lea Schäfer" });
+    await expect(card.getByRole("img", { name: /^Strichcode K-/ })).toBeVisible();
+    const code = (await card.getByText(/^K-[0-9A-Z]{10}$/).textContent())!;
+
+    // Ausweis-Scan wählt die Person
+    await page.goto("/buecherei/theke");
+    const field = page.getByRole("form", { name: "Scannen" }).getByLabel("Ausweis oder Exemplar scannen");
+    await field.fill(code);
+    await field.press("Enter");
+    await expect(page).toHaveURL(/person=u-lea\.schaefer/);
+    await expect(page.getByText("Ausleihe für Lea Schäfer")).toBeVisible();
+
+    // Verlust: neuer Code, der alte gilt nicht mehr
+    await page.getByRole("button", { name: "Ausweis ersetzen (Verlust)" }).click();
+    await expect(page).toHaveURL(/\/druck\/buecherei-ausweise\?person=/);
+    const neu = (await page.getByRole("region", { name: "Ausweis Lea Schäfer" }).getByText(/^K-[0-9A-Z]{10}$/).textContent())!;
+    expect(neu).not.toBe(code);
+    await page.goto("/buecherei/theke");
+    await field.fill(code);
+    await field.press("Enter");
+    await expect(page.getByRole("form", { name: "Scannen" }).getByRole("alert")).toContainText("Ausweis unbekannt");
+
+    // klassenweise
+    await page.getByRole("navigation", { name: "Bücherei" }).getByRole("link", { name: "Ausweise" }).click();
+    await expect(page).toHaveURL("/buecherei/ausweise");
+    await page.getByRole("button", { name: "Ausweise Klasse 7b drucken" }).click();
+    await expect(page).toHaveURL(/\/druck\/buecherei-ausweise\?klasse=g-7b/);
+    await expect(page.getByRole("region", { name: /^Ausweis / })).toHaveCount(25);
+    await page.getByRole("link", { name: "Etiketten 62 × 29 mm" }).click();
+    await expect(page).toHaveURL(/format=etikett/);
+    await expect(page.getByRole("region", { name: "Ausweis Lea Schäfer" }).getByText(neu)).toBeVisible();
+    expect(errors).toEqual([]);
     await logoutForSwitch(page);
   });
 

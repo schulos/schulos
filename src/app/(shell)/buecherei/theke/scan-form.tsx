@@ -18,7 +18,7 @@ export function ScanForm({ action, hint }: { action: (prev: FormState, form: For
   return (
     <form ref={form} action={formAction} aria-label="Scannen" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end gap-3">
-        <Field label="Exemplar scannen" hint={hint} className="min-w-64 flex-1">
+        <Field label="Ausweis oder Exemplar scannen" hint={hint} className="min-w-64 flex-1">
           <Input name="code" autoFocus autoComplete="off" spellCheck={false} maxLength={40} className="font-mono" />
         </Field>
         <Button type="submit" disabled={pending}>

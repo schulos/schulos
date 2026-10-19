@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { toBerlinDate } from "@/core/time";
-import { renewLoanAction, resolveFindingAction, returnWithFindingAction, scanAction } from "@/modules/buecherei/actions";
+import { printPersonCardAction, renewLoanAction, replaceCardAction, resolveFindingAction, returnWithFindingAction, scanAction } from "@/modules/buecherei/actions";
 import { MAX_FINDING_LENGTH, canDesk, canFindings, deskPerson, deskSummary, listFindings, searchBorrowers } from "@/modules/buecherei/loans";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -60,14 +60,32 @@ export default async function ThekePage({ searchParams }: { searchParams: Promis
               <Link href="/buecherei/theke" className="ml-auto font-medium text-accent-ink hover:underline">
                 Person abwählen
               </Link>
+              <div className="flex w-full flex-wrap gap-2">
+                <form action={printPersonCardAction.bind(null, person.id)}>
+                  <Button type="submit" size="sm" variant="ghost">
+                    Ausweis drucken
+                  </Button>
+                </form>
+                <form action={replaceCardAction.bind(null, person.id)}>
+                  <Button type="submit" size="sm" variant="ghost" title="Neuer Code – der alte Ausweis gilt danach nicht mehr">
+                    Ausweis ersetzen (Verlust)
+                  </Button>
+                </form>
+              </div>
             </div>
           ) : (
-            <p className="text-sm text-muted">Ausgeliehene Exemplare einfach scannen – das bucht sie zurück. Für eine Ausleihe zuerst die Person wählen.</p>
+            <p className="text-sm text-muted">
+              Ausgeliehene Exemplare einfach scannen – das bucht sie zurück. Für eine Ausleihe zuerst den Ausweis scannen oder die Person suchen.
+            </p>
           )}
           <ScanForm
             key={person?.id ?? "-"}
             action={scanAction.bind(null, person?.id ?? null)}
-            hint={person ? "Nicht ausgeliehen → Ausleihe an diese Person, ausgeliehen → Rückgabe" : "Exemplarnummer, z. B. B-000001-8 – mit Hand-Scanner oder Tastatur und Enter"}
+            hint={
+              person
+                ? "Exemplar: nicht ausgeliehen → Ausleihe an diese Person, ausgeliehen → Rückgabe · Ausweis: andere Person wählen"
+                : "Ausweis → Person wählen · Exemplar (z. B. B-000001-8) → Rückgabe – mit Hand-Scanner oder Tastatur und Enter"
+            }
           />
 
           {person && (
