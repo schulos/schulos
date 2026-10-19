@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { count } from "drizzle-orm";
+import { ArrowRight } from "lucide-react";
 import { lockedLogins } from "@/core/auth/sperre";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
@@ -20,6 +21,8 @@ import { PageHeader } from "@schulos/ui/misc";
 import { isEnabled, loadModuleStates } from "@/core/modules/registry";
 import notenbuchModule from "@/modules/notenbuch/manifest";
 import { hasNotenbuchRight, orphanedBooks, TRANSFER } from "@/modules/notenbuch/service";
+import stundenplanModule from "@/modules/stundenplan/manifest";
+import { PLAN_MANAGE, PLAN_SUBSTITUTE } from "@/modules/stundenplan/rechte";
 
 export const metadata: Metadata = { title: "Verwaltung" };
 
@@ -29,17 +32,20 @@ const timeFmtLong = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", time
 export default async function VerwaltungPage() {
   const { perms } = await requireUser();
   const db = await getDb();
-  const [byRole, [g], school, locked, demo] = await Promise.all([
+  const [byRole, [g], school, locked, demo, moduleStates] = await Promise.all([
     countByRole(db),
     db.select({ n: count() }).from(groups),
     getSchoolSettings(),
     hasPermission(perms, "verwaltung.users") ? lockedLogins(db) : [],
     isDemoDb(db),
+    loadModuleStates(db),
   ]);
+  // SP-04: Die Planung liegt seit SP-03 unter /planung – Einstieg von hier, wenn ein Planungsrecht vorhanden ist
+  const planning = (hasPermission(perms, PLAN_MANAGE) || hasPermission(perms, PLAN_SUBSTITUTE)) && isEnabled(stundenplanModule, moduleStates);
   // P5-15: verwaiste Notenbücher (keine aktive Lehrkraft) – nur Gruppe/Fach, für Benutzerverwaltung und „Übertragen“
   const canTransfer = hasNotenbuchRight(perms, TRANSFER);
   const orphans =
-    (hasPermission(perms, "verwaltung.users") || canTransfer) && isEnabled(notenbuchModule, await loadModuleStates(db)) ? await orphanedBooks(db) : [];
+    (hasPermission(perms, "verwaltung.users") || canTransfer) && isEnabled(notenbuchModule, moduleStates) ? await orphanedBooks(db) : [];
   // Sicherung: nur für das Systemrecht und nicht in Demo-Instanzen (fiktive Daten)
   const backup = hasPermission(perms, "verwaltung.system") && !demo ? backupStatus() : null;
   return (
@@ -63,6 +69,17 @@ export default async function VerwaltungPage() {
           <span className="text-sm text-muted">Gruppen</span>
           <span className="font-display text-3xl font-bold tracking-tight">{g?.n ?? 0}</span>
         </Link>
+        {planning && (
+          <Link
+            href="/planung"
+            className="flex flex-col gap-1 rounded-card border border-border bg-surface p-4 transition hover:border-border-strong"
+          >
+            <span className="text-sm text-muted">Stundenplanung</span>
+            <span className="inline-flex items-center gap-1 font-semibold text-accent-ink">
+              öffnen <ArrowRight aria-hidden className="size-4" />
+            </span>
+          </Link>
+        )}
       </section>
       {backup && needsAttention(backup) && (
         <Card aria-label="Sicherung" className="border-danger">

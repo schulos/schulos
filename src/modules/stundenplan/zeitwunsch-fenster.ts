@@ -65,7 +65,7 @@ export async function openWindow(db: Db, today: string): Promise<PrefWindow | nu
   return year && year.id === w!.schoolYearId ? w : null;
 }
 
-async function activeTeachers(db: Db): Promise<string[]> {
+export async function activeTeachers(db: Db): Promise<string[]> {
   return (await db.select({ id: users.id }).from(users).where(and(eq(users.role, "lehrkraft"), eq(users.status, "active")))).map((r) => r.id);
 }
 
