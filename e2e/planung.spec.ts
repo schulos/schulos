@@ -68,3 +68,39 @@ test("SP-03: Schulleitung (nur Vertretungen planen) sieht Vertretungen und Aufsi
   expect((await page.goto("/planung/solver"))?.status()).toBe(404);
   expect((await page.goto("/planung/vertretungen"))?.status()).toBe(200);
 });
+
+// SP-04: Übersicht mit Kennzahlen je Recht, Einstieg aus der Verwaltungs-Übersicht
+
+test("SP-04: Übersicht zeigt Jahresplanung und Tagesgeschäft als Kacheln mit Links", async ({ page }) => {
+  const errors = collectErrors(page);
+  await login(page, "frank.schulte");
+  await page.goto("/planung");
+  await expect(page.getByTestId("planungsjahr")).toContainText("Schuljahr");
+  const jahr = page.getByRole("region", { name: "Jahresplanung" });
+  const tag = page.getByRole("region", { name: "Tagesgeschäft" });
+  for (const title of ["Offene Lehraufträge", "Diagnose", "Zeitwünsche"]) await expect(jahr.getByRole("link", { name: new RegExp(title) })).toBeVisible();
+  await expect(jahr.locator("[data-kachel=solver]")).toBeVisible();
+  for (const title of ["Vertretungsbedarf", "Unveröffentlichte Entwürfe", "Unbesetzte Aufsichten", "Raumsperren heute"]) {
+    await expect(tag.getByRole("link", { name: new RegExp(title) })).toBeVisible();
+  }
+  await jahr.getByRole("link", { name: /Diagnose/ }).click();
+  await expect(page).toHaveURL("/planung/unterricht?ansicht=diagnose");
+  expect(errors).toEqual([]);
+});
+
+test("SP-04: Schulleitung sieht nur das Tagesgeschäft und den Einstieg in der Verwaltung", async ({ page }) => {
+  await login(page, "petra.lindner");
+  await page.goto("/planung");
+  await expect(page.getByRole("region", { name: "Tagesgeschäft" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Jahresplanung" })).toHaveCount(0);
+  await page.goto("/verwaltung");
+  // Schulleitung hat ein Planungsrecht (Vertretungen) → Einstieg sichtbar
+  await page.getByRole("region", { name: "Kennzahlen" }).getByRole("link", { name: /Stundenplanung/ }).click();
+  await expect(page).toHaveURL("/planung");
+});
+
+test("SP-04: Sekretariat ohne Planungsrecht bekommt keine Kachel „Stundenplanung“ in der Verwaltung", async ({ page }) => {
+  await login(page, "sabine.kowalski");
+  await page.goto("/verwaltung");
+  await expect(page.getByRole("region", { name: "Kennzahlen" }).getByRole("link", { name: /Stundenplanung/ })).toHaveCount(0);
+});
