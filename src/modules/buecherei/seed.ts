@@ -1,8 +1,9 @@
-// Demo: kleiner Bücherei-Bestand (Jugendbuch, Sachbuch, Film, Spiel) mit Exemplaren, eins davon ausgesondert.
-import { eq } from "drizzle-orm";
+// Demo: kleiner Bücherei-Bestand (Jugendbuch, Sachbuch, Film, Spiel) mit Exemplaren, eins davon ausgesondert; einige offene
+// Ausleihen (eine überfällig), eine Rückgabe mit Befund und anonyme Zähler der letzten Monate (BU-02).
+import { eq, inArray } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { buechereiCopies, buechereiTitles } from "@/core/db/schema";
-import { toBerlinDate } from "@/core/time";
+import { buechereiCopies, buechereiLoans, buechereiStats, buechereiTitles } from "@/core/db/schema";
+import { addDays, toBerlinDate } from "@/core/time";
 import { copyNumber, normalizeIsbn, type MediaType } from "./labels";
 
 interface DemoTitle {
@@ -31,7 +32,8 @@ const TITLES: DemoTitle[] = [
   { title: "Brückenbauer (Brettspiel)", year: 2020, keywords: "Strategie, 2–4 Personen", mediaType: "spiel", ageFrom: 8, signature: "SP BRU", location: "Spieleregal", copies: 1 },
 ];
 
-export async function seedBuecherei(db: Db, now = new Date()) {
+export async function seedBuecherei(db: Db, opts: { now?: Date; borrowers?: readonly string[] } = {}) {
+  const now = opts.now ?? new Date();
   let seq = 0;
   for (const t of TITLES) {
     const [row] = await db
@@ -54,4 +56,30 @@ export async function seedBuecherei(db: Db, now = new Date()) {
   }
   // ein ausgesondertes Exemplar (beschädigt)
   await db.update(buechereiCopies).set({ withdrawnOn: toBerlinDate(now), withdrawnReason: "Wasserschaden" }).where(eq(buechereiCopies.seq, 2));
+
+  // BU-02: Ausleihen der Demo-Schüler:innen (nie die feste Demo-Schülerin – die E2E-Tests leihen selbst aus)
+  const [a, b, c] = opts.borrowers ?? [];
+  if (!a || !b || !c) return;
+  const today = toBerlinDate(now);
+  const copies = new Map(
+    (await db.select({ id: buechereiCopies.id, seq: buechereiCopies.seq }).from(buechereiCopies).where(inArray(buechereiCopies.seq, [1, 4, 9, 12]))).map((r) => [r.seq, r.id]),
+  );
+  await db.insert(buechereiLoans).values([
+    { copyId: copies.get(1)!, userId: a, loanedOn: addDays(today, -20), dueOn: addDays(today, 8) },
+    { copyId: copies.get(12)!, userId: a, loanedOn: addDays(today, -30), dueOn: addDays(today, -16) },
+    { copyId: copies.get(4)!, userId: b, loanedOn: addDays(today, -3), dueOn: addDays(today, 25), renewals: 0 },
+    { copyId: copies.get(9)!, userId: c, loanedOn: addDays(today, -35), dueOn: addDays(today, -7), returnedOn: addDays(today, -2), finding: "Seiten eingerissen" },
+  ]);
+  const month = (back: number) => {
+    const d = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1 - back, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  };
+  await db.insert(buechereiStats).values([
+    { month: month(2), mediaType: "buch", loans: 23, renewals: 4 },
+    { month: month(2), mediaType: "film", loans: 3 },
+    { month: month(1), mediaType: "buch", loans: 31, renewals: 6 },
+    { month: month(1), mediaType: "spiel", loans: 2 },
+    { month: month(0), mediaType: "buch", loans: 9, renewals: 1 },
+    { month: month(0), mediaType: "film", loans: 1 },
+  ]);
 }

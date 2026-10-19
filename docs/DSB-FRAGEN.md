@@ -502,3 +502,25 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
 - **Vorschlag:** Schalter ab Werk aus, Einschalten durch die Schule nach VVT-Eintrag; eine Freigabeliste erst, wenn Schulen sie
   brauchen.
 
+## 18. Schulbücherei: Ausleihe ohne Leseprofil
+
+<!-- dsb:buecherei -->
+| Punkt | |
+|---|---|
+| Was SchulOS tut | Speichert eine Ausleihe (Person, Exemplar, Fälligkeit) nur, solange sie offen ist: Die Rückgabe ohne Befund löscht sie sofort, es bleiben nur Zähler je Monat und Medienart ohne Person – kein Ausleihverlauf, keine Leseempfehlungen, Ausleihe und Rückgabe nicht im Audit-Log. Die Theke (Büchereiteam, auch Schüler-Helfer:innen) sieht nur Name, Klasse und offene Ausleihen der gewählten Person; Rückgaben mit Befund (Schaden, unvollständig) sieht nur die Verwaltung mit „Schulbuchausleihe“. |
+| Vorgabe | Modul ab Werk aus; Leihfrist Buch 4 Wochen, Film/Spiel/Sonstiges 2 Wochen, Gerät 1 Woche, höchstens 2 Verlängerungen; Befunde bis zur Erledigung + Schuljahresende + 1 Jahr (LK-SJ-1J). |
+| Die Schule entscheidet / dokumentiert | Bestätigt die Grundlage (Erfüllung der Aufgabe Schulbücherei, Anlage 1 bzw. 2 VO-DV I – zu prüfen), entscheidet, wer zum Büchereiteam gehört (Schüler-Helfer:innen sehen Namen und offene Ausleihen anderer), weist das Team auf Verschwiegenheit hin und stellt Leihfristen und Verlängerungen ein. |
+| Einstellungen | „Leihfrist Buch“ (Vorgabe: 4 Wochen); „Leihfrist Film“ (Vorgabe: 2 Wochen); „Leihfrist Spiel“ (Vorgabe: 2 Wochen); „Leihfrist Gerät“ (Vorgabe: 1 Woche); „Leihfrist Sonstiges“ (Vorgabe: 2 Wochen); „Verlängerungen je Ausleihe“ (Vorgabe: 2-mal) |
+| Baustein Nutzungsordnung | Büchereiteam: Wer an der Theke der Schulbücherei mithilft, sieht dort Namen, Klasse und offene Ausleihen anderer Schüler:innen und Lehrkräfte. Diese Angaben sind vertraulich und werden nur für die Ausleihe genutzt – nicht weitererzählt, nicht notiert, nicht fotografiert. Wer was liest, ist privat. Schäden werden nur als Sache beschrieben („Wasserschaden“), ohne Namen. |
+| In SchulOS | Verwaltung → Rechte & Module → Bücherei |
+<!-- /dsb -->
+
+**Hintergrund und Fragen** (Herkunft: BU-02, docs/BUECHEREI.md)
+
+- **Kontext:** Was jemand liest, ist privat. SchulOS hält deshalb nur offene Ausleihen mit Person fest; die Rückgabe ohne Befund
+  löscht die Ausleihe sofort, nur anonyme Zähler je Monat und Medienart bleiben (Statistik). Schäden bleiben bis zur Erledigung
+  (Grundlage einer Ersatzforderung). Die Theke darf auch von Schüler-Helfer:innen bedient werden (Entscheidung der Projektleitung
+  2026-10-17) – sie sehen Namen, Klasse und offene Ausleihen der Person, die vor ihnen steht, aber keinen Verlauf und keine Befunde.
+- **Frage:** Reicht die Verschwiegenheitsbelehrung der Schüler-Helfer:innen (Baustein unten), oder sollen sie nur ausleihen dürfen,
+  wenn eine Lehrkraft dabei ist? Ist die Aufbewahrung von Befunden bis Schuljahresende + 1 Jahr nach der Erledigung passend?
+- **Vorschlag:** Vorgaben übernehmen; Büchereiteam schriftlich belehren (Baustein), Befunde wie vorgesehen.

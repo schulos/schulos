@@ -1,6 +1,7 @@
-// Schulbücherei (BU-01) – Bestand ohne Personenbezug. Nur relative Imports (drizzle-kit).
-import { date, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+// Schulbücherei – Bestand ohne Personenbezug (BU-01), Ausleihen (BU-02). Nur relative Imports (drizzle-kit).
+import { date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { users } from "../../core/db/schema-auth";
 import { COPY_CONDITIONS, MEDIA_TYPES } from "./labels";
 
 export const buechereiMediaTypeEnum = pgEnum("buecherei_media_type", MEDIA_TYPES);
@@ -52,4 +53,49 @@ export const buechereiCopies = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("buecherei_copies_title_idx").on(t.titleId), uniqueIndex("buecherei_copies_seq_idx").on(t.seq)],
+);
+
+/**
+ * Ausleihe (BU-02). Personenbezug nur, solange sie offen ist: Die Rückgabe ohne Befund löscht die Zeile (es bleibt nur der
+ * Zähler in `buecherei_stats`) – kein Ausleihverlauf je Person. Rückgabe mit Befund (Schaden, unvollständig) behält die Zeile
+ * bis zur Erledigung + LK-SJ-1J. Kontolöschung leert `user_id` (offene Ausleihe bleibt als „Konto gelöscht“ sichtbar).
+ */
+export const buechereiLoans = pgTable(
+  "buecherei_loans",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    copyId: text("copy_id")
+      .notNull()
+      .references(() => buechereiCopies.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    loanedOn: date("loaned_on").notNull(),
+    dueOn: date("due_on").notNull(),
+    renewals: integer("renewals").notNull().default(0),
+    /** nur bei Rückgabe mit Befund gesetzt – ohne Befund wird die Zeile gelöscht */
+    returnedOn: date("returned_on"),
+    /** Befund bei der Rückgabe (Sache, keine Namen), z. B. „Wasserschaden“, „CD fehlt“ */
+    finding: text("finding"),
+    findingResolvedOn: date("finding_resolved_on"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // ein Exemplar ist höchstens einmal gleichzeitig ausgeliehen
+    uniqueIndex("buecherei_loans_open_copy_idx").on(t.copyId).where(sql`${t.returnedOn} is null`),
+    index("buecherei_loans_user_idx").on(t.userId),
+  ],
+);
+
+/** Ausleihzahlen je Monat und Medienart – ohne Personenbezug (Statistik, BU-05). */
+export const buechereiStats = pgTable(
+  "buecherei_stats",
+  {
+    /** „2026-10“ */
+    month: text("month").notNull(),
+    mediaType: buechereiMediaTypeEnum("media_type").notNull(),
+    loans: integer("loans").notNull().default(0),
+    renewals: integer("renewals").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.month, t.mediaType] })],
 );

@@ -373,7 +373,7 @@ export async function seedDemoSchool(
   await seedGebaeude(db, { groupId: "g-hausmeisterei", hausmeisterId: hausmeister });
   // Schulbücherei (BU-01): bis GATE BU1 ab Werk aus, in der Demo an
   await setModuleEnabled(db, buecherei, true);
-  await seedBuecherei(db);
+  await seedBuecherei(db, { borrowers: [sek1Students[3]!, sek1Students[30]!, sek1Students[60]!] });
   // Demo-Logo (P4-05) – nur mit Dateispeicher (db:reset, Erststart, demo-reset); Tests ohne Speicher bleiben ohne Logo
   if (opts.storage) {
     const svg = (s: string) => new TextEncoder().encode(s);

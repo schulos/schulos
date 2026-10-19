@@ -13,6 +13,7 @@ import { Field, Input, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { SpecForm } from "@/ui/spec-form";
+import { BuechereiNav } from "../ui";
 
 export const metadata: Metadata = { title: "Bücherei-Bestand" };
 
@@ -34,6 +35,7 @@ export default async function BestandPage({ searchParams }: { searchParams: Prom
   return (
     <main className="flex flex-col gap-6">
       <PageHeader eyebrow="Bücherei" title="Bestand" />
+      <BuechereiNav current="bestand" perms={perms} />
       <p className="text-sm text-muted">
         {sum.titles} Titel · {sum.copies} Exemplare im Bestand{sum.withdrawn > 0 && ` · ${sum.withdrawn} ausgesondert`}
       </p>

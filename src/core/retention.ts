@@ -260,6 +260,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   gebaeude_inspection_types: "Prüfarten (Name, Intervall, Quelle) – keine Personen",
   buecherei_titles: "Bücherei-Bestand: Titel (bibliografische Angaben) – keine Personen",
   buecherei_copies: "Bücherei-Bestand: Exemplare (Nummer, Signatur, Standort, Zustand, Aussonderung) – keine Personen",
+  buecherei_stats: "Bücherei: Zahl der Ausleihen und Verlängerungen je Monat und Medienart – keine Personen",
 };
 
 export interface RetentionEntry {

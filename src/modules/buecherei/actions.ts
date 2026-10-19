@@ -8,6 +8,7 @@ import { moduleActions } from "@/core/modules/guard";
 import { toBerlinDate } from "@/core/time";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { checkin, renewLoan, resolveFinding, scanAtDesk } from "./loans";
 import { MAX_TITLE_CSV_BYTES, addCopies, createTitle, deleteTitle, importTitles, restoreCopy, updateCopy, updateTitle, withdrawCopy, type TitleInput } from "./service";
 
 const { requireUser } = moduleActions("buecherei");
@@ -127,4 +128,59 @@ export async function importTitlesAction(_prev: FormState, form: FormData): Prom
   } catch (err) {
     return fail(err, form);
   }
+}
+
+// ---------------------------------------------------------------- Theke (BU-02)
+
+const dayFmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+const fmtDay = (ymd: string) => dayFmt.format(new Date(`${ymd}T00:00:00Z`));
+const overdueText = (days: number) => (days > 0 ? ` – war ${days === 1 ? "1 Tag" : `${days} Tage`} überfällig` : "");
+
+/** Ein Scan an der Theke (Hand-Scanner tippt den Code und Enter): Rückgabe oder Ausleihe an die gewählte Person. */
+export async function scanAction(personId: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    const r = await scanAtDesk(await getDb(), perms, String(form.get("code") ?? ""), personId, today());
+    revalidatePath("/buecherei", "layout");
+    return {
+      ok: true,
+      values: {
+        result: r.kind === "loan" ? `Ausgeliehen: ${r.title} (${r.barcode}), fällig am ${fmtDay(r.dueOn)}` : `Zurückgebucht: ${r.title} (${r.barcode})${overdueText(r.overdueDays)}`,
+      },
+    };
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingabe prüfen", fieldErrors: err.fieldErrors };
+    throw err;
+  }
+}
+
+/** Rückgabe mit Befund (Schaden, unvollständig): die Ausleihe bleibt bis zur Erledigung durch die Verwaltung. */
+export async function returnWithFindingAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const finding = String(form.get("finding") ?? "").trim();
+  if (finding.length < 2) return { error: "Befund angeben", fieldErrors: { finding: "Befund angeben, z. B. „Wasserschaden“ (keine Namen)" }, values: formValues(form) };
+  try {
+    const r = await checkin(await getDb(), perms, String(form.get("code") ?? ""), today(), finding);
+    revalidatePath("/buecherei", "layout");
+    return { ok: true, values: { result: `Zurückgebucht mit Befund: ${r.title} (${r.barcode})${overdueText(r.overdueDays)}` } };
+  } catch (err) {
+    return fail(err, form);
+  }
+}
+
+export async function renewLoanAction(loanId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    const r = await renewLoan(await getDb(), perms, loanId, today());
+    revalidatePath("/buecherei", "layout");
+    return { ok: true, values: { result: `Verlängert bis ${fmtDay(r.dueOn)}` } };
+  } catch (err) {
+    return fail(err, form);
+  }
+}
+
+export async function resolveFindingAction(loanId: string): Promise<void> {
+  const { perms } = await requireUser();
+  await resolveFinding(await getDb(), perms, loanId, today());
+  revalidatePath("/buecherei", "layout");
 }

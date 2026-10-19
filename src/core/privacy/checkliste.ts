@@ -212,6 +212,27 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     settings: ["kurse.konferenz"],
     where: { label: "Verwaltung → Rechte & Module → Kursraum", href: "/verwaltung/rechte" },
   },
+  {
+    id: "buecherei",
+    nr: 18,
+    title: "Schulbücherei: Ausleihe ohne Leseprofil",
+    schulos:
+      "Speichert eine Ausleihe (Person, Exemplar, Fälligkeit) nur, solange sie offen ist: Die Rückgabe ohne Befund löscht sie sofort, es bleiben nur Zähler je Monat und Medienart ohne Person – kein Ausleihverlauf, keine Leseempfehlungen, Ausleihe und Rückgabe nicht im Audit-Log. Die Theke (Büchereiteam, auch Schüler-Helfer:innen) sieht nur Name, Klasse und offene Ausleihen der gewählten Person; Rückgaben mit Befund (Schaden, unvollständig) sieht nur die Verwaltung mit „Schulbuchausleihe“.",
+    vorgabe: "Modul ab Werk aus; Leihfrist Buch 4 Wochen, Film/Spiel/Sonstiges 2 Wochen, Gerät 1 Woche, höchstens 2 Verlängerungen; Befunde bis zur Erledigung + Schuljahresende + 1 Jahr (LK-SJ-1J).",
+    schule:
+      "Bestätigt die Grundlage (Erfüllung der Aufgabe Schulbücherei, Anlage 1 bzw. 2 VO-DV I – zu prüfen), entscheidet, wer zum Büchereiteam gehört (Schüler-Helfer:innen sehen Namen und offene Ausleihen anderer), weist das Team auf Verschwiegenheit hin und stellt Leihfristen und Verlängerungen ein.",
+    settings: [
+      "buecherei.loan_days_buch",
+      "buecherei.loan_days_film",
+      "buecherei.loan_days_spiel",
+      "buecherei.loan_days_geraet",
+      "buecherei.loan_days_sonstiges",
+      "buecherei.max_renewals",
+    ],
+    baustein:
+      "Büchereiteam: Wer an der Theke der Schulbücherei mithilft, sieht dort Namen, Klasse und offene Ausleihen anderer Schüler:innen und Lehrkräfte. Diese Angaben sind vertraulich und werden nur für die Ausleihe genutzt – nicht weitererzählt, nicht notiert, nicht fotografiert. Wer was liest, ist privat. Schäden werden nur als Sache beschrieben („Wasserschaden“), ohne Namen.",
+    where: { label: "Verwaltung → Rechte & Module → Bücherei", href: "/verwaltung/rechte" },
+  },
 ];
 
 /** Rein: die Kurzfassung eines Themas für docs/DSB-FRAGEN.md (zwischen den Markern). */
