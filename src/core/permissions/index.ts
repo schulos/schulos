@@ -78,14 +78,24 @@ export function hasExplicitGrant(perms: PermissionSet, permission: string): bool
 }
 
 /**
+ * SP-02 (Q-SP-5): Planungsrechte zählen für die 2FA-Pflicht wie Verwaltungsrechte – sie zeigen Deputate aller Lehrkräfte und
+ * Abwesenheiten mit Grund „krank“. Kein Verwaltungsrecht im Sinne von S28 (keine Außen-Sperre).
+ */
+export const PLANNING_PERMISSIONS = ["stundenplan.manage", "stundenplan.substitute"] as const;
+
+/**
  * 2FA-Pflicht **sofort** (DATENSCHUTZ.md §5): Admin, Verwaltung und alle mit Verwaltungsrechten (Schulleitung bekommt
- * „verwaltung.*“ über ihre Gruppe) – an den Rechten festgemacht, nicht an Gruppennamen. Rolle `beratung` (Q5-17) sofort: neue
+ * „verwaltung.*“ über ihre Gruppe) – an den Rechten festgemacht, nicht an Gruppennamen. Ebenso Planungsrechte
+ * (`stundenplan.manage`/`stundenplan.substitute`, auch über `stundenplan.*`; SP-02). Rolle `beratung` (Q5-17) sofort: neue
  * Rolle ohne Bestandskonten, Kontakt zu Schüler:innen und Eltern in heiklen Lagen. Alle übrigen Erwachsenen ab dem Stichtag
  * der Schule (SEC-01, `twoFactorDuty`).
  */
 export function requiresTwoFactor(role: Role, granted: Iterable<string>): boolean {
   if (role === "admin" || role === "verwaltung" || role === "beratung") return true;
-  for (const g of granted) if (g === "*" || g.startsWith("verwaltung.")) return true;
+  for (const g of granted) {
+    if (g === "*" || g.startsWith("verwaltung.")) return true;
+    if (PLANNING_PERMISSIONS.some((p) => grantCovers(g, p))) return true;
+  }
   return false;
 }
 

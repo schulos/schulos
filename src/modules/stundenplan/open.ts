@@ -1,4 +1,4 @@
-// „Offen für dich“ (Q5-07): Planung/Schulleitung (`stundenplan.manage`) – offener Vertretungsbedarf heute bzw. am nächsten
+// „Offen für dich“ (Q5-07): Vertretungsplanung (`stundenplan.substitute`, SP-02) – offener Vertretungsbedarf heute bzw. am nächsten
 // Schultag und am Tag danach, unbesetzte Pausenaufsichten, Vertretungsplan-Entwürfe (Q5-11), Raumsperren heute.
 // Lehrkraft – Zeitwünsche abgeben, solange das Eingabefenster offen ist (Q5-10). Nur Zähler, keine Auswertung je Lehrkraft.
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
@@ -31,7 +31,7 @@ export const stundenplanOpen: OpenItemsProvider = {
           tone: "warn",
         });
     }
-    if (!hasPermission(perms, "stundenplan.manage")) return out;
+    if (!hasPermission(perms, "stundenplan.substitute")) return out;
 
     const days = planDays(today, await loadSchoolCalendar(db));
     const [needs, duties, drafts, blocks] = await Promise.all([Promise.all(days.map((d) => needsOn(db, d))), dutiesOn(db, days[0]), openDrafts(db, today), blocksOn(db, today)]);

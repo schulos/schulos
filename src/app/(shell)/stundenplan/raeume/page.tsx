@@ -73,7 +73,7 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
   const date = YMD.test(sp.datum ?? "") ? sp.datum! : weekdayMon0(today) >= 5 ? cal.nextSchoolDay(today) : today;
   const [master, roomList, bookable, { occupancy, closed }] = await Promise.all([timetableMasterData(db), listRooms(db), bookableRooms(db), occupancyOn(db, date)]);
   const periodNrs = master.periods.map((p) => p.nr);
-  const canManage = hasPermission(perms, "stundenplan.manage");
+  const canManage = hasPermission(perms, "stundenplan.substitute"); // SP-02: Raumsperren = Tagesgeschäft
   // „Buchen“ nur, wer buchen darf – sonst führte der Knopf für die Hausmeisterei auf eine 404 (Code-Review Gate 4a N8)
   const canBook = hasPermission(perms, "buchungen.book") && (await moduleOn("buchungen"));
   // „Mangel melden“ mit vorbelegtem Raum (Gebäude & Technik, P4-13)

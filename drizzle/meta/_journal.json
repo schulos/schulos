@@ -610,6 +610,13 @@
       "when": 1792249865419,
       "tag": "0086_kurse_konferenzlink",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792384685583,
+      "tag": "0087_stundenplanung",
+      "breakpoints": true
     }
   ]
 }

@@ -33,7 +33,7 @@ const KIND_LABEL = { cancel: "Entfall", substitute: "Vertretung", room: "Raumän
 
 export default async function VertretungenPage({ searchParams }: { searchParams: Promise<{ datum?: string; lehrkraft?: string; gruppe?: string; fehler?: string; veroeffentlicht?: string }> }) {
   const { perms } = await requireUser();
-  if (!hasPermission(perms, "stundenplan.manage")) notFound();
+  if (!hasPermission(perms, "stundenplan.substitute")) notFound();
   const sp = await searchParams;
   const db = await getDb();
   const cal = await loadSchoolCalendar(db);

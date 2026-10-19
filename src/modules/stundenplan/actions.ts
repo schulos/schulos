@@ -23,6 +23,9 @@ import { assignmentsFromTimetable, createAssignment, deleteAssignment, planningY
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
 
+// SP-02: Jahresplanung (Pflege, Verteilung, Deputate, Zeitwünsche, Aufsichtsplan, Solver) braucht `stundenplan.manage`, das Tagesgeschäft
+// (Vertretungen, Abwesenheiten, Veröffentlichen, Raumsperren, Ausweichraum, Aufsichtsvertretung) `stundenplan.substitute`.
+
 function readInput(form: FormData): LessonInput {
   const str = (k: string) => String(form.get(k) ?? "").trim();
   return {
@@ -155,7 +158,7 @@ export async function moveLessonAction(lessonId: string, groupId: string, stand:
 }
 
 export async function saveSubstitutionAction(_prev: FormState, form: FormData): Promise<FormState> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   const str = (k: string) => String(form.get(k) ?? "").trim();
   const input: SubstitutionInput = {
     lessonId: str("lessonId"),
@@ -176,14 +179,14 @@ export async function saveSubstitutionAction(_prev: FormState, form: FormData): 
 }
 
 export async function deleteSubstitutionAction(id: string): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   await deleteSubstitution(await getDb(), user.id, id);
   revalidatePath("/", "layout");
 }
 
 /** Q5-11: Entwurf eines Tages veröffentlichen (Gong je betroffener Person). */
 export async function publishDayAction(date: string): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   let n: number | null;
   try {
     n = await publishDay(await getDb(), user.id, date);
@@ -295,7 +298,7 @@ export async function deleteReductionAction(id: string, teacherId: string): Prom
 const BLOCKS_PAGE = "/stundenplan/raeume?ansicht=sperrungen";
 
 export async function createRoomBlockAction(_prev: FormState, form: FormData): Promise<FormState> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   const str = (k: string) => String(form.get(k) ?? "").trim();
   const period = (k: string) => (str(k) ? Number(str(k)) : null);
   try {
@@ -317,7 +320,7 @@ export async function createRoomBlockAction(_prev: FormState, form: FormData): P
 }
 
 export async function deleteRoomBlockAction(id: string): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   await deleteRoomBlock(await getDb(), user.id, id);
   revalidatePath("/", "layout");
   redirect(BLOCKS_PAGE);
@@ -325,7 +328,7 @@ export async function deleteRoomBlockAction(id: string): Promise<void> {
 
 /** Ausweichraum für eine gesperrte Stunde übernehmen (Raumänderung an diesem Tag). */
 export async function applyAlternativeRoomAction(lessonId: string, date: string, roomId: string, reason: string): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   try {
     await saveSubstitution(await getDb(), user.id, { lessonId, date, kind: "room", substituteId: null, roomId, note: `Raumsperrung: ${reason}` });
   } catch (err) {
@@ -341,7 +344,7 @@ export async function applyAlternativeRoomAction(lessonId: string, date: string,
 const needsPage = (date: string) => `/verwaltung/vertretungen?datum=${date}`;
 
 export async function createAbsenceAction(_prev: FormState, form: FormData): Promise<FormState> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   const str = (k: string) => String(form.get(k) ?? "").trim();
   const period = (k: string) => (str(k) ? Number(str(k)) : null);
   try {
@@ -364,7 +367,7 @@ export async function createAbsenceAction(_prev: FormState, form: FormData): Pro
 }
 
 export async function deleteAbsenceAction(id: string, date: string): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   await deleteAbsence(await getDb(), user.id, id);
   revalidatePath("/", "layout");
   redirect(needsPage(date));
@@ -372,7 +375,7 @@ export async function deleteAbsenceAction(id: string, date: string): Promise<voi
 
 /** Für alle Stunden abwesender Klassen an `date` Entfall eintragen (Freisetzungen bestätigen). */
 export async function cancelReleasedAction(date: string): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   const db = await getDb();
   const { released } = await needsOn(db, date);
   const done = new Set<string>();
@@ -387,7 +390,7 @@ export async function cancelReleasedAction(date: string): Promise<void> {
 
 /** Vertretungsvorschlag übernehmen (P2b-19). */
 export async function applySuggestionAction(lessonId: string, date: string, teacherId: string, back: string): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   try {
     await saveSubstitution(await getDb(), user.id, { lessonId, date, kind: "substitute", substituteId: teacherId, roomId: null, note: null });
   } catch (err) {
@@ -444,7 +447,7 @@ export async function removeDutyAction(id: string): Promise<void> {
 
 /** Vertretung (Formularfeld substituteId) oder – ohne Lehrkraft – „entfällt“ für eine Aufsicht an `date`. */
 export async function setDutyChangeAction(dutyId: string, date: string, form: FormData): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   const substituteId = String(form.get("substituteId") ?? "").trim() || null;
   try {
     await setDutyChange(await getDb(), user.id, dutyId, date, substituteId);
@@ -457,7 +460,7 @@ export async function setDutyChangeAction(dutyId: string, date: string, form: Fo
 }
 
 export async function clearDutyChangeAction(id: string, date: string): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
+  const { user } = await requirePermission("stundenplan.substitute");
   await clearDutyChange(await getDb(), user.id, id);
   revalidatePath("/", "layout");
   redirect(dutyPage(date));

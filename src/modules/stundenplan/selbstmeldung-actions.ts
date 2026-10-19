@@ -11,7 +11,7 @@ import { ValidationError } from "@/modules/verwaltung/users";
 import { decideAbsence, reportOwnAbsence, saveMaterial, withdrawOwnAbsence } from "./selbstmeldung";
 
 // P4-74/Q5-12: Abwesenheit selbst melden, zurückziehen, genehmigen; Vertretungsmaterial speichern. Rechte prüft der Service
-// (Lehrkraft selbst, `stundenplan.absence_approve`, `stundenplan.manage`); das Modul muss eingeschaltet sein.
+// (Lehrkraft selbst, `stundenplan.absence_approve`, `stundenplan.substitute`); das Modul muss eingeschaltet sein.
 const { requireUser } = moduleActions("stundenplan");
 const PAGE = "/stundenplan/abwesenheit";
 const today = () => toBerlinDate(new Date());

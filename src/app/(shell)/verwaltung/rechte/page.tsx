@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
@@ -14,6 +15,7 @@ import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
 import { GroupGrants, GrantCheckbox, ModuleSettingSelect, ModuleToggle } from "./rights-client";
 import { de } from "@/core/db/sort";
+import { PLAN_MANAGE, PLANNING_GROUP } from "@/modules/stundenplan/rechte";
 
 export const metadata: Metadata = { title: "Rechte & Module" };
 
@@ -31,6 +33,9 @@ export default async function RechtePage() {
   ]);
   const permissions = grantablePermissions(MODULES);
   const mail = mailAvailable();
+  // SP-02: Planung über die Funktionsgruppe statt über eine Rolle empfehlen, solange noch ein Rollen-Grant besteht
+  const planningByRole = GRANTABLE_ROLES.filter((r) => matrix.has(`${r}:${PLAN_MANAGE}`));
+  const planningGroup = groupList.find((g) => g.id === PLANNING_GROUP.id);
   const byModule = MODULES.map((m) => ({ module: m, perms: permissions.filter((p) => p.moduleId === m.id) })).filter((x) => x.perms.length);
 
   return (
@@ -87,6 +92,24 @@ export default async function RechtePage() {
       <Card>
         <CardHeader title="Rechte nach Rolle" />
         <p className="-mt-2 text-sm text-muted">Administration hat immer alle Rechte.</p>
+        {planningByRole.length > 0 && (
+          <p role="note" className="rounded-lg bg-surface-2 px-3 py-2 text-sm">
+            Empfehlung: Planung über die Gruppe „{PLANNING_GROUP.name}“ statt über die Rolle {planningByRole.map((r) => ROLE_LABELS[r]).join(", ")} vergeben
+            {planningGroup ? (
+              <>
+                {" "}
+                – Mitglieder unter{" "}
+                <Link className="font-semibold underline" href={`/verwaltung/gruppen/${planningGroup.id}`}>
+                  Gruppen → {planningGroup.name}
+                </Link>{" "}
+                eintragen, dann den Haken bei der Rolle entfernen.
+              </>
+            ) : (
+              "."
+            )}{" "}
+            Nur „Vertretungen planen“ (z. B. fürs Sekretariat) kann als Rollenrecht bleiben.
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] border-collapse text-sm">
             <thead>

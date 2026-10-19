@@ -17,6 +17,7 @@ export const REDUCTION_LABELS: Record<ReductionReason, string> = {
   personalrat: "Personalrat",
   sonstige_aufgabe: "sonstige Aufgabe",
   sonstige_ermaessigung: "sonstige Ermäßigung",
+  stundenplanung: "Stundenplanung",
 };
 
 /** Ermäßigung (persönlich) oder Anrechnung (für eine Aufgabe) */

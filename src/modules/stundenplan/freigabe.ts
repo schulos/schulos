@@ -1,6 +1,6 @@
 // Vertretungsplan Entwurf/Freigabe (Q5-11, I-25, F-06). Modus „sofort“ (Vorgabe): jede Änderung gilt sofort, wie bisher.
 // Modus „erst nach Freigabe“: die erste Änderung an einem Tag ohne bisherige Änderungen legt den Tag als Entwurf an
-// (`timetable_substitution_days` ohne `published_at`). Solange er Entwurf ist, sehen nur Personen mit `stundenplan.manage`
+// (`timetable_substitution_days` ohne `published_at`). Solange er Entwurf ist, sehen nur Personen mit `stundenplan.substitute`
 // seine Änderungen; Schüler:innen, Eltern, Lehrkräfte, Monitore, Kursraum, Klassenbuch und Hausaufgaben-Fälligkeit lesen
 // den veröffentlichten Stand (= Regelplan für diesen Tag). Veröffentlichen schickt die gebündelte Tagesnachricht (Q5-03);
 // spätere Änderungen an einem veröffentlichten Tag gehen sofort raus. Ein Wechsel zurück auf „sofort“ veröffentlicht keine

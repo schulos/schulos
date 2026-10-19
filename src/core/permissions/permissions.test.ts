@@ -11,6 +11,7 @@ import {
   hasPermission,
   loadPermissions,
   requiresTwoFactor,
+  twoFactorDuty,
   type PermissionSet,
 } from "./index";
 
@@ -55,6 +56,14 @@ describe("requiresTwoFactor (Rolle Personal, P4-10)", () => {
     expect(requiresTwoFactor("lehrkraft", ["gebaeude.report"])).toBe(false);
     expect(requiresTwoFactor("personal", ["verwaltung.access"])).toBe(true);
     expect(requiresTwoFactor("verwaltung", [])).toBe(true);
+  });
+
+  it("Planungsrechte (SP-02, Q-SP-5): manage und substitute verlangen 2FA sofort, auch über Wildcard; absence_approve nicht", () => {
+    expect(requiresTwoFactor("lehrkraft", ["stundenplan.manage"])).toBe(true);
+    expect(requiresTwoFactor("lehrkraft", ["stundenplan.substitute"])).toBe(true);
+    expect(requiresTwoFactor("personal", ["stundenplan.*"])).toBe(true);
+    expect(requiresTwoFactor("lehrkraft", ["stundenplan.absence_approve"])).toBe(false);
+    expect(twoFactorDuty("lehrkraft", ["stundenplan.substitute"], "2099-01-01", "2026-10-19")).toEqual({ required: true, dueOn: null, outsideOnly: false });
   });
 
   it("Beratung (Schulsozialarbeit, Q5-17): Pflicht sofort, ohne Verwaltungsrechte", () => {

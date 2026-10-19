@@ -76,7 +76,7 @@ FEINSCHLIFF §7 bewertet die Jahresplanung als „sehr vollständig“.
 
 ## 2. Ziel-Struktur
 
-### 2.1 Funktionsrolle „Stundenplanung“ (Entscheidung Q-SP-1)
+### 2.1 Funktionsrolle „Stundenplanung“ (Entscheidung Q-SP-1 – **entschieden durch Projektleitung 19.10.2026**: Funktionsgruppe)
 
 **Keine neue Enum-Rolle** (`users.role`), sondern eine **Funktionsgruppe `Stundenplanung`** mit Rechte-Bündel – nach dem Muster
 Schulleitung (`verwaltung.*`) und Hausmeisterei (`gebaeude.manage`). Gründe:
@@ -117,9 +117,23 @@ vorhandene bleiben“) spiegelbildlich: **niemand verliert ein Recht** – siehe
    den Hinweis „Empfehlung: Planung über die Gruppe Stundenplanung“).
    `grants.synced.stundenplan` wird um das Paar `verwaltung:stundenplan.manage` **nicht** bereinigt, damit `syncDefaultGrants` es nie wieder anlegt.
 
-**2FA (Q-SP-5):** `requiresTwoFactor` zählt `stundenplan.manage` und `stundenplan.substitute` wie Verwaltungsrechte → **sofort Pflicht**
+**2FA (Q-SP-5 – entschieden durch Projektleitung 19.10.2026: sofort Pflicht):** `requiresTwoFactor` zählt `stundenplan.manage` und `stundenplan.substitute` wie Verwaltungsrechte → **sofort Pflicht**
 (Deputate aller Lehrkräfte, Abwesenheiten mit Grund „krank“). Demo-Instanzen bleiben wie bisher ausgenommen. Betroffene Lehrkräfte auf
 bestehenden Servern richten 2FA beim nächsten Anmelden im Schulnetz ein (bestehender Ablauf `twoFactorPending`).
+
+**Anrechnungsstunden „Stundenplanung“ (Ergänzung der Projektleitung 19.10.2026, umgesetzt in SP-02):** Deputats-Grund
+`stundenplanung` („Stundenplanung“, Art Anrechnung) hinten an `REDUCTION_REASONS` angefügt; der Enum-Wert kommt mit Migration 0087
+(`ALTER TYPE … ADD VALUE` – in derselben Migration nicht benutzt, daher in der Migrations-Transaktion zulässig, wie 0054/0068).
+Anzeigen (Deputat-Pflege, Mein Deputat) laufen über `REDUCTION_LABELS`; eigene Druck-/Exportansichten der Deputate gibt es noch nicht (L-16).
+
+**Umsetzungsstand SP-02 (2026-10-19):** Rechte, Migration 0087, 2FA, Seed (Gruppe mit `frank.schulte`, Schulleitung `substitute`),
+Rechte-Hinweis und Aufteilung der Actions/Seiten (`open.ts`, Gebäude-Raumsperre, Vertretungen/Statistik, Raumsperren, Material
+zur Selbstmeldung und Gong an die Planung → `substitute`; Aufsichten: Plan/Bereiche `manage`, Tagesansicht `substitute`) sind fertig.
+**Übergang bis SP-03:** Die Planungsseiten liegen noch unter `/verwaltung` (braucht `verwaltung.access`), deshalb behält die
+**Demo** die Rollen-Grants `verwaltung → stundenplan.manage/.substitute` (wie eine aktualisierte Bestandsinstallation) und die E2E-Tests
+planen weiter als Sekretariat. SP-03 entfernt diese Demo-Grants mit dem Umzug nach `/planung` und stellt die Tests auf `frank.schulte` um.
+Die Funktionsgruppe hat die feste ID `g-stundenplanung`; eine schon vorhandene Gruppe mit Slug `stundenplanung` bekommt keine Rechte
+(keine stille Rechteausweitung). Mitglieder nimmt nur auf, wer beide Rechte selbst hat (SEC-04) – auf neuen Installationen also der Admin.
 
 **Außenzugang:** bleibt wie für Lehrkräfte (Gerätezertifikat nach Schuleinstellung); die Planung ist **kein** Verwaltungsrecht im Sinne von
 S28 (keine Außen-Sperre). Begründung: Vertretungsplanung findet morgens um 7 Uhr auch von zu Hause statt.
@@ -234,7 +248,7 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | ID | Titel | Größe | Modell | hängt ab von | Migration | Tests |
 |---|---|---|---|---|---|---|
 | **SP-01** | Plan-Dokument, BACKLOG-Block, QUESTIONS, PLAN §0 (dieser PR) | S | Opus | – | – | – |
-| **SP-02** | Rechte: `stundenplan.substitute`, Gruppe „Stundenplanung“, Verwaltung ohne Vorgabe, Migration 0087, 2FA, Actions/Seiten/`open.ts`/Gebäude auf das passende Recht, Seed (Gruppe + `frank.schulte`, Schulleitung `substitute`), Rechte-Hinweis | M | Opus | SP-01 | **0087** (Daten: Grants + Gruppe) | `permissions.test`, `registry.test`, `escalation.test`, `open-items.test`, `seed.test`, Migrationstest Grants |
+| **SP-02** ✅ | Rechte: `stundenplan.substitute`, Gruppe „Stundenplanung“, Verwaltung ohne Vorgabe, Migration 0087, 2FA, Actions/Seiten/`open.ts`/Gebäude auf das passende Recht, Seed (Gruppe + `frank.schulte`, Schulleitung `substitute`), Rechte-Hinweis; Anrechnungsgrund „Stundenplanung“ | M | Opus | SP-01 | **0087** (Enum `reduction_reason` + Daten: Grants + Gruppe) | `permissions.test`, `registry.test`, `escalation.test`, `open-items.test`, `seed.test`, Migrationstest Grants |
 | **SP-03** | Bereich `/planung`: Layout, `@schulos/ui/sub-nav`, Umzug der sechs Seiten (`git mv`), Nav-Eintrag, Eyebrow, `revalidatePath`/`redirect`-Pfade, `redirects()` in `next.config.ts`, Verwaltung ohne die vier Reiter, E2E/a11y/Unit-Tests auf neue URLs, CLAUDE.md/README Demo-Login | L | Opus | SP-02 | – | `npm run verify`; E2E „alte URL leitet weiter“, „Sekretariat sieht `/planung` nicht“ |
 | **SP-04** | Übersicht `/planung` (Kacheln aus vorhandenen Services, Links, Leerzustände), Kachel in der Verwaltungs-Übersicht, mobiler Durchgang der Planungsseiten mit `shot.mjs --mobile` | S | Opus | SP-03 | – | Service-Test der Kachel-Zahlen, E2E Übersicht, a11y-Pfade |
 | **SP-05** | Rechte- statt Rollen-Gates: `isStaffRole()` in `core/roles.ts`, `stundenplan/page.tsx` und `raeume/page.tsx` ohne `STAFF`-Liste, Sperren-Reiter an `substitute` | S | Opus | SP-02 | – | `registry.test` (Navigation), E2E „Personal sieht Wochenplan/Räume“ |

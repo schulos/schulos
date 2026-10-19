@@ -20,7 +20,7 @@ const fmt = (ymd: string) => dateFmt.format(fromBerlinLocal(ymd));
 /** Vertretungsstatistik: Mehrarbeit je Lehrkraft, Vertretung/Entfall je Klasse – Schuljahr oder laufender Monat. */
 export default async function VertretungsstatistikPage({ searchParams }: { searchParams: Promise<{ zeitraum?: string }> }) {
   const { perms } = await requireUser();
-  if (!hasPermission(perms, "stundenplan.manage")) notFound();
+  if (!hasPermission(perms, "stundenplan.substitute")) notFound();
   const sp = await searchParams;
   const db = await getDb();
   const today = toBerlinDate(new Date());
