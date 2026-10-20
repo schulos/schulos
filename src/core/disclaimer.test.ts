@@ -64,5 +64,6 @@ describe("REPO-03: Vorschau-/Haftungshinweis", () => {
       .where(eq(appSettings.key, DISCLAIMER_KEY));
     expect(await readDisclaimerAck(h.db)).toBeNull();
     await h.close();
-  });
+    // die Demo-Schule wird im Test selbst angelegt (allein schon ~25 s) – unter Last reichen die 30 s für Tests nicht; Grenze wie für Hooks
+  }, 60_000);
 });
