@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { collectErrors, login } from "./helpers";
 
@@ -52,6 +53,63 @@ test.describe("Stundenplanung · Unterrichtsverteilung", () => {
     await page.getByRole("button", { name: "Lehrauftrag löschen" }).click();
     await expect(page).not.toHaveURL(/auftrag=/);
     await expect(page.getByRole("row").filter({ hasText: "Französisch" })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("SP2-01 Bänder: Demo-Schiene, Band anlegen, Lehrauftrag im Band übernimmt die Stunden, herausnehmen, löschen", async ({ page }) => {
+    const errors = collectErrors(page);
+    await login(page, "frank.schulte");
+    await page.goto("/planung/unterricht");
+    await page.getByRole("navigation", { name: "Ansicht" }).getByRole("link", { name: "Bänder" }).click();
+    await expect(page.getByRole("heading", { name: "Bänder", level: 2 })).toBeVisible();
+    const demo = page.getByRole("row").filter({ has: page.getByRole("link", { name: "Q1 GK-Schiene A" }) });
+    await expect(demo.getByText("Solver: noch einzeln")).toBeVisible();
+    await expect(demo.getByText(/Q1 Biologie GK1 · Biologie/)).toBeVisible();
+    const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"]).analyze();
+    expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+
+    // anlegen: Name doppelt → Fehler, dann richtig
+    await page.getByRole("link", { name: "Band anlegen" }).click();
+    await page.getByLabel("Name des Bands").fill("Q1 GK-Schiene A");
+    await page.getByRole("button", { name: "Band speichern" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "gibt es schon" })).toBeVisible();
+    await page.getByLabel("Name des Bands").fill("Französisch 7 Test");
+    await page.getByLabel("Wochenstunden").fill("2");
+    await page.getByRole("button", { name: "Band speichern" }).click();
+    await expect(page.getByRole("heading", { name: "Band bearbeiten · Französisch 7 Test" })).toBeVisible();
+    await expect(page.getByText(/Noch keine – unten einen Lehrauftrag aufnehmen/)).toBeVisible();
+
+    // Lehrauftrag mit Band: Stunden kommen vom Band
+    await page.goto("/planung/unterricht?gruppe=g-7b&neu=1");
+    await page.getByLabel("Fach").selectOption({ label: "Französisch" });
+    await page.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: "BRA – Jana Brandt" });
+    await page.getByLabel("Band", { exact: true }).selectOption({ label: "Französisch 7 Test (2 Std.)" });
+    await expect(page.getByLabel("Wochenstunden")).toBeDisabled();
+    await expect(page.getByLabel("Wochenstunden")).toHaveValue("2");
+    await page.getByRole("button", { name: "Speichern" }).click();
+    await expect(page).not.toHaveURL(/neu=/);
+    const row = page.getByRole("row").filter({ hasText: "Französisch" });
+    await expect(row.getByText("2 offen")).toHaveCount(1);
+    await row.getByRole("link", { name: "Band: Französisch 7 Test" }).click();
+
+    // Band-Seite: Mitglied, Soll/verplant; herausnehmen; löschen
+    await expect(page.getByRole("heading", { name: "Band bearbeiten · Französisch 7 Test" })).toBeVisible();
+    const members = page.getByRole("region", { name: "Lehraufträge im Band" });
+    const memberLink = members.getByRole("link", { name: "Klasse 7b · Französisch · BRA" });
+    await expect(memberLink).toBeVisible();
+    const assignmentUrl = (await memberLink.getAttribute("href"))!;
+    await members.getByRole("button", { name: "Klasse 7b · Französisch · BRA aus dem Band nehmen" }).click();
+    await expect(page.getByText(/Noch keine – unten einen Lehrauftrag aufnehmen/)).toBeVisible();
+    await page.getByRole("button", { name: "Band löschen" }).click();
+    await expect(page.getByRole("link", { name: "Französisch 7 Test" })).toHaveCount(0);
+
+    // aufräumen: Lehrauftrag löschen (die 7b hat schon einen Französisch-Lehrauftrag aus der Demo)
+    await page.goto(assignmentUrl);
+    await expect(page.getByLabel("Band", { exact: true })).toHaveValue("");
+    await page.getByRole("button", { name: "Lehrauftrag löschen" }).click();
+    await expect(page).not.toHaveURL(/auftrag=/);
+    await expect(page.getByRole("row").filter({ hasText: "Französisch" })).toHaveCount(1);
+    await expect(page.getByRole("row").filter({ hasText: "Französisch" }).getByText("vollständig verplant")).toHaveCount(1);
     expect(errors).toEqual([]);
   });
 

@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
 
 export interface AssignmentFormValues {
   groupId: string;
-  coupledGroupIds: string;
+  /** SP2-01: Band (leer = eigenständig) */
+  bandId: string;
   subjectId: string;
   hours: string;
   doubleLessons: string;
@@ -33,24 +34,23 @@ export function AssignmentForm({
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   deleteAction?: () => Promise<void>;
   initial: AssignmentFormValues;
-  options: { groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: Option[]; rooms: Option[] };
+  options: { groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: Option[]; rooms: Option[]; bands: (Option & { hours: number; doubleLessons: number })[] };
   back: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const fe = state.fieldErrors ?? {};
   // Nach einem Fehler mit den eingegebenen Werten neu aufbauen (key), sonst gehen sie verloren
   const v: Record<string, string> = { ...initial, ...state.values };
-  const coupled = v.coupledGroupIds ? v.coupledGroupIds.split(",") : [];
-  const groupOptions = (exclude?: string) =>
+  const [bandId, setBandId] = useState(v.bandId ?? "");
+  const band = options.bands.find((b) => b.value === bandId);
+  const groupOptions = () =>
     options.groups.map((g) => (
       <optgroup key={g.label} label={g.label}>
-        {g.options
-          .filter((o) => o.value !== exclude)
-          .map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
+        {g.options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
       </optgroup>
     ));
   const plain = (list: Option[]) =>
@@ -62,7 +62,7 @@ export function AssignmentForm({
   return (
     <form key={JSON.stringify(state.values ?? null)} action={formAction} className="grid gap-4 sm:grid-cols-2">
       <input type="hidden" name="back" value={back} />
-      <Field label="Klasse oder Kurs" error={fe.groupIds}>
+      <Field label="Klasse oder Kurs" error={fe.groupId}>
         <Select name="groupId" defaultValue={v.groupId} required>
           <option value="">Gruppe wählen</option>
           {groupOptions()}
@@ -74,12 +74,25 @@ export function AssignmentForm({
           {plain(options.subjects)}
         </Select>
       </Field>
-      <Field label="Wochenstunden" error={fe.hours}>
-        <Input type="number" name="hours" min={1} max={12} defaultValue={v.hours} required />
-      </Field>
-      <Field label="Doppelstunden je Woche" hint="0 = Einzelstunden" error={fe.doubleLessons}>
-        <Input type="number" name="doubleLessons" min={0} max={6} defaultValue={v.doubleLessons} />
-      </Field>
+      {band ? (
+        <>
+          <Field label="Wochenstunden" hint={`vom Band „${band.label}“`}>
+            <Input type="number" value={band.hours} disabled readOnly />
+          </Field>
+          <Field label="Doppelstunden je Woche" hint="vom Band">
+            <Input type="number" value={band.doubleLessons} disabled readOnly />
+          </Field>
+        </>
+      ) : (
+        <>
+          <Field label="Wochenstunden" error={fe.hours}>
+            <Input type="number" name="hours" min={1} max={12} defaultValue={v.hours} required />
+          </Field>
+          <Field label="Doppelstunden je Woche" hint="0 = Einzelstunden" error={fe.doubleLessons}>
+            <Input type="number" name="doubleLessons" min={0} max={6} defaultValue={v.doubleLessons} />
+          </Field>
+        </>
+      )}
       <Field label="Lehrkraft" hint="leer = noch offen" error={fe.teacherIds}>
         <Select name="teacherId" defaultValue={v.teacherId}>
           <option value="">– noch offen –</option>
@@ -101,9 +114,14 @@ export function AssignmentForm({
       <Field label="Hinweis" error={fe.note}>
         <Input name="note" maxLength={200} defaultValue={v.note} placeholder="z. B. nur 1. Halbjahr" />
       </Field>
-      <Field label="Gekoppelt mit" hint="weitere Gruppen, die zur selben Zeit Unterricht haben (Strg/⌘ für mehrere)" className="sm:col-span-2">
-        <Select name="coupledGroupIds" multiple defaultValue={coupled} className="h-36 py-2">
-          {groupOptions(v.groupId)}
+      <Field label="Band" hint="Lehraufträge eines Bands liegen zur selben Zeit (z. B. Religion/Philosophie, WP, E-/G-Kurse); Bänder pflegen unter „Bänder“" error={fe.bandId} className="sm:col-span-2">
+        <Select name="bandId" value={bandId} onChange={(e) => setBandId(e.target.value)}>
+          <option value="">– kein Band –</option>
+          {options.bands.map((b) => (
+            <option key={b.value} value={b.value}>
+              {b.label} ({b.hours} Std.)
+            </option>
+          ))}
         </Select>
       </Field>
       {state.error && (

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbHandle } from "@/core/db/client";
 import { createSeededTestDb } from "@/core/db/testing";
 import { solve, validate } from "./solver";
-import { checkInput, conflictsFrom, solverInputFromDb, unitsFrom } from "./solver-input";
+import { checkInput, collapseBands, conflictsFrom, solverInputFromDb, unitsFrom } from "./solver-input";
 import { planningYear } from "./verteilung";
 
 describe("conflictsFrom / unitsFrom", () => {
@@ -31,6 +31,7 @@ describe("conflictsFrom / unitsFrom", () => {
       teachers: [{ id: "t", code: "BRA", name: "Jana Brandt" }],
       planned: 0,
       otherTeacher: false,
+      bandId: null,
     });
     const units = unitsFrom(
       { assignments: [a("x", ["7a"], 5, 2), a("y", ["7a", "7b"], 2, 0)] },
@@ -65,6 +66,54 @@ describe("conflictsFrom / unitsFrom", () => {
       { assignmentId: "sp", groupIds: ["7a"], teacherIds: ["t1"], subjectId: "SP", roomId: null, roomKind: "sport", homeRoomId: "106", size: 14 },
       { assignmentId: "sp", groupIds: ["7a"], teacherIds: ["t2"], subjectId: "SP", roomId: null, roomKind: "sport", homeRoomId: "106", size: 14 },
     ]);
+  });
+
+  it("SP2-01: einheitliches Band = frühere Kopplung (gleiche Einheiten), gemischtes Band je Mitglied einzeln", () => {
+    const a = (id: string, group: string, subjectId = "REL", teachers = [{ id: "t1", code: "RIC", name: "R" }]) => ({
+      id,
+      subjectId,
+      subjectName: subjectId === "REL" ? "Religion" : "Philosophie",
+      color: "#000",
+      hours: 2,
+      doubleLessons: 1,
+      roomId: null,
+      note: null,
+      groups: [{ id: group, name: group }],
+      teachers,
+      planned: 0,
+      otherTeacher: false,
+      bandId: "b",
+    });
+    const info = { roomKindOf: new Map(), homeRoomOf: new Map([["7a", "106"]]), sizeOf: new Map([["7a", 28], ["7b", 27]]), classIds: new Set(["7a", "7b"]) };
+    const old = unitsFrom({ assignments: [{ ...a("m1", "7a"), groups: [{ id: "7a", name: "7a" }, { id: "7b", name: "7b" }], bandId: null }] }, info);
+    // Mitglieder in umgekehrter Reihenfolge: die Gruppen werden nach Namen sortiert, id vom ersten Mitglied
+    const band = unitsFrom({ assignments: [a("m2", "7b"), a("m1", "7a")], bands: [{ id: "b", memberIds: ["m2", "m1"], uniform: true }] }, info);
+    expect(band).toEqual(old);
+    expect(collapseBands([a("m2", "7b"), a("m1", "7a")], [{ id: "b", memberIds: ["m2", "m1"], uniform: true }]).map((x) => x.id)).toEqual(["m1"]);
+
+    const mixed = unitsFrom(
+      { assignments: [a("m1", "7a"), a("m3", "7a", "PP", [{ id: "t2", code: "NEU", name: "N" }])], bands: [{ id: "b", memberIds: ["m1", "m3"], uniform: false }] },
+      info,
+    );
+    expect(mixed.map((u) => [u.assignmentId, u.groupIds])).toEqual([
+      ["m1", ["7a"]],
+      ["m3", ["7a"]],
+    ]);
+    const warn = checkInput({
+      periods: 8,
+      assignments: [{ id: "m1", groups: [{ id: "7a", name: "7a" }] }],
+      activeRooms: 1,
+      groupsWithMembers: new Set(["7a"]),
+      groupKind: new Map([["7a", "klasse"]]),
+      groupName: new Map([["7a", "7a"]]),
+      replaceable: [],
+      bands: [
+        { name: "Reli/PP 7", memberIds: ["m1", "m3"], uniform: false },
+        { name: "Reli 8", memberIds: ["x", "y"], uniform: true },
+        { name: "leer", memberIds: [], uniform: true },
+      ],
+    }).warnings;
+    expect(warn).toEqual([expect.stringMatching(/^1 Band mit verschiedenen Fächern oder Lehrkräften \(Reli\/PP 7\)/)]);
   });
 
   it("checkInput: Fehler ohne Zeitraster/Lehraufträge/Räume; Warnungen für Kurse ohne Mitglieder (SP-G-13) und A/B-Stunden", () => {
@@ -116,7 +165,8 @@ describe("Solver auf der Demo-Schule", () => {
     expect(input.units.length).toBeGreaterThan(300);
     // Demo-Raster: große Pausen nach der 2., 4. und 6. Stunde; Eingabe ohne Hinweise
     expect(input.breakAfter).toEqual([2, 4, 6]);
-    expect(input.check).toEqual({ errors: {}, warnings: [] });
+    // einzige Warnung: das Demo-Band (SP2-01) mit verschiedenen Fächern – bis SP2-02 setzt der Solver dessen Kurse einzeln
+    expect(input.check).toEqual({ errors: {}, warnings: [expect.stringMatching(/^1 Band mit verschiedenen Fächern oder Lehrkräften \(Q1 GK-Schiene A\)/)] });
     const t0 = performance.now();
     const r = solve(input);
     const ms = performance.now() - t0;

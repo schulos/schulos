@@ -1,5 +1,6 @@
 // Unterrichtsverteilung (P2b-08): Lehraufträge je Schuljahr und Abgleich Soll ↔ verplant im Stundenplan.
-import { and, asc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+// SP2-01: Bänder bündeln Lehraufträge, die zur selben Zeit liegen; jeder Lehrauftrag hat genau eine Gruppe.
+import { and, asc, eq, gte, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
 import {
@@ -11,6 +12,7 @@ import {
   timetableAssignmentGroups,
   timetableAssignments,
   timetableAssignmentTeachers,
+  timetableBands,
   timetableLessons,
   users,
 } from "@/core/db/schema";
@@ -22,13 +24,18 @@ export const PLANNED_GROUP_KINDS = ["klasse", "kurs", "ag", "wahlpflicht", "foer
 
 export interface AssignmentInput {
   schoolYearId: string;
-  groupIds: string[];
+  /** genau eine Klasse oder ein Kurs – was zur selben Zeit liegen soll, bündelt ein Band */
+  groupId: string;
   subjectId: string;
+  /** Wochen-/Doppelstunden; im Band gelten die des Bands */
   hours: number;
+  /** höchstens zwei (Teamteaching), leer = noch offen */
   teacherIds: string[];
   doubleLessons: number;
   roomId: string | null;
   note: string | null;
+  /** SP2-01: Band (leer = eigenständig); fehlt das Feld, bleibt das bisherige Band */
+  bandId?: string | null;
 }
 
 export interface Assignment {
@@ -40,8 +47,33 @@ export interface Assignment {
   doubleLessons: number;
   roomId: string | null;
   note: string | null;
+  /** SP2-01: Band des Lehrauftrags */
+  bandId: string | null;
+  /** genau eine Gruppe (vor SP2-01: Kopplung mit mehreren) */
   groups: { id: string; name: string }[];
   teachers: { id: string; code: string | null; name: string }[];
+}
+
+/** SP2-01: Band mit Soll/verplant. */
+export interface Band {
+  id: string;
+  name: string;
+  hours: number;
+  doubleLessons: number;
+  /** Lehraufträge im Band (Reihenfolge wie in der Verteilung) */
+  memberIds: string[];
+}
+
+export interface BandStatus extends Band {
+  /** verplante Wochenstunden: das am wenigsten verplante Mitglied */
+  planned: number;
+  /** davon zur selben Zeit (alle Mitglieder im selben Slot) */
+  together: number;
+  /**
+   * alle Mitglieder mit gleichem Fach, gleichen Lehrkräften und gleichem Raumwunsch (die frühere Kopplung): der Solver setzt
+   * das Band bis SP2-02 nur dann als eine Einheit, sonst jedes Mitglied einzeln
+   */
+  uniform: boolean;
 }
 
 /** Schuljahr, für das verteilt wird: das aktuelle, sonst das jüngste. */
@@ -89,6 +121,7 @@ export async function listAssignments(db: Db, schoolYearId: string): Promise<Ass
     doubleLessons: a.doubleLessons,
     roomId: a.roomId,
     note: a.note,
+    bandId: a.bandId,
     groups: gs.filter((g) => g.aid === a.id).map(({ id, name }) => ({ id, name })),
     teachers: ts.filter((t) => t.aid === a.id).map(({ id, code, name }) => ({ id, code, name })),
   }));
@@ -104,7 +137,14 @@ export interface PlanLesson {
   teacherId: string | null;
   /** 1 = jede Woche, 0,5 = nur A- oder B-Woche */
   weight: number;
+  /** Slot (SP2-01: „gemeinsam verplant“ im Band, Lehrkraft-Stunden einmal je Slot); fehlt in reinen Tests */
+  weekday?: number;
+  periodNr?: number;
+  week?: string;
 }
+
+/** Schlüssel des Slots einer Stunde (Wochentag, Stunde, Woche); ohne Slot die Stunde selbst. */
+const slotKey = (l: PlanLesson) => (l.weekday === undefined ? `#${l.id}` : `${l.weekday}|${l.periodNr}|${l.week ?? "all"}`);
 
 export interface AssignmentStatus {
   /** verplante Wochenstunden (bei Kopplung: die am wenigsten verplante Gruppe) */
@@ -117,6 +157,8 @@ export interface MatchResult {
   byAssignment: Map<string, AssignmentStatus>;
   /** Stunden ohne passenden Lehrauftrag */
   unmatched: PlanLesson[];
+  /** SP2-01: Lehrauftrag je zugeordneter Stunde */
+  assignmentOf: Map<string, string>;
 }
 
 type MatchAssignment = Pick<Assignment, "id" | "subjectId" | "hours"> & { groupIds: string[]; teacherIds: string[] };
@@ -129,6 +171,7 @@ export function matchLessons(assignments: MatchAssignment[], lessons: PlanLesson
   const perGroup = new Map<string, number>();
   const other = new Set<string>();
   const unmatched: PlanLesson[] = [];
+  const assignmentOf = new Map<string, string>();
   const key = (aid: string, gid: string) => `${aid}|${gid}`;
   for (const l of lessons) {
     const candidates = assignments.filter((a) => a.subjectId === l.subjectId && a.groupIds.includes(l.groupId));
@@ -144,6 +187,7 @@ export function matchLessons(assignments: MatchAssignment[], lessons: PlanLesson
       candidates.find(open) ??
       candidates[0]!;
     if (!teacherFits(pick)) other.add(pick.id);
+    assignmentOf.set(l.id, pick.id);
     perGroup.set(key(pick.id, l.groupId), (perGroup.get(key(pick.id, l.groupId)) ?? 0) + l.weight);
   }
   const byAssignment = new Map<string, AssignmentStatus>();
@@ -151,17 +195,67 @@ export function matchLessons(assignments: MatchAssignment[], lessons: PlanLesson
     const planned = a.groupIds.length ? Math.min(...a.groupIds.map((g) => perGroup.get(key(a.id, g)) ?? 0)) : 0;
     byAssignment.set(a.id, { planned, otherTeacher: other.has(a.id) });
   }
-  return { byAssignment, unmatched };
+  return { byAssignment, unmatched, assignmentOf };
+}
+
+/**
+ * Rein (SP2-01): Soll/verplant je Band. `planned` = am wenigsten verplantes Mitglied, `together` = Wochenstunden, in denen alle
+ * Mitglieder im selben Slot liegen. `uniform` = frühere Kopplung (gleiches Fach, gleiche Lehrkräfte, gleicher Raumwunsch).
+ */
+export function bandStatus(
+  bands: Band[],
+  assignments: (Pick<Assignment, "id" | "subjectId" | "roomId" | "teachers"> & { planned: number })[],
+  lessons: PlanLesson[],
+  assignmentOf: Map<string, string>,
+): BandStatus[] {
+  const byId = new Map(assignments.map((a) => [a.id, a]));
+  const slotsOf = new Map<string, Map<string, number>>();
+  for (const l of lessons) {
+    const aid = assignmentOf.get(l.id);
+    if (!aid) continue;
+    const m = slotsOf.get(aid) ?? new Map<string, number>();
+    m.set(slotKey(l), l.weight);
+    slotsOf.set(aid, m);
+  }
+  return bands.map((b) => {
+    const members = b.memberIds.map((id) => byId.get(id)).filter((a): a is NonNullable<typeof a> => Boolean(a));
+    const planned = members.length ? Math.min(...members.map((a) => a.planned)) : 0;
+    let together = 0;
+    if (members.length) {
+      const [first, ...rest] = members.map((a) => slotsOf.get(a.id) ?? new Map<string, number>());
+      for (const [k, w] of first!) if (rest.every((m) => m.has(k))) together += w;
+    }
+    const teacherKey = (a: (typeof members)[number]) => a.teachers.map((t) => t.id).sort().join(",");
+    const uniform = members.every((a) => a.subjectId === members[0]!.subjectId && a.roomId === members[0]!.roomId && teacherKey(a) === teacherKey(members[0]!));
+    return { ...b, planned, together: Math.min(together, planned), uniform };
+  });
 }
 
 /** Stunden, die am Stichtag gelten (unabhängig vom Wochentag), mit Gewicht nach A/B-Woche. */
 export async function planLessonsOn(db: Db, refYmd: string): Promise<PlanLesson[]> {
   const rows = await db
-    .select({ id: timetableLessons.id, groupId: timetableLessons.groupId, subjectId: timetableLessons.subjectId, teacherId: timetableLessons.teacherId, week: timetableLessons.week })
+    .select({
+      id: timetableLessons.id,
+      groupId: timetableLessons.groupId,
+      subjectId: timetableLessons.subjectId,
+      teacherId: timetableLessons.teacherId,
+      week: timetableLessons.week,
+      weekday: timetableLessons.weekday,
+      periodNr: timetableLessons.periodNr,
+    })
     .from(timetableLessons)
     .where(and(lte(timetableLessons.validFrom, refYmd), or(isNull(timetableLessons.validUntil), gte(timetableLessons.validUntil, refYmd))))
     .orderBy(asc(timetableLessons.weekday), asc(timetableLessons.periodNr));
-  return rows.map(({ week, ...r }) => ({ ...r, weight: week === "all" ? 1 : 0.5 }));
+  return rows.map((r) => ({ ...r, weight: r.week === "all" ? 1 : 0.5 }));
+}
+
+/** SP2-01: Bänder eines Schuljahres mit ihren Mitgliedern (Reihenfolge der Mitglieder wie `assignments`). */
+export async function listBands(db: Db, schoolYearId: string, assignments?: Pick<Assignment, "id" | "bandId">[]): Promise<Band[]> {
+  const [rows, list] = await Promise.all([
+    db.select().from(timetableBands).where(eq(timetableBands.schoolYearId, schoolYearId)).orderBy(de(timetableBands.name)),
+    assignments ? Promise.resolve(assignments) : listAssignments(db, schoolYearId),
+  ]);
+  return rows.map((b) => ({ id: b.id, name: b.name, hours: b.hours, doubleLessons: b.doubleLessons, memberIds: list.filter((a) => a.bandId === b.id).map((a) => a.id) }));
 }
 
 export interface GroupTotals {
@@ -187,12 +281,39 @@ export interface TeacherTotals {
 export interface Distribution {
   refYmd: string;
   assignments: (Assignment & AssignmentStatus)[];
+  /** SP2-01: Bänder mit Soll/verplant */
+  bands: BandStatus[];
   groups: GroupTotals[];
   teachers: TeacherTotals[];
   unmatched: (PlanLesson & { groupName: string; subjectName: string; teacherCode: string | null })[];
   /** Stundentafel je Jahrgang und Fach */
   curriculum: Map<number, Map<string, number>>;
   subjectNames: Map<string, string>;
+}
+
+/**
+ * Rein (SP2-01): Wochenstunden der Lehraufträge einer Lehrkraft – ein Band zählt einmal, auch wenn sie darin mehrere Gruppen
+ * unterrichtet (frühere Kopplung „eine Lehrkraft, zwei Klassen“).
+ */
+export function teacherAssigned(list: Pick<Assignment, "hours" | "bandId" | "teachers">[], teacherId: string): number {
+  const bands = new Set<string>();
+  let total = 0;
+  for (const a of list) {
+    if (!a.teachers.some((x) => x.id === teacherId)) continue;
+    if (a.bandId) {
+      if (bands.has(a.bandId)) continue;
+      bands.add(a.bandId);
+    }
+    total += a.hours;
+  }
+  return total;
+}
+
+/** Rein (SP2-01): verplante Wochenstunden einer Lehrkraft – gekoppelte Gruppen im selben Slot zählen einmal. */
+export function teacherPlanned(lessons: PlanLesson[], teacherId: string): number {
+  const slots = new Map<string, number>();
+  for (const l of lessons) if (l.teacherId === teacherId) slots.set(slotKey(l), l.weight);
+  return [...slots.values()].reduce((s, w) => s + w, 0);
 }
 
 /** Komplette Unterrichtsverteilung eines Schuljahres mit Soll/verplant je Auftrag, Gruppe und Lehrkraft. */
@@ -210,10 +331,13 @@ export async function distribution(db: Db, year: { id: string; startsOn: string;
     db.select().from(curriculumHours),
     db.select({ id: subjects.id, name: subjects.name }).from(subjects),
   ]);
-  const { byAssignment, unmatched } = matchLessons(
+  const { byAssignment, unmatched, assignmentOf } = matchLessons(
     list.map((a) => ({ id: a.id, subjectId: a.subjectId, hours: a.hours, groupIds: a.groups.map((g) => g.id), teacherIds: a.teachers.map((t) => t.id) })),
     lessons,
   );
+  const withStatus = list.map((a) => ({ ...a, ...byAssignment.get(a.id)! }));
+  const bandRows = await listBands(db, year.id, list);
+  const bands = bandStatus(bandRows, withStatus, lessons, assignmentOf);
   const curriculum = new Map<number, Map<string, number>>();
   for (const c of tafel) {
     if (!curriculum.has(c.gradeLevel)) curriculum.set(c.gradeLevel, new Map());
@@ -234,15 +358,16 @@ export async function distribution(db: Db, year: { id: string; startsOn: string;
     }));
   const teachersOut: TeacherTotals[] = teacherRows.map((t) => ({
     ...t,
-    assigned: sum(list.filter((a) => a.teachers.some((x) => x.id === t.id)).map((a) => a.hours)),
-    planned: sum(lessons.filter((l) => l.teacherId === t.id).map((l) => l.weight)),
+    assigned: teacherAssigned(list, t.id),
+    planned: teacherPlanned(lessons, t.id),
   }));
   const groupName = new Map(groupRows.map((g) => [g.id, g.name]));
   const subjectName = new Map(subjectRows.map((s) => [s.id, s.name]));
   const teacherCode = new Map(teacherRows.map((t) => [t.id, t.code]));
   return {
     refYmd,
-    assignments: list.map((a) => ({ ...a, ...byAssignment.get(a.id)! })),
+    assignments: withStatus,
+    bands,
     groups: groupsOut,
     teachers: teachersOut,
     unmatched: unmatched.map((l) => ({
@@ -258,33 +383,49 @@ export async function distribution(db: Db, year: { id: string; startsOn: string;
 
 // ---------------------------------------------------------------- Pflege
 
+/** Band eines Lehrauftrags: Wochen-/Doppelstunden kommen vom Band. */
+async function bandOf(db: Db, bandId: string) {
+  const [b] = await db.select().from(timetableBands).where(eq(timetableBands.id, bandId));
+  return b ?? null;
+}
+
+type EffectiveInput = AssignmentInput & { bandId: string | null };
+
+/** Eingabe mit den Stunden des Bands (falls im Band); ohne `bandId` im Input bleibt das bisherige Band. */
+async function effective(db: Db, input: AssignmentInput, currentBandId: string | null): Promise<EffectiveInput> {
+  const bandId = input.bandId === undefined ? currentBandId : input.bandId || null;
+  const band = bandId ? await bandOf(db, bandId) : null;
+  if (bandId && (!band || band.schoolYearId !== input.schoolYearId)) throw new ValidationError({ bandId: "Band gibt es nicht (mehr)" });
+  return band ? { ...input, bandId, hours: band.hours, doubleLessons: band.doubleLessons } : { ...input, bandId: null };
+}
+
 async function validate(db: Db, input: AssignmentInput, excludeId?: string): Promise<void> {
   const fe: Record<string, string> = {};
-  const groupIds = [...new Set(input.groupIds)];
   const teacherIds = [...new Set(input.teacherIds)];
   if (!Number.isInteger(input.hours) || input.hours < 1 || input.hours > 12) fe.hours = "1 bis 12 Wochenstunden";
   else if (!Number.isInteger(input.doubleLessons) || input.doubleLessons < 0 || input.doubleLessons * 2 > input.hours)
     fe.doubleLessons = `höchstens ${Math.floor(input.hours / 2)} Doppelstunden bei ${input.hours} Wochenstunden`;
   if (input.note && input.note.length > 200) fe.note = "höchstens 200 Zeichen";
+  if (teacherIds.length > 2) fe.teacherIds = "höchstens zwei Lehrkräfte (Teamteaching) – weitere Gruppen über ein Band";
   const [[y], [s], gs, ts, r] = await Promise.all([
     db.select({ id: schoolYears.id }).from(schoolYears).where(eq(schoolYears.id, input.schoolYearId)),
     db.select({ id: subjects.id }).from(subjects).where(eq(subjects.id, input.subjectId)),
-    groupIds.length ? db.select({ id: groups.id, kind: groups.kind }).from(groups).where(inArray(groups.id, groupIds)) : Promise.resolve([]),
+    input.groupId ? db.select({ id: groups.id, kind: groups.kind }).from(groups).where(eq(groups.id, input.groupId)) : Promise.resolve([]),
     teacherIds.length ? db.select({ id: users.id, role: users.role }).from(users).where(inArray(users.id, teacherIds)) : Promise.resolve([]),
     input.roomId ? db.select({ id: rooms.id, active: rooms.active }).from(rooms).where(eq(rooms.id, input.roomId)) : Promise.resolve([{ id: "", active: true }]),
   ]);
   if (!y) fe.schoolYearId = "Schuljahr gibt es nicht";
   if (!s) fe.subjectId = "Fach wählen";
-  if (!groupIds.length) fe.groupIds = "Mindestens eine Klasse oder einen Kurs wählen";
-  else if (gs.length !== groupIds.length || gs.some((g) => !(PLANNED_GROUP_KINDS as readonly string[]).includes(g.kind))) fe.groupIds = "Gruppe ist keine Klasse und kein Kurs";
-  if (ts.length !== teacherIds.length || ts.some((t) => t.role !== "lehrkraft")) fe.teacherIds = "Lehrkraft wählen";
+  if (!input.groupId) fe.groupId = "Eine Klasse oder einen Kurs wählen";
+  else if (!gs[0] || !(PLANNED_GROUP_KINDS as readonly string[]).includes(gs[0].kind)) fe.groupId = "Gruppe ist keine Klasse und kein Kurs";
+  if (!fe.teacherIds && (ts.length !== teacherIds.length || ts.some((t) => t.role !== "lehrkraft"))) fe.teacherIds = "Lehrkraft wählen";
   if (!r[0]?.active) fe.roomId = "Raum gibt es nicht oder ist inaktiv";
   if (Object.keys(fe).length) throw new ValidationError(fe);
 
-  // Doppelt erfasst? Gleiches Fach in einer der Gruppen bei einer der Lehrkräfte (bzw. beide ohne Lehrkraft)
+  // Doppelt erfasst? Gleiches Fach in derselben Gruppe bei einer der Lehrkräfte (bzw. beide ohne Lehrkraft)
   const others = (await listAssignments(db, input.schoolYearId)).filter((a) => a.id !== excludeId && a.subjectId === input.subjectId);
   for (const o of others) {
-    const sharedGroup = o.groups.find((g) => groupIds.includes(g.id));
+    const sharedGroup = o.groups.find((g) => g.id === input.groupId);
     if (!sharedGroup) continue;
     const oTeachers = o.teachers.map((t) => t.id);
     const sameTeacher = teacherIds.length === 0 && oTeachers.length === 0 ? true : o.teachers.find((t) => teacherIds.includes(t.id));
@@ -298,45 +439,124 @@ async function validate(db: Db, input: AssignmentInput, excludeId?: string): Pro
 async function writeLinks(db: Db, id: string, input: AssignmentInput) {
   await db.delete(timetableAssignmentGroups).where(eq(timetableAssignmentGroups.assignmentId, id));
   await db.delete(timetableAssignmentTeachers).where(eq(timetableAssignmentTeachers.assignmentId, id));
-  await db.insert(timetableAssignmentGroups).values([...new Set(input.groupIds)].map((groupId) => ({ assignmentId: id, groupId })));
+  await db.insert(timetableAssignmentGroups).values({ assignmentId: id, groupId: input.groupId });
   const teacherIds = [...new Set(input.teacherIds)];
   if (teacherIds.length) await db.insert(timetableAssignmentTeachers).values(teacherIds.map((teacherId) => ({ assignmentId: id, teacherId })));
 }
 
-const values = (i: AssignmentInput) => ({
+const values = (i: EffectiveInput) => ({
   schoolYearId: i.schoolYearId,
   subjectId: i.subjectId,
   hours: i.hours,
   doubleLessons: i.doubleLessons,
   roomId: i.roomId,
   note: i.note?.trim() || null,
+  bandId: i.bandId,
 });
 
-export async function createAssignment(db: Db, actorId: string, input: AssignmentInput): Promise<string> {
+export async function createAssignment(db: Db, actorId: string, raw: AssignmentInput): Promise<string> {
+  const input = await effective(db, raw, null);
   await validate(db, input);
   const id = await db.transaction(async (tx) => {
     const [row] = await tx.insert(timetableAssignments).values(values(input)).returning({ id: timetableAssignments.id });
     await writeLinks(tx, row!.id, input);
     return row!.id;
   });
-  await audit(db, actorId, "stundenplan.assignment.create", input.groupIds[0], { subject: input.subjectId, hours: input.hours, groups: input.groupIds.length });
+  await audit(db, actorId, "stundenplan.assignment.create", input.groupId, { subject: input.subjectId, hours: input.hours, band: input.bandId });
   return id;
 }
 
-export async function updateAssignment(db: Db, actorId: string, id: string, input: AssignmentInput): Promise<void> {
-  const [old] = await db.select({ id: timetableAssignments.id }).from(timetableAssignments).where(eq(timetableAssignments.id, id));
+export async function updateAssignment(db: Db, actorId: string, id: string, raw: AssignmentInput): Promise<void> {
+  const [old] = await db.select({ id: timetableAssignments.id, bandId: timetableAssignments.bandId }).from(timetableAssignments).where(eq(timetableAssignments.id, id));
   if (!old) throw new ValidationError({ id: "Lehrauftrag gibt es nicht mehr" });
+  const input = await effective(db, raw, old.bandId);
   await validate(db, input, id);
   await db.transaction(async (tx) => {
     await tx.update(timetableAssignments).set(values(input)).where(eq(timetableAssignments.id, id));
     await writeLinks(tx, id, input);
   });
-  await audit(db, actorId, "stundenplan.assignment.update", input.groupIds[0], { assignment: id, subject: input.subjectId, hours: input.hours });
+  await audit(db, actorId, "stundenplan.assignment.update", input.groupId, { assignment: id, subject: input.subjectId, hours: input.hours, band: input.bandId });
 }
 
 export async function deleteAssignment(db: Db, actorId: string, id: string): Promise<void> {
   const [old] = await db.delete(timetableAssignments).where(eq(timetableAssignments.id, id)).returning();
   if (old) await audit(db, actorId, "stundenplan.assignment.delete", null, { subject: old.subjectId, hours: old.hours });
+}
+
+// ---------------------------------------------------------------- Bänder (SP2-01)
+
+export interface BandInput {
+  schoolYearId: string;
+  name: string;
+  hours: number;
+  doubleLessons: number;
+}
+
+async function validateBand(db: Db, input: BandInput, excludeId?: string): Promise<void> {
+  const fe: Record<string, string> = {};
+  const name = input.name.trim();
+  if (!name) fe.name = "Namen angeben, z. B. „Religion/Philosophie 7“";
+  else if (name.length > 60) fe.name = "höchstens 60 Zeichen";
+  if (!Number.isInteger(input.hours) || input.hours < 1 || input.hours > 12) fe.hours = "1 bis 12 Wochenstunden";
+  else if (!Number.isInteger(input.doubleLessons) || input.doubleLessons < 0 || input.doubleLessons * 2 > input.hours)
+    fe.doubleLessons = `höchstens ${Math.floor(input.hours / 2)} Doppelstunden bei ${input.hours} Wochenstunden`;
+  const [y] = await db.select({ id: schoolYears.id }).from(schoolYears).where(eq(schoolYears.id, input.schoolYearId));
+  if (!y) fe.schoolYearId = "Schuljahr gibt es nicht";
+  if (!fe.name) {
+    const same = await db
+      .select({ id: timetableBands.id })
+      .from(timetableBands)
+      .where(and(eq(timetableBands.schoolYearId, input.schoolYearId), eq(timetableBands.name, name), excludeId ? ne(timetableBands.id, excludeId) : undefined));
+    if (same.length) fe.name = "Ein Band mit diesem Namen gibt es schon";
+  }
+  if (Object.keys(fe).length) throw new ValidationError(fe);
+}
+
+export async function createBand(db: Db, actorId: string, input: BandInput): Promise<string> {
+  await validateBand(db, input);
+  const [row] = await db
+    .insert(timetableBands)
+    .values({ schoolYearId: input.schoolYearId, name: input.name.trim(), hours: input.hours, doubleLessons: input.doubleLessons })
+    .returning({ id: timetableBands.id });
+  await audit(db, actorId, "stundenplan.band.create", null, { band: row!.id, hours: input.hours });
+  return row!.id;
+}
+
+/** Ändert Name/Stunden; Wochen- und Doppelstunden gehen an alle Mitglieder. */
+export async function updateBand(db: Db, actorId: string, id: string, input: BandInput): Promise<void> {
+  const old = await bandOf(db, id);
+  if (!old) throw new ValidationError({ id: "Band gibt es nicht mehr" });
+  await validateBand(db, { ...input, schoolYearId: old.schoolYearId }, id);
+  await db.transaction(async (tx) => {
+    await tx.update(timetableBands).set({ name: input.name.trim(), hours: input.hours, doubleLessons: input.doubleLessons }).where(eq(timetableBands.id, id));
+    await tx.update(timetableAssignments).set({ hours: input.hours, doubleLessons: input.doubleLessons }).where(eq(timetableAssignments.bandId, id));
+  });
+  await audit(db, actorId, "stundenplan.band.update", null, { band: id, hours: input.hours });
+}
+
+/** Löscht das Band; die Lehraufträge bleiben eigenständig mit ihren Stunden. */
+export async function deleteBand(db: Db, actorId: string, id: string): Promise<void> {
+  const [old] = await db.delete(timetableBands).where(eq(timetableBands.id, id)).returning({ id: timetableBands.id });
+  if (old) await audit(db, actorId, "stundenplan.band.delete", null, { band: id });
+}
+
+/** Nimmt einen Lehrauftrag ins Band auf (übernimmt die Stunden des Bands) bzw. mit `null` heraus (Stunden bleiben). */
+export async function setBandMember(db: Db, actorId: string, assignmentId: string, bandId: string | null): Promise<void> {
+  const [a] = await db
+    .select({ id: timetableAssignments.id, schoolYearId: timetableAssignments.schoolYearId, bandId: timetableAssignments.bandId })
+    .from(timetableAssignments)
+    .where(eq(timetableAssignments.id, assignmentId));
+  if (!a) throw new ValidationError({ assignmentId: "Lehrauftrag gibt es nicht mehr" });
+  if (!bandId) {
+    if (!a.bandId) return;
+    await db.update(timetableAssignments).set({ bandId: null }).where(eq(timetableAssignments.id, assignmentId));
+    await audit(db, actorId, "stundenplan.band.member", null, { band: a.bandId, assignment: assignmentId, removed: true });
+    return;
+  }
+  const band = await bandOf(db, bandId);
+  if (!band || band.schoolYearId !== a.schoolYearId) throw new ValidationError({ bandId: "Band gibt es nicht (mehr)" });
+  await db.update(timetableAssignments).set({ bandId, hours: band.hours, doubleLessons: band.doubleLessons }).where(eq(timetableAssignments.id, assignmentId));
+  await audit(db, actorId, "stundenplan.band.member", null, { band: bandId, assignment: assignmentId });
 }
 
 /**

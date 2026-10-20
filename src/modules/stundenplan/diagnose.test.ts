@@ -104,6 +104,7 @@ describe("diagnose", () => {
       teachers: [],
       planned: 2,
       otherTeacher: false,
+      bandId: null,
     });
     const dist = { assignments: [assignment("D", 1), assignment("M", 0)], unmatched: [], curriculum: new Map() };
     // ohne Pausenangabe nichts; mit Pause nach der 2. und 4.: Deutsch (Doppelstunde gewünscht) → Hinweis, Mathe (keine) → nichts
@@ -148,6 +149,7 @@ describe("diagnose", () => {
       teachers,
       planned,
       otherTeacher: false,
+      bandId: null,
     });
     const fs = diagnose(
       base([], {

@@ -93,8 +93,39 @@ export const timetableSubstitutions = pgTable(
 export type TimetableSubstitution = typeof timetableSubstitutions.$inferSelect;
 
 /**
+ * SP2-01: Band – Lehraufträge, die zur selben Zeit liegen (Religion/Philosophie, WP, E-/G-Kurse, Oberstufen-Schiene, eine
+ * Lehrkraft für mehrere Gruppen). Wochen- und Doppelstunden gelten für alle Mitglieder (die Lehraufträge übernehmen sie).
+ * Die Mitglieder sind die Lehraufträge mit `band_id`; jeder bleibt 1 Fach, 1 Gruppe, 1–2 Lehrkräfte.
+ */
+export const timetableBands = pgTable(
+  "timetable_bands",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "cascade" }),
+    /** z. B. „Religion/Philosophie 7“, „Q1 GK-Schiene A“ – keine Personen nennen */
+    name: text("name").notNull(),
+    /** Wochenstunden (Soll) aller Mitglieder */
+    hours: integer("hours").notNull(),
+    /** gewünschte Doppelstunden je Woche */
+    doubleLessons: integer("double_lessons").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("timetable_bands_hours", sql`${t.hours} between 1 and 12`),
+    check("timetable_bands_double", sql`${t.doubleLessons} >= 0 and ${t.doubleLessons} * 2 <= ${t.hours}`),
+    uniqueIndex("timetable_bands_name_uq").on(t.schoolYearId, t.name),
+  ],
+);
+
+export type TimetableBand = typeof timetableBands.$inferSelect;
+
+/**
  * Lehrauftrag (Unterrichtsverteilung): „7b, Deutsch, 4 Wochenstunden, BRA“ – Planungsauftrag vor dem Stundenplan.
- * Mehrere Gruppen = Kopplung, mehrere Lehrkräfte = Teamteaching.
+ * Eine Gruppe, ein Fach, 1–2 Lehrkräfte (Teamteaching); was zur selben Zeit liegen soll, bündelt ein Band (SP2-01).
  */
 export const timetableAssignments = pgTable(
   "timetable_assignments",
@@ -115,12 +146,15 @@ export const timetableAssignments = pgTable(
     /** Raumwunsch; leer = Stammraum bzw. Raumwunsch des Fachs */
     roomId: text("room_id").references(() => rooms.id, { onDelete: "set null", onUpdate: "cascade" }),
     note: text("note"),
+    /** SP2-01: Band, in dem der Lehrauftrag liegt (Wochen-/Doppelstunden kommen dann vom Band); leer = eigenständig */
+    bandId: text("band_id").references(() => timetableBands.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check("timetable_assignments_hours", sql`${t.hours} between 1 and 12`),
     check("timetable_assignments_double", sql`${t.doubleLessons} >= 0 and ${t.doubleLessons} * 2 <= ${t.hours}`),
     index("timetable_assignments_year_idx").on(t.schoolYearId),
+    index("timetable_assignments_band_idx").on(t.bandId),
   ],
 );
 

@@ -81,7 +81,9 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     const queued = (await getRun(h.db, id))!;
     expect(queued).toMatchObject({ status: "queued", label: "Variante A", params: { effort: "schnell", seed: 3, preset: "klassenkompakt" }, cancelRequested: false });
     expect(queued.params!.weights.classGap).toBe(16);
-    expect(queued.log.map((e) => e.kind)).toEqual(["queued"]);
+    // Warnung zum Demo-Band (SP2-01: verschiedene Fächer, bis SP2-02 einzeln gesetzt)
+    expect(queued.log.map((e) => e.kind)).toEqual(["queued", "warning"]);
+    expect(queued.log[1]!.text).toMatch(/Q1 GK-Schiene A/);
 
     expect(await executeRun(h.db, id, today)).toBe("done");
     const run = (await getRun(h.db, id))!;
