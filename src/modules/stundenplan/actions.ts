@@ -677,7 +677,8 @@ export async function undoSolverAction(runId: string): Promise<void> {
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(withQuery(withQuery(runPage(runId), "zurueckgenommen", String(res.lessons)), "wiederhergestellt", String(res.restorable + res.reinsert)));
+  const target = withQuery(withQuery(runPage(runId), "zurueckgenommen", String(res.lessons)), "wiederhergestellt", String(res.restorable + res.reinsert));
+  redirect(res.restoredSubstitutions ? withQuery(target, "vertretungen", String(res.restoredSubstitutions)) : target);
 }
 
 /** Stunde fixieren/lösen (Pflege-Seite). */
