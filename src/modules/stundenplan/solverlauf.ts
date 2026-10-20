@@ -164,6 +164,94 @@ export async function getRun(db: Db, id: string): Promise<SolverRun | null> {
   return r ? toRun(r) : null;
 }
 
+/** Ein Lauf für die Historie (SP-07): ohne Ergebnis-JSON und Protokoll – die Liste liest nur Kennzahlen. */
+export type RunSummary = Omit<SolverRun, "stored" | "log"> & { hasResult: boolean; createdByName: string | null };
+
+/** Läufe für die Historie, neueste zuerst – wie listRuns(), aber ohne `result`/`log` (bei 20 Ergebnissen je Schuljahr spürbar). */
+export async function listRunSummaries(db: Db, opts: ListRunsOptions = {}): Promise<RunSummary[]> {
+  const t = timetableSolverRuns;
+  const conds = [];
+  if (opts.schoolYearId) conds.push(eq(t.schoolYearId, opts.schoolYearId));
+  if (opts.status) conds.push(Array.isArray(opts.status) ? inArray(t.status, opts.status) : eq(t.status, opts.status));
+  const q = db
+    .select({
+      id: t.id,
+      schoolYearId: t.schoolYearId,
+      status: t.status,
+      progress: t.progress,
+      seed: t.seed,
+      iterations: t.iterations,
+      error: t.error,
+      label: t.label,
+      params: t.params,
+      metrics: t.metrics,
+      cancelRequested: t.cancelRequested,
+      heartbeatAt: t.heartbeatAt,
+      appliedFrom: t.appliedFrom,
+      appliedBy: t.appliedBy,
+      appliedAt: t.appliedAt,
+      createdBy: t.createdBy,
+      createdByName: users.name,
+      createdAt: t.createdAt,
+      finishedAt: t.finishedAt,
+      hasResult: sql<boolean>`${t.result} is not null`,
+    })
+    .from(t)
+    .leftJoin(users, eq(users.id, t.createdBy))
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(t.createdAt), desc(t.id));
+  const rows = await (opts.limit ? q.limit(opts.limit) : q);
+  return rows.map((r) => ({
+    ...r,
+    params: (r.params as RunParams | null) ?? null,
+    metrics: (r.metrics as RunMetrics | null) ?? null,
+    hasResult: Boolean(r.hasResult),
+  }));
+}
+
+/** Zustand eines wartenden/rechnenden Laufs für die Live-Anzeige (SP-07) – klein, damit häufiges Nachfragen nichts kostet. */
+export interface RunLiveState {
+  id: string;
+  status: RunStatus;
+  progress: number;
+  cancelRequested: boolean;
+  heartbeatAt: string | null;
+  /** letzter Protokolleintrag (z. B. „40 % – Bewertung 312“) */
+  note: string | null;
+}
+
+export async function runLiveStates(db: Db, ids: string[]): Promise<RunLiveState[]> {
+  const valid = [...new Set(ids)].filter((id) => /^[\w-]{1,64}$/.test(id)).slice(0, 50);
+  if (!valid.length) return [];
+  const t = timetableSolverRuns;
+  const rows = await db
+    .select({
+      id: t.id,
+      status: t.status,
+      progress: t.progress,
+      cancelRequested: t.cancelRequested,
+      heartbeatAt: t.heartbeatAt,
+      // nur der letzte Eintrag – das Protokoll kann mit den Vorprüfungs-Daten groß sein
+      note: sql<string | null>`${t.log} -> -1 ->> 'text'`,
+    })
+    .from(t)
+    .where(inArray(t.id, valid));
+  return rows.map((r) => ({ ...r, heartbeatAt: r.heartbeatAt ? new Date(r.heartbeatAt).toISOString() : null, note: r.note ?? null }));
+}
+
+/** Rein: Ergebnis der Vorprüfung aus dem Protokoll (SP-G-03) – `null`, wenn der Lauf noch nicht so weit kam. */
+export function precheckOf(log: RunLogEntry[]): PrecheckFinding[] | null {
+  const entry = [...log].reverse().find((e) => e.kind === "precheck");
+  if (!entry) return null;
+  const findings = entry.data?.findings;
+  return Array.isArray(findings) ? (findings as PrecheckFinding[]) : [];
+}
+
+/** Rein: Darf der Lauf gelöscht werden? Nicht, solange er rechnet (erst abbrechen). */
+export function canDeleteRun(run: { status: RunStatus }): boolean {
+  return run.status !== "running";
+}
+
 // ---------------------------------------------------------------- Anlegen
 
 export interface CreateRunOptions {

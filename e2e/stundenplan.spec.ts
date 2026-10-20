@@ -386,11 +386,13 @@ test("Automatisch planen: Stunde fixieren, Lauf mit Fortschritt, Bewertung und V
   await expect(page.getByText(/Fixierte Stunden \(1\)/)).toBeVisible();
   await page.getByLabel("Gründlichkeit").selectOption("schnell");
   await page.getByRole("button", { name: "Plan berechnen" }).click();
-  await expect(page).toHaveURL(/lauf=/);
-  await expect(page.getByRole("heading", { name: /^Vorschlag · Bewertung -?\d+/ })).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByRole("table", { name: "Letzte Läufe" }).getByText("fertig").first()).toBeVisible();
-  await expect(page.getByText("Hohlstunden Klassen", { exact: true })).toBeVisible();
-  await page.getByLabel("Klasse oder Kurs").selectOption({ label: "Klasse 7b" });
+  // SP-07: weiter auf die Detailseite des Laufs; sie fragt den Zustand nach und lädt das Ergebnis, sobald der Lauf fertig ist
+  await expect(page).toHaveURL(/\/planung\/solver\/[\w-]+$/);
+  await expect(page.getByRole("heading", { name: "Was die Bewertung kostet" })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText("Hohlstunden Klassen", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Nicht gesetzt" })).toBeVisible();
+  await expect(page.getByText("Alle Einheiten sind gesetzt.")).toBeVisible();
+  await page.getByLabel("Klasse, Kurs oder Lehrkraft").selectOption({ label: "Klasse 7b" });
   await page.getByRole("button", { name: "Anzeigen" }).click();
   const preview = page.getByRole("table", { name: "Vorschlag Klasse 7b" });
   await expect(preview.getByText("Mathematik").first()).toBeVisible();
@@ -402,6 +404,8 @@ test("Automatisch planen: Stunde fixieren, Lauf mit Fortschritt, Bewertung und V
   await apply.getByLabel("ab Stichtag").fill("2020-01-06");
   await apply.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
   await expect(page.getByRole("alert").filter({ hasText: /Stichtag/ })).toBeVisible();
+  await page.getByRole("link", { name: "Alle Läufe" }).click();
+  await expect(page.getByRole("table", { name: /Läufe der automatischen Planung/ }).getByText("fertig").first()).toBeVisible();
 
   await page.goto("/planung/stundenplan?gruppe=g-7b");
   await page.getByRole("link", { name: /^Deutsch BRA.*fixiert/ }).first().click();

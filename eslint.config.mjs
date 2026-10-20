@@ -4,7 +4,7 @@ import nextTs from "eslint-config-next/typescript";
 const config = [
   ...nextVitals,
   ...nextTs,
-  { ignores: ["**/.next/**", ".data/**", "**/node_modules/**", "**/next-env.d.ts", "drizzle/**", "apps/*/dist/**"] },
+  { ignores: ["**/.next/**", ".data/**", "**/node_modules/**", "**/next-env.d.ts", "drizzle/**", "apps/*/dist/**", ".claude/**"] },
   // npm-Workspaces: SchulOS im Root, Backupserver unter apps/backup
   { settings: { next: { rootDir: [".", "apps/backup"] } } },
   {
