@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 3130;
+// SCHULOS_E2E_PORT: anderer Port, wenn 3130 schon belegt ist (parallele Arbeitskopien)
+const PORT = Number(process.env.SCHULOS_E2E_PORT || 3130);
 // Eigene DB für E2E – die lokale Arbeits-DB (.data/pglite) bleibt unberührt.
 const PGLITE_DIR = ".data/e2e-pglite";
 // Gegen eine laufende Instanz statt eines eigenen Servers (QEMU-Test §7.4: Demo aus der ISO, selbst signiertes Zertifikat);
