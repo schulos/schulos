@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DbHandle } from "@/core/db/client";
 import { appSettings, auditLog, grants, mailOutbox, sessions, users } from "@/core/db/schema";
 import { createTestDb } from "@/core/db/testing";
@@ -12,6 +12,12 @@ import { notifyTwoFactorEnabled, releaseExternalSetup, twoFactorStatus } from ".
 
 const OUTSIDE = new Headers({ "x-forwarded-for": "203.0.113.7" });
 const INSIDE = new Headers({ "x-forwarded-for": "10.1.2.3" });
+
+/** Schuldatum in Berlin + 28 Tage – so rechnet Migration 0078 (unabhängig von der UTC-Tagesgrenze). */
+function berlinPlus28(now: Date): string {
+  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" }).format(now); // YYYY-MM-DD
+  return new Date(Date.parse(`${today}T00:00:00Z`) + 28 * 86_400_000).toISOString().slice(0, 10);
+}
 
 describe("SEC-01: Pflicht je Rolle (rein)", () => {
   const from = "2026-11-11";
@@ -154,8 +160,7 @@ describe("SEC-01: Pflicht mit Datenbank", () => {
 
   it("Migration 0078 setzt den Stichtag auf vier Wochen nach dem Update", async () => {
     const { twoFactorFrom } = await readSecuritySettings(h.db);
-    const expected = new Date(Date.now() + 28 * 86_400_000).toISOString().slice(0, 10);
-    expect(twoFactorFrom).toBe(expected);
+    expect(twoFactorFrom).toBe(berlinPlus28(new Date()));
   });
 
   it("vor dem Stichtag Hinweis statt Sperre, danach gesperrt; Schüler:innen nie ohne Anfrage", async () => {
@@ -316,5 +321,28 @@ describe("SEC-01: Pflicht mit Datenbank", () => {
     const mails = await h.db.select().from(mailOutbox).where(eq(mailOutbox.to, "jana@example.org"));
     expect(mails).toHaveLength(1);
     expect(mails[0]!.subject).toContain("Zwei-Faktor-Anmeldung wurde eingerichtet");
+  });
+});
+
+// Migration 0078 rechnet mit dem Berlin-Datum: nachts (22:00–00:00 UTC) ist es in Berlin schon der nächste Tag.
+// Die Vorlage-DB auf echtem PostgreSQL ist vorab migriert – dort lässt sich die Uhr nicht setzen.
+describe.skipIf(!!process.env.TEST_DATABASE_URL)("Migration 0078: Stichtag zur UTC-Tagesgrenze", () => {
+  afterEach(() => vi.useRealTimers());
+  it.each([
+    ["2026-10-20T21:59:00Z", "2026-11-17"],
+    ["2026-10-20T22:30:00Z", "2026-11-18"],
+    ["2026-10-20T23:59:00Z", "2026-11-18"],
+    ["2026-10-21T00:30:00Z", "2026-11-18"],
+    ["2026-03-27T23:30:00Z", "2026-04-25"], // Sommerzeit-Umstellung am 29.03. liegt dazwischen
+  ])("%s UTC -> %s", async (now, expected) => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(now) });
+    const handle = await createTestDb();
+    try {
+      expect((await readSecuritySettings(handle.db)).twoFactorFrom).toBe(expected);
+      expect(berlinPlus28(new Date(now))).toBe(expected);
+    } finally {
+      vi.useRealTimers();
+      await handle.close();
+    }
   });
 });
