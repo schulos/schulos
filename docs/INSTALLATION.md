@@ -1157,7 +1157,7 @@ SchulOS braucht im Betrieb keinen Internetzugang. Nur zwei abschaltbare Funktion
 | Funktion | Ziel | Was übertragen wird | Schalter |
 |---|---|---|---|
 | Ferienabruf (B-20, nächtlich oder auf Knopfdruck) | `openholidaysapi.org` (oder `SCHULOS_HOLIDAYS_URL`) | Bundesland und Zeitraum | Verwaltung → Stammdaten, „Automatischer Abruf“; `SCHULOS_JOBS=0` stoppt alle Hintergrundjobs |
-| ISBN-Abfrage der Bücherei (BU-06, nur auf Knopfdruck) | `services.dnb.de`, `lobid.org`, `openlibrary.org` (der Reihe nach) | nur die ISBN | `buecherei.isbn` (ab Werk aus) und je Quelle, Verwaltung → Rechte & Module → Bücherei |
+| ISBN-Abfrage der Bücherei (BU-06, nur auf Knopfdruck) | `services.dnb.de`, `lobid.org` (der Reihe nach); `openlibrary.org` nur, wenn zugeschaltet (ab Werk aus, außerhalb der EU) | nur die ISBN | `buecherei.isbn` (ab Werk aus) und je Quelle, Verwaltung → Rechte & Module → Bücherei |
 
 Im **Schulnetz ohne Außenzugang** schlagen beide ohne Absturz fehl (ISBN: Hinweis „nicht erreichbar“ nach höchstens 5 s); für die
 Firewall genügt eine Freigabe genau dieser Ziele. Muss der Server über einen Proxy ins Internet, `HTTPS_PROXY=http://proxy:port`
