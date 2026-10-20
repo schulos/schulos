@@ -34,13 +34,42 @@ export function conflictsFrom(members: { groupId: string; userId: string }[]): M
   return out;
 }
 
+type BandRef = Pick<Distribution["bands"][number], "id" | "memberIds" | "uniform">;
+
+/**
+ * Rein (SP2-01, Übergang bis SP2-02): Ein einheitliches Band (alle Mitglieder mit gleichem Fach, gleichen Lehrkräften, gleichem
+ * Raumwunsch und gleichen Stunden – die frühere Kopplung „Gekoppelt mit“) wird zu einem Lehrauftrag mit allen Gruppen
+ * zusammengefasst und so wie bisher als eine Kopplung gesetzt (id/fixierte Stunden des ersten Mitglieds nach Gruppenname).
+ * Andere Bänder setzt der Solver bis SP2-02 je Mitglied einzeln (Warnung in `checkInput`).
+ */
+export function collapseBands<A extends Pick<Distribution["assignments"][number], "id" | "groups" | "hours" | "doubleLessons">>(assignments: A[], bands: BandRef[] = []): A[] {
+  const byId = new Map(assignments.map((a) => [a.id, a]));
+  const replaced = new Map<string, A | null>();
+  for (const b of bands) {
+    const members = b.memberIds.map((id) => byId.get(id)).filter((a): a is A => Boolean(a));
+    if (!b.uniform || members.length < 2 || members.some((a) => a.hours !== members[0]!.hours || a.doubleLessons !== members[0]!.doubleLessons)) continue;
+    const name = (a: A) => a.groups[0]?.name ?? "";
+    const sorted = [...members].sort((x, y) => name(x).localeCompare(name(y), "de", { numeric: true }) || (x.id < y.id ? -1 : 1));
+    const first = sorted[0]!;
+    for (const m of members) replaced.set(m.id, null);
+    replaced.set(first.id, { ...first, groups: sorted.flatMap((m) => m.groups) });
+  }
+  if (!replaced.size) return assignments;
+  const out: A[] = [];
+  for (const a of assignments) {
+    if (!replaced.has(a.id)) out.push(a);
+    else if (replaced.get(a.id)) out.push(replaced.get(a.id)!);
+  }
+  return out;
+}
+
 /**
  * Rein: Lehraufträge → Einheiten (Doppelstunden als Zweier-Block), abzüglich schon fixierter Stunden. Je Lehrauftrag ein Teil
  * (Q-SP-13) – bei mehreren Lehrkräften ein Teil je Lehrkraft (SP-G-02: geteilte Klasse, jede Lehrkraft mit eigenem Raum und
  * ihrem Anteil der Gruppe; die Gruppen bleiben in jedem Teil dieselben, damit die Einheit weiter als eine Kopplung gesetzt wird).
  */
 export function unitsFrom(
-  d: Pick<Distribution, "assignments">,
+  d: Pick<Distribution, "assignments"> & { bands?: Pick<Distribution["bands"][number], "id" | "memberIds" | "uniform">[] },
   info: {
     roomKindOf: Map<string, string | null>;
     homeRoomOf: Map<string, string | null>;
@@ -51,7 +80,7 @@ export function unitsFrom(
   },
 ): SolverUnit[] {
   const out: SolverUnit[] = [];
-  for (const a of d.assignments) {
+  for (const a of collapseBands(d.assignments, d.bands)) {
     if (!a.groups.length) continue;
     const hours = Math.max(0, a.hours - (info.fixedHours?.get(a.id) ?? 0));
     const doubles = Math.min(a.doubleLessons, Math.floor(hours / 2));
@@ -91,6 +120,8 @@ export function checkInput(x: {
   groupName: Map<string, string>;
   /** Stunden des Plans am Stichtag, die der Solver ersetzen würde (nicht fixiert, mit Lehrauftrag) */
   replaceable: Pick<GridLesson, "week" | "groupName" | "subjectName">[];
+  /** SP2-01: Bänder – nicht einheitliche setzt der Solver bis SP2-02 je Lehrauftrag einzeln */
+  bands?: Pick<Distribution["bands"][number], "name" | "memberIds" | "uniform">[];
 }): InputCheck {
   const errors: Record<string, string> = {};
   const warnings: string[] = [];
@@ -111,6 +142,13 @@ export function checkInput(x: {
     const names = [...new Set(ab.map((l) => `${l.groupName} ${l.subjectName}`))].sort((a, b) => a.localeCompare(b, "de"));
     warnings.push(
       `${ab.length} A/B-Wochen-Stunden mit Lehrauftrag sind nicht fixiert (${names.slice(0, 5).join(", ")}${names.length > 5 ? ", …" : ""}) – der Solver plant nur „jede Woche“; bei der Übernahme werden sie ersetzt. Fixieren, wenn sie bleiben sollen`,
+    );
+  }
+  const mixed = (x.bands ?? []).filter((b) => b.memberIds.length > 1 && !b.uniform).map((b) => b.name);
+  if (mixed.length) {
+    const names = [...mixed].sort((a, b) => a.localeCompare(b, "de"));
+    warnings.push(
+      `${names.length} ${names.length === 1 ? "Band" : "Bänder"} mit verschiedenen Fächern oder Lehrkräften (${names.slice(0, 5).join(", ")}${names.length > 5 ? ", …" : ""}) – die automatische Planung setzt deren Lehraufträge noch einzeln, nicht zur selben Zeit`,
     );
   }
   return { errors, warnings };
@@ -164,7 +202,7 @@ export async function solverInputFromDb(
         (x) => x.subjectId === l.subjectId && x.groups.some((g) => g.id === l.groupId) && (!l.teacherId || x.teachers.some((t) => t.id === l.teacherId)),
       ) ?? d.assignments.find((x) => x.subjectId === l.subjectId && x.groups.some((g) => g.id === l.groupId));
     if (!a) continue;
-    // Kopplung: eine Stunde je Gruppe – nur die erste Gruppe zählt
+    // Lehraufträge haben seit SP2-01 genau eine Gruppe; ein zusammengefasstes Band zählt die fixierten Stunden seines ersten Mitglieds
     if (a.groups[0]!.id !== l.groupId) continue;
     fixedHours.set(a.id, (fixedHours.get(a.id) ?? 0) + l.weight);
   }
@@ -183,12 +221,13 @@ export async function solverInputFromDb(
     groupKind: new Map(groupRows.map((g) => [g.id, g.kind])),
     groupName: new Map(groupRows.map((g) => [g.id, g.name])),
     replaceable: grid.filter((l) => !fixedIds.has(l.id)),
+    bands: d.bands,
   });
   return {
     weekdays: [0, 1, 2, 3, 4],
     periods: periodRows.map((p) => p.nr),
     breakAfter: longBreaksAfter(periodRows),
-    units: unitsFrom(d, {
+    units: unitsFrom({ assignments: d.assignments, bands: d.bands }, {
       roomKindOf: new Map(subjectRows.map((s) => [s.id, s.roomKind])),
       homeRoomOf: new Map(groupRows.map((g) => [g.id, g.homeRoomId])),
       sizeOf,

@@ -19,7 +19,19 @@ import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
 import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
 import { deleteSubstitution, publishDay, saveSubstitution, type SubstitutionInput } from "./vertretung";
 import { addReduction, deleteReduction, setObligation } from "./deputate";
-import { assignmentsFromTimetable, createAssignment, deleteAssignment, planningYear, updateAssignment, type AssignmentInput } from "./verteilung";
+import {
+  assignmentsFromTimetable,
+  createAssignment,
+  createBand,
+  deleteAssignment,
+  deleteBand,
+  planningYear,
+  setBandMember,
+  updateAssignment,
+  updateBand,
+  type AssignmentInput,
+  type BandInput,
+} from "./verteilung";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
 
@@ -209,31 +221,79 @@ function backTo(raw: string): string {
 export async function saveAssignmentAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const str = (k: string) => String(form.get(k) ?? "").trim();
-  const all = (k: string) => form.getAll(k).map((v) => String(v).trim()).filter(Boolean);
   const db = await getDb();
   const year = await planningYear(db);
   const input: AssignmentInput = {
     schoolYearId: year?.id ?? "",
-    groupIds: [str("groupId"), ...all("coupledGroupIds")].filter(Boolean),
+    groupId: str("groupId"),
     subjectId: str("subjectId"),
-    hours: Number(str("hours")),
+    // im Band zählen die Stunden des Bands (das Formular schickt dann keine)
+    hours: Number(str("hours") || "1"),
     teacherIds: [str("teacherId"), str("teacher2Id")].filter(Boolean),
     doubleLessons: Number(str("doubleLessons") || "0"),
     roomId: str("roomId") || null,
     note: str("note") || null,
+    bandId: str("bandId") || null,
   };
   try {
     if (id) await updateAssignment(db, user.id, id, input);
     else await createAssignment(db, user.id, input);
   } catch (err) {
-    if (err instanceof ValidationError) {
-      const values = { ...formValues(form), coupledGroupIds: all("coupledGroupIds").join(",") };
-      return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values };
-    }
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
   revalidatePath("/planung/unterricht");
   redirect(backTo(str("back")));
+}
+
+// ---------------------------------------------------------------- Bänder (SP2-01)
+
+const bandsPage = (bandId?: string) => `/planung/unterricht?ansicht=baender${bandId ? `&band=${encodeURIComponent(bandId)}` : ""}`;
+
+export async function saveBandAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  const db = await getDb();
+  const year = await planningYear(db);
+  const input: BandInput = { schoolYearId: year?.id ?? "", name: str("name"), hours: Number(str("hours")), doubleLessons: Number(str("doubleLessons") || "0") };
+  let bandId = id;
+  try {
+    if (id) await updateBand(db, user.id, id, input);
+    else bandId = await createBand(db, user.id, input);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/unterricht");
+  redirect(bandsPage(bandId ?? undefined));
+}
+
+export async function deleteBandAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteBand(await getDb(), user.id, id);
+  revalidatePath("/planung/unterricht");
+  redirect(bandsPage());
+}
+
+export async function addBandMemberAction(bandId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const assignmentId = String(form.get("assignmentId") ?? "").trim();
+  if (!assignmentId) return { error: "Lehrauftrag wählen", fieldErrors: { assignmentId: "Lehrauftrag wählen" } };
+  try {
+    await setBandMember(await getDb(), user.id, assignmentId, bandId);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors };
+    throw err;
+  }
+  revalidatePath("/planung/unterricht");
+  redirect(bandsPage(bandId));
+}
+
+export async function removeBandMemberAction(bandId: string, assignmentId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await setBandMember(await getDb(), user.id, assignmentId, null);
+  revalidatePath("/planung/unterricht");
+  redirect(bandsPage(bandId));
 }
 
 export async function deleteAssignmentAction(id: string, back: string): Promise<void> {

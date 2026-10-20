@@ -701,6 +701,13 @@
       "when": 1792483266148,
       "tag": "0099_buecherei_ersatz",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1792509751516,
+      "tag": "0100_sp2_01_baender",
+      "breakpoints": true
     }
   ]
 }

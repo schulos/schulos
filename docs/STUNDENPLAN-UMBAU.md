@@ -515,6 +515,28 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 | **SP2-11** | E2E-Szenario „Gesamtschule“ (Band E/G Mathe 7 + WP + Tagesgrenze → Lauf → Übernahme; Verlegung/Bereitschaft; CSV-Import; Fachbedarf) + Review-PR **GATE SP2** | S | – | SP2-01 … SP2-10, SP2-12 | – |
 | **GATE SP2** | Review mit der Projektleitung – merged nur die Projektleitung | – | – | SP2-11 | – |
 
+**Umgesetzt (SP2-01, Migration 0100, 2026-10-20):** Tabelle `timetable_bands` (Schuljahr, Name – eindeutig je Schuljahr –, Wochen-
+und Doppelstunden), Mitglieder = Lehraufträge mit `timetable_assignments.band_id` (`on delete set null`). Lehrauftrag: genau eine Gruppe
+(`AssignmentInput.groupId`), höchstens zwei Lehrkräfte, im Band übernimmt er Wochen-/Doppelstunden des Bands (`updateBand` schreibt sie an alle
+Mitglieder; Herausnehmen/Löschen lässt sie stehen). „Gekoppelt mit“ ist entfallen; Migration 0100 macht aus jedem Lehrauftrag mit mehreren
+Gruppen ein Band (id = alter Lehrauftrag, Name „Fach Gruppe/Gruppe“), einen Lehrauftrag je Gruppe (id `md5(alt|Gruppe)`) und biegt
+Notenbücher auf den Lehrauftrag ihrer Gruppe um. `distribution()` liefert `bands: BandStatus[]` (`planned` = schwächstes Mitglied,
+`together` = Slots, in denen alle Mitglieder liegen, `uniform` = gleiches Fach, gleiche Lehrkräfte, gleicher Raumwunsch); Lehrkräfte zählen
+ein Band einmal (`teacherAssigned`), „verplant“ zählt gekoppelte Stunden im selben Slot einmal (`teacherPlanned`). Pflege-UI: Ansicht
+„Bänder“ unter `/planung/unterricht?ansicht=baender` (Liste mit Soll/verplant, anlegen/ändern/löschen, Lehrauftrag aufnehmen/herausnehmen),
+Feld „Band“ im Lehrauftrag. Demo: Band „Q1 GK-Schiene A“ (Englisch/Deutsch/Biologie GK1). Audit `stundenplan.band.*`.
+Vorgaben (Q-SP2-1 … Q-SP2-5): Stunden gehören dem Band; Lehrauftrag ohne Lehrkraft bleibt erlaubt; Solver-Übergang siehe unten.
+
+**Übergang bis SP2-02 und Übergabe:** Der Solver arbeitet unverändert. `collapseBands()` in `solver-input.ts` fasst ein **einheitliches**
+Band wieder zu einem Lehrauftrag mit allen Gruppen zusammen (= frühere Kopplung, Einheiten identisch, Benchmark unverändert); Bänder mit
+verschiedenen Fächern/Lehrkräften setzt er je Mitglied einzeln, `checkInput` warnt („Solver: noch einzeln“ in der Liste). **SP2-02** setzt
+direkt auf `Distribution.bands` (`memberIds`) und `Distribution.assignments` (je Mitglied Fach, Gruppe, Lehrkräfte, Raumwunsch) auf: je Band
+eine Einheit mit einem `parts[]`-Eintrag je Mitglied (bzw. je Lehrkraft bei Teamteaching) statt `collapseBands` + Einzelplanung; `fixedHours`
+je Mitglied (heute zählt beim Zusammenfassen nur das erste Mitglied); `subjectId` der Einheit ist heute „Fach des ersten Teils“ – Fachsperren
+und „Fach mehrfach am Tag“ müssen je Teil gelten; Schülerkonflikte innerhalb eines Bands klären (Demo-Kurse überlappen zufällig, Q-SP2-6);
+`bandStatus().together` eignet sich als Kennzahl für die Diagnose; Setzhilfe (`openAssignments`/`placeAssignment`) setzt heute je Lehrauftrag –
+Band als Einheit dort nachziehen; danach die Warnung in `checkInput` und den Hinweis „Solver: noch einzeln“ entfernen.
+
 Nur auf Nachfrage von Schulen (Kann): A/B-Wochen im Solver (SP-G-17), Lehrbefähigung (SP-G-18), Wertrechnung/Faktoren (SP-G-19),
 faire Aufsichtsverteilung (SP-G-20), ICS-Abo des Stundenplans (SP-G-21), Matrix Lehrkraft × Fach (SP-G-22). Oberstufen-Blockung
 aus Kurswahlen (SP-G-24) wird eine eigene Phase nach SP2 (braucht Bänder).

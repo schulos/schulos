@@ -66,6 +66,14 @@ export default defineModule({
       class: "LK-SJ-1J",
       start: "school_year_id",
     },
+    {
+      // SP2-01: Bänder bündeln Lehraufträge zur selben Zeit; ohne Personenbezug (Name wie „Religion/Philosophie 7“), Löschung wie die Lehraufträge
+      table: "timetable_bands",
+      purpose: "Unterricht verteilen (Bänder: Lehraufträge zur selben Zeit)",
+      categories: ["Name des Bands", "Wochenstunden"],
+      class: "LK-SJ-1J",
+      start: "school_year_id",
+    },
     { table: "timetable_assignment_groups", purpose: "Unterricht verteilen (Lehraufträge)", categories: ["Gruppe"], follows: "timetable_assignments" },
     { table: "timetable_assignment_teachers", purpose: "Unterricht verteilen (Lehraufträge)", categories: ["Lehrkraft"], follows: "timetable_assignments" },
     {

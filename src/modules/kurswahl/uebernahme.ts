@@ -227,7 +227,7 @@ export async function createSuggestedAssignments(db: Db, perms: PermissionSet, v
     const teacherOk = s.teacherId ? (await db.select({ id: users.id }).from(users).where(and(eq(users.id, s.teacherId), eq(users.role, "lehrkraft")))).length > 0 : false;
     await createAssignment(db, perms.userId, {
       schoolYearId: yearId,
-      groupIds: [s.groupId],
+      groupId: s.groupId,
       subjectId: s.subjectId!,
       hours: s.hours!,
       teacherIds: teacherOk ? [s.teacherId!] : [],

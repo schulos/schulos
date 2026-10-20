@@ -11,6 +11,7 @@ import {
   timetableAssignmentGroups,
   timetableAssignments,
   timetableAssignmentTeachers,
+  timetableBands,
   timetableDeputies,
   timetableDuties,
   timetableDutyAreas,
@@ -102,9 +103,22 @@ export async function seedStundenplan(db: Db, now = new Date()) {
     load.set(c.leader, (load.get(c.leader) ?? 0) + hours);
     rows.push({ id: `la-${c.id}-${c.subjectId}`, groupId: c.id, subjectId: c.subjectId!, hours, doubles: lk ? 1 : 0, teacherId: c.leader });
   }
-  await db
-    .insert(timetableAssignments)
-    .values(rows.map((r) => ({ id: r.id, schoolYearId: year.id, subjectId: r.subjectId, hours: r.hours, doubleLessons: r.doubles })));
+  // SP2-01: Beispiel-Band – drei Grundkurse der Q1 als Schiene (verschiedene Fächer und Lehrkräfte, je 3 Std.). Bis SP2-02 setzt
+  // der Solver sie noch einzeln; die Verteilung zeigt das Band mit Soll/verplant. Band vor den Lehraufträgen anlegen und `band_id`
+  // gleich mit einfügen – ein späteres UPDATE ändert die physische Reihenfolge und damit (bei gleichem Anlagezeitpunkt) die
+  // Reihenfolge der Lehraufträge und den Demo-Plan.
+  const schiene = new Set(rows.filter((r) => ["g-q1-e-gk1", "g-q1-d-gk1", "g-q1-bi-gk1"].includes(r.groupId) && r.hours === 3 && r.doubles === 0).map((r) => r.id));
+  if (schiene.size > 1) await db.insert(timetableBands).values({ id: "band-q1-gk-a", schoolYearId: year.id, name: "Q1 GK-Schiene A", hours: 3, doubleLessons: 0 });
+  await db.insert(timetableAssignments).values(
+    rows.map((r) => ({
+      id: r.id,
+      schoolYearId: year.id,
+      subjectId: r.subjectId,
+      hours: r.hours,
+      doubleLessons: r.doubles,
+      bandId: schiene.size > 1 && schiene.has(r.id) ? "band-q1-gk-a" : null,
+    })),
+  );
   await db.insert(timetableAssignmentGroups).values(rows.map((r) => ({ assignmentId: r.id, groupId: r.groupId })));
   await db.insert(timetableAssignmentTeachers).values(rows.map((r) => ({ assignmentId: r.id, teacherId: r.teacherId })));
 

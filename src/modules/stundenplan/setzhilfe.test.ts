@@ -100,7 +100,7 @@ describe("Setzhilfe (Demo-Schule)", () => {
     const y = (await planningYear(h.db))!;
     assignmentId = await createAssignment(h.db, "u-admin", {
       schoolYearId: y.id,
-      groupIds: ["g-7b"],
+      groupId: "g-7b",
       subjectId: "F",
       hours: 2,
       teacherIds: ["u-jana.brandt"],
