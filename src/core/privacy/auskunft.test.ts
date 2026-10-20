@@ -4,9 +4,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { DbHandle } from "@/core/db/client";
-import { auditLog, fileNodes, gebaeudeTicketEvents, gebaeudeTickets, twoFactors } from "@/core/db/schema";
+import { auditLog, fileNodes, schoolYears, gebaeudeTicketEvents, gebaeudeTickets, twoFactors } from "@/core/db/schema";
 import { loadPermissions } from "@/core/permissions";
 import { absenceReports } from "@/modules/abwesenheiten/schema";
+import { timetableLessons, timetableSolverRuns, timetableSubstitutions } from "@/modules/stundenplan/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { localStorage } from "@/core/files/storage";
 import { collectRetention } from "@/core/retention";
@@ -143,6 +144,52 @@ describe("Auskunft (Demo-Schule)", () => {
     // die meldende Person bekommt ihre Meldung vollständig
     const jana = (await collectPersonalData(h.db, "u-jana.brandt"))!;
     expect(JSON.stringify(jana.sections.find((s) => s.table === "gebaeude_tickets" && !s.asActor)!.rows)).toContain("FREITEXT-DER-MELDERIN");
+  });
+
+  it("SP-10: Solver-Läufe nur als Handlung der Planung, Vertretung mit Fachtausch vollständig bei der Vertretung, Rücknahme-Daten nie", async () => {
+    const [lesson] = await h.db.select().from(timetableLessons).where(eq(timetableLessons.teacherId, "u-tobias.kleine")).limit(1);
+    expect(lesson).toBeTruthy();
+    const [sy] = await h.db.select({ id: schoolYears.id }).from(schoolYears).limit(1);
+    await h.db.insert(timetableSolverRuns).values({
+      id: "run-sp10",
+      schoolYearId: sy!.id,
+      status: "applied",
+      appliedFrom: "2026-11-02",
+      createdBy: "u-frank.schulte",
+      appliedBy: "u-frank.schulte",
+      appliedAt: new Date(),
+      label: "VARIANTE-GEHEIM",
+      result: { marker: "ERGEBNIS-GEHEIM", teacher: "u-jana.brandt" },
+      params: { marker: "PARAMETER-GEHEIM" },
+      metrics: { marker: "KENNZAHL-GEHEIM" },
+      log: [{ kind: "start", marker: "PROTOKOLL-GEHEIM" }],
+      undo: { ended: [{ id: lesson!.id, teacherId: "u-jana.brandt", marker: "UNDO-GEHEIM" }], removed: [] },
+    });
+    await h.db
+      .insert(timetableSubstitutions)
+      .values({ id: "sub-sp10", lessonId: lesson!.id, date: "2026-10-05", kind: "substitute", substituteId: "u-jana.brandt", subjectId: lesson!.subjectId, createdBy: "u-frank.schulte" });
+
+    // Planende: nur die Handlung (Zeitpunkte und eigene Spalten), nichts vom Entwurf
+    const planer = (await collectPersonalData(h.db, "u-frank.schulte"))!;
+    const runs = planer.sections.filter((x) => x.table === "timetable_solver_runs");
+    expect(runs.map((x) => x.asActor)).toEqual([true]);
+    const runText = JSON.stringify(runs);
+    expect(runText).toContain("run-sp10");
+    expect(runText).not.toMatch(/GEHEIM|"result"|"params"|"metrics"|"log"|"undo"|"label"/);
+    const allowed = new Set(["id", "created_by", "applied_by", "created_at", "finished_at", "heartbeat_at", "applied_at"]);
+    expect(Object.keys(runs[0]!.rows[0]!).filter((k) => !allowed.has(k))).toEqual([]);
+    // Kategorien im Übersichtsteil nennen die Rücknahme-Daten (Transparenz, DS-Hinweise)
+    expect(runs[0]!.categories.join(" ")).toContain("Rücknahme-Daten");
+
+    // Vertretende Lehrkraft: Zeile vollständig mit Fach, aber ohne Solver-Entwurf (kein Verweis auf den Lauf, auch wenn die ID im JSON steht)
+    const jana = (await collectPersonalData(h.db, "u-jana.brandt"))!;
+    const subs = jana.sections.find((x) => x.table === "timetable_substitutions" && !x.asActor)!;
+    expect(subs.rows.find((r) => r.id === "sub-sp10")).toMatchObject({ kind: "substitute", substitute_id: "u-jana.brandt", subject_id: lesson!.subjectId });
+    expect(jana.sections.some((x) => x.table === "timetable_solver_runs")).toBe(false);
+    expect(JSON.stringify(jana.sections)).not.toMatch(/GEHEIM/);
+    // dieselbe Person in der Handlung (Frank hat die Vertretung angelegt): nur Zeitpunkt, kein Fach
+    const fSubs = planer.sections.find((x) => x.table === "timetable_substitutions" && x.asActor);
+    expect(fSubs?.rows.find((r) => r.id === "sub-sp10")).not.toHaveProperty("subject_id");
   });
 
   it("Handelnde-Spalten: *_by und actor_id, eigene Inhalte ausgenommen", () => {
