@@ -53,6 +53,18 @@ describe("conflictsFrom / unitsFrom", () => {
     // bandfähig (Q-SP-13): genau ein Teil je Einheit mit denselben Angaben wie der Lehrauftrag
     expect(y[0]!.parts).toEqual([{ assignmentId: "y", groupIds: ["7a", "7b"], teacherIds: ["t"], subjectId: "D", roomId: null, roomKind: null, homeRoomId: null, size: 55 }]);
     expect(units[0]!.parts[0]).toMatchObject({ assignmentId: "x", homeRoomId: "106", size: 28 });
+
+    // SP-G-02: zwei Lehrkräfte → ein Teil je Lehrkraft (geteilte Klasse: eigener Raum, halbe Gruppe), die Einheit bleibt eine Kopplung
+    const split = unitsFrom(
+      { assignments: [{ ...a("sp", ["7a"], 2, 1), subjectId: "SP", teachers: [{ id: "t1", code: "BAU", name: "B" }, { id: "t2", code: "MEY", name: "M" }] }] },
+      { roomKindOf: new Map([["SP", "sport"]]), homeRoomOf: new Map([["7a", "106"]]), sizeOf: new Map([["7a", 27]]), classIds: new Set(["7a"]) },
+    );
+    expect(split).toHaveLength(1);
+    expect(split[0]).toMatchObject({ length: 2, groupIds: ["7a"], teacherIds: ["t1", "t2"], size: 27, roomKind: "sport", label: "7a Deutsch (BAU + MEY)" });
+    expect(split[0]!.parts).toEqual([
+      { assignmentId: "sp", groupIds: ["7a"], teacherIds: ["t1"], subjectId: "SP", roomId: null, roomKind: "sport", homeRoomId: "106", size: 14 },
+      { assignmentId: "sp", groupIds: ["7a"], teacherIds: ["t2"], subjectId: "SP", roomId: null, roomKind: "sport", homeRoomId: "106", size: 14 },
+    ]);
   });
 
   it("checkInput: Fehler ohne Zeitraster/Lehraufträge/Räume; Warnungen für Kurse ohne Mitglieder (SP-G-13) und A/B-Stunden", () => {

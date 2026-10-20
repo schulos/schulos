@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSolver, rng, solve, unitParts, validate, type SolverInput, type SolverUnit } from "./solver";
+import { createSolver, placementRooms, rng, solve, unitParts, validate, type SolverInput, type SolverUnit } from "./solver";
 
 let n = 0;
 const unit = (p: Partial<SolverUnit> & Pick<SolverUnit, "groupIds" | "teacherIds" | "subjectId">): SolverUnit => {
@@ -189,6 +189,68 @@ describe("solve", () => {
     expect(sliced.placed).toBe(units.length);
     expect(r.gaps).toEqual({ teacherTotal: r.breakdown.teacherGap / 3, teacherMax: expect.any(Number), classTotal: r.breakdown.classGap / 10, classMax: expect.any(Number) });
     expect(r.gaps.teacherMax).toBeLessThanOrEqual(r.gaps.teacherTotal);
+  });
+
+  it("Raum je Teil (SP-G-02): geteilte Klasse mit zwei Lehrkräften bekommt zwei Räume, gemeinsame Lehrkraft einen; alte Platzierungen ohne roomIds", () => {
+    const need = { assignmentId: "a-sp", groupIds: ["7a"], subjectId: "SP", roomId: null, roomKind: "sport", homeRoomId: null, size: 14 };
+    const split = unit({
+      groupIds: ["7a"],
+      teacherIds: ["BAU", "MEY"],
+      subjectId: "SP",
+      roomKind: "sport",
+      parts: [
+        { ...need, teacherIds: ["BAU"] },
+        { ...need, teacherIds: ["MEY"] },
+      ],
+    });
+    // Band-Vorgriff: zwei Teile mit derselben Lehrkraft (Teamteaching) teilen sich den Raum
+    const team = unit({
+      groupIds: ["7b"],
+      teacherIds: ["RIC"],
+      subjectId: "REL",
+      parts: [
+        { ...need, groupIds: ["7b"], subjectId: "REL", roomKind: null, homeRoomId: "102", teacherIds: ["RIC"] },
+        { ...need, groupIds: ["7b"], subjectId: "REL", roomKind: null, homeRoomId: "102", teacherIds: ["RIC"] },
+      ],
+    });
+    const rooms = [
+      { id: "101", kind: "klassenraum", capacity: 30 },
+      { id: "102", kind: "klassenraum", capacity: 30 },
+      { id: "SP1", kind: "sport", capacity: 60 },
+      { id: "SP2", kind: "sport", capacity: 60 },
+    ];
+    const input = base([split, team], { rooms });
+    const r = solve(input);
+    expect(r.unplaced).toEqual([]);
+    expect(validate(input, r.placements)).toEqual([]);
+    const at = new Map(r.placements.map((p) => [p.unitId, p]));
+    const ps = at.get(split.id)!;
+    expect(ps.roomIds).toEqual(["SP1", "SP2"]);
+    expect(ps.roomId).toBe("SP1");
+    expect(at.get(team.id)!.roomIds).toEqual(["102", "102"]);
+    expect(r.breakdown.roomWish).toBe(0);
+    expect(r.breakdown.noRoom).toBe(0);
+    // nur eine Sporthalle: der zweite Teil bekommt einen Klassenraum (Raumwunsch verfehlt), nie denselben Raum
+    const one = solve(base([split], { rooms: rooms.filter((x) => x.id !== "SP2") }));
+    const p1 = one.placements[0]!;
+    expect(p1.roomIds![0]).toBe("SP1");
+    expect(p1.roomIds![1]).toBe("101");
+    expect(one.breakdown.roomWish).toBe(4);
+    expect(one.items.find((i) => i.category === "roomWish")!.text).toBe("7a SP (MEY): Raum 101 statt Wunsch");
+    // ein zweiter Teil ohne irgendeinen freien Raum kostet „ohne Raum“ je Teil
+    const none = solve(base([split], { rooms: [rooms[2]!] }));
+    expect(none.breakdown.noRoom).toBe(20);
+    expect(none.placements[0]!.roomIds).toEqual(["SP1", null]);
+    // Platzierungen aus Läufen vor SP-09 (nur roomId): derselbe Raum für alle Teile; validate meldet Doppelbelegung je Raum
+    expect(placementRooms({ roomId: "SP1" }, 2)).toEqual(["SP1", "SP1"]);
+    expect(placementRooms({ roomId: "SP1", roomIds: ["SP1", "SP2"] }, 2)).toEqual(["SP1", "SP2"]);
+    expect(placementRooms({ roomId: "SP1", roomIds: ["SP1"] }, 2)).toEqual(["SP1", "SP1"]);
+    const other = unit({ groupIds: ["7b"], teacherIds: ["X"], subjectId: "SP", roomKind: "sport" });
+    const clash = validate(base([split, other], { rooms }), [
+      { unitId: split.id, weekday: 0, periodNr: 1, roomId: "SP1", roomIds: ["SP1", "SP2"] },
+      { unitId: other.id, weekday: 0, periodNr: 1, roomId: "SP2" },
+    ]);
+    expect(clash).toEqual([`${other.label}: Raum SP2 doppelt belegt`]);
   });
 
   it("Teile (Q-SP-13): Einheit mit einem Teil je Lehrauftrag; unitParts ergänzt alte Einheiten ohne Teile", () => {

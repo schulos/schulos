@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbHandle } from "@/core/db/client";
 import { schoolYears, timetableSolverRuns, users } from "@/core/db/schema";
 import { createTestDb } from "@/core/db/testing";
-import { canDeleteRun, listRunSummaries, precheckOf, runLiveStates, type RunLogEntry } from "./solverlauf";
+import { canDeleteRun, isUndoable, listRunSummaries, precheckOf, runLiveStates, type RunLogEntry } from "./solverlauf";
 
 // SP-07: Historie ohne Ergebnis-JSON, Live-Zustand für die Anzeige ohne Neuladen, Vorprüfung aus dem Protokoll.
 
@@ -80,7 +80,16 @@ describe("Solver-Läufe: Historie und Live-Zustand", () => {
     expect(precheckOf(log)).toEqual(findings);
     expect(precheckOf([{ at: "a", kind: "precheck", text: "Vorprüfung: Bedarf passt" }])).toEqual([]);
     expect(precheckOf([{ at: "a", kind: "queued", text: "q" }])).toBeNull();
-    expect(canDeleteRun({ status: "running" })).toBe(false);
-    for (const status of ["queued", "done", "failed", "cancelled", "applied"] as const) expect(canDeleteRun({ status })).toBe(true);
+    const today = "2026-10-20";
+    expect(canDeleteRun({ status: "running", appliedFrom: null, undo: null }, today)).toBe(false);
+    for (const status of ["queued", "done", "failed", "cancelled", "applied"] as const) expect(canDeleteRun({ status, appliedFrom: null, undo: null }, today)).toBe(true);
+    // SP-09: übernommen mit Rücknahme-Daten und Stichtag in der Zukunft → zurücknehmbar, nicht löschbar; ab dem Stichtag bzw. ohne Daten löschbar
+    const undo = { ended: [], deleted: [], removedSubstitutions: 0 };
+    expect(isUndoable({ status: "applied", appliedFrom: "2026-11-02", undo }, today)).toBe(true);
+    expect(canDeleteRun({ status: "applied", appliedFrom: "2026-11-02", undo }, today)).toBe(false);
+    expect(isUndoable({ status: "applied", appliedFrom: "2026-10-20", undo }, today)).toBe(false);
+    expect(canDeleteRun({ status: "applied", appliedFrom: "2026-10-20", undo }, today)).toBe(true);
+    expect(isUndoable({ status: "applied", appliedFrom: "2026-11-02", undo: null }, today)).toBe(false);
+    expect(isUndoable({ status: "done", appliedFrom: "2026-11-02", undo }, today)).toBe(false);
   });
 });

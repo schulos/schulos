@@ -200,6 +200,35 @@ Konfliktmengen über Schienen hinweg (das löst erst die Blockung, SP-G-24), Hoh
 bewertet die Schwierigkeit jetzt einmal je Einheit statt im Sortier-Vergleich (gleiche Reihenfolge, ~10× schneller). Messwerte Zeitscheiben: `LASTTEST.md`
 „Solver-Lauf im App-Prozess“; Q-SP-9 bleibt bei „im Prozess“ (kein Worker-Thread nötig).
 
+**Umsetzungsstand SP-09 (2026-10-20, ohne Migration – Spalte `undo` kam mit 0094):** **Übernahme** (`applyRun`): Stichtag muss ein Schultag sein
+(`SchoolCalendar.isSchoolDay`; Wochenende/Feiertag/Ferien → Fehler „kein Schultag (…) – nächster Schultag: JJJJ-MM-TT“, L-08); vor dem Übernehmen zeigt
+die Detailseite für den vorgeschlagenen Stichtag (`applyPreview`), wie viele Stunden am Vortag enden, wie viele später beginnende entfallen, wie viele
+Vertretungen ab dem Stichtag entfallen (sie kommen beim Zurücknehmen nicht zurück) und ob der Vorschlag Räume belegt, in denen ab dem Stichtag
+Raumbuchungen oder Klausuren liegen. In **einer Transaktion** werden ersetzbare Stunden (nicht fixiert, mit Lehrauftrag) am Vortag beendet bzw.
+gelöscht (wenn sie erst ab dem Stichtag beginnen), Vertretungen ab dem Stichtag daran entfernt, die Vorschlagsstunden mit `solver_run_id` angelegt und am
+Lauf `undo` (`ended[]` mit altem `valid_until`, `deleted[]` vollständig, `removedSubstitutions`), `applied_by`/`applied_at` und ein Protokolleintrag
+`apply` geschrieben; der Statuswechsel ist bedingt (`done → applied`, sonst „inzwischen verändert“). **Zurücknehmen** (`undoApply`, Audit
+`stundenplan.solver.undo`), nur solange der Stichtag in der Zukunft liegt und `undo` vorhanden ist (`isUndoable`): alle Stunden des Laufs weg (nur die
+eigenen – auch wenn sie seit der Übernahme verschoben, fixiert oder umbesetzt wurden; Vertretungen und Vertretungsmaterial daran gehen per Cascade mit,
+Klassenbucheinträge verlieren nur den Bezug), beendete Stunden wieder bis zu ihrem früheren Ende verlängert – **nur**, wenn sie noch so enden, wie die
+Übernahme sie hinterlassen hat (inzwischen gelöschte oder von Hand veränderte bleiben, wie sie sind), entfernte Stunden mit alter ID wieder angelegt
+(fehlt inzwischen Gruppe oder Fach, entfällt die Stunde; gelöschte Lehrkraft/Raum wird leer); nach der Übernahme von Hand angelegte Stunden bleiben. Der
+Lauf ist danach wieder `done` (erneut übernehmbar), `appliedFrom/By/At` und `undo` leer, Protokolleintrag `undo`. `undoPreview` zählt all das vorher
+(veränderte, fremde, nicht wiederherstellbare Stunden, Vertretungen, Klassenbuch, Material, Raumbuchungen/Klausuren in Räumen des alten Plans) und die
+Detailseite erklärt es vor der Rückfrage. **Löschsperre:** `canDeleteRun(run, heute)` – übernommene Läufe sind nicht löschbar, solange sie zurücknehmbar
+sind (Löschen nähme die Rücknahme-Daten mit); Nachtjob `solver-aufraeumen` leert `undo` ab dem Stichtag (`undoCleared`, Personenbezug: Lehrkraft-IDs an
+entfernten Stunden; DATENSCHUTZ §3.4, SICHERHEIT S79). Läufe, die vor SP-09 übernommen wurden, haben kein `undo` → nicht zurücknehmbar, löschbar wie
+bisher. Nicht zurückgeholt werden bewusst die bei der Übernahme entfernten Vertretungen (Q in §3.2; der Hinweis nennt die Zahl).
+**SP-G-02 Raum je Kopplungsteil:** `unitsFrom` erzeugt bei einem Lehrauftrag mit mehreren Lehrkräften **einen Teil je Lehrkraft** (geteilte Klasse:
+eigener Raum, Größe anteilig; die Gruppen bleiben in jedem Teil dieselben, die Einheit wird weiter als eine Kopplung gesetzt); `chooseRooms` vergibt
+je Teil einen eigenen freien Raum (Wunschraum → Raumart → Stammraum → Klassenraum, nie einen Raum, den ein anderer Teil derselben Einheit schon hat),
+Teile mit gemeinsamer Lehrkraft teilen sich den Raum; `Placement.roomIds[]` je Teil (`roomId` bleibt der Raum des ersten Teils – Läufe vor SP-09 haben
+nur ihn, `placementRooms()` ergänzt), Raumbelegung/`validate`/Kosten (`noRoom`/`roomWish` je Teil, Posten nennen die Lehrkraft) je Raum, Vorprüfung
+zählt den Raumbedarf je Teil; `proposedLessons` gibt jeder Zeile den Raum ihres Teils, die Übernahme legt sie als Kopplung mit zwei Räumen an. Ein Teil
+je Einheit (Demo, Benchmark) ergibt dieselben Lösungen wie vorher (Determinismus und Benchmark-Zahlen unverändert, LASTTEST.md). Bekannt: `matchLessons`
+zählt bei zwei Lehrkräften beide Zeilen auf die Gruppe („zu viel verplant“) – das ist das bestehende Zählmodell für Teamteaching/geteilte Klassen und
+Thema für SP2-01/02 (Bänder), ebenso die Diagnose-Kapazität je Raum (nimmt die ganze Klasse je Raum).
+
 **Außenzugang:** bleibt wie für Lehrkräfte (Gerätezertifikat nach Schuleinstellung); die Planung ist **kein** Verwaltungsrecht im Sinne von
 S28 (keine Außen-Sperre). Begründung: Vertretungsplanung findet morgens um 7 Uhr auch von zu Hause statt.
 
@@ -320,13 +349,13 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | **SP-06** ✅ (**Kern**) | Solver-Läufe Datenmodell + Ausführung: Migration 0089 bzw. nächste freie Nummer (`label`, `params`, `metrics`, `log`, `cancel_requested`, `heartbeat_at`, `applied_by`/`applied_at`, `undo`, Status `queued`/`cancelled`, `timetable_lessons.solver_run_id`), Zeitscheiben statt fester Blöcke, Heartbeat-Sperre, Warteschlange, Abbruch, Startup (queued weiter, running → failed), Validierung vor dem Start, Nachtjob `solver-aufraeumen`, Messung der Antwortzeiten während eines Laufs. **Aus der Gap-Analyse (§6.3):** Einheiten-/`result`-Format bandfähig (`units[].parts[]`, Q-SP-13), Machbarkeits-Vorprüfung + konkrete Gründe „nicht gesetzt“ (SP-G-03), Doppelstunde nicht über große Pause/Mittag (SP-G-04a), Warnung „Kurse mit Lehrauftrag ohne Mitglieder“ (SP-G-13), Warnung vor A/B-Stunden mit Lehrauftrag, synthetischer Groß-Benchmark (SP-G-15) | M | **Fable** | SP-03 | **0089** (oder nächste freie) | `solverlauf.test` (Warteschlange, Abbruch vor/nach Konstruktion, Heartbeat, Aufräumen, Validierung, Vorprüfung), `solver.test` (Doppelstunde über Pause, Gründe je Einheit, `parts`), Benchmark-Test, `retention.test` |
 | **SP-07** ✅ | Solver-Läufe UI: Liste aller Läufe (Filter), Start-Formular mit Bezeichnung/Gründlichkeit/Startwert/Gewichtungs-Voreinstellung + „eigene“ (alle Felder von `SolverWeights` **plus `lateFrom`**, SP-G-16), Detailseite `/planung/solver/[id]` (Fortschritt, Protokoll, Konflikte vollständig **mit Grund je Einheit** aus SP-G-03, Ergebnis der Vorprüfung, Kostenposten mit Filter, Vorschau Klasse **und** Lehrkraft), Abbrechen, Löschen | M | Opus | SP-06 | – | `npm run verify`; E2E Lauf starten → abbrechen → zweiter Lauf |
 | **SP-08** ✅ | Vergleich `/planung/solver/vergleich?laeufe=…` (2–3 Läufe, bester Wert markiert, Delta, Vorschau nebeneinander) | S | Opus | SP-07 | – | Service-Test der Delta-Berechnung, E2E Vergleich |
-| **SP-09** (**Kern**) | Übernahme: `solver_run_id` an Stunden, `undo` schreiben, „Übernahme zurücknehmen“ bis zum Stichtag, Stichtag = Schultag, Hinweis mit Zahl der entfallenden Vertretungen; Randfälle Kopplungen/A-B-Woche/Vertretungen am Stichtag; **Raum je Kopplungsteil** (SP-G-02: `chooseRoom` je Teil, gleiche Lehrkraft → gleicher Raum) | M | **Fable** | SP-06 | – (Spalten aus SP-06) | `solverlauf.test` (Übernahme/Zurücknehmen mit Kopplungen, bleibenden Stunden, Vertretungen), `solver.test` (geteilte Klasse mit zwei Lehrkräften → zwei Räume, bis zur Übernahme), E2E Übernahme → zurücknehmen |
+| **SP-09** ✅ (**Kern**) | Übernahme: `solver_run_id` an Stunden, `undo` schreiben, „Übernahme zurücknehmen“ bis zum Stichtag, Stichtag = Schultag, Hinweis mit Zahl der entfallenden Vertretungen; Randfälle Kopplungen/A-B-Woche/Vertretungen am Stichtag; **Raum je Kopplungsteil** (SP-G-02: `chooseRoom` je Teil, gleiche Lehrkraft → gleicher Raum) | M | **Fable** | SP-06 | – (Spalten aus SP-06) | `solverlauf.test` (Übernahme/Zurücknehmen mit Kopplungen, bleibenden Stunden, Vertretungen), `solver.test` (geteilte Klasse mit zwei Lehrkräften → zwei Räume, bis zur Übernahme), E2E Übernahme → zurücknehmen |
 | **SP-10** | Datenschutz + Doku: DATENSCHUTZ §3.4 Zeile, Manifest `retention`/`processing`, SICHERHEIT S-xx, STUNDENPLAN.md „Stand 2026-10“, VVT-/Auskunftstest | S | Opus | SP-09 | – | `retention.test`, VVT-Snapshot, Auskunftstest |
 | **SP-12** ✅ | **Vertretung mit abweichendem Fach** („Fachtausch“, SP-G-Fachtausch, §6.4): `timetable_substitutions.subject_id` (nullable, nur bei `substitute`, Check-Constraint), Formularfeld „Fach“, Vorschlag „kennt die Klasse → eigenes Fach“ (+10, Knopf übernimmt Lehrkraft **und** Fach), Anzeige „Mathe statt Sport“ in allen Plänen/Tagesleiste/Vertretungsplan/Druck/Monitor, Gong-Text, Klassenbuch-Eintrag mit tatsächlichem Fach, Statistik-Zähler „davon mit eigenem Fach“, Klausur-Hinweis im Formular, DATENSCHUTZ §3.4/STUNDENPLAN §2.3 | M | Opus | SP-03 (Recht `substitute` aus SP-02, Seiten unter `/planung/vertretungen`) | nächste freie Nummer (Spalte + Check) | `vertretung.test`, `vorschlaege.test`, `display.test`, `vertretung-gong.test`, Klassenbuch-Test, E2E `vertretungsbedarf.spec.ts` erweitert |
 | **SP-11** | E2E-Szenario „Stundenplaner:in“ (Login `frank.schulte` → Übersicht → Lauf mit Parametern → Abbruch → zweiter Lauf → Vergleich → Übernahme ab Stichtag → zurücknehmen; **Vertretung mit Fachtausch**; Sekretariat 404 auf `/planung`; alte URLs leiten weiter) + **Review-PR GATE SP** (erledigte IDs, Tests, Fragen) | S | Opus | SP-10, SP-12 | – | `e2e/zx-gate-sp.spec.ts` |
 | **GATE SP** | Review mit der Projektleitung (Review-PR aus SP-11; `/code-review ultra` nach Wunsch) – merged nur die Projektleitung | – | – | SP-11 | – | – |
 
-Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ → SP-05 ✅ → SP-06 ✅ ‖ SP-12 ✅ → SP-07 ✅ → SP-08 ✅ ‖ SP-09 → SP-10 → SP-11 → **GATE SP**.
+Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ → SP-05 ✅ → SP-06 ✅ ‖ SP-12 ✅ → SP-07 ✅ → SP-08 ✅ ‖ SP-09 ✅ → SP-10 → SP-11 → **GATE SP**.
 Parallelisierbar: SP-05 neben SP-03; SP-12 neben SP-06/SP-07 (kein Solver-Kern, berührt nur das Tagesgeschäft); SP-08 neben SP-09.
 Migrationsnummern werden in der Reihenfolge des Mergens vergeben (SP-06 und SP-12 nehmen jeweils die nächste freie Nummer).
 Zwischenstand zum Melden nach SP-04 (Bereich steht, Verwaltung aufgeräumt) und nach SP-07 (Läufe bedienbar). Release-Vorschlag nach

@@ -128,10 +128,19 @@ export default defineModule({
     {
       table: "timetable_solver_runs",
       purpose: "Automatische Stundenplanung (Läufe und Vorschläge)",
-      categories: ["Planvorschlag (Lehrkräfte, Gruppen, Räume, Zeiten)", "Bezeichnung", "Parameter", "Kennzahlen", "Protokoll (Kürzel, Gruppen)", "Gestartet von", "Übernommen von"],
+      categories: [
+        "Planvorschlag (Lehrkräfte, Gruppen, Räume, Zeiten)",
+        "Bezeichnung",
+        "Parameter",
+        "Kennzahlen",
+        "Protokoll (Kürzel, Gruppen)",
+        "Gestartet von",
+        "Übernommen von",
+        "Rücknahme-Daten (beendete und entfernte Stunden mit Lehrkraft, nur bis zum Stichtag)",
+      ],
       class: "LK-90",
       start: "created_at",
-      note: "SP-06: Nachtjob löscht fehlgeschlagene/abgebrochene Läufe ohne Ergebnis nach 7 Tagen und entfernt bei älteren fertigen Läufen (je Schuljahr ab dem 21.) den Vorschlag; die Herkunft `solver_run_id` an Stunden wird mit dem Lauf leer, die Stunden bleiben",
+      note: "SP-06: Nachtjob löscht fehlgeschlagene/abgebrochene Läufe ohne Ergebnis nach 7 Tagen und entfernt bei älteren fertigen Läufen (je Schuljahr ab dem 21.) den Vorschlag; die Herkunft `solver_run_id` an Stunden wird mit dem Lauf leer, die Stunden bleiben. SP-09: Rücknahme-Daten einer Übernahme (`undo`) bleiben nur bis zum Stichtag – der Nachtjob leert sie ab dem Stichtag, „Übernahme zurücknehmen“ sofort",
     },
     {
       table: "timetable_duty_changes",

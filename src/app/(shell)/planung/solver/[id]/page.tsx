@@ -12,7 +12,7 @@ import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { applySolverAction, cancelSolverAction } from "@/modules/stundenplan/actions";
 import { DIAGNOSIS_LABELS } from "@/modules/stundenplan/diagnose";
 import { COST_LABELS, type CostItem } from "@/modules/stundenplan/solver";
-import { canDeleteRun, EFFORT_LABELS, getRun, precheckOf, PRESET_LABELS, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
+import { applyPreview, canDeleteRun, EFFORT_LABELS, getRun, isUndoable, precheckOf, PRESET_LABELS, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -24,6 +24,7 @@ import { duration, num, runTitle, timeFmt } from "../format";
 import { LiveProgress, LiveStatusBadge, RunLiveProvider } from "../live";
 import { isActive, WEIGHT_FIELDS } from "../status";
 import { loadPreviewContext, parsePreview, PreviewGrid, previewExists, previewLessons, previewName as previewNameOf } from "../preview";
+import { UndoApply } from "../undo-apply";
 import { PreviewPicker } from "./preview-picker";
 
 export const metadata: Metadata = { title: "Solver-Lauf" };
@@ -45,19 +46,25 @@ const LOG_KIND: Record<RunLogEntry["kind"], { label: string; tone: "neutral" | "
   done: { label: "Ende", tone: "success" },
   error: { label: "Fehler", tone: "danger" },
   cleanup: { label: "Aufräumen", tone: "neutral" },
+  apply: { label: "Übernahme", tone: "soft" },
+  undo: { label: "Zurückgenommen", tone: "warn" },
 };
+
+/** Zahl mit Einzahl/Mehrzahl („1 Stunde“, „3 Stunden“). */
+const n = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
 /**
  * SP-07: ein Solver-Lauf – Status/Fortschritt live, Parameter, Kennzahlen (aus `metrics`, keine Diagnose je Aufruf), Vorprüfung,
  * nicht gesetzte Einheiten mit Grund je Beteiligtem (SP-G-03), Kostenposten mit Filter, Vorschau je Klasse oder Lehrkraft
- * (erst auf Wunsch), Protokoll, Abbrechen, Löschen, Übernahme ab Stichtag.
+ * (erst auf Wunsch), Protokoll, Abbrechen, Löschen, Übernahme ab Stichtag (Schultag) mit Hinweis, was sich ändert, und
+ * „Übernahme zurücknehmen“ bis zum Stichtag (SP-09).
  */
 export default async function SolverRunPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ vorschau?: string; kategorie?: string; fehler?: string; uebernommen?: string }>;
+  searchParams: Promise<{ vorschau?: string; kategorie?: string; fehler?: string; uebernommen?: string; entfallen?: string; zurueckgenommen?: string; wiederhergestellt?: string }>;
 }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
@@ -68,6 +75,8 @@ export default async function SolverRunPage({
   const stored = run.stored;
   const m = run.metrics;
   const active = isActive(run.status);
+  const today = toBerlinDate(new Date());
+  const undoable = isUndoable(run, today);
 
   // Vorschau nur auf Wunsch (Lasttest SP-06: die Seite soll unter Last billig bleiben)
   const want = parsePreview(sp.vorschau);
@@ -97,8 +106,9 @@ export default async function SolverRunPage({
     const s = q.toString();
     return s ? `${base}?${s}` : base;
   };
-  const today = toBerlinDate(new Date());
   const defaultFrom = cal?.nextSchoolDay(addDays(today, 1)) ?? addDays(today, 1);
+  // SP-09: was die Übernahme ab dem vorgeschlagenen Stichtag ändert bzw. was das Zurücknehmen tun würde – nur in dem jeweiligen Zustand
+  const [applyHint, undo] = await Promise.all([run.status === "done" && stored ? applyPreview(db, run, defaultFrom) : null, undoable ? undoPreview(db, run, today) : null]);
   const liveInitial = active
     ? [{ id: run.id, status: run.status, progress: run.progress, cancelRequested: run.cancelRequested, heartbeatAt: run.heartbeatAt?.toISOString() ?? null, note: run.log.at(-1)?.text ?? null }]
     : [];
@@ -121,7 +131,7 @@ export default async function SolverRunPage({
                   </Button>
                 </form>
               )}
-              {canDeleteRun(run) && <DeleteRun id={run.id} applied={run.status === "applied"} />}
+              {canDeleteRun(run, today) && <DeleteRun id={run.id} applied={run.status === "applied"} />}
             </>
           }
         />
@@ -141,7 +151,12 @@ export default async function SolverRunPage({
         )}
         {sp.uebernommen && (
           <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
-            {sp.uebernommen} Stunden übernommen.
+            {sp.uebernommen} Stunden übernommen{Number(sp.entfallen) > 0 ? `, ${n(Number(sp.entfallen), "Vertretung ab dem Stichtag entfallen", "Vertretungen ab dem Stichtag entfallen")}` : ""}.
+          </p>
+        )}
+        {sp.zurueckgenommen && (
+          <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
+            Übernahme zurückgenommen: {n(Number(sp.zurueckgenommen), "Stunde entfernt", "Stunden entfernt")}, {n(Number(sp.wiederhergestellt ?? 0), "Stunde wiederhergestellt", "Stunden wiederhergestellt")}. Der vorherige Plan gilt wieder.
           </p>
         )}
         {active && (
@@ -172,8 +187,44 @@ export default async function SolverRunPage({
           <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
             Übernommen ab {dayFmt.format(fromBerlinLocal(run.appliedFrom))}
             {run.appliedBy ? ` von ${nameOf.get(run.appliedBy) ?? "–"}` : ""}
-            {run.appliedAt ? ` am ${timeFmt.format(run.appliedAt)}` : ""}.
+            {run.appliedAt ? ` am ${timeFmt.format(run.appliedAt)}` : ""}.{" "}
+            {undoable
+              ? "Bis zum Stichtag lässt sich die Übernahme zurücknehmen; solange ist der Lauf nicht löschbar."
+              : run.appliedFrom <= today
+                ? "Die Übernahme gilt und lässt sich nicht mehr zurücknehmen."
+                : "Zu dieser Übernahme gibt es keine Rücknahme-Daten."}
           </p>
+        )}
+        {undo && (
+          <Card aria-labelledby="undo-title">
+            <h2 id="undo-title" className="text-base font-semibold">
+              Übernahme zurücknehmen
+            </h2>
+            <p className="text-sm text-muted">
+              Der vorherige Plan gilt wieder ab {dayFmt.format(fromBerlinLocal(run.appliedFrom!))}: {n(undo.lessons, "Stunde dieses Laufs wird entfernt", "Stunden dieses Laufs werden entfernt")}
+              {undo.changed ? ` (${undo.changed} davon seit der Übernahme von Hand verändert – auch sie)` : ""}, {n(undo.restorable, "beendete Stunde gilt wieder bis zu ihrem früheren Ende", "beendete Stunden gelten wieder bis zu ihrem früheren Ende")}
+              {undo.reinsert ? `, ${n(undo.reinsert, "entfernte Stunde wird wieder angelegt", "entfernte Stunden werden wieder angelegt")}` : ""}. Der Lauf ist danach wieder „fertig“ und erneut übernehmbar.
+            </p>
+            {(undo.substitutions > 0 || undo.lostSubstitutions > 0 || undo.classbook > 0 || undo.materials > 0 || undo.notRestorable > 0 || undo.reinsertSkipped > 0 || undo.foreign > 0 || undo.roomClashes.bookings > 0 || undo.roomClashes.exams > 0) && (
+              <ul className="list-disc pl-5 text-sm text-muted" aria-label="Was beim Zurücknehmen zu beachten ist">
+                {undo.substitutions > 0 && <li>{n(undo.substitutions, "Vertretung an Stunden dieses Laufs geht verloren", "Vertretungen an Stunden dieses Laufs gehen verloren")}.</li>}
+                {undo.lostSubstitutions > 0 && <li>{n(undo.lostSubstitutions, "bei der Übernahme entfernte Vertretung kommt nicht zurück", "bei der Übernahme entfernte Vertretungen kommen nicht zurück")}.</li>}
+                {undo.classbook > 0 && <li>{n(undo.classbook, "Klassenbucheintrag an diesen Stunden bleibt, verliert aber den Bezug zur Stunde", "Klassenbucheinträge an diesen Stunden bleiben, verlieren aber den Bezug zur Stunde")}.</li>}
+                {undo.materials > 0 && <li>{n(undo.materials, "Vertretungsmaterial an diesen Stunden geht verloren", "Vertretungsmaterialien an diesen Stunden gehen verloren")}.</li>}
+                {undo.notRestorable > 0 && <li>{n(undo.notRestorable, "beendete Stunde lässt sich nicht wiederherstellen", "beendete Stunden lassen sich nicht wiederherstellen")} (inzwischen gelöscht oder von Hand verändert).</li>}
+                {undo.reinsertSkipped > 0 && <li>{n(undo.reinsertSkipped, "entfernte Stunde entfällt", "entfernte Stunden entfallen")}, weil Gruppe oder Fach inzwischen gelöscht sind.</li>}
+                {undo.foreign > 0 && <li>{n(undo.foreign, "Stunde, die nach der Übernahme von Hand angelegt wurde, bleibt", "Stunden, die nach der Übernahme von Hand angelegt wurden, bleiben")} – anschließend die Diagnose auf Kollisionen prüfen.</li>}
+                {(undo.roomClashes.bookings > 0 || undo.roomClashes.exams > 0) && (
+                  <li>
+                    Ab dem Stichtag belegt der alte Plan Räume, in denen {[undo.roomClashes.bookings ? n(undo.roomClashes.bookings, "Raumbuchung", "Raumbuchungen") : null, undo.roomClashes.exams ? n(undo.roomClashes.exams, "Klausur", "Klausuren") : null].filter(Boolean).join(" und ")} liegen – Räume prüfen.
+                  </li>
+                )}
+              </ul>
+            )}
+            <div>
+              <UndoApply id={run.id} lessons={undo.lessons} substitutions={undo.substitutions} lostSubstitutions={undo.lostSubstitutions} />
+            </div>
+          </Card>
         )}
         {(run.status === "done" || run.status === "applied") && !stored && (
           <p role="status" className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">
@@ -407,9 +458,19 @@ export default async function SolverRunPage({
               Übernehmen
             </h2>
             <p className="text-sm text-muted">
-              Ab dem Stichtag gilt der Vorschlag; der bisherige Plan endet am Vortag (Klassenbuch und Vertretungen davor bleiben). Vertretungen ab dem
-              Stichtag an ersetzten Stunden entfallen.
+              Ab dem Stichtag (ein Schultag) gilt der Vorschlag; der bisherige Plan endet am Vortag (Klassenbuch und Vertretungen davor bleiben). Vertretungen ab dem
+              Stichtag an ersetzten Stunden entfallen. Bis zum Stichtag lässt sich die Übernahme zurücknehmen – die entfallenen Vertretungen kommen dabei nicht zurück.
             </p>
+            {applyHint && (
+              <p className="text-sm" data-testid="apply-preview">
+                Ab {dayFmt.format(fromBerlinLocal(applyHint.from))}: {n(applyHint.ended, "Stunde endet am Vortag", "Stunden enden am Vortag")}
+                {applyHint.deleted ? `, ${n(applyHint.deleted, "später beginnende Stunde entfällt", "später beginnende Stunden entfallen")}` : ""}, {n(applyHint.substitutions, "Vertretung ab dem Stichtag entfällt", "Vertretungen ab dem Stichtag entfallen")}
+                {applyHint.roomClashes.bookings || applyHint.roomClashes.exams
+                  ? `; der Vorschlag belegt Räume, in denen ${[applyHint.roomClashes.bookings ? n(applyHint.roomClashes.bookings, "Raumbuchung", "Raumbuchungen") : null, applyHint.roomClashes.exams ? n(applyHint.roomClashes.exams, "Klausur", "Klausuren") : null].filter(Boolean).join(" und ")} ab dem Stichtag liegen – Räume prüfen`
+                  : ""}
+                . Bei einem späteren Stichtag können die Zahlen abweichen.
+              </p>
+            )}
             <form action={applySolverAction.bind(null, run.id)} aria-label="Vorschlag übernehmen" className="flex flex-wrap items-end gap-3">
               <Field label="ab Stichtag" className="w-48">
                 <Input type="date" name="from" defaultValue={defaultFrom} required />
