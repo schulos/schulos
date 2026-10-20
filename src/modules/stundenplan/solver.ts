@@ -4,6 +4,7 @@
 // Kopplungen liegen als eine Einheit gemeinsam; gesperrte Zeiten (Zeitwünsche); fixierte Stunden bleiben;
 // Doppelstunden nicht über eine große Pause (SP-G-04a). Weiche Regeln (gewichtet, erklärbar): Zeitwünsche,
 // Hohlstunden (Lehrkraft/Klasse), Fach mehrfach am Tag, Raumwunsch, späte Stunden. Doppelstunden werden als Zweier-Block gesetzt.
+// Räume werden je Teil einer Einheit vergeben (SP-G-02): eine geteilte Klasse mit zwei Lehrkräften bekommt zwei Räume.
 //
 // Verfahren: gierige Konstruktion (schwierigste Einheiten zuerst, je Einheit der günstigste zulässige Slot), danach
 // lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand). Beides läuft in Schritten, damit ein
@@ -131,8 +132,20 @@ export interface Placement {
   unitId: string;
   weekday: number;
   periodNr: number;
+  /** Raum des ersten Teils (Läufe vor SP-09: der eine Raum aller Teile) */
   roomId: string | null;
+  /** SP-G-02: Raum je Teil der Einheit (gleiche Reihenfolge wie `unit.parts`); fehlt bei Läufen vor SP-09 */
+  roomIds?: (string | null)[];
 }
+
+/** Räume einer Platzierung je Teil – auch für Platzierungen aus Läufen vor SP-09 (dann für alle Teile derselbe Raum). */
+export function placementRooms(p: Pick<Placement, "roomId" | "roomIds">, parts: number): (string | null)[] {
+  if (p.roomIds && p.roomIds.length === parts) return p.roomIds;
+  return Array.from({ length: parts }, () => p.roomId);
+}
+
+/** Was ein Teil für die Raumwahl braucht. */
+type RoomNeed = Pick<UnitPart, "roomId" | "roomKind" | "homeRoomId" | "size">;
 
 export interface CostItem {
   category: "pref" | "teacherGap" | "classGap" | "subjectTwice" | "roomWish" | "noRoom" | "late";
@@ -366,20 +379,23 @@ class State {
     return causes.sort((a, b) => a.free - b.free || a.label.localeCompare(b.label, "de"));
   }
 
-  /** Bester freier Raum für die Einheit im Slot: Wunschraum, Raumart, Stammraum, sonst ein Klassenraum. */
-  chooseRoom(u: SolverUnit, wd: number, span: number[]): string | null {
-    const free = (r: string) => span.every((p) => !this.isBusy(`r:${r}`, wd, p) && !this.blocked("room", r, wd, p));
-    const fits = (r: SolverRoom) => r.capacity === null || u.size === 0 || r.capacity >= u.size;
+  /**
+   * Bester freier Raum für einen Teil im Slot: Wunschraum, Raumart, Stammraum, sonst ein Klassenraum. `taken` sind Räume,
+   * die andere Teile derselben Einheit in diesem Slot schon haben.
+   */
+  chooseRoom(need: RoomNeed, wd: number, span: number[], taken?: ReadonlySet<string>): string | null {
+    const free = (r: string) => !taken?.has(r) && span.every((p) => !this.isBusy(`r:${r}`, wd, p) && !this.blocked("room", r, wd, p));
+    const fits = (r: SolverRoom) => r.capacity === null || need.size === 0 || r.capacity >= need.size;
     const byCap = (a: SolverRoom, b: SolverRoom) => (a.capacity ?? 999) - (b.capacity ?? 999) || a.id.localeCompare(b.id);
-    if (u.roomId && free(u.roomId)) return u.roomId;
-    if (u.roomKind) {
+    if (need.roomId && free(need.roomId)) return need.roomId;
+    if (need.roomKind) {
       // Fachraum: passende Größe zuerst, sonst trotzdem der Fachraum (lieber eng im Fachraum als im Klassenraum)
-      const kindRooms = this.input.rooms.filter((x) => x.kind === u.roomKind).sort(byCap);
+      const kindRooms = this.input.rooms.filter((x) => x.kind === need.roomKind).sort(byCap);
       const r = kindRooms.find((x) => fits(x) && free(x.id)) ?? kindRooms.find((x) => free(x.id));
       if (r) return r.id;
     }
-    if (u.homeRoomId && free(u.homeRoomId)) return u.homeRoomId;
-    const kind = u.roomKind ?? "klassenraum";
+    if (need.homeRoomId && free(need.homeRoomId)) return need.homeRoomId;
+    const kind = need.roomKind ?? "klassenraum";
     const same = this.input.rooms
       .filter((x) => x.kind === kind && fits(x))
       .sort(byCap)
@@ -393,16 +409,48 @@ class State {
     );
   }
 
-  roomWishMet(u: SolverUnit, roomId: string | null): boolean {
+  /**
+   * Räume je Teil der Einheit (SP-G-02): jeder Teil bekommt seinen eigenen Raum (geteilte Klasse mit zwei Lehrkräften → zwei
+   * Räume); Teile mit einer gemeinsamen Lehrkraft teilen sich den Raum (eine Lehrkraft ist nur in einem Raum).
+   */
+  chooseRooms(u: SolverUnit, wd: number, span: number[]): (string | null)[] {
+    if (u.parts.length === 1) return [this.chooseRoom(u.parts[0]!, wd, span)];
+    const out: (string | null)[] = [];
+    const taken = new Set<string>();
+    const byTeacher = new Map<string, string | null>();
+    for (const part of u.parts) {
+      const shared = part.teacherIds.find((t) => byTeacher.has(t));
+      const room = shared !== undefined ? byTeacher.get(shared)! : this.chooseRoom(part, wd, span, taken);
+      if (room) taken.add(room);
+      for (const t of part.teacherIds) byTeacher.set(t, room);
+      out.push(room);
+    }
+    return out;
+  }
+
+  /** Platzierung einer Einheit im Slot mit Räumen je Teil. */
+  placeAt(u: SolverUnit, wd: number, nr: number): Placement {
+    const roomIds = this.chooseRooms(u, wd, this.span(u, nr)!);
+    return { unitId: u.id, weekday: wd, periodNr: nr, roomId: roomIds[0] ?? null, roomIds };
+  }
+
+  roomWishMet(need: RoomNeed, roomId: string | null): boolean {
     if (!roomId) return false;
-    if (u.roomId) return roomId === u.roomId;
-    if (u.roomKind) return this.input.rooms.find((r) => r.id === roomId)?.kind === u.roomKind;
-    if (u.homeRoomId) return roomId === u.homeRoomId;
+    if (need.roomId) return roomId === need.roomId;
+    if (need.roomKind) return this.input.rooms.find((r) => r.id === roomId)?.kind === need.roomKind;
+    if (need.homeRoomId) return roomId === need.homeRoomId;
     return true;
+  }
+
+  /** belegte Räume einer Platzierung (je Raum einmal); ein Teil = der häufige Fall, ohne Umwege */
+  private roomsOf(u: SolverUnit, p: Placement): string[] {
+    if (u.parts.length <= 1) return p.roomId ? [p.roomId] : [];
+    return [...new Set(placementRooms(p, u.parts.length).filter((r): r is string => r !== null))];
   }
 
   apply(p: Placement) {
     const u = this.unitById.get(p.unitId)!;
+    const rooms = this.roomsOf(u, p);
     for (const nr of this.span(u, p.periodNr)!) {
       for (const t of u.teacherIds) {
         this.mark(`t:${t}`, p.weekday, nr, true);
@@ -412,7 +460,7 @@ class State {
         this.mark(`g:${g}`, p.weekday, nr, true);
         this.addGroupDay(g, p.weekday, nr, u.subjectId);
       }
-      if (p.roomId) this.mark(`r:${p.roomId}`, p.weekday, nr, true);
+      for (const r of rooms) this.mark(`r:${r}`, p.weekday, nr, true);
     }
     this.place.set(u.id, p);
   }
@@ -421,6 +469,7 @@ class State {
     const p = this.place.get(unitId);
     if (!p) return;
     const u = this.unitById.get(unitId)!;
+    const rooms = this.roomsOf(u, p);
     for (const nr of this.span(u, p.periodNr)!) {
       for (const t of u.teacherIds) {
         this.mark(`t:${t}`, p.weekday, nr, false);
@@ -430,7 +479,7 @@ class State {
         this.mark(`g:${g}`, p.weekday, nr, false);
         this.removeGroupDay(g, p.weekday, nr);
       }
-      if (p.roomId) this.mark(`r:${p.roomId}`, p.weekday, nr, false);
+      for (const r of rooms) this.mark(`r:${r}`, p.weekday, nr, false);
     }
     this.place.delete(unitId);
   }
@@ -440,12 +489,14 @@ class State {
   unitCost(u: SolverUnit, p: Placement, items?: CostItem[]): number {
     let c = 0;
     const w = this.w;
+    const rooms = u.parts.length <= 1 ? [p.roomId] : placementRooms(p, u.parts.length);
+    const distinctRooms = this.roomsOf(u, p);
     for (const nr of this.span(u, p.periodNr)!) {
       let pv = 0;
       for (const t of u.teacherIds) pv += this.pref("teacher", t, p.weekday, nr);
       for (const g of u.groupIds) pv += this.pref("group", g, p.weekday, nr);
       pv += this.pref("subject", u.subjectId, p.weekday, nr);
-      if (p.roomId) pv += this.pref("room", p.roomId, p.weekday, nr);
+      for (const r of distinctRooms) pv += this.pref("room", r, p.weekday, nr);
       if (pv !== 0) {
         c -= pv * w.pref;
         items?.push({ category: "pref", cost: -pv * w.pref, text: `${u.label}: ${pv > 0 ? "erwünschte" : "ungünstige"} Zeit (${pv > 0 ? "+" : ""}${pv})` });
@@ -456,13 +507,18 @@ class State {
         items?.push({ category: "late", cost: lc, text: `${u.label}: ${nr}. Stunde` });
       }
     }
-    if (!p.roomId) {
-      c += w.noRoom;
-      items?.push({ category: "noRoom", cost: w.noRoom, text: `${u.label}: kein Raum frei` });
-    } else if (!this.roomWishMet(u, p.roomId)) {
-      c += w.roomWish;
-      items?.push({ category: "roomWish", cost: w.roomWish, text: `${u.label}: Raum ${p.roomId} statt Wunsch` });
-    }
+    // Raum je Teil (SP-G-02): jeder Teil ohne Raum bzw. ohne Wunschraum kostet
+    u.parts.forEach((part, i) => {
+      const room = rooms[i] ?? null;
+      const who = u.parts.length > 1 && part.teacherIds.length ? ` (${part.teacherIds.map((t) => this.input.names?.get(t) ?? t).join(" + ")})` : "";
+      if (!room) {
+        c += w.noRoom;
+        items?.push({ category: "noRoom", cost: w.noRoom, text: `${u.label}${who}: kein Raum frei` });
+      } else if (!this.roomWishMet(part, room)) {
+        c += w.roomWish;
+        items?.push({ category: "roomWish", cost: w.roomWish, text: `${u.label}${who}: Raum ${room} statt Wunsch` });
+      }
+    });
     return c;
   }
 
@@ -615,8 +671,7 @@ export function createSolver(input: SolverInput) {
     for (const wd of input.weekdays) {
       for (const nr of input.periods) {
         if (!s.feasible(u, wd, nr)) continue;
-        const room = s.chooseRoom(u, wd, s.span(u, nr)!);
-        const p = { unitId: u.id, weekday: wd, periodNr: nr, roomId: room };
+        const p = s.placeAt(u, wd, nr);
         const before = s.localCost([u], [wd]);
         s.apply(p);
         const cost = s.localCost([u], [wd]) - before;
@@ -662,7 +717,7 @@ export function createSolver(input: SolverInput) {
         const old = blockers.map((v) => s.place.get(v.id)!);
         blockers.forEach((v) => s.unapply(v.id));
         if (s.feasible(u, wd, nr)) {
-          s.apply({ unitId: u.id, weekday: wd, periodNr: nr, roomId: s.chooseRoom(u, wd, s.span(u, nr)!) });
+          s.apply(s.placeAt(u, wd, nr));
           const moved: string[] = [];
           for (const v of blockers) {
             const p = bestSlot(v);
@@ -736,8 +791,7 @@ export function createSolver(input: SolverInput) {
         s.apply(old);
         return;
       }
-      const p = { unitId: u.id, weekday: t.wd, periodNr: t.nr, roomId: s.chooseRoom(u, t.wd, s.span(u, t.nr)!) };
-      s.apply(p);
+      s.apply(s.placeAt(u, t.wd, t.nr));
       const after = s.localCost([u], [old.weekday, t.wd]);
       if (after <= before) {
         if (after < before) improved++;
@@ -759,12 +813,12 @@ export function createSolver(input: SolverInput) {
     let ok = s.feasible(u, pv.weekday, pv.periodNr);
     let pu: Placement | null = null;
     if (ok) {
-      pu = { unitId: u.id, weekday: pv.weekday, periodNr: pv.periodNr, roomId: s.chooseRoom(u, pv.weekday, s.span(u, pv.periodNr)!) };
+      pu = s.placeAt(u, pv.weekday, pv.periodNr);
       s.apply(pu);
       ok = s.feasible(v, old.weekday, old.periodNr);
     }
     if (ok) {
-      s.apply({ unitId: v.id, weekday: old.weekday, periodNr: old.periodNr, roomId: s.chooseRoom(v, old.weekday, s.span(v, old.periodNr)!) });
+      s.apply(s.placeAt(v, old.weekday, old.periodNr));
       const after = s.localCost([u, v], days);
       if (after <= before) {
         if (after < before) improved++;
@@ -835,7 +889,8 @@ export function validate(input: SolverInput, placements: Placement[]): string[] 
     }
     if (!s.feasible(u, p.weekday, p.periodNr)) errors.push(`${u.label}: ${p.weekday}-${p.periodNr} verletzt eine harte Regel`);
     const span = s.span(u, p.periodNr) ?? [];
-    if (p.roomId && span.some((nr) => s.isBusy(`r:${p.roomId}`, p.weekday, nr))) errors.push(`${u.label}: Raum ${p.roomId} doppelt belegt`);
+    for (const room of new Set(placementRooms(p, u.parts.length)))
+      if (room && span.some((nr) => s.isBusy(`r:${room}`, p.weekday, nr))) errors.push(`${u.label}: Raum ${room} doppelt belegt`);
     if (s.feasible(u, p.weekday, p.periodNr)) s.apply(p);
   }
   return errors;

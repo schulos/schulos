@@ -12,7 +12,7 @@ import { createLesson, deleteCoupling, deleteLesson, saveCoupling, updateLesson,
 import { ABSENCE_LABELS, createAbsence, deleteAbsence, needsOn } from "./abwesenheit";
 import { addDuty, clearDutyChange, createArea, deleteArea, removeDuty, setDutyChange } from "./aufsichten";
 import { copyPeriod } from "./periode";
-import { applyRun, cancelRun, createRun, deleteRun, executeQueued, setFixed } from "./solverlauf";
+import { applyRun, cancelRun, createRun, deleteRun, executeQueued, setFixed, undoApply } from "./solverlauf";
 import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
 import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenster";
 import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
@@ -591,6 +591,7 @@ export async function deleteSolverAction(runId: string): Promise<void> {
   redirect(`${SOLVER_PAGE}?geloescht=1`);
 }
 
+/** Vorschlag ab Stichtag übernehmen (Stichtag = Schultag in der Zukunft); Rücknahme-Daten werden am Lauf gespeichert (SP-09). */
 export async function applySolverAction(runId: string, form: FormData): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   const from = String(form.get("from") ?? "");
@@ -602,7 +603,21 @@ export async function applySolverAction(runId: string, form: FormData): Promise<
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(withQuery(runPage(runId), "uebernommen", String(res.created)));
+  redirect(withQuery(withQuery(runPage(runId), "uebernommen", String(res.created)), "entfallen", String(res.removedSubstitutions)));
+}
+
+/** „Übernahme zurücknehmen“ (SP-09) – nur solange der Stichtag in der Zukunft liegt. */
+export async function undoSolverAction(runId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  let res: Awaited<ReturnType<typeof undoApply>>;
+  try {
+    res = await undoApply(await getDb(), user.id, runId, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(withQuery(runPage(runId), "fehler", firstError(err)));
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(withQuery(withQuery(runPage(runId), "zurueckgenommen", String(res.lessons)), "wiederhergestellt", String(res.restorable + res.reinsert)));
 }
 
 /** Stunde fixieren/lösen (Pflege-Seite). */

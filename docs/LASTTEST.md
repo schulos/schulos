@@ -161,6 +161,13 @@ gesetzt** – alle Oberstufenkurse mit dichten Konfliktmengen über Schienen hin
 Raum fehlt. Grenzwerte im Test: ≤ 1 % nicht gesetzt, Klassen-Hohlstunden im Mittel < 1, < 120 s. Die Demo-Schule (354 Einheiten) rechnet „gründlich“
 (4 × 40 Schritte je Einheit = 56 640 Schritte; bis SP-06 lief „gründlich“ wegen einer Deckelung in `improve()` nur so viele Schritte wie „normal“) in 1,7 s.
 
+**Nachmessung SP-09 (2026-10-20, Raum je Kopplungsteil SP-G-02):** derselbe Benchmark liefert mit der Raumwahl je Teil **dieselbe Lösung** (ein Teil je
+Einheit → gleiche Platzierungen und Räume): 9 Einheiten nicht gesetzt, Bewertung 2 163, Hohlstunden 169/13, Konstruktion 0,24–0,26 s, gesamt 0,7–0,9 s
+(Streuung des Entwicklungsrechners). Variante **„Sport als geteilte Klasse“** (alle 42 Sek-I-Klassen mit zwei Sportlehrkräften → 84 Einheiten mit zwei
+Teilen, 6 Sporthallen, 76 Lehrkräfte): alle 84 geteilten Einheiten mit **zwei verschiedenen Räumen** (61 davon beide in Sporthallen, der Rest ein Teil im
+Klassenraum – Raumwunsch 784 statt 756), 10 Einheiten (0,8 %) nicht gesetzt (wieder Oberstufenkurse mit dichten Konfliktmengen), kein Raum fehlt,
+Hohlstunden 169/11, gesamt 0,9 s. Grenzwerte unverändert (≤ 1 % nicht gesetzt, kein „ohne Raum“, < 120 s).
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:

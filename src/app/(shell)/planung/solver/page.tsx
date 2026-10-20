@@ -7,7 +7,7 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { timetableLessons } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
-import { TZ, fromBerlinLocal } from "@/core/time";
+import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { cancelSolverAction, startSolverAction } from "@/modules/stundenplan/actions";
 import { EFFORT_LABELS, listRunSummaries, PRESET_LABELS, WEIGHT_PRESETS, type RunSummary } from "@/modules/stundenplan/solverlauf";
 import { planningYear } from "@/modules/stundenplan/verteilung";
@@ -37,6 +37,7 @@ export default async function SolverPage({
   // alte Links (Übersicht, Lesezeichen) mit ?lauf= → Detailseite
   if (sp.lauf) redirect(`/planung/solver/${encodeURIComponent(sp.lauf)}${sp.gruppe ? `?vorschau=g:${encodeURIComponent(sp.gruppe)}` : ""}`);
   const db = await getDb();
+  const today = toBerlinDate(new Date());
   const filter = STATUS_FILTERS.find((f) => f.key === (sp.status ?? "")) ?? STATUS_FILTERS[0]!;
   const year = await planningYear(db);
   const [runs, active, fixedCount] = await Promise.all([
@@ -148,7 +149,12 @@ export default async function SolverPage({
                     <td className="text-right tabular-nums whitespace-nowrap">{r.metrics ? `${r.metrics.gaps.teacherTotal} / ${r.metrics.gaps.classTotal}` : "–"}</td>
                     <td>
                       <LiveStatusBadge id={r.id} status={r.status} />
-                      {r.appliedFrom && <span className="block text-xs text-muted">ab {dayFmt.format(fromBerlinLocal(r.appliedFrom))}</span>}
+                      {r.appliedFrom && (
+                        <span className="block text-xs text-muted">
+                          ab {dayFmt.format(fromBerlinLocal(r.appliedFrom))}
+                          {r.status === "applied" && r.hasUndo && r.appliedFrom > today ? " · zurücknehmbar" : ""}
+                        </span>
+                      )}
                       {r.metrics?.cancelledAt !== undefined && <span className="block text-xs text-muted">vorzeitig bei {r.metrics.cancelledAt} %</span>}
                       {r.status === "done" && !r.hasResult && <span className="block text-xs text-muted">Ergebnis entfernt</span>}
                     </td>

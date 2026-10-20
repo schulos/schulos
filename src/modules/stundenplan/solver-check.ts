@@ -92,9 +92,9 @@ export function precheck(input: SolverInput): PrecheckFinding[] {
     else judge("group", id, `${input.classIds.has(id) ? "Klasse" : "Gruppe"} ${name(id)}`, need, free, detail);
   }
 
-  // Raumarten: Bedarf der Einheiten mit Fachraum gegen Räume dieser Art × Slots (Raum ist im Solver weich → Warnung)
+  // Raumarten: Bedarf der Teile mit Fachraum (SP-G-02: je Teil ein Raum) gegen Räume dieser Art × Slots (Raum ist im Solver weich → Warnung)
   const roomNeed = new Map<string, number>();
-  for (const u of input.units) if (u.roomKind) roomNeed.set(u.roomKind, (roomNeed.get(u.roomKind) ?? 0) + u.length);
+  for (const u of input.units) for (const part of u.parts) if (part.roomKind) roomNeed.set(part.roomKind, (roomNeed.get(part.roomKind) ?? 0) + u.length);
   for (const [kind, need] of [...roomNeed.entries()].sort()) {
     const rooms = input.rooms.filter((r) => r.kind === kind);
     const fixedInKind = rooms.reduce((s, r) => s + (fixedSlots.get(`r:${r.id}`)?.size ?? 0), 0);

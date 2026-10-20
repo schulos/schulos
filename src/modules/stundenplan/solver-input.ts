@@ -34,7 +34,11 @@ export function conflictsFrom(members: { groupId: string; userId: string }[]): M
   return out;
 }
 
-/** Rein: Lehraufträge → Einheiten (Doppelstunden als Zweier-Block), abzüglich schon fixierter Stunden. Je Lehrauftrag ein Teil (Q-SP-13). */
+/**
+ * Rein: Lehraufträge → Einheiten (Doppelstunden als Zweier-Block), abzüglich schon fixierter Stunden. Je Lehrauftrag ein Teil
+ * (Q-SP-13) – bei mehreren Lehrkräften ein Teil je Lehrkraft (SP-G-02: geteilte Klasse, jede Lehrkraft mit eigenem Raum und
+ * ihrem Anteil der Gruppe; die Gruppen bleiben in jedem Teil dieselben, damit die Einheit weiter als eine Kopplung gesetzt wird).
+ */
 export function unitsFrom(
   d: Pick<Distribution, "assignments">,
   info: {
@@ -54,17 +58,12 @@ export function unitsFrom(
     const groupIds = a.groups.map((g) => g.id);
     const label = `${a.groups.map((g) => g.name).join(" + ")} ${a.subjectName}${a.teachers.length ? ` (${a.teachers.map((t) => t.code ?? t.name).join(" + ")})` : ""}`;
     const single = groupIds.length === 1 && info.classIds.has(groupIds[0]!) ? (info.homeRoomOf.get(groupIds[0]!) ?? null) : null;
-    const part: UnitPart = {
-      assignmentId: a.id,
-      groupIds,
-      teacherIds: a.teachers.map((t) => t.id),
-      subjectId: a.subjectId,
-      roomId: a.roomId,
-      roomKind: info.roomKindOf.get(a.subjectId) ?? null,
-      homeRoomId: single,
-      size: groupIds.reduce((s, g) => s + (info.sizeOf.get(g) ?? 0), 0),
-    };
-    const common = { ...part, label, parts: [part] };
+    const size = groupIds.reduce((s, g) => s + (info.sizeOf.get(g) ?? 0), 0);
+    const teacherIds = a.teachers.map((t) => t.id);
+    const need = { assignmentId: a.id, groupIds, subjectId: a.subjectId, roomId: a.roomId, roomKind: info.roomKindOf.get(a.subjectId) ?? null, homeRoomId: single };
+    const parts: UnitPart[] =
+      teacherIds.length > 1 ? teacherIds.map((t) => ({ ...need, teacherIds: [t], size: Math.ceil(size / teacherIds.length) })) : [{ ...need, teacherIds, size }];
+    const common = { ...need, teacherIds, size, label, parts };
     for (let i = 0; i < doubles; i++) out.push({ ...common, id: `${a.id}#d${i}`, length: 2 });
     for (let i = 0; i < hours - doubles * 2; i++) out.push({ ...common, id: `${a.id}#e${i}`, length: 1 });
   }

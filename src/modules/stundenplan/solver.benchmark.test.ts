@@ -11,6 +11,8 @@ interface SchoolSpec {
   coursesPerGrade: number;
   /** Schüler:innen je Oberstufen-Jahrgang */
   studentsPerGrade: number;
+  /** SP-G-02: Sport in der Sek I als geteilte Klasse mit zwei Lehrkräften (zwei Teile, zwei Räume je Stunde) */
+  splitSport?: boolean;
 }
 
 /** Stundentafel Sek I (vereinfacht, 31 Stunden): Fach → [Stunden, Doppelstunden, Raumart] */
@@ -53,7 +55,8 @@ export function syntheticSchool(spec: SchoolSpec, seed = 11): SolverInput {
   // Lehrkräfte: je Fach ein Pool, jede Lehrkraft zwei Fächer, höchstens 26 Stunden
   const subjects = [...new Set([...SEK1, ...OBERSTUFE].map((s) => s[0]))];
   const teachers: { id: string; subjects: string[]; load: number }[] = [];
-  const teacherCount = Math.ceil((spec.zuege * 6 * 31 + 3 * spec.coursesPerGrade * 3) / 24);
+  // geteilter Sport (SP-G-02) braucht je Klasse eine zweite Sportlehrkraft für 3 Wochenstunden
+  const teacherCount = Math.ceil((spec.zuege * 6 * 31 + (spec.splitSport ? spec.zuege * 6 * 3 : 0) + 3 * spec.coursesPerGrade * 3) / 24);
   for (let i = 0; i < teacherCount; i++) {
     const a = subjects[i % subjects.length]!;
     const b = subjects[(i * 7 + 3) % subjects.length]!;
@@ -72,15 +75,17 @@ export function syntheticSchool(spec: SchoolSpec, seed = 11): SolverInput {
   const classCount = spec.zuege * 6;
   addRooms("klassenraum", classCount + 6, 32);
   addRooms("nw", Math.ceil(classCount / 4) + 3, 30);
-  addRooms("sport", 3, 60);
+  addRooms("sport", spec.splitSport ? 6 : 3, 60);
   addRooms("kunst", 3, 30);
   addRooms("musik", 2, 30);
   addRooms("technik", 2, 20);
   let a = 0;
   const push = (group: string[], subject: string, hours: number, doubles: number, roomKind: string | null, homeRoom: string | null, size: number) => {
     const assignmentId = `a${++a}`;
-    const part: UnitPart = { assignmentId, groupIds: group, teacherIds: [teacherFor(subject, hours)], subjectId: subject, roomId: null, roomKind, homeRoomId: homeRoom, size };
-    const common = { ...part, label: `${group.join("+")} ${subject}`, parts: [part] };
+    const teacherIds = spec.splitSport && subject === "SP" && homeRoom ? [teacherFor(subject, hours), teacherFor(subject, hours)] : [teacherFor(subject, hours)];
+    const need = { assignmentId, groupIds: group, subjectId: subject, roomId: null, roomKind, homeRoomId: homeRoom };
+    const parts: UnitPart[] = teacherIds.length > 1 ? teacherIds.map((t) => ({ ...need, teacherIds: [t], size: Math.ceil(size / teacherIds.length) })) : [{ ...need, teacherIds, size }];
+    const common = { ...need, teacherIds, size, label: `${group.join("+")} ${subject}`, parts };
     const d = Math.min(doubles, Math.floor(hours / 2));
     for (let i = 0; i < d; i++) units.push({ ...common, id: `${assignmentId}#d${i}`, length: 2 });
     for (let i = 0; i < hours - 2 * d; i++) units.push({ ...common, id: `${assignmentId}#e${i}`, length: 1 });
@@ -185,5 +190,24 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     expect(ms).toBeLessThan(120_000);
     // gleiche Eingabe → gleiche Lösung, auch über solve()
     expect(solve({ ...input, iterations: r.stats.iterations }).placements).toEqual(r.placements);
+  }, 300_000);
+
+  it("SP-G-02: dieselbe Schule mit Sport als geteilte Klasse (zwei Lehrkräfte, zwei Räume je Stunde) – gültig, Räume je Teil verschieden", () => {
+    const input = syntheticSchool({ zuege: 7, coursesPerGrade: 40, studentsPerGrade: 130, splitSport: true });
+    const split = input.units.filter((u) => u.parts.length === 2);
+    expect(split.length).toBe(42 * 2); // 42 Klassen × (1 Doppel- + 1 Einzelstunde Sport)
+    const t0 = performance.now();
+    const r = solve(input);
+    const ms = performance.now() - t0;
+    expect(validate(input, r.placements)).toEqual([]);
+    const ids = new Set(split.map((u) => u.id));
+    const placed = r.placements.filter((p) => ids.has(p.unitId));
+    const twoRooms = placed.filter((p) => p.roomIds?.length === 2 && p.roomIds[0] && p.roomIds[1] && p.roomIds[0] !== p.roomIds[1]).length;
+    const bothSport = placed.filter((p) => p.roomIds?.every((x) => x?.startsWith("SPORT"))).length;
+    console.log(`[benchmark] split ${JSON.stringify({ units: input.units.length, splitUnits: split.length, placedSplit: placed.length, twoRooms, bothSport, totalMs: Math.round(ms), unplaced: r.unplaced.length, score: r.score, roomWish: r.breakdown.roomWish, noRoom: r.breakdown.noRoom, gaps: r.gaps })}`);
+    expect(twoRooms).toBe(placed.length);
+    expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
+    expect(r.breakdown.noRoom).toBe(0);
+    expect(ms).toBeLessThan(120_000);
   }, 300_000);
 });
