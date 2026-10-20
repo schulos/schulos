@@ -1,9 +1,22 @@
 // Demo: kleiner Bücherei-Bestand (Jugendbuch, Sachbuch, Film, Spiel) mit Exemplaren, eins davon ausgesondert; einige offene
 // Ausleihen (eine überfällig, 2. Mahnung – BU-04), eine Rückgabe mit Befund und anonyme Zähler der letzten Monate (BU-02), eine
 // Vormerkung (BU-03), Nutzung je Exemplar und Druckwarteschlange (BU-05).
-import { eq, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, inArray, lte } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { buechereiBooklists, buechereiCopies, buechereiLoans, buechereiMaterialCopies, buechereiReservations, buechereiStats, buechereiTeachingMaterials, buechereiTitles } from "@/core/db/schema";
+import {
+  buechereiBooklists,
+  buechereiCopies,
+  buechereiLoans,
+  buechereiMaterialCopies,
+  buechereiMaterialIssues,
+  buechereiReservations,
+  buechereiStats,
+  buechereiTeachingMaterials,
+  buechereiTitles,
+  groupMembers,
+  schoolYears,
+  users,
+} from "@/core/db/schema";
 import { writeModuleSetting } from "@/core/modules/settings";
 import { addDays, toBerlinDate } from "@/core/time";
 import { copyNumber, materialNumber, normalizeIsbn, type MaterialProvision, type MediaType } from "./labels";
@@ -125,7 +138,7 @@ const MATERIALS: { title: string; publisher: string; isbn?: string; subjectId: s
   { title: "Zahlenwege 7 (E-Kurs)", publisher: "Wissenswerk", isbn: "978-3-00-000016-4", subjectId: "M", grades: [7], course: "E-Kurs", provision: "leihe", priceCents: 2990, copies: 2 },
 ];
 
-export async function seedLernmittel(db: Db) {
+export async function seedLernmittel(db: Db, opts: { now?: Date } = {}) {
   await writeModuleSetting(db, LERNMITTEL, "1");
   let seq = 0;
   for (const m of MATERIALS) {
@@ -149,4 +162,45 @@ export async function seedLernmittel(db: Db) {
     { gradeLevel: 5, text: "Die ausgeliehenen Bücher bitte mit einem Schutzumschlag versehen und am Schuljahresende vollständig zurückgeben.\nArbeitshefte kaufen Sie bitte selbst bis zum ersten Schultag.", published: true },
     { gradeLevel: 6, text: "", published: false },
   ]);
+  await seedSchulbuchAusgabe(db, opts.now ?? new Date());
+}
+
+/**
+ * BU-11: Ausgabe in der Demo – die ersten Schüler:innen der 5a haben ihre Schulbücher des Schuljahres (Deutsch, Mathe, Englisch,
+ * Atlas), eine fehlt noch ein Buch, eine Rücknahme mit Befund (Grundlage der Ersatzforderung, BU-12). Die feste Demo-Schülerin
+ * (7b) bleibt frei – die E2E-Tests geben selbst aus.
+ */
+async function seedSchulbuchAusgabe(db: Db, now: Date) {
+  const [year] = await db.select({ id: schoolYears.id, endsOn: schoolYears.endsOn }).from(schoolYears).where(eq(schoolYears.isCurrent, true));
+  if (!year) return;
+  const students = (
+    await db
+      .select({ id: users.id })
+      .from(groupMembers)
+      .innerJoin(users, eq(users.id, groupMembers.userId))
+      .where(and(eq(groupMembers.groupId, "g-5a"), eq(groupMembers.role, "member"), eq(users.role, "schueler")))
+      .orderBy(asc(users.id))
+  ).map((r) => r.id);
+  if (students.length < 4) return;
+  const copiesOf = async (title: string) =>
+    (
+      await db
+        .select({ id: buechereiMaterialCopies.id })
+        .from(buechereiMaterialCopies)
+        .innerJoin(buechereiTeachingMaterials, eq(buechereiTeachingMaterials.id, buechereiMaterialCopies.materialId))
+        .where(eq(buechereiTeachingMaterials.title, title))
+        .orderBy(asc(buechereiMaterialCopies.seq))
+    ).map((r) => r.id);
+  const [deutsch, mathe, englisch, atlas] = await Promise.all(["Wortwerkstatt Deutsch 5", "Zahlenwege 5", "Green Paths 1", "Schulatlas Lindenhof"].map(copiesOf));
+  const issuedOn = addDays(toBerlinDate(now), -45);
+  const base = { schoolYearId: year.id, issuedOn, dueOn: year.endsOn };
+  const rows: (typeof buechereiMaterialIssues.$inferInsert)[] = [];
+  for (let i = 0; i < 3; i++) {
+    rows.push({ ...base, copyId: deutsch![i + 1]!, userId: students[i]! }, { ...base, copyId: mathe![i + 1]!, userId: students[i]! }, { ...base, copyId: atlas![i + 2]!, userId: students[i]! });
+    // die dritte Schülerin hat ihr Englischbuch noch nicht („fehlt noch“)
+    if (i < 2) rows.push({ ...base, copyId: englisch![i + 1]!, userId: students[i]! });
+  }
+  // Rücknahme mit Befund (vorzeitig zurück, Wasserschaden) – bleibt bis zur Erledigung
+  rows.push({ ...base, copyId: mathe![4]!, userId: students[3]!, returnedOn: addDays(toBerlinDate(now), -5), finding: "Wasserschaden, Seiten gewellt" });
+  await db.insert(buechereiMaterialIssues).values(rows);
 }

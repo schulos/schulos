@@ -687,6 +687,13 @@
       "when": 1792468585268,
       "tag": "0097_buecherei_lernmittel",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1792478439914,
+      "tag": "0098_buecherei_ausgabe",
+      "breakpoints": true
     }
   ]
 }

@@ -2,7 +2,7 @@
 import { asc, count, eq, isNotNull } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
-import { groups, notenbuchBooks, schoolYears } from "@/core/db/schema";
+import { buechereiMaterialIssues, groups, notenbuchBooks, schoolYears } from "@/core/db/schema";
 import { ValidationError } from "./users";
 
 export type SchoolYear = typeof schoolYears.$inferSelect;
@@ -105,6 +105,9 @@ export async function deleteSchoolYear(db: Db, actorId: string, id: string): Pro
   // G5A-C06: Notenbücher gehen nur mit ihrer Löschfrist (Löschlauf), nie per Kaskade über das Schuljahr
   const [{ n: books } = { n: 0 }] = await db.select({ n: count() }).from(notenbuchBooks).where(eq(notenbuchBooks.schoolYearId, id));
   if (books) throw new ValidationError({ [`name-${id}`]: `${y.name} hat noch ${books} ${books === 1 ? "Notenbuch" : "Notenbücher"} (gehen mit ihrer Löschfrist)` });
+  // BU-11: Schulbuch-Ausgaben hängen am Schuljahr (offene Posten, Befunde) – gehen nur mit Rücknahme bzw. Löschfrist
+  const [{ n: issues } = { n: 0 }] = await db.select({ n: count() }).from(buechereiMaterialIssues).where(eq(buechereiMaterialIssues.schoolYearId, id));
+  if (issues) throw new ValidationError({ [`name-${id}`]: `${y.name} hat noch ${issues} ${issues === 1 ? "ausgegebenes Schulbuch" : "ausgegebene Schulbücher"} (Schulbuchausleihe)` });
   await db.delete(schoolYears).where(eq(schoolYears.id, id));
   await audit(db, actorId, "verwaltung.stammdaten.school_year_delete", id, { name: y.name });
 }

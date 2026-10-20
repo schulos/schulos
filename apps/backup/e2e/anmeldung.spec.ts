@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { totpCode } from "@schulos/server/totp-code";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { E2E_ADMIN, MAIN_ADMIN, MAIN_PORT } from "../playwright.config";
+import { E2E_ADMIN, MAIN_ADMIN, MAIN_PORT, PORT } from "../playwright.config";
 
 /** Screenshots zur Sichtkontrolle (gitignored) */
 const SHOTS = (name: string) => path.join(import.meta.dirname, "..", "..", "..", ".data", "shots", name);
@@ -147,11 +147,11 @@ test("Kopplung über beide Oberflächen: Code auf dem Backupserver, Eingabe im H
   await expect(page.getByRole("alert").filter({ hasText: "Keine Sicherung eingerichtet" })).toBeVisible();
 
   const form = page.getByRole("form", { name: "Backupserver koppeln" });
-  await form.getByLabel("Adresse des Backupservers").fill("http://localhost:3140");
+  await form.getByLabel("Adresse des Backupservers").fill(`http://localhost:${PORT}`);
   await form.getByLabel("Kopplungscode").fill("AAAA-BBBB-CCCC");
   await form.getByRole("button", { name: "Koppeln" }).click();
   await expect(form.getByRole("alert")).toContainText("unbekannt, abgelaufen oder schon verwendet");
-  await expect(form.getByLabel("Adresse des Backupservers")).toHaveValue("http://localhost:3140");
+  await expect(form.getByLabel("Adresse des Backupservers")).toHaveValue(`http://localhost:${PORT}`);
   await expect(form.getByLabel("Name dieser Instanz auf dem Backupserver")).toHaveValue("Gesamtschule am Lindenhof");
   await form.getByLabel("Kopplungscode").fill(code.toLowerCase());
   await form.getByRole("button", { name: "Koppeln" }).click();
@@ -163,7 +163,7 @@ test("Kopplung über beide Oberflächen: Code auf dem Backupserver, Eingabe im H
   await expect(recovery).toHaveCount(0);
   const card = page.getByLabel("Kopplung");
   await expect(card.getByText("gekoppelt", { exact: true })).toBeVisible();
-  await expect(card).toContainText("SchulOS Backup · http://localhost:3140");
+  await expect(card).toContainText(`SchulOS Backup · http://localhost:${PORT}`);
 
   // Sicherungsstand (ohne laufenden Agenten) und „Jetzt sichern“ über den Backupserver
   const stand = page.getByLabel("Sicherungsstand");

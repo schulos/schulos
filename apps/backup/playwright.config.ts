@@ -3,8 +3,9 @@ import { defineConfig, devices } from "@playwright/test";
 // E2E des Backupservers: gebaute Apps (`npm run build`), frische Datenbanken, Admins aus der Konfiguration wie nach dem Installer.
 // Zusätzlich läuft ein leeres Produktiv-Hauptsystem (Port 3141) – für die Kopplung über beide Oberflächen (lokal per http).
 // Aufruf aus dem Repo-Root: npm run e2e:backup
-const PORT = 3140;
-export const MAIN_PORT = 3141;
+// Mehrere Arbeitskopien parallel (Worktrees): eigene Ports per SCHULOS_E2E_BACKUP_PORT (Hauptsystem eins darüber)
+export const PORT = Number(process.env.SCHULOS_E2E_BACKUP_PORT) || 3140;
+export const MAIN_PORT = PORT + 1;
 export const MAIN_ADMIN = { username: "m.mueller", password: "Tafel Kreide Pause" };
 const SECRET = "e2e-backup-secret-nur-fuer-tests-0123456789";
 

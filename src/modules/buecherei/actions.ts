@@ -8,6 +8,7 @@ import { moduleActions } from "@/core/modules/guard";
 import { toBerlinDate } from "@/core/time";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { resolveIssueFinding, scanIssue } from "./ausgabe";
 import { classMemberIds, ensureCards, replaceCard } from "./cards";
 import { markLabelsPrinted, markQueuePrinted, requeueLabel } from "./etiketten";
 import { lookupIsbn } from "./isbn";
@@ -445,4 +446,41 @@ export async function saveBooklistAction(grade: number, _prev: FormState, form: 
   revalidatePath("/buecherei", "layout");
   revalidatePath("/druck/buecherliste");
   return { ok: true, values: { result: "Gespeichert." } };
+}
+
+// ---------------------------------------------------------------- Stufe 2: Schulbuchausgabe (BU-11)
+
+const conditionText = (c: string | null) => (c ? `, Zustand jetzt „${c}“` : "");
+
+/**
+ * Ein Scan an der Schulbuchausgabe: Ausweis → Person wählen (bleibt in der Klasse), Schulbuch ausgegeben → Rücknahme mit Zustand
+ * bzw. Befund aus dem Formular, sonst Ausgabe an die gewählte Person.
+ */
+export async function scanIssueAction(personId: string | null, groupId: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const str = (k: string) => String(form.get(k) ?? "");
+  let r: Awaited<ReturnType<typeof scanIssue>>;
+  try {
+    r = await scanIssue(await getDb(), perms, str("code"), personId, today(), { condition: str("condition"), conditionNote: str("conditionNote"), finding: str("finding") });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingabe prüfen", fieldErrors: err.fieldErrors };
+    throw err;
+  }
+  if (r.kind === "person") redirect(`/buecherei/ausgabe?${new URLSearchParams({ ...(groupId ? { gruppe: groupId } : {}), person: r.userId })}`);
+  revalidatePath("/buecherei", "layout");
+  return {
+    ok: true,
+    values: {
+      result:
+        r.kind === "issue"
+          ? `Ausgegeben: ${r.title} (${r.inventoryNumber}), zurück bis ${fmtDay(r.dueOn)}`
+          : `${r.finding ? "Zurückgenommen mit Befund" : "Zurückgenommen"}: ${r.title} (${r.inventoryNumber})${conditionText(r.condition)}${overdueText(r.overdueDays)}`,
+    },
+  };
+}
+
+export async function resolveIssueFindingAction(issueId: string): Promise<void> {
+  const { perms } = await requireUser();
+  await resolveIssueFinding(await getDb(), perms, issueId, today());
+  revalidatePath("/buecherei", "layout");
 }

@@ -81,6 +81,11 @@ export async function replaceCard(db: Db, viewer: PermissionSet, userId: string)
 /** Person zum gescannten Ausweis (nur Konten, die ausleihen können); unbekannter oder ersetzter Code → null. */
 export async function personByCard(db: Db, viewer: PermissionSet, code: string): Promise<string | null> {
   requireDesk(viewer);
+  return cardOwner(db, code);
+}
+
+/** Ohne Rechteprüfung – nur für Services, die selbst prüfen (Theke: `desk`, Schulbuchausgabe BU-11: `materials`). */
+export async function cardOwner(db: Db, code: string): Promise<string | null> {
   const [r] = await db
     .select({ userId: buechereiCards.userId, role: users.role })
     .from(buechereiCards)
