@@ -959,10 +959,12 @@ export async function applyRun(
       removedSubstitutions,
       substitutions: removed,
     };
+    // SP-14: Lehrkräfte, deren Konto seit dem Lauf gelöscht wurde („gelöschte Lehrkraft“), werden leer – die Stunde bleibt offen
+    const knownUsers = new Set((await tx.select({ id: users.id }).from(users)).map((u) => u.id));
     const rows = withCouplingIds(proposal).map((l) => ({
       groupId: l.groupId,
       subjectId: l.subjectId,
-      teacherId: l.teacherId,
+      teacherId: l.teacherId && knownUsers.has(l.teacherId) ? l.teacherId : null,
       roomId: l.roomId,
       weekday: l.weekday,
       periodNr: l.periodNr,
