@@ -10,6 +10,7 @@ import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { resolveIssueFinding, scanIssue } from "./ausgabe";
 import { classMemberIds, ensureCards, replaceCard } from "./cards";
+import { createCompensation, setCompensationStatus, updateCompensation } from "./ersatz";
 import { markLabelsPrinted, markQueuePrinted, requeueLabel } from "./etiketten";
 import { lookupIsbn } from "./isbn";
 import {
@@ -477,6 +478,37 @@ export async function scanIssueAction(personId: string | null, groupId: string |
           : `${r.finding ? "Zurückgenommen mit Befund" : "Zurückgenommen"}: ${r.title} (${r.inventoryNumber})${conditionText(r.condition)}${overdueText(r.overdueDays)}`,
     },
   };
+}
+
+// ---------------------------------------------------------------- Stufe 2: Ersatzforderungen (BU-12)
+
+/** Ersatzforderung anlegen – `kind` „ausleihe“ (Befund Stufe 1) oder „schulbuch“/„verlust“ (Ausgabe). */
+export async function createCompensationAction(kind: "ausleihe" | "schulbuch" | "verlust", sourceId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await createCompensation(await getDb(), perms, kind === "ausleihe" ? { loanId: sourceId } : { issueId: sourceId }, { amount: String(form.get("amount") ?? ""), reason: String(form.get("reason") ?? "") }, today());
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  return { ok: true, values: { result: "Ersatzforderung angelegt." } };
+}
+
+export async function updateCompensationAction(id: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await updateCompensation(await getDb(), perms, id, { amount: String(form.get("amount") ?? ""), reason: String(form.get("reason") ?? "") });
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  return { ok: true, values: { result: "Gespeichert." } };
+}
+
+export async function compensationStatusAction(id: string, status: string): Promise<void> {
+  const { perms } = await requireUser();
+  await setCompensationStatus(await getDb(), perms, id, status, today());
+  revalidatePath("/buecherei", "layout");
 }
 
 export async function resolveIssueFindingAction(issueId: string): Promise<void> {

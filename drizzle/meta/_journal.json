@@ -694,6 +694,13 @@
       "when": 1792478439914,
       "tag": "0098_buecherei_ausgabe",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792483266148,
+      "tag": "0099_buecherei_ersatz",
+      "breakpoints": true
     }
   ]
 }

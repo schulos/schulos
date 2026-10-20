@@ -3,11 +3,12 @@ import { boolean, check, date, index, integer, pgEnum, pgTable, primaryKey, text
 import { sql } from "drizzle-orm";
 import { users } from "../../core/db/schema-auth";
 import { gradeLevels, schoolYears, subjects } from "../../core/db/schema-core";
-import { COPY_CONDITIONS, MATERIAL_PROVISIONS, MEDIA_TYPES } from "./labels";
+import { COMPENSATION_STATUSES, COPY_CONDITIONS, MATERIAL_PROVISIONS, MEDIA_TYPES } from "./labels";
 
 export const buechereiMediaTypeEnum = pgEnum("buecherei_media_type", MEDIA_TYPES);
 export const buechereiConditionEnum = pgEnum("buecherei_condition", COPY_CONDITIONS);
 export const buechereiProvisionEnum = pgEnum("buecherei_material_provision", MATERIAL_PROVISIONS);
+export const buechereiCompensationStatusEnum = pgEnum("buecherei_compensation_status", COMPENSATION_STATUSES);
 
 /** Titel (bibliografische Angaben). ISBN als ISBN-13 normalisiert, je Titel höchstens einmal. */
 export const buechereiTitles = pgTable(
@@ -269,5 +270,41 @@ export const buechereiMaterialIssues = pgTable(
     uniqueIndex("buecherei_material_issues_open_copy_idx").on(t.copyId).where(sql`${t.returnedOn} is null`),
     index("buecherei_material_issues_user_idx").on(t.userId),
     index("buecherei_material_issues_year_idx").on(t.schoolYearId),
+  ],
+);
+
+/**
+ * Ersatzforderung (BU-12): Betrag und Grund für einen Schaden oder Verlust – aus einer Rückgabe mit Befund (Stufe 1, `loan_id`),
+ * einer Schulbuch-Rücknahme mit Befund oder einem nicht zurückgegebenen Schulbuch (`issue_id`). Nur erfassen und Brief
+ * erzeugen, keine Zahlungsabwicklung. Status offen/bezahlt/erlassen; mit dem Abschluss ist der Befund erledigt. Offen: mit dem
+ * Konto (Kontolöschung leert die Person); abgeschlossen: LK-SJ-1J ab `closed_on`.
+ */
+export const buechereiCompensations = pgTable(
+  "buecherei_compensations",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    loanId: text("loan_id").references(() => buechereiLoans.id, { onDelete: "set null" }),
+    issueId: text("issue_id").references(() => buechereiMaterialIssues.id, { onDelete: "set null" }),
+    /** Gegenstand als Text (Titel + Exemplar-/Inventarnummer) – bleibt lesbar, auch wenn die Ausleihe schon gelöscht ist */
+    item: text("item").notNull(),
+    /** Grund (Sache, keine Namen), z. B. „Wasserschaden“, „nicht zurückgegeben“ */
+    reason: text("reason").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    status: buechereiCompensationStatusEnum("status").notNull().default("offen"),
+    createdOn: date("created_on").notNull(),
+    /** bezahlt bzw. erlassen am */
+    closedOn: date("closed_on"),
+    /** zuletzt als Brief gedruckt am */
+    letterOn: date("letter_on"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("buecherei_compensations_amount", sql`${t.amountCents} between 1 and 99999`),
+    uniqueIndex("buecherei_compensations_loan_idx").on(t.loanId).where(sql`${t.loanId} is not null`),
+    uniqueIndex("buecherei_compensations_issue_idx").on(t.issueId).where(sql`${t.issueId} is not null`),
+    index("buecherei_compensations_user_idx").on(t.userId),
   ],
 );

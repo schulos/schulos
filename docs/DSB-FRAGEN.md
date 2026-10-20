@@ -567,4 +567,10 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
   im Audit-Log nur mit der Inventarnummer, ohne Person; Befunde mit Bezug auf die Ausgabe. **Fragen:** wie oben (Elternmahnung ab
   Stufe 1, offener Posten über das Schuljahresende); zusätzlich: Reicht als Rückgabefrist das Schuljahresende (Vorgabe), oder
   braucht die Schule einen eigenen Rückgabetag vor den Sommerferien (dann Mahnung schon in den letzten Schulwochen)?
+- **Ergänzung BU-12 (Ersatzforderungen):** Die Verwaltung erfasst für Schaden oder Verlust Betrag und Grund (Status offen,
+  bezahlt, erlassen) und druckt einen Brief – an die Eltern Minderjähriger, sonst an die Person. SchulOS speichert keine
+  Zahlungsdaten und nennt im Brief keine Bankverbindung. Offene Forderungen bleiben bis zum Abschluss (spätestens mit dem
+  Konto), abgeschlossene bis Schuljahresende + 1 Jahr; Person und Eltern sehen offene Forderungen. **Fragen:** Ist die
+  Aufbewahrung abgeschlossener Forderungen bis Schuljahresende + 1 Jahr passend (Nachweis gegenüber Schulträger/Kasse)? Muss
+  der Brief einen Hinweis auf eine Rechtsgrundlage der Ersatzpflicht (Lernmittelverordnung/Leihvertrag) enthalten?
 - **Vorschlag:** Vorgaben übernehmen; Büchereiteam schriftlich belehren (Baustein), Befunde wie vorgesehen.

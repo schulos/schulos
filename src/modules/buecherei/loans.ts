@@ -362,7 +362,7 @@ export async function listFindings(db: Db, viewer: PermissionSet) {
     .innerJoin(buechereiCopies, eq(buechereiCopies.id, buechereiLoans.copyId))
     .innerJoin(buechereiTitles, eq(buechereiTitles.id, buechereiCopies.titleId))
     .leftJoin(users, eq(users.id, buechereiLoans.userId))
-    .where(and(isNotNull(buechereiLoans.returnedOn), isNull(buechereiLoans.findingResolvedOn)))
+    .where(and(isNotNull(buechereiLoans.returnedOn), isNull(buechereiLoans.findingResolvedOn), sql`not exists (select 1 from buecherei_compensations c where c.loan_id = ${buechereiLoans.id})`))
     .orderBy(asc(buechereiLoans.returnedOn), asc(buechereiCopies.barcode));
   const cls = await classNamesOf(
     db,

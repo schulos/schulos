@@ -42,6 +42,10 @@ export const PROVISION_LABELS: Record<MaterialProvision, string> = {
   kauf: "selbst kaufen",
 };
 
+/** BU-12: Stand einer Ersatzforderung – keine Zahlungsabwicklung, nur der Vermerk. Neue Werte nur hinten anfügen. */
+export const COMPENSATION_STATUSES = ["offen", "bezahlt", "erlassen"] as const;
+export type CompensationStatus = (typeof COMPENSATION_STATUSES)[number];
+
 /** Rein: Jahrgänge kompakt – {5,6,7} → „5–7“, {5,7} → „5, 7“. */
 export function gradeRange(grades: readonly number[]): string {
   const g = [...grades].sort((a, b) => a - b);

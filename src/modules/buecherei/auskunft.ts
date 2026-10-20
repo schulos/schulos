@@ -3,12 +3,13 @@
 import type { Db } from "@/core/db/client";
 import type { ReadableExport } from "../auskunft";
 import { schoolbookAuskunft } from "./ausgabe";
+import { compensationAuskunft } from "./ersatz";
 import { libraryAuskunft } from "./katalog";
 
 export const buechereiAuskunft: ReadableExport = {
   moduleId: "buecherei",
   async build(db: Db, userId: string) {
-    const [{ loans, reservations }, schoolbooks] = await Promise.all([libraryAuskunft(db, userId), schoolbookAuskunft(db, userId)]);
+    const [{ loans, reservations }, schoolbooks, compensations] = await Promise.all([libraryAuskunft(db, userId), schoolbookAuskunft(db, userId), compensationAuskunft(db, userId)]);
     return [
       {
         table: "ausleihen",
@@ -27,6 +28,12 @@ export const buechereiAuskunft: ReadableExport = {
         purpose: "Schulbuchausleihe: offene Schulbücher (nur das Schuljahr der Ausgabe) und Rücknahmen mit Befund – zurückgegebene werden nicht gespeichert",
         categories: ["Titel", "Inventarnummer", "Schuljahr", "ausgegeben", "zurück bis", "Mahnstufe", "Rücknahme mit Befund"],
         rows: schoolbooks,
+      },
+      {
+        table: "ersatzforderungen",
+        purpose: "Schulbücherei: Ersatzforderungen für Schaden oder Verlust (Betrag in Cent, Status) – keine Zahlungsdaten",
+        categories: ["Gegenstand", "Grund", "Betrag", "Status", "angelegt", "abgeschlossen", "Brief gedruckt"],
+        rows: compensations,
       },
     ].filter((s) => s.rows.length > 0);
   },

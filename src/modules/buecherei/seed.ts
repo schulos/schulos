@@ -1,10 +1,11 @@
 // Demo: kleiner Bücherei-Bestand (Jugendbuch, Sachbuch, Film, Spiel) mit Exemplaren, eins davon ausgesondert; einige offene
 // Ausleihen (eine überfällig, 2. Mahnung – BU-04), eine Rückgabe mit Befund und anonyme Zähler der letzten Monate (BU-02), eine
 // Vormerkung (BU-03), Nutzung je Exemplar und Druckwarteschlange (BU-05).
-import { and, asc, eq, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import {
   buechereiBooklists,
+  buechereiCompensations,
   buechereiCopies,
   buechereiLoans,
   buechereiMaterialCopies,
@@ -203,4 +204,15 @@ async function seedSchulbuchAusgabe(db: Db, now: Date) {
   // Rücknahme mit Befund (vorzeitig zurück, Wasserschaden) – bleibt bis zur Erledigung
   rows.push({ ...base, copyId: mathe![4]!, userId: students[3]!, returnedOn: addDays(toBerlinDate(now), -5), finding: "Wasserschaden, Seiten gewellt" });
   await db.insert(buechereiMaterialIssues).values(rows);
+  // BU-12: dafür ist schon eine Ersatzforderung offen (Ladenpreis); der Befund aus der Bücherei (Stufe 1) ist noch zu klären
+  const [finding] = await db.select({ id: buechereiMaterialIssues.id, userId: buechereiMaterialIssues.userId }).from(buechereiMaterialIssues).where(isNotNull(buechereiMaterialIssues.returnedOn));
+  const [nr] = await db.select({ nr: buechereiMaterialCopies.inventoryNumber }).from(buechereiMaterialCopies).where(eq(buechereiMaterialCopies.id, mathe![4]!));
+  await db.insert(buechereiCompensations).values({
+    userId: finding!.userId,
+    issueId: finding!.id,
+    item: `Zahlenwege 5 (${nr!.nr})`,
+    reason: "Wasserschaden, Seiten gewellt",
+    amountCents: 2890,
+    createdOn: addDays(toBerlinDate(now), -4),
+  });
 }
