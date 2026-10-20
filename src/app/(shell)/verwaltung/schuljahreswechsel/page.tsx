@@ -19,6 +19,7 @@ import {
   reviewAction,
   startTransitionAction,
 } from "@/modules/verwaltung/schuljahreswechsel-actions";
+import { yearEndCheck } from "@/modules/buecherei/offen";
 import { archiveStatus, getTransition, LEAVE, nextStep, planPromotion, type TransitionStep } from "@/modules/verwaltung/schuljahreswechsel";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -166,7 +167,7 @@ export default async function SchuljahreswechselPage() {
                 </p>
               </StepForm>
             )}
-            {stepNow === "review" && <ReviewStep transitionId={t.id} today={today} />}
+            {stepNow === "review" && <ReviewStep transitionId={t.id} today={today} fromYearId={current.id} fromYearName={current.name} leavers={t.leavers} />}
             {stepNow === "complete" && (
               <StepForm action={completeAction} label="Abschließen" submit="Schuljahreswechsel abschließen" hidden={{ transitionId: t.id }}>
                 <p className="text-sm text-muted">
@@ -290,9 +291,9 @@ function ArchiveExportStep({ archives }: { archives: Awaited<ReturnType<typeof a
   );
 }
 
-async function ReviewStep({ transitionId, today }: { transitionId: string; today: string }) {
+async function ReviewStep({ transitionId, today, fromYearId, fromYearName, leavers }: { transitionId: string; today: string; fromYearId: string; fromYearName: string; leavers: string[] }) {
   const db = await getDb();
-  const [plan, holds, [lastRun]] = await Promise.all([planDeletion(db, today), activeHolds(db, today), listRuns(db, 1)]);
+  const [plan, holds, [lastRun], books] = await Promise.all([planDeletion(db, today), activeHolds(db, today), listRuns(db, 1), yearEndCheck(db, fromYearId, leavers)]);
   const due = plan.filter((p) => p.status === "due" && p.count > 0);
   return (
     <StepForm action={reviewAction} label="Prüfung" submit="Geprüft" hidden={{ transitionId }}>
@@ -302,7 +303,34 @@ async function ReviewStep({ transitionId, today }: { transitionId: string; today
         </li>
         <li>Letzter Löschlauf: {lastRun ? at(lastRun.startedAt) : "noch keiner"}</li>
         <li>Aktive Löschsperren: {holds.length}</li>
+        {/* BU-13: Prüfschritt „offene Schulbücher“ – nur Zahlen, Einzelheiten in der Schulbuchausgabe */}
+        {books && (
+          <li>
+            Schulbücher aus {fromYearName} nicht zurückgegeben: <strong>{books.schoolbooks}</strong>
+            {books.schoolbooks > 0 && ` (${books.people} ${books.people === 1 ? "Person" : "Personen"}, davon ${books.leavers} Abgänger:innen)`} · offene Ersatzforderungen:{" "}
+            <strong>{books.compensations}</strong>
+            {books.schoolbooks + books.compensations > 0 && (
+              <>
+                {" "}
+                –{" "}
+                <Link href="/buecherei/ausgabe" className="underline">
+                  Schulbuchausgabe
+                </Link>{" "}
+                ·{" "}
+                <Link href="/buecherei/ersatz" className="underline">
+                  Ersatzforderungen
+                </Link>
+              </>
+            )}
+          </li>
+        )}
       </ul>
+      {books && books.schoolbooks > 0 && (
+        <p className="text-sm text-muted">
+          Nicht zurückgegebene Schulbücher bleiben als offener Posten an der Person (auch nach dem Abgang bis zur Kontolöschung) und werden ab dem ersten Schultag
+          gemahnt; ein Verlust lässt sich unter „Ersatzforderungen“ erfassen. Der Wechsel wird dadurch nicht aufgehalten.
+        </p>
+      )}
       <p className="text-sm">
         <Link href="/verwaltung/datenschutz/loeschlauf" className="underline">
           Löschprotokoll und Sperren ansehen

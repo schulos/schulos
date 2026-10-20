@@ -579,4 +579,19 @@ test.describe("Bücherei", () => {
     await expect(page.getByRole("table", { name: "Abgeschlossene Forderungen" })).toContainText(nr);
     expect(errors).toEqual([]);
   });
+
+  test("BU-13: Abgangsdialog nennt offene Schulbücher als Hinweis (Abgang bleibt möglich)", async ({ page }) => {
+    const errors = collectErrors(page);
+    await login(page, "sabine.kowalski");
+    await page.goto("/buecherei/ausgabe?gruppe=g-5a");
+    const row = page.getByRole("table", { name: "Schulbücher je Schüler:in in Klasse 5a" }).getByRole("row").filter({ hasText: /L-\d{6}-\d/ }).first();
+    const href = (await row.getByRole("link").first().getAttribute("href"))!;
+    const id = new URLSearchParams(href.split("?")[1]).get("person")!;
+    await page.goto(`/verwaltung/benutzer/${encodeURIComponent(id)}`);
+    const note = page.getByRole("note").filter({ hasText: "Offen in der Bücherei" });
+    await expect(note).toContainText(/\d Schulbücher/);
+    await expect(note).toContainText("nicht aufgehalten");
+    await expect(page.getByRole("button", { name: "Abgang eintragen" })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
 });

@@ -172,3 +172,14 @@ Datensparsam vorbelegt bei der Umsetzung; Abweichungen entscheidet die Projektle
   die Person selbst; Browserdruck (auch als PDF). Das Öffnen vermerkt „Brief gedruckt am“ (und steht im Audit-Log).
 - **Sicht:** nur `buecherei.materials` mit eingeschalteter Schulbuchausleihe (auch für Bücherei-Befunde – eine Schule ohne
   Stufe 2 erledigt Befunde wie bisher ohne Forderung); Person und Eltern sehen offene Forderungen unter „Meine Ausleihen“.
+
+## Stufe 2 – Schuljahreswechsel und Abgang (BU-13, 2026-10-20)
+
+- **Schuljahreswechsel (B-08):** Der Pflichtschritt „Löschprotokoll und Sperren prüfen“ zeigt, wie viele Schulbücher aus dem
+  endenden Schuljahr noch nicht zurück sind (Personen, davon vorgemerkte Abgänger:innen) und wie viele Ersatzforderungen offen
+  sind – nur Zahlen, mit Links zur Schulbuchausgabe und zu den Ersatzforderungen. Der Wechsel wird nicht aufgehalten; offene
+  Schulbücher bleiben als offener Posten an der Person und werden ab dem ersten Schultag gemahnt.
+- **Abgang (B-02):** Die Benutzer-Detailseite (Abgangsdialog) nennt offene Bücherei-Posten der Person („2 Ausleihen,
+  1 Schulbuch, 1 offene Ersatzforderung“) als Hinweis. Abgang und Löschung laufen weiter (Festlegung „Abgang“ oben); mit der
+  Kontolöschung verlieren Ausleihe, Ausgabe und Forderung die Person.
+- Beides nur bei eingeschalteter Bücherei; Schulbücher und Forderungen nur mit eingeschalteter Schulbuchausleihe.

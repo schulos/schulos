@@ -17,6 +17,7 @@ import { addDays, toBerlinDate, TZ } from "@/core/time";
 import { updateUserAction } from "@/modules/verwaltung/actions";
 import { actorFromPerms, assignableRoles, manageProblem } from "@/modules/verwaltung/escalation";
 import { getUserDetail } from "@/modules/verwaltung/users";
+import { noOpenItems, openItemsOf, openItemsText } from "@/modules/buecherei/offen";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
@@ -57,6 +58,8 @@ export default async function BenutzerDetailPage({ params }: { params: Promise<{
   // SEC-04: Admin-Konten und Konten mit mehr Verwaltungsrechten verwaltet nur ein Admin; die eigene Rolle ändern andere
   const actor = actorFromPerms(perms);
   const blocked = isSelf ? null : await manageProblem(db, actor, user.id);
+  const libraryItems = (await openItemsOf(db, [user.id])).get(user.id);
+  const libraryOpen = libraryItems && !noOpenItems(libraryItems) ? libraryItems : null;
   const assignable = await assignableRoles(db, actor, ROLES);
   const roles = isSelf ? [user.role] : ROLES.filter((r) => r === user.role || assignable.includes(r));
 
@@ -97,6 +100,13 @@ export default async function BenutzerDetailPage({ params }: { params: Promise<{
               canPrivacy={hasPermission(perms, "verwaltung.privacy")}
               blocked={blocked}
             />
+            {/* BU-13: Hinweis im Abgangsdialog – offene Bücherei-Posten blockieren Abgang und Löschung nicht */}
+            {libraryOpen && (
+              <p role="note" className="text-sm text-muted">
+                Offen in der Bücherei: {openItemsText(libraryOpen)}. Bitte vor oder beim Abgang zurückholen bzw. als Ersatzforderung erfassen – Abgang und
+                Löschung werden dadurch nicht aufgehalten.
+              </p>
+            )}
           </Card>
           <Card aria-label="Zwei-Faktor-Anmeldung">
             <CardHeader title="Zwei-Faktor-Anmeldung" />

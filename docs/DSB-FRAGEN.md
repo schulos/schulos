@@ -573,4 +573,6 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
   Konto), abgeschlossene bis Schuljahresende + 1 Jahr; Person und Eltern sehen offene Forderungen. **Fragen:** Ist die
   Aufbewahrung abgeschlossener Forderungen bis Schuljahresende + 1 Jahr passend (Nachweis gegenüber Schulträger/Kasse)? Muss
   der Brief einen Hinweis auf eine Rechtsgrundlage der Ersatzpflicht (Lernmittelverordnung/Leihvertrag) enthalten?
+- **Ergänzung BU-13:** Schuljahreswechsel und Abgangsdialog zeigen offene Bücherei-Posten nur als Zahlen (wer den Wechsel bzw.
+  den Abgang bearbeitet, sieht keine Titel). Offene Posten halten weder Abgang noch Kontolöschung auf. Keine neuen Fragen.
 - **Vorschlag:** Vorgaben übernehmen; Büchereiteam schriftlich belehren (Baustein), Befunde wie vorgesehen.
