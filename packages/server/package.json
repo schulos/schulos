@@ -34,7 +34,7 @@
     "./two-factor": "./src/two-factor.ts"
   },
   "dependencies": {
-    "nodemailer": "^10.1.0"
+    "nodemailer": "^10.1.2"
   },
   "devDependencies": {
     "@types/nodemailer": "^8.0.2"
