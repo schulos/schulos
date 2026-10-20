@@ -183,3 +183,21 @@ Datensparsam vorbelegt bei der Umsetzung; Abweichungen entscheidet die Projektle
   1 Schulbuch, 1 offene Ersatzforderung“) als Hinweis. Abgang und Löschung laufen weiter (Festlegung „Abgang“ oben); mit der
   Kontolöschung verlieren Ausleihe, Ausgabe und Forderung die Person.
 - Beides nur bei eingeschalteter Bücherei; Schulbücher und Forderungen nur mit eingeschalteter Schulbuchausleihe.
+
+## GATE BU2 – Prüfliste Stufe 2 (2026-10-20)
+
+Umfang: BU-10, BU-11, BU-12, BU-13 (PRs #47, #49, #52, #53), Migrationen 0097–0099; SICHERHEIT S81–S83; DSB-FRAGEN §18.
+Abnahme: Review-PR, gemerged von der Projektleitung.
+
+| # | Prüfpunkt | Ergebnis |
+|---|---|---|
+| 1 | Löschregel Stufe 2: Zuordnung nur im laufenden Schuljahr, Rücknahme ohne Befund löscht sofort | ✅ Querschnittstest `loeschregel-stufe2.test.ts` (Gegenstück zu `gate-bu1.test.ts`): nach Ausgabe, Mahnung (Eltern + Mail) und Rücknahme nennt keine Zeile einer `buecherei_*`-Tabelle die Person (außer dem Ausweis), Zustand nur am Exemplar, Audit ohne Person; gegengetestet (ohne Löschen rot) |
+| 2 | Befund und Ersatzforderung bis zur Erledigung, danach LK-SJ-1J; offene Posten bis zur Kontolöschung | ✅ `loeschregel-stufe2.test.ts` „GATE BU2 …“ (Verlust → Forderung → Brief → bezahlt → Löschlauf nach Schuljahresende + 1 Jahr: keine Person mehr in Bücherei-Zeilen, Exemplar bleibt ausgesondert), „nicht zurückgegeben …“ (kein Löschlauf, Kontolöschung leert die Person), `ersatz.test.ts` „Löschklassen …“ |
+| 3 | Rechte: Ausgabe, Ersatzforderungen, Brief nur `buecherei.materials` + Schalter; Büchereiteam, Lehrkräfte, Schüler:innen, Eltern nicht | ✅ `ausgabe.test.ts` „S82 …“, `ersatz.test.ts` „S83 …“, `lernmittel.test.ts` „S81 …“, E2E BU-10/11 (404 für das Büchereiteam); Code-Review aller Seiten/Druckansichten (prüfen Recht und Schalter selbst) |
+| 4 | Gong, Mail und Brief: keine Titel in Benachrichtigung/Mail, Elternmahnung bei Schulbüchern ab Stufe 1 nur bei Minderjährigen | ✅ `ausgabe.test.ts` „Mahnung …“, `loeschregel-stufe2.test.ts`; der Brief nennt das Medium (er geht an die Eltern bzw. die Person und ist Grundlage der Forderung) |
+| 5 | Schalter `buecherei.lernmittel` ab Werk aus; aus → Seiten 404, Aktionen mit Meldung, Daten bleiben; Mahnlauf und Schuljahreswechsel-Hinweis ruhen | ✅ Tests je Datei („Schalter aus …“), `offen.test.ts` |
+| 6 | Code-Review `ausgabe.ts`, `ersatz.ts`, `offen.ts` | ✅ ohne Fehlerbefund: Rechte in jedem Service, eindeutige Teilindizes gegen Doppelscan/Doppelforderung (Meldung statt Serverfehler, Test für gleichzeitige Ausgabe), Verlust nur über bedingtes UPDATE in derselben Transaktion, Schuljahr `restrict`. **Härtung G-BU2-01:** der Link „Brief drucken“ lädt nicht vorab (`prefetch={false}`) – das Öffnen der Druckansicht vermerkt „Brief gedruckt am“ und schreibt ins Audit-Log. Hinweise ohne Handlungsbedarf: gleichzeitige Rücknahme desselben Schulbuchs schreibt zwei Audit-Einträge (harmlos); Befunde der Stufe 1 lassen sich nur mit eingeschalteter Schulbuchausleihe in eine Forderung überführen (dokumentiert) |
+| 7 | Volle Tests | ✅ `npm run check` (Vitest mit 2 Workern) grün, Build grün, volle E2E grün bis auf bekannte Lastausfälle (`anmeldung-entscheidung`, `datenschutz:176`), einzeln grün; E2E Backup 4/4; CI je PR grün |
+| 8 | Nur mit echter Hardware/Praxis prüfbar | ⏳ offen für die Projektleitung, blockiert das Gate nicht: Klassensatz mit Handscanner ausgeben und zurücknehmen (Tempo, Fokus nach jedem Scan), Brief ausdrucken |
+| 9 | Offene DSB-Fragen §18 (Stufe 2) | ⏳ blockieren das Gate nicht: Elternmahnung ab Stufe 1, offener Posten über das Schuljahresende, Rückgabefrist = Schuljahresende oder eigener Rückgabetag, Aufbewahrung abgeschlossener Forderungen, Rechtsgrundlage im Ersatzbrief |
+| 10 | Nicht umgesetzt, bewusst | Klassenleitung sieht offene Schulbücher der Klasse (braucht eine eigene Freigabe); Befund-Erledigung ohne Forderung bleibt wie in Stufe 1 möglich |
