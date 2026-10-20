@@ -67,12 +67,9 @@ export interface Band {
 export interface BandStatus extends Band {
   /** verplante Wochenstunden: das am wenigsten verplante Mitglied */
   planned: number;
-  /** davon zur selben Zeit (alle Mitglieder im selben Slot) */
+  /** davon zur selben Zeit (alle Mitglieder im selben Slot) – Kennzahl der Diagnose (SP2-02) */
   together: number;
-  /**
-   * alle Mitglieder mit gleichem Fach, gleichen Lehrkräften und gleichem Raumwunsch (die frühere Kopplung): der Solver setzt
-   * das Band bis SP2-02 nur dann als eine Einheit, sonst jedes Mitglied einzeln
-   */
+  /** alle Mitglieder mit gleichem Fach, gleichen Lehrkräften und gleichem Raumwunsch (die frühere Kopplung „eine Lehrkraft, mehrere Gruppen“) */
   uniform: boolean;
 }
 
@@ -95,7 +92,8 @@ export async function listAssignments(db: Db, schoolYearId: string): Promise<Ass
     .from(timetableAssignments)
     .innerJoin(subjects, eq(subjects.id, timetableAssignments.subjectId))
     .where(eq(timetableAssignments.schoolYearId, schoolYearId))
-    .orderBy(asc(subjects.sortOrder), asc(subjects.name), asc(timetableAssignments.createdAt));
+    // deterministisch auch bei gleichem Fach und Anlagezeitpunkt (Seed, Import): zuletzt nach id – die Reihenfolge bestimmt den Solver-Lauf
+    .orderBy(asc(subjects.sortOrder), asc(subjects.name), asc(timetableAssignments.createdAt), asc(timetableAssignments.id));
   if (!rows.length) return [];
   const ids = rows.map((r) => r.a.id);
   const [gs, ts] = await Promise.all([
@@ -200,7 +198,8 @@ export function matchLessons(assignments: MatchAssignment[], lessons: PlanLesson
 
 /**
  * Rein (SP2-01): Soll/verplant je Band. `planned` = am wenigsten verplantes Mitglied, `together` = Wochenstunden, in denen alle
- * Mitglieder im selben Slot liegen. `uniform` = frühere Kopplung (gleiches Fach, gleiche Lehrkräfte, gleicher Raumwunsch).
+ * Mitglieder im selben Slot liegen (Solver und Setzhilfe setzen ein Band seit SP2-02 immer gemeinsam – weniger heißt: von Hand
+ * auseinandergezogen oder vor SP2-02 geplant). `uniform` = frühere Kopplung (gleiches Fach, gleiche Lehrkräfte, gleicher Raumwunsch).
  */
 export function bandStatus(
   bands: Band[],

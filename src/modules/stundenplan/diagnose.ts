@@ -1,8 +1,9 @@
 // Diagnose (P2b-13): prüft Plan und Unterrichtsverteilung auf offene Stunden, Hohlstunden, Fach mehrfach am Tag,
-// Stundentafel, ungeeignete Räume und Deputat über/unter Soll. Reine Prüflogik + Loader.
-import { and, count, eq, gte, isNull, lte, or } from "drizzle-orm";
+// Stundentafel, ungeeignete Räume, Deputat über/unter Soll und Bänder (SP2-02: zur selben Zeit, gemeinsame Schüler:innen).
+// Reine Prüflogik + Loader.
+import { and, count, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { groupMembers, periods, rooms, subjects, timetableLessons } from "@/core/db/schema";
+import { groupMembers, periods, rooms, subjects, timetableLessons, users } from "@/core/db/schema";
 import { ROOM_KIND_LABELS } from "@/core/labels";
 import type { RoomKind } from "@/core/db/schema";
 import { readSchoolSettings } from "@/core/settings";
@@ -10,9 +11,10 @@ import { defaultObligation, deputyAccounts, type DeputyAccount } from "./deputat
 import { WEEKDAYS } from "./manage";
 import type { LESSON_WEEKS } from "./schema";
 import { longBreaksAfter } from "./solver-check";
+import { bandsWithSharedStudents, conflictsFrom } from "./solver-input";
 import { distribution, planningYear, PLANNED_GROUP_KINDS, type Distribution } from "./verteilung";
 
-export const DIAGNOSIS_CATEGORIES = ["open", "gaps", "subjectDay", "curriculum", "room", "deputy"] as const;
+export const DIAGNOSIS_CATEGORIES = ["open", "gaps", "subjectDay", "curriculum", "room", "deputy", "band"] as const;
 export type DiagnosisCategory = (typeof DIAGNOSIS_CATEGORIES)[number];
 
 export const DIAGNOSIS_LABELS: Record<DiagnosisCategory, string> = {
@@ -22,6 +24,7 @@ export const DIAGNOSIS_LABELS: Record<DiagnosisCategory, string> = {
   curriculum: "Stundentafel",
   room: "Raum ungeeignet",
   deputy: "Deputat über/unter Soll",
+  band: "Bänder",
 };
 
 /** error = muss behoben werden · warn = sollte geprüft werden · info = zur Kenntnis */
@@ -31,7 +34,7 @@ export interface Finding {
   category: DiagnosisCategory;
   severity: Severity;
   /** worauf sich der Hinweis bezieht (für Gruppierung und Links) */
-  target: { kind: "group" | "teacher"; id: string; label: string };
+  target: { kind: "group" | "teacher" | "band"; id: string; label: string };
   message: string;
   /** betroffener Lehrauftrag (Link zum Bearbeiten) */
   assignmentId?: string;
@@ -60,8 +63,10 @@ export interface DiagnoseInput {
   teachers: { id: string; code: string | null; name: string }[];
   subjects: { id: string; name: string; roomKind: RoomKind | null }[];
   rooms: { id: string; kind: RoomKind; capacity: number | null; active: boolean }[];
-  distribution: Pick<Distribution, "assignments" | "unmatched" | "curriculum">;
+  distribution: Pick<Distribution, "assignments" | "unmatched" | "curriculum"> & Partial<Pick<Distribution, "bands">>;
   accounts: Pick<DeputyAccount, "id" | "code" | "name" | "target" | "assigned" | "balance">[];
+  /** Gruppen mit gemeinsamen Schüler:innen (SP2-02: Band-Mitglieder, die parallel liegen, obwohl Schüler:innen in beiden sind) */
+  conflicts?: Map<string, Set<string>>;
 }
 
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
@@ -276,6 +281,31 @@ export function diagnose(input: DiagnoseInput): Finding[] {
     );
   }
 
+  // ---------------------------------------------------------- Bänder (SP2-02): zur selben Zeit, gemeinsame Schüler:innen (Q-SP2-6)
+  const bands = input.distribution.bands ?? [];
+  const bandTarget = (b: { id: string; name: string }) => ({ kind: "band" as const, id: b.id, label: b.name });
+  const sharedIn = new Map(bandsWithSharedStudents(bands, input.distribution.assignments, input.conflicts ?? new Map()).map((b) => [b.id, b.pairs]));
+  for (const b of bands) {
+    if (!b.memberIds.length) {
+      out.push({ category: "band", severity: "info", target: bandTarget(b), message: "Band ohne Lehraufträge" });
+      continue;
+    }
+    if (b.memberIds.length > 1 && b.together < b.planned)
+      out.push({
+        category: "band",
+        severity: "warn",
+        target: bandTarget(b),
+        message: `nur ${hoursLabel(b.together)} von ${hoursLabel(b.planned)} zur selben Zeit – die Lehraufträge des Bands liegen teils in verschiedenen Slots`,
+      });
+    for (const [x, y] of sharedIn.get(b.id) ?? [])
+      out.push({
+        category: "band",
+        severity: "warn",
+        target: bandTarget(b),
+        message: `${groupOf.get(x)?.name ?? x} und ${groupOf.get(y)?.name ?? y} haben gemeinsame Schüler:innen – im Band liegen sie zur selben Zeit, diese Schüler:innen können nur einen Kurs besuchen`,
+      });
+  }
+
   const rank: Record<Severity, number> = { error: 0, warn: 1, info: 2 };
   const catRank = new Map(DIAGNOSIS_CATEGORIES.map((c, i) => [c, i]));
   return out
@@ -321,6 +351,16 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
     db.select({ groupId: groupMembers.groupId, n: count() }).from(groupMembers).where(eq(groupMembers.role, "member")).groupBy(groupMembers.groupId),
     deputyAccounts(db, year.id, d.teachers, fallbackObligation),
   ]);
+  // Schüler:innen der Band-Gruppen (SP2-02): gemeinsame Mitglieder in zwei Mitgliedern eines Bands
+  const assignmentOf = new Map(d.assignments.map((a) => [a.id, a]));
+  const bandGroups = [...new Set(d.bands.filter((b) => b.memberIds.length > 1).flatMap((b) => b.memberIds.flatMap((id) => assignmentOf.get(id)?.groups.map((g) => g.id) ?? [])))];
+  const students = bandGroups.length
+    ? await db
+        .select({ groupId: groupMembers.groupId, userId: groupMembers.userId })
+        .from(groupMembers)
+        .innerJoin(users, eq(users.id, groupMembers.userId))
+        .where(and(inArray(groupMembers.groupId, bandGroups), eq(groupMembers.role, "member"), eq(users.role, "schueler")))
+    : [];
   const sizeOf = new Map(sizes.map((s) => [s.groupId, Number(s.n)]));
   const planned = new Set<string>(PLANNED_GROUP_KINDS);
   const findings = diagnose({
@@ -333,6 +373,7 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
     rooms: roomRows,
     distribution: d,
     accounts,
+    conflicts: conflictsFrom(students),
   });
   return { refYmd: ref, findings, counts: countFindings(findings) };
 }

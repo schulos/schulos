@@ -81,9 +81,8 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     const queued = (await getRun(h.db, id))!;
     expect(queued).toMatchObject({ status: "queued", label: "Variante A", params: { effort: "schnell", seed: 3, preset: "klassenkompakt" }, cancelRequested: false });
     expect(queued.params!.weights.classGap).toBe(16);
-    // Warnung zum Demo-Band (SP2-01: verschiedene Fächer, bis SP2-02 einzeln gesetzt)
-    expect(queued.log.map((e) => e.kind)).toEqual(["queued", "warning"]);
-    expect(queued.log[1]!.text).toMatch(/Q1 GK-Schiene A/);
+    // keine Warnung: die Kurse des Demo-Bands haben getrennte Schüler:innen (Q-SP2-6)
+    expect(queued.log.map((e) => e.kind)).toEqual(["queued"]);
 
     expect(await executeRun(h.db, id, today)).toBe("done");
     const run = (await getRun(h.db, id))!;
@@ -91,8 +90,11 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     expect(run.heartbeatAt).toBeInstanceOf(Date);
     expect(run.stored!.result.unplaced).toEqual([]);
     expect(run.stored!.keptLessonIds).toContain(pin.id);
-    // bandfähiges Format: jede Einheit hat genau einen Teil
-    expect(run.stored!.units.every((u) => u.parts?.length === 1 && u.parts[0]!.groupIds.join() === u.groupIds.join())).toBe(true);
+    // bandfähiges Format: Lehraufträge haben genau einen Teil, das Demo-Band (SP2-02) einen je Mitglied
+    const bandUnits = run.stored!.units.filter((u) => u.id.startsWith("band-q1-gk-a#"));
+    expect(bandUnits).toHaveLength(3);
+    expect(bandUnits.every((u) => u.parts?.length === 3 && u.parts.map((p) => p.groupIds.join()).sort().join() === [...u.groupIds].sort().join())).toBe(true);
+    expect(run.stored!.units.filter((u) => !u.id.startsWith("band-q1-gk-a#")).every((u) => u.parts?.length === 1 && u.parts[0]!.groupIds.join() === u.groupIds.join())).toBe(true);
     // Kennzahlen klein neben dem Ergebnis, Protokoll mit Eingabe, Vorprüfung, Konstruktion, Zwischenständen und Ende
     expect(run.metrics).toMatchObject({ score: run.stored!.result.score, unplaced: 0, units: run.stored!.units.length, precheck: { errors: 0 } });
     expect(run.metrics!.durationMs).toBeGreaterThan(0);
@@ -147,6 +149,23 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     await expect(deleteRun(h.db, "u-admin", id, today)).rejects.toMatchObject({ fieldErrors: { run: expect.stringContaining("zurücknehmen") } });
     // Herkunft an den übernommenen Stunden; beim Löschen des Laufs bleibt die Stunde, die Herkunft wird leer
     expect(await h.db.$count(timetableLessons, eq(timetableLessons.solverRunId, id))).toBe(res.created);
+    // SP2-02: das Band ist je Stunde eine Kopplung – drei Zeilen (drei Kurse, drei Fächer, drei Lehrkräfte) mit einer coupling_id
+    const bandLessons = await h.db
+      .select()
+      .from(timetableLessons)
+      .where(and(eq(timetableLessons.solverRunId, id), inArray(timetableLessons.groupId, ["g-q1-e-gk1", "g-q1-d-gk1", "g-q1-bi-gk1"])));
+    expect(bandLessons).toHaveLength(9);
+    const bySlot = new Map<string, typeof bandLessons>();
+    for (const l of bandLessons) bySlot.set(`${l.weekday}-${l.periodNr}`, [...(bySlot.get(`${l.weekday}-${l.periodNr}`) ?? []), l]);
+    expect(bySlot.size).toBe(3);
+    for (const slot of bySlot.values()) {
+      expect(slot.map((l) => l.subjectId).sort()).toEqual(["BI", "D", "E"]);
+      expect(new Set(slot.map((l) => l.couplingId)).size).toBe(1);
+      expect(slot[0]!.couplingId).not.toBeNull();
+      expect(new Set(slot.map((l) => l.roomId)).size).toBe(3);
+    }
+    // die Verteilung zählt das Band als gemeinsam verplant
+    expect((await distribution(h.db, year, "2026-11-04")).bands.find((b) => b.id === "band-q1-gk-a")).toMatchObject({ planned: 3, together: 3 });
 
     // bis zum Vortag gilt der alte Plan, ab Stichtag der neue – jeweils vollständig verplant
     const old = await distribution(h.db, year, "2026-10-30");
@@ -211,7 +230,8 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     // Stunde von Hand verändert, eine gelöscht; Raumbuchung und Klausur in einem Raum, den der alte Plan am Stichtag belegt
     const own = await h.db.select().from(timetableLessons).where(eq(timetableLessons.solverRunId, id));
     const ownMonday = own.find((l) => l.weekday === 0)!;
-    await setFixed(h.db, "u-admin", own[0]!.id, true);
+    // eine ungekoppelte Stunde fixieren (Fixieren gilt für alle Teile einer Kopplung – das Demo-Band wäre drei Stunden)
+    await setFixed(h.db, "u-admin", own.find((l) => !l.couplingId)!.id, true);
     await h.db.insert(timetableSubstitutions).values({ lessonId: ownMonday.id, date: from, kind: "cancel" });
     await h.db.insert(timetableLessons).values({ id: "l-foreign", groupId: "g-7b", weekday: 1, periodNr: 8, subjectId: "M", teacherId: anchor.teacherId, week: "all", validFrom: "2026-11-23", validUntil: year.endsOn });
     const endedA = active.find((l) => l.groupId === "g-9a")!;

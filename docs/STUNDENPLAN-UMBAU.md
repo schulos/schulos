@@ -501,8 +501,8 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 
 | ID | Titel | Größe | Kern | hängt ab von | Quelle |
 |---|---|---|---|---|---|
-| **SP2-01** | Bänder – Datenmodell und Unterrichtsverteilung: `timetable_bands` (Schuljahr, Name, Wochenstunden, Doppelstunden) mit n Lehraufträgen als Mitglieder; Lehraufträge bleiben 1 Fach, 1 Gruppe, 1–2 Lehrkräfte; „Gekoppelt mit“ wird zum Band; Pflege-UI, Soll/verplant je Band | M | – | GATE SP | SP-G-01 |
-| **SP2-02** | Bänder im Solver, in Setzhilfe und Übernahme: Einheit = Band mit `parts[]` (eigene Lehrkraft/Fach/Raum je Teil), `chooseRoom` je Teil, eine `coupling_id` je Band-Stunde, Setzhilfe setzt/verschiebt das Band als Einheit; Kursband zählt für Klassen-Hohlstunden | L | **ja** | SP2-01 | SP-G-01 |
+| **SP2-01** ✅ | Bänder – Datenmodell und Unterrichtsverteilung: `timetable_bands` (Schuljahr, Name, Wochenstunden, Doppelstunden) mit n Lehraufträgen als Mitglieder; Lehraufträge bleiben 1 Fach, 1 Gruppe, 1–2 Lehrkräfte; „Gekoppelt mit“ wird zum Band; Pflege-UI, Soll/verplant je Band | M | – | GATE SP | SP-G-01 |
+| **SP2-02** ✅ | Bänder im Solver, in Setzhilfe und Übernahme: Einheit = Band mit `parts[]` (eigene Lehrkraft/Fach/Raum je Teil), `chooseRoom` je Teil, eine `coupling_id` je Band-Stunde, Setzhilfe setzt/verschiebt das Band als Einheit; Kursband zählt für Klassen-Hohlstunden | L | **ja** | SP2-01 | SP-G-01 |
 | **SP2-03** | Tagesgrenzen und Ganztag je Jahrgangsstufe: `maxPerDay`, `afternoonsPerWeek`, `lunchAfterPeriod` (Mittagspause Pflicht bei Unterricht danach), Vorgaben aus dem Schulform-Katalog; hart im Solver, Diagnose-Kategorie | M | **ja** | GATE SP | SP-G-04b |
 | **SP2-04** | Lehrkraft-Tagesregeln und Fachverteilung: optional `maxPerDay`/`maxDays` je Lehrkraft (Deputats-Seite), weiche Kosten Anwesenheitstage; Kosten `subjectSpread` (nicht an Folgetagen geballt), Gewichte in den Voreinstellungen | S–M | **ja** | SP2-03 | SP-G-05, SP-G-06 |
 | **SP2-05** | Hohlstunden Oberstufe/Kursband im Solver (Jahrgang ohne Klasse) + Diagnose-Kategorie Zeitwünsche (gesperrt belegt = Fehler, −3/−2 = Warnung; Tausch in der Setzhilfe prüft Sperren) | S–M | **ja** | SP2-02 | SP-G-11, SP-G-12 |
@@ -515,7 +515,7 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 | **SP2-11** | E2E-Szenario „Gesamtschule“ (Band E/G Mathe 7 + WP + Tagesgrenze → Lauf → Übernahme; Verlegung/Bereitschaft; CSV-Import; Fachbedarf) + Review-PR **GATE SP2** | S | – | SP2-01 … SP2-10, SP2-12 | – |
 | **GATE SP2** | Review mit der Projektleitung – merged nur die Projektleitung | – | – | SP2-11 | – |
 
-**Umgesetzt (SP2-01, Migration 0100, 2026-10-20):** Tabelle `timetable_bands` (Schuljahr, Name – eindeutig je Schuljahr –, Wochen-
+**Umgesetzt (SP2-01, Migration 0100, 2026-10-20; Solver/Setzhilfe/Übernahme in SP2-02, s. u.):** Tabelle `timetable_bands` (Schuljahr, Name – eindeutig je Schuljahr –, Wochen-
 und Doppelstunden), Mitglieder = Lehraufträge mit `timetable_assignments.band_id` (`on delete set null`). Lehrauftrag: genau eine Gruppe
 (`AssignmentInput.groupId`), höchstens zwei Lehrkräfte, im Band übernimmt er Wochen-/Doppelstunden des Bands (`updateBand` schreibt sie an alle
 Mitglieder; Herausnehmen/Löschen lässt sie stehen). „Gekoppelt mit“ ist entfallen; Migration 0100 macht aus jedem Lehrauftrag mit mehreren
@@ -525,17 +525,53 @@ Notenbücher auf den Lehrauftrag ihrer Gruppe um. `distribution()` liefert `band
 ein Band einmal (`teacherAssigned`), „verplant“ zählt gekoppelte Stunden im selben Slot einmal (`teacherPlanned`). Pflege-UI: Ansicht
 „Bänder“ unter `/planung/unterricht?ansicht=baender` (Liste mit Soll/verplant, anlegen/ändern/löschen, Lehrauftrag aufnehmen/herausnehmen),
 Feld „Band“ im Lehrauftrag. Demo: Band „Q1 GK-Schiene A“ (Englisch/Deutsch/Biologie GK1). Audit `stundenplan.band.*`.
-Vorgaben (Q-SP2-1 … Q-SP2-5): Stunden gehören dem Band; Lehrauftrag ohne Lehrkraft bleibt erlaubt; Solver-Übergang siehe unten.
+Vorgaben (Q-SP2-1 … Q-SP2-6): Stunden gehören dem Band; Lehrauftrag ohne Lehrkraft bleibt erlaubt; Mitglieder mit gemeinsamen
+Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `collapseBands()` galt nur bis SP2-02.
 
-**Übergang bis SP2-02 und Übergabe:** Der Solver arbeitet unverändert. `collapseBands()` in `solver-input.ts` fasst ein **einheitliches**
-Band wieder zu einem Lehrauftrag mit allen Gruppen zusammen (= frühere Kopplung, Einheiten identisch, Benchmark unverändert); Bänder mit
-verschiedenen Fächern/Lehrkräften setzt er je Mitglied einzeln, `checkInput` warnt („Solver: noch einzeln“ in der Liste). **SP2-02** setzt
-direkt auf `Distribution.bands` (`memberIds`) und `Distribution.assignments` (je Mitglied Fach, Gruppe, Lehrkräfte, Raumwunsch) auf: je Band
-eine Einheit mit einem `parts[]`-Eintrag je Mitglied (bzw. je Lehrkraft bei Teamteaching) statt `collapseBands` + Einzelplanung; `fixedHours`
-je Mitglied (heute zählt beim Zusammenfassen nur das erste Mitglied); `subjectId` der Einheit ist heute „Fach des ersten Teils“ – Fachsperren
-und „Fach mehrfach am Tag“ müssen je Teil gelten; Schülerkonflikte innerhalb eines Bands klären (Demo-Kurse überlappen zufällig, Q-SP2-6);
-`bandStatus().together` eignet sich als Kennzahl für die Diagnose; Setzhilfe (`openAssignments`/`placeAssignment`) setzt heute je Lehrauftrag –
-Band als Einheit dort nachziehen; danach die Warnung in `checkInput` und den Hinweis „Solver: noch einzeln“ entfernen.
+**Umgesetzt (SP2-02, ohne Migration, 2026-10-20) – Bänder in Solver, Setzhilfe und Übernahme:**
+- **Solver-Eingabe** (`solver-input.ts`): `unitsFrom()` baut je Band **eine Einheit je Wochenstunde** (Doppelstunden als Zweier-Block, ids
+  `<band-id>#d0/#e0`) mit einem `parts[]`-Eintrag je Mitglied – bei Teamteaching je Lehrkraft (SP-G-02). Jeder Teil hat eigenes Fach,
+  eigene Lehrkraft, eigenen Raumwunsch (Wunschraum, Raumart des Fachs, Stammraum der Klasse). Gruppen/Lehrkräfte der Einheit = alle Teile;
+  Mitglieder nach Gruppenname sortiert, `assignmentId` = erstes Mitglied, `label` = „Bandname: 7a Religion (RIC) + 7b Philosophie (NEU)“.
+  Fixierte Stunden zählen **je Mitglied**: geplant wird `band.hours − max(fixiert je Mitglied)` (kein Mitglied über Soll; weniger fixierte
+  Mitglieder bleiben offen und erscheinen in der Verteilung – Vorschlag Q-SP2-7). Band mit einem Mitglied = wie ein Lehrauftrag mit Band-id;
+  leeres Band/Mitglied ohne Gruppe → keine Einheit. `collapseBands()` ist entfallen, ebenso die Warnung „noch einzeln“.
+- **Solver-Kern** (`solver.ts`): Fachsperren (`blocked("subject")`), Zeitwünsche des Fachs und „Fach mehrfach am Tag“ gelten **je Teil**
+  (`unitSubjects()`, Paare Gruppe × Fach je Einheit einmal berechnet – `feasible` bleibt die heiße Schleife). `chooseRooms()` zählt Teile, die
+  sich eine Lehrkraft (und damit den Raum) teilen, zur Raumgröße zusammen. Gruppen derselben Einheit gelten nicht als Konflikt (Q-SP2-6).
+  Einheiten mit einem Teil verhalten sich exakt wie vorher – der Groß-Benchmark liefert dieselbe Lösung (LASTTEST.md).
+- **Setzhilfe** (`setzhilfe.ts`): `openAssignments()` meldet ein Band-Mitglied offen, solange das **Band** offen ist (schwächstes Mitglied), mit
+  `band: { id, name, members }`; `assignmentPlacement()` baut je Mitglied Zeilen (`UnitRow.subjectId` neu) mit Raumvorschlag je Teil und
+  sperrt bei Sperrzeiten aller Beteiligten; `placementCell()` vergibt Räume je Teil (gleiche Lehrkraft → gleicher Raum, sonst verschieden);
+  `placeAssignment()` legt eine Kopplung mit allen Teilen an (Fach je Teil). Verschieben/Tauschen bewegt die ganze Kopplung (wie bisher).
+- **Übernahme/Seed:** `withCouplingIds()` (rein) vergibt **eine `coupling_id` je Band-Stunde**; `applyRun` und der Demo-Seed nutzen es, der
+  Demo-Plan zeigt das Band „Q1 GK-Schiene A“ als Kopplung. `undo`/Zurücknehmen, Vergleich und Vorschau arbeiten über `proposedLessons()` je
+  Teil und bleiben unverändert korrekt (Tests in `solverlauf.test.ts`).
+- **Diagnose:** neue Kategorie **„Bänder“** (`band`, Ziel `kind: "band"` mit Link zur Band-Seite): „nur x von y Stunden zur selben Zeit“
+  (`together < planned`, warn), „A und B haben gemeinsame Schüler:innen“ (Q-SP2-6, warn; `bandsWithSharedStudents()` – dieselbe Prüfung
+  warnt in der Vorprüfung eines Laufs), „Band ohne Lehraufträge“ (info). Die Liste „Bänder“ zeigt weiter „nur x Std. zur selben Zeit“.
+- **Demo:** die drei Q1-Grundkurse der Schiene bekommen **getrennte Schüler:innen** (je Schüler:in genau einer, Q-SP2-6); der Zufallswurf
+  bleibt gezogen, damit die übrige Demo unverändert ist. `listAssignments()` sortiert zuletzt nach id (deterministisch bei gleichem Fach und
+  Anlagezeitpunkt). Der Demo-Plan hat sich dadurch geändert (Band gemeinsam, Kopplungen) – E2E-Tests nachgezogen (`seed.test`,
+  `klausurplan/service.test` prüft Überschneidung jetzt gegen den Mathe-LK, `unterricht.spec`, `zx-gate-sp.spec` mit Band-Schritt).
+
+**Übergabe für SP2-03 … SP2-05:**
+- **SP2-03 (Tagesgrenzen/Ganztag je Jahrgangsstufe):** harte Regel in `State.feasible()` je Gruppe der Einheit (bei Bändern alle
+  Gruppen aller Teile – `u.groupIds`); Zähler je Gruppe × Tag liegen in `groupDay` (inkl. fixierter Stunden). `maxPerDay` als Zählung über
+  `groupDay.get(`${g}|${wd}`)`, `lunchAfterPeriod` als Sperre der Mittagsstunde, sobald eine Stunde danach liegt (oder umgekehrt) – beides
+  auch in `blockersAt()` (Reparatur) und `explain()` (neuer `UnplacedCause.kind`). Vorgaben je Jahrgang kommen aus dem Schulform-Katalog
+  (`core/school/templates.ts`); Diagnose-Kategorie neu anlegen wie `band` (DIAGNOSIS_CATEGORIES + Labels + Raster `lg:grid-cols-…`).
+- **SP2-04 (Lehrkraft-Tagesregeln, Fachverteilung):** `teacherDay` hält Stunden je Lehrkraft × Tag; `maxPerDay`/`maxDays` hart in
+  `feasible()`, Anwesenheitstage weich in `teacherDayCost()`/`gapStats()`. `subjectSpread` über die Woche: je Gruppe × Fach die Tage aus
+  `groupDay` (bei Bändern je Teil-Fach – `groupSubjectsOf()`), Kosten in `groupDayCost()` oder einer neuen Wochen-Kostenfunktion; Gewicht in
+  `SolverWeights`/`WEIGHT_PRESETS`/Formular (`start-form.tsx`) und `COST_LABELS`.
+- **SP2-05 (Hohlstunden Oberstufe/Kursband, Diagnose Zeitwünsche):** `classHoles()` zählt heute nur `classIds`; für Jahrgänge ohne Klasse
+  (Kurse) die Stunden je Jahrgang zusammenfassen (Kurse derselben Stufe = ein Band-Tag, wie `diagnose()` es für Klassen mit `bandByGrade`
+  tut) – Eingabe braucht `gradeOf: Map<groupId, grade>` in `SolverInput` (aus `groups.gradeLevel`). Diagnose Zeitwünsche: `allPrefs()` +
+  Plan am Stichtag → „gesperrt belegt“ = Fehler, −3/−2 = Warnung; Tausch in `placementCell()` prüft `blocked` schon für den Zielslot des
+  eigenen Teils, für den Partner-Slot (`back`) noch nicht – dort `input.blocked` auch für den Partner aufrufen.
+- Offen/Vorschlag: Q-SP2-7 (fixierte Stunden im Band: `max` je Mitglied) und Q-SP2-8 (Band-Mitglied allein nachsetzen: die Setzhilfe
+  setzt immer das ganze Band; ein Mitglied mit mehr fixierten/eigenen Stunden lässt sich nur über die Stundenpflege einzeln ergänzen).
 
 Nur auf Nachfrage von Schulen (Kann): A/B-Wochen im Solver (SP-G-17), Lehrbefähigung (SP-G-18), Wertrechnung/Faktoren (SP-G-19),
 faire Aufsichtsverteilung (SP-G-20), ICS-Abo des Stundenplans (SP-G-21), Matrix Lehrkraft × Fach (SP-G-22). Oberstufen-Blockung

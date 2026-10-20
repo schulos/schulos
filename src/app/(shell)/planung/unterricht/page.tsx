@@ -651,7 +651,6 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
                   <span className="flex flex-wrap gap-1">
                     {b.doubleLessons > 0 && <Badge>{b.doubleLessons}× Doppelstunde</Badge>}
                     {b.memberIds.length > 1 && b.together < b.planned && <Badge tone="warn">nur {num.format(b.together)} Std. zur selben Zeit</Badge>}
-                    {b.memberIds.length > 1 && !b.uniform && <Badge title="Verschiedene Fächer oder Lehrkräfte: die automatische Planung setzt die Lehraufträge noch einzeln">Solver: noch einzeln</Badge>}
                   </span>
                 </td>
                 <td className="text-right">

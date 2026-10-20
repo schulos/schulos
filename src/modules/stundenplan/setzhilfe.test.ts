@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
 import { auditLog, timetableLessons } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { createAssignment, planningYear } from "./verteilung";
+import { createAssignment, createBand, deleteBand, planningYear } from "./verteilung";
 import {
   assignmentPlacement,
   assignmentRows,
@@ -42,7 +42,7 @@ const roomList = [
   { id: "NW1", kind: "nw", active: true },
 ];
 const input = (o: Partial<GridInput>): GridInput => ({
-  rows: [{ groupId: "7b", teacherId: "t2", roomId: "102", week: "all", ...year }],
+  rows: [{ groupId: "7b", subjectId: "D", teacherId: "t2", roomId: "102", week: "all", ...year }],
   unitIds: [],
   lessons: [],
   rooms: roomList,
@@ -61,21 +61,43 @@ describe("placementCell", () => {
 
   it("A- und B-Woche und Gültigkeit zählen", () => {
     const lessons = [lesson("x", { teacherId: "t2", week: "A" })];
-    expect(placementCell(input({ lessons, rows: [{ groupId: "7b", teacherId: "t2", roomId: null, week: "B", ...year }] }), 0, 1).state).toBe("free");
+    expect(placementCell(input({ lessons, rows: [{ groupId: "7b", subjectId: "D", teacherId: "t2", roomId: null, week: "B", ...year }] }), 0, 1).state).toBe("free");
     expect(placementCell(input({ lessons: [lesson("x", { teacherId: "t2", validUntil: "2026-07-31", validFrom: "2026-02-01" })] }), 0, 1).state).toBe("free");
   });
 
   it("belegter Wunschraum: freier Raum derselben Art, sonst ohne Raum", () => {
     expect(placementCell(input({ lessons: [lesson("x", { roomId: "102" })] }), 0, 1)).toEqual({ state: "free", rooms: ["101"], roomNote: "Raum 102 belegt → 101" });
-    const nw = input({ rows: [{ groupId: "7b", teacherId: "t2", roomId: "NW1", week: "all", ...year }], lessons: [lesson("x", { roomId: "NW1" })] });
+    const nw = input({ rows: [{ groupId: "7b", subjectId: "BI", teacherId: "t2", roomId: "NW1", week: "all", ...year }], lessons: [lesson("x", { roomId: "NW1" })] });
     expect(placementCell(nw, 0, 1)).toEqual({ state: "free", rooms: [null], roomNote: "Raum NW1 belegt → ohne Raum" });
   });
 
   it("Kopplung: alle Teile müssen frei sein, gemeinsamer Raum bleibt gemeinsam", () => {
-    const rows = assignmentRows({ groups: [{ id: "7a", name: "7a" }, { id: "7b", name: "7b" }], teachers: [{ id: "t9", code: "ZZZ", name: "Z" }] }, "102", year);
+    const rows = assignmentRows({ groups: [{ id: "7a", name: "7a" }, { id: "7b", name: "7b" }], teachers: [{ id: "t9", code: "ZZZ", name: "Z" }], subjectId: "REL" }, "102", year);
     expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.subjectId === "REL")).toBe(true);
     expect(placementCell(input({ rows, lessons: [lesson("x", { periodNr: 2 })] }), 0, 1)).toEqual({ state: "free", rooms: ["102", "102"], roomNote: null });
     expect(placementCell(input({ rows, lessons: [lesson("x", {})] }), 0, 1)).toMatchObject({ state: "blocked", reasons: ["7a hat Mathematik"] });
+  });
+
+  it("SP2-02 Band: Teile mit verschiedenen Lehrkräften bekommen verschiedene Räume, gleiche Lehrkraft denselben; Fachsperre eines Teils sperrt", () => {
+    // Religion/Philosophie 7a+7b: RIC (REL, 7a und 7b) und NEU (PP, 7a) – beide wünschen den Stammraum 101
+    const rows = [
+      { groupId: "7a", subjectId: "REL", teacherId: "t1", roomId: "101", week: "all" as const, ...year },
+      { groupId: "7a", subjectId: "PP", teacherId: "t2", roomId: "101", week: "all" as const, ...year },
+      { groupId: "7b", subjectId: "REL", teacherId: "t1", roomId: "101", week: "all" as const, ...year },
+    ];
+    expect(placementCell(input({ rows }), 0, 1)).toEqual({ state: "free", rooms: ["101", "102", "101"], roomNote: "Raum 101 belegt → 102" });
+    // Teamteaching im selben Raum (gleiche Gruppe, gleicher Wunschraum, zwei Lehrkräfte) bleibt ein Raum
+    const team = [
+      { groupId: "7a", subjectId: "D", teacherId: "t1", roomId: "101", week: "all" as const, ...year },
+      { groupId: "7a", subjectId: "D", teacherId: "t2", roomId: "101", week: "all" as const, ...year },
+    ];
+    expect(placementCell(input({ rows: team }), 0, 1)).toEqual({ state: "free", rooms: ["101", "101"], roomNote: null });
+    // ein Teil gesperrt (Zeitwunsch des Fachs) → der ganze Slot ist gesperrt
+    const blocked = (weekday: number, periodNr: number) => (periodNr === 2 ? ["Philosophie: Zeit gesperrt"] : []);
+    expect(placementCell(input({ rows, blocked }), 0, 2)).toEqual({ state: "blocked", reasons: ["Philosophie: Zeit gesperrt"] });
+    // eine Lehrkraft eines Teils ist belegt → Grund
+    expect(placementCell(input({ rows, lessons: [lesson("x", { groupId: "8a", groupName: "8a", teacherId: "t2", teacherCode: "NEU" })] }), 0, 1)).toEqual({ state: "blocked", reasons: ["NEU unterrichtet 8a"] });
   });
 
   it("Verschieben: eigener Slot, Tauschen mit der Stunde der Gruppe, Tausch scheitert an Lehrkraft", () => {
@@ -125,7 +147,7 @@ describe("Setzhilfe (Demo-Schule)", () => {
     const open = await openAssignments(h.db, "g-7b", today);
     expect(open.map((a) => [a.id, a.open])).toEqual([[assignmentId, 2]]);
     const pl = await assignmentPlacement(h.db, open[0]!, today);
-    expect(pl.rows).toEqual([{ groupId: "g-7b", teacherId: "u-jana.brandt", roomId: expect.any(String), week: "all", ...year }]);
+    expect(pl.rows).toEqual([{ groupId: "g-7b", subjectId: "F", teacherId: "u-jana.brandt", roomId: expect.any(String), week: "all", ...year }]);
     const grid = placementGrid({ ...pl, unitIds: [], weekdays: [0, 1, 2, 3, 4], periods: [1, 2, 3, 4, 5, 6, 7, 8] });
     const free = [...grid].filter(([, c]) => c.state === "free").map(([k]) => k.split("-").map(Number) as [number, number]);
     const blocked = [...grid].find(([, c]) => c.state === "blocked")!;
@@ -168,5 +190,59 @@ describe("Setzhilfe (Demo-Schule)", () => {
     expect([partner!.weekday, partner!.periodNr]).toEqual([from.weekday, from.periodNr]);
     const log = await h.db.select().from(auditLog).where(eq(auditLog.action, "stundenplan.lesson.swap"));
     expect(log).toHaveLength(1);
+  });
+
+  it("SP2-02 Band: offen je Band, Setzen legt eine Kopplung mit allen Mitgliedern an (Fach und Raum je Teil), Verschieben bewegt das Band", async () => {
+    const y = (await planningYear(h.db))!;
+    // Band „Reli/Philo 7“: Religion 7b (Jana Brandt) + Politik 7a (Frank Schulte) – verschiedene Fächer und Lehrkräfte
+    const bandId = await createBand(h.db, "u-admin", { schoolYearId: y.id, name: "Reli/Philo 7", hours: 1, doubleLessons: 0 });
+    const rel = await createAssignment(h.db, "u-admin", { schoolYearId: y.id, groupId: "g-7b", subjectId: "REL", hours: 1, teacherIds: ["u-jana.brandt"], doubleLessons: 0, roomId: null, note: null, bandId });
+    const pp = await createAssignment(h.db, "u-admin", { schoolYearId: y.id, groupId: "g-7a", subjectId: "PK", hours: 1, teacherIds: ["u-frank.schulte"], doubleLessons: 0, roomId: "201", note: null, bandId });
+    const open7b = await openAssignments(h.db, "g-7b", today);
+    expect(open7b.map((a) => [a.id, a.open, a.band?.name])).toEqual([[rel, 1, "Reli/Philo 7"]]);
+    expect(open7b[0]!.band!.members.map((m) => m.id).sort()).toEqual([rel, pp].sort());
+    // beide Klassen sehen das Band offen
+    expect((await openAssignments(h.db, "g-7a", today)).map((a) => a.id)).toEqual([pp]);
+
+    const pl = await assignmentPlacement(h.db, open7b[0]!, today);
+    expect(pl.rows.map((r) => [r.groupId, r.subjectId, r.teacherId, r.roomId])).toEqual([
+      ["g-7a", "PK", "u-frank.schulte", "201"],
+      ["g-7b", "REL", "u-jana.brandt", expect.any(String)],
+    ]);
+    const grid = placementGrid({ ...pl, unitIds: [], weekdays: [0, 1, 2, 3, 4], periods: [1, 2, 3, 4, 5, 6, 7, 8] });
+    const free = [...grid].find(([, c]) => c.state === "free")!;
+    const [d, p] = free[0].split("-").map(Number) as [number, number];
+    await placeAssignment(h.db, "u-admin", rel, "g-7b", d, p, today);
+    const lessons = await h.db.select().from(timetableLessons).where(and(eq(timetableLessons.weekday, d), eq(timetableLessons.periodNr, p), inArray(timetableLessons.subjectId, ["REL", "PK"])));
+    expect(lessons).toHaveLength(2);
+    expect(lessons[0]!.couplingId).not.toBeNull();
+    expect(lessons[0]!.couplingId).toBe(lessons[1]!.couplingId);
+    expect(lessons.map((l) => [l.groupId, l.subjectId, l.teacherId]).sort()).toEqual([
+      ["g-7a", "PK", "u-frank.schulte"],
+      ["g-7b", "REL", "u-jana.brandt"],
+    ]);
+    expect(lessons.find((l) => l.subjectId === "PK")!.roomId).toBe("201");
+    // Band vollständig: in keiner der beiden Klassen mehr offen
+    expect(await openAssignments(h.db, "g-7b", today)).toEqual([]);
+    expect(await openAssignments(h.db, "g-7a", today)).toEqual([]);
+    expect(await errorOf(placeAssignment(h.db, "u-admin", rel, "g-7b", d, p, today))).toMatch(/keine Stunde mehr offen/);
+
+    // Verschieben: die Einheit sind beide Teile; danach liegen beide im neuen Slot
+    const relLesson = lessons.find((l) => l.subjectId === "REL")!;
+    const m = (await movePlacement(h.db, relLesson.id))!;
+    expect(m.unit.map((u) => u.subjectId).sort()).toEqual(["PK", "REL"]);
+    const moveGrid = placementGrid(moveGridInput(m, "g-7b", [0, 1, 2, 3, 4], [1, 2, 3, 4, 5, 6, 7, 8]));
+    const target = [...moveGrid].find(([, c]) => c.state === "free");
+    expect(target).toBeDefined();
+    const [td, tp] = target![0].split("-").map(Number) as [number, number];
+    expect(await moveLesson(h.db, "u-admin", relLesson.id, "g-7b", td, tp)).toBe("moved");
+    const moved = await h.db.select().from(timetableLessons).where(eq(timetableLessons.couplingId, relLesson.couplingId!));
+    expect(moved.map((l) => [l.weekday, l.periodNr])).toEqual([
+      [td, tp],
+      [td, tp],
+    ]);
+    // aufräumen
+    await h.db.delete(timetableLessons).where(eq(timetableLessons.couplingId, relLesson.couplingId!));
+    await deleteBand(h.db, "u-admin", bandId);
   });
 });

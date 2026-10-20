@@ -28,7 +28,7 @@ import { breaksFrom } from "./aufsichten";
 import { lessonActiveOn } from "./service";
 import { solve, validate } from "./solver";
 import { solverInputFromDb } from "./solver-input";
-import { proposedLessons } from "./solverlauf";
+import { proposedLessons, withCouplingIds } from "./solverlauf";
 import { planningYear } from "./verteilung";
 
 /** Doppelstunden in der Demo: Sport und Kunst (ab 2 Std.), Leistungskurse */
@@ -103,10 +103,8 @@ export async function seedStundenplan(db: Db, now = new Date()) {
     load.set(c.leader, (load.get(c.leader) ?? 0) + hours);
     rows.push({ id: `la-${c.id}-${c.subjectId}`, groupId: c.id, subjectId: c.subjectId!, hours, doubles: lk ? 1 : 0, teacherId: c.leader });
   }
-  // SP2-01: Beispiel-Band – drei Grundkurse der Q1 als Schiene (verschiedene Fächer und Lehrkräfte, je 3 Std.). Bis SP2-02 setzt
-  // der Solver sie noch einzeln; die Verteilung zeigt das Band mit Soll/verplant. Band vor den Lehraufträgen anlegen und `band_id`
-  // gleich mit einfügen – ein späteres UPDATE ändert die physische Reihenfolge und damit (bei gleichem Anlagezeitpunkt) die
-  // Reihenfolge der Lehraufträge und den Demo-Plan.
+  // SP2-01/02: Beispiel-Band – drei Grundkurse der Q1 als Schiene (verschiedene Fächer und Lehrkräfte, je 3 Std., getrennte
+  // Schüler:innen – Q-SP2-6). Der Solver setzt das Band als eine Einheit (eine Kopplung je Stunde); die Verteilung zeigt Soll/verplant.
   const schiene = new Set(rows.filter((r) => ["g-q1-e-gk1", "g-q1-d-gk1", "g-q1-bi-gk1"].includes(r.groupId) && r.hours === 3 && r.doubles === 0).map((r) => r.id));
   if (schiene.size > 1) await db.insert(timetableBands).values({ id: "band-q1-gk-a", schoolYearId: year.id, name: "Q1 GK-Schiene A", hours: 3, doubleLessons: 0 });
   await db.insert(timetableAssignments).values(
@@ -131,7 +129,8 @@ export async function seedStundenplan(db: Db, now = new Date()) {
     throw new Error(`Stundenplan-Seed: ${result.unplaced.length} Stunden passen nicht ins Raster, z. B. ${result.unplaced[0]!.label}`);
   const violations = validate(input, result.placements);
   if (violations.length) throw new Error(`Stundenplan-Seed: ${violations[0]}`);
-  const lessons = proposedLessons({ result, units: input.units, keptLessonIds: [], refYmd: year.startsOn });
+  // Band-Stunden werden wie bei der Übernahme eine Kopplung je Stunde (SP2-02)
+  const lessons = withCouplingIds(proposedLessons({ result, units: input.units, keptLessonIds: [], refYmd: year.startsOn }));
   await db.insert(timetableLessons).values(
     lessons.map((l) => ({
       groupId: l.groupId,
@@ -140,6 +139,7 @@ export async function seedStundenplan(db: Db, now = new Date()) {
       subjectId: l.subjectId,
       teacherId: l.teacherId,
       roomId: l.roomId,
+      couplingId: l.couplingId,
       validFrom: year.startsOn,
       validUntil: year.endsOn,
     })),

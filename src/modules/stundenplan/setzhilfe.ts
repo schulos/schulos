@@ -1,5 +1,7 @@
 // Setzhilfe (P2b-12): offene Stunden aus der Unterrichtsverteilung setzen, Freiraster mit Gründen, Verschieben/Tauschen.
-import { and, eq, gte, isNull, lte, or } from "drizzle-orm";
+// SP2-02: ein Lehrauftrag im Band wird mit allen Mitgliedern des Bands als eine Kopplung gesetzt (Fach, Lehrkraft, Raum je Teil);
+// Verschieben/Tauschen bewegt die ganze Kopplung.
+import { and, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
 import { groups, rooms, subjects, timetableLessons, users } from "@/core/db/schema";
@@ -31,9 +33,10 @@ export interface GridLesson {
   fixed?: boolean;
 }
 
-/** Ein Teil dessen, was gesetzt wird: Einzelstunde = 1 Teil, Kopplung = alle Teile. */
+/** Ein Teil dessen, was gesetzt wird: Einzelstunde = 1 Teil, Kopplung/Band = alle Teile (je Teil eigenes Fach, SP2-02). */
 export interface UnitRow {
   groupId: string;
+  subjectId: string;
   teacherId: string | null;
   roomId: string | null;
   week: Week;
@@ -109,24 +112,41 @@ export function placementCell(input: GridInput, weekday: number, periodNr: numbe
   const prefBlocks = input.blocked?.(weekday, periodNr) ?? [];
   if (prefBlocks.length) return { state: "blocked", reasons: unique([...hard.map((b) => b.message), ...prefBlocks]) };
   if (!hard.length) {
-    // Räume: Wunschraum, sonst ein freier aktiver Raum derselben Art, sonst ohne Raum
-    const resolved = new Map<string, string | null>();
+    // Räume je Teil: Wunschraum, sonst ein freier aktiver Raum derselben Art, sonst ohne Raum. Teile mit derselben Lehrkraft teilen
+    // sich den Raum (eine Lehrkraft, mehrere Gruppen), ebenso Teile derselben Gruppe mit demselben Fach und Wunschraum (Teamteaching im
+    // selben Raum); sonst bekommen verschiedene Lehrkräfte verschiedene Räume (SP2-02: Band, z. B. Religion/Philosophie einer Klasse).
     const notes: string[] = [];
     const taken = new Set<string>();
-    for (const row of rows) {
-      if (!row.roomId || resolved.has(row.roomId)) continue;
-      if (roomFree(row.roomId, rows, weekday, periodNr, lessons, exclude)) {
-        resolved.set(row.roomId, row.roomId);
-        taken.add(row.roomId);
+    const byTeacher = new Map<string, string | null>();
+    const out: (string | null)[] = [];
+    for (const [i, row] of rows.entries()) {
+      if (!row.roomId) {
+        out.push(null);
         continue;
       }
-      const kind = input.rooms.find((r) => r.id === row.roomId)?.kind;
-      const alt = input.rooms.find((r) => r.active && r.kind === kind && !taken.has(r.id) && !rows.some((x) => x.roomId === r.id) && roomFree(r.id, rows, weekday, periodNr, lessons, exclude));
-      resolved.set(row.roomId, alt?.id ?? null);
-      if (alt) taken.add(alt.id);
-      notes.push(alt ? `Raum ${row.roomId} belegt → ${alt.id}` : `Raum ${row.roomId} belegt → ohne Raum`);
+      if (row.teacherId && byTeacher.has(row.teacherId)) {
+        out.push(byTeacher.get(row.teacherId)!);
+        continue;
+      }
+      const team = rows.findIndex((x, j) => j < i && x.groupId === row.groupId && x.subjectId === row.subjectId && x.roomId === row.roomId);
+      if (team >= 0) {
+        if (row.teacherId) byTeacher.set(row.teacherId, out[team]!);
+        out.push(out[team]!);
+        continue;
+      }
+      let room: string | null;
+      if (!taken.has(row.roomId) && roomFree(row.roomId, rows, weekday, periodNr, lessons, exclude)) room = row.roomId;
+      else {
+        const kind = input.rooms.find((r) => r.id === row.roomId)?.kind;
+        const alt = input.rooms.find((r) => r.active && r.kind === kind && !taken.has(r.id) && !rows.some((x) => x.roomId === r.id) && roomFree(r.id, rows, weekday, periodNr, lessons, exclude));
+        room = alt?.id ?? null;
+        notes.push(alt ? `Raum ${row.roomId} belegt → ${alt.id}` : `Raum ${row.roomId} belegt → ohne Raum`);
+      }
+      if (room) taken.add(room);
+      if (row.teacherId) byTeacher.set(row.teacherId, room);
+      out.push(room);
     }
-    return { state: "free", rooms: rows.map((r) => (r.roomId ? resolved.get(r.roomId)! : null)), roomNote: notes.length ? notes.join(", ") : null };
+    return { state: "free", rooms: out, roomNote: notes.length ? notes.join(", ") : null };
   }
 
   const reasons = unique(hard.map((b) => b.message));
@@ -180,24 +200,40 @@ export async function gridLessons(db: Db, validFrom: string, validUntil: string 
 }
 
 export interface OpenAssignment extends Assignment {
+  /** im Band: das am wenigsten verplante Mitglied (die Setzhilfe setzt das Band als Einheit) */
   planned: number;
   open: number;
+  /** SP2-02: Band des Lehrauftrags mit allen Mitgliedern (mit Gruppe), in der Reihenfolge der Verteilung */
+  band?: { id: string; name: string; members: Assignment[] };
 }
 
-/** Lehraufträge der Gruppe im Planungsjahr mit noch offenen Wochenstunden (Stichtag heute). */
+/**
+ * Lehraufträge der Gruppe im Planungsjahr mit noch offenen Wochenstunden (Stichtag heute). Ein Lehrauftrag im Band ist offen,
+ * solange das Band offen ist (schwächstes Mitglied) – gesetzt wird dann das ganze Band.
+ */
 export async function openAssignments(db: Db, groupId: string, todayYmd: string): Promise<OpenAssignment[]> {
   const year = await planningYear(db);
   if (!year) return [];
   const d = await distribution(db, year, todayYmd);
-  return d.assignments
-    .filter((a) => a.groups.some((g) => g.id === groupId) && a.planned < a.hours)
-    .map((a) => ({ ...a, open: a.hours - a.planned }));
+  const byId = new Map(d.assignments.map((a) => [a.id, a]));
+  const bandOf = new Map(d.bands.map((b) => [b.id, b]));
+  const out: OpenAssignment[] = [];
+  for (const a of d.assignments) {
+    if (!a.groups.some((g) => g.id === groupId)) continue;
+    const b = a.bandId ? bandOf.get(a.bandId) : undefined;
+    if (b) {
+      if (b.planned >= b.hours) continue;
+      const members = b.memberIds.map((id) => byId.get(id)).filter((m): m is NonNullable<typeof m> => Boolean(m) && m!.groups.length > 0);
+      out.push({ ...a, planned: b.planned, open: b.hours - b.planned, band: { id: b.id, name: b.name, members } });
+    } else if (a.planned < a.hours) out.push({ ...a, open: a.hours - a.planned });
+  }
+  return out;
 }
 
-/** Teile, die ein Lehrauftrag beim Setzen erzeugt: jede Gruppe × jede Lehrkraft (Kopplung/Teamteaching), ein Raum. */
-export function assignmentRows(a: Pick<Assignment, "groups" | "teachers">, roomId: string | null, validity: { validFrom: string; validUntil: string | null }): UnitRow[] {
+/** Teile, die ein Lehrauftrag beim Setzen erzeugt: jede Gruppe × jede Lehrkraft (Teamteaching), sein Fach, ein Raum. */
+export function assignmentRows(a: Pick<Assignment, "groups" | "teachers" | "subjectId">, roomId: string | null, validity: { validFrom: string; validUntil: string | null }): UnitRow[] {
   const teachers = a.teachers.length ? a.teachers.map((t) => t.id) : [null];
-  return a.groups.flatMap((g) => teachers.map((teacherId) => ({ groupId: g.id, teacherId, roomId, week: "all" as const, ...validity })));
+  return a.groups.flatMap((g) => teachers.map((teacherId) => ({ groupId: g.id, subjectId: a.subjectId, teacherId, roomId, week: "all" as const, ...validity })));
 }
 
 export interface Placement {
@@ -214,27 +250,36 @@ async function prefBlocker(db: Db, targets: { kind: "teacher" | "group" | "room"
   return (weekday: number, periodNr: number) => blockedReasons(prefs, targets, weekday, periodNr);
 }
 
-/** Alles, was das Freiraster zum Setzen eines Lehrauftrags braucht. */
-export async function assignmentPlacement(db: Db, a: Assignment, todayYmd: string, from?: string): Promise<Placement> {
-  const [validity, roomList, [subject], [home]] = await Promise.all([
+/** Alles, was das Freiraster zum Setzen eines Lehrauftrags braucht – im Band (SP2-02) für alle Mitglieder, mit Raumvorschlag je Teil. */
+export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssignment, "band">, todayYmd: string, from?: string): Promise<Placement> {
+  const members = a.band?.members.length ? a.band.members : [a];
+  const groupIds = unique(members.flatMap((m) => m.groups.map((g) => g.id)));
+  const [validity, roomList, subjectRows, groupRows] = await Promise.all([
     defaultValidity(db, todayYmd, from),
     db.select({ id: rooms.id, kind: rooms.kind, active: rooms.active }).from(rooms).orderBy(rooms.id),
-    db.select({ roomKind: subjects.roomKind }).from(subjects).where(eq(subjects.id, a.subjectId)),
-    db.select({ homeRoomId: groups.homeRoomId }).from(groups).where(eq(groups.id, a.groups[0]?.id ?? "")),
+    db.select({ id: subjects.id, roomKind: subjects.roomKind }).from(subjects).where(inArray(subjects.id, unique(members.map((m) => m.subjectId)))),
+    groupIds.length ? db.select({ id: groups.id, homeRoomId: groups.homeRoomId }).from(groups).where(inArray(groups.id, groupIds)) : Promise.resolve([]),
   ]);
-  const roomId = a.roomId ?? suggestRoom(subject, home?.homeRoomId ?? null, roomList);
-  const blocked = await prefBlocker(db, [
-    ...a.teachers.map((t) => ({ kind: "teacher" as const, id: t.id, label: t.code ?? t.name })),
-    ...a.groups.map((g) => ({ kind: "group" as const, id: g.id, label: g.name })),
-    { kind: "room" as const, id: roomId, label: `Raum ${roomId}` },
-    { kind: "subject" as const, id: a.subjectId, label: a.subjectName },
-  ]);
-  return { rows: assignmentRows(a, roomId, validity), validity, lessons: await gridLessons(db, validity.validFrom, validity.validUntil), rooms: roomList, blocked };
+  const roomFor = (m: Assignment) =>
+    m.roomId ?? suggestRoom(subjectRows.find((s) => s.id === m.subjectId), groupRows.find((g) => g.id === m.groups[0]?.id)?.homeRoomId ?? null, roomList);
+  const rows = members.flatMap((m) => assignmentRows(m, roomFor(m), validity));
+  const targets = new Map<string, { kind: "teacher" | "group" | "room" | "subject"; id: string | null; label: string }>();
+  const target = (kind: "teacher" | "group" | "room" | "subject", id: string | null, label: string) => {
+    if (id) targets.set(`${kind}:${id}`, { kind, id, label });
+  };
+  for (const m of members) {
+    for (const t of m.teachers) target("teacher", t.id, t.code ?? t.name);
+    for (const g of m.groups) target("group", g.id, g.name);
+    target("subject", m.subjectId, m.subjectName);
+  }
+  for (const r of rows) target("room", r.roomId, `Raum ${r.roomId}`);
+  const blocked = await prefBlocker(db, [...targets.values()]);
+  return { rows, validity, lessons: await gridLessons(db, validity.validFrom, validity.validUntil), rooms: roomList, blocked };
 }
 
 const slotName = (weekday: number, periodNr: number) => `${["Mo", "Di", "Mi", "Do", "Fr"][weekday]} ${periodNr}. Stunde`;
 
-/** Setzt eine Stunde eines Lehrauftrags in den Slot (bei mehreren Gruppen/Lehrkräften als Kopplung). */
+/** Setzt eine Stunde eines Lehrauftrags in den Slot – bei mehreren Lehrkräften oder im Band (alle Mitglieder) als Kopplung. */
 export async function placeAssignment(db: Db, actorId: string, assignmentId: string, groupId: string, weekday: number, periodNr: number, todayYmd: string, from?: string): Promise<void> {
   const a = (await openAssignments(db, groupId, from ?? todayYmd)).find((x) => x.id === assignmentId);
   if (!a) throw new ValidationError({ assignment: "Für diesen Lehrauftrag ist keine Stunde mehr offen" });
@@ -244,9 +289,9 @@ export async function placeAssignment(db: Db, actorId: string, assignmentId: str
   const slot = { weekday, periodNr, week: "all" as const, ...pl.validity };
   if (pl.rows.length === 1) {
     const r = pl.rows[0]!;
-    await createLesson(db, actorId, { ...slot, groupId: r.groupId, subjectId: a.subjectId, teacherId: r.teacherId, roomId: cell.rooms[0]! });
+    await createLesson(db, actorId, { ...slot, groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[0]! });
   } else {
-    await saveCoupling(db, actorId, null, { ...slot, parts: pl.rows.map((r, i) => ({ groupId: r.groupId, subjectId: a.subjectId, teacherId: r.teacherId, roomId: cell.rooms[i]! })) });
+    await saveCoupling(db, actorId, null, { ...slot, parts: pl.rows.map((r, i) => ({ groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[i]! })) });
   }
 }
 

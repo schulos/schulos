@@ -237,6 +237,10 @@ export async function seedDemoSchool(
     ["q2", "E", "LK1", "WAG"],
     ["q2", "PH", "GK1", "SLT"],
   ];
+  // Die drei Q1-Grundkurse bilden das Demo-Band „Q1 GK-Schiene A“ (SP2-01/02): sie liegen zur selben Zeit, darum bekommt jede
+  // Schüler:in genau einen davon (Q-SP2-6 – getrennte Kurse). Der Zufallswurf wird trotzdem gezogen, damit die übrige Demo
+  // (AGs, Anmeldungen …) unverändert bleibt.
+  const schiene = ["q1-e-gk1", "q1-d-gk1", "q1-bi-gk1"];
   for (const [grade, subjectId, label, code] of courses) {
     const subject = SUBJECT_TEMPLATE.find((s) => s.id === subjectId)!;
     const slug = `${grade}-${subjectId.toLowerCase()}-${label.toLowerCase()}`;
@@ -244,7 +248,11 @@ export async function seedDemoSchool(
     const gradeLevel = UPPER_GRADES.find((g) => g.slug === grade)!.grade;
     groupRows.push({ id: groupId, name: `${grade.toUpperCase()} ${subject.name} ${label}`, slug, kind: "kurs", gradeLevel, level: label.startsWith("LK") ? "LK" : "GK", subjectId, schoolYearId: yearId });
     addMember(groupId, teacher(code), "leader");
-    for (const s of upperStudents.get(grade)!) if (rng.chance(0.7)) addMember(groupId, s);
+    const lane = schiene.indexOf(slug);
+    upperStudents.get(grade)!.forEach((s, i) => {
+      const chance = rng.chance(0.7);
+      if (lane >= 0 ? i % schiene.length === lane : chance) addMember(groupId, s);
+    });
   }
 
   // --- Fachschaften

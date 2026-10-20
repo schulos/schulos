@@ -1,5 +1,5 @@
 // SP2-01: Migration 0100 – bisherige Kopplungen im Lehrauftrag („Gekoppelt mit“) werden zu Bändern; der Solver setzt sie weiter
-// als eine Kopplung.
+// als eine Kopplung (seit SP2-02 als Band-Einheit mit einem Teil je Mitglied).
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -128,7 +128,7 @@ describe("Migration 0100: Kopplungen → Bänder", () => {
     ]);
   });
 
-  it("Verteilung: Band einheitlich, Lehrkraft zählt das Band einmal; Solver setzt es wie die alte Kopplung", async () => {
+  it("Verteilung: Band einheitlich, Lehrkraft zählt das Band einmal; Solver setzt es als eine Einheit (ein Teil je Mitglied und Lehrkraft)", async () => {
     const d = await distribution(h.db, year, "2026-10-05");
     const band = d.bands.find((b) => b.id === "a-rel")!;
     expect(band).toMatchObject({ name: "Religion 7a/7b", hours: 2, planned: 0, together: 0, uniform: true });
@@ -139,10 +139,17 @@ describe("Migration 0100: Kopplungen → Bänder", () => {
     const units = unitsFrom(d, { roomKindOf: new Map(), homeRoomOf: new Map(), sizeOf: new Map(), classIds: new Set(["g-7a", "g-7b", "g-7c"]) });
     const rel = units.filter((u) => u.subjectId === "REL" && u.length === 2);
     expect(rel).toHaveLength(1);
-    expect(rel[0]).toMatchObject({ assignmentId: "a-rel", groupIds: ["g-7a", "g-7b"], teacherIds: ["t1", "t2"], label: "7a + 7b Religion (EIN + ZWE)" });
-    expect(rel[0]!.parts.map((p) => p.teacherIds)).toEqual([["t1"], ["t2"]]);
+    // SP2-02: Einheit nach dem Band (id = alter Lehrauftrag), ein Teil je Mitglied × Lehrkraft (Teamteaching), 7a vor 7b
+    expect(rel[0]).toMatchObject({ id: "a-rel#d0", assignmentId: "a-rel", groupIds: ["g-7a", "g-7b"], teacherIds: ["t1", "t2"], label: "Religion 7a/7b: 7a Religion (EIN + ZWE) + 7b Religion (EIN + ZWE)" });
+    expect(rel[0]!.parts.map((p) => [p.groupIds[0], p.teacherIds[0]])).toEqual([
+      ["g-7a", "t1"],
+      ["g-7a", "t2"],
+      ["g-7b", "t1"],
+      ["g-7b", "t2"],
+    ]);
     expect(units.filter((u) => u.subjectId === "REL")).toHaveLength(2);
-    expect(units.find((u) => u.assignmentId === "a-rel2")).toMatchObject({ groupIds: ["g-7a", "g-7b", "g-7c"], length: 1 });
+    expect(units.find((u) => u.id === "a-rel2#e0")).toMatchObject({ groupIds: ["g-7a", "g-7b", "g-7c"], teacherIds: ["t1"], length: 1 });
+    expect(units.find((u) => u.id === "a-rel2#e0")!.parts).toHaveLength(3);
   });
 
   it("erneuter Lauf ändert nichts", async () => {
