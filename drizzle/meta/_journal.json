@@ -680,6 +680,13 @@
       "when": 1792446492382,
       "tag": "0096_sp12_fachtausch",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1792468585268,
+      "tag": "0097_buecherei_lernmittel",
+      "breakpoints": true
     }
   ]
 }

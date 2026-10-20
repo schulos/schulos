@@ -26,7 +26,7 @@ import { MODULES } from "@/modules";
 import { seedAufgaben } from "@/modules/aufgaben/seed";
 import { seedBuchungen } from "@/modules/buchungen/seed";
 import buecherei from "@/modules/buecherei/manifest";
-import { seedBuecherei } from "@/modules/buecherei/seed";
+import { seedBuecherei, seedLernmittel } from "@/modules/buecherei/seed";
 import { seedDateien } from "@/modules/dateien/seed";
 import { seedElternbriefe } from "@/modules/elternbriefe/seed";
 import anmeldung from "@/modules/anmeldung/manifest";
@@ -369,6 +369,8 @@ export async function seedDemoSchool(
   // Schulbücherei (BU-01): bis GATE BU1 ab Werk aus, in der Demo an
   await setModuleEnabled(db, buecherei, true);
   await seedBuecherei(db, { borrowers: [sek1Students[3]!, sek1Students[30]!, sek1Students[60]!] });
+  // Schulbuchausleihe (BU-10): ab Werk aus, in der Demo an
+  await seedLernmittel(db);
   // Demo-Logo (P4-05) – nur mit Dateispeicher (db:reset, Erststart, demo-reset); Tests ohne Speicher bleiben ohne Logo
   if (opts.storage) {
     const svg = (s: string) => new TextEncoder().encode(s);

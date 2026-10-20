@@ -7,13 +7,14 @@ import { requireModulePage } from "@/core/modules/guard";
 import { markLabelsPrintedAction } from "@/modules/buecherei/actions";
 import { LABEL_TEMPLATES, clampStart, labelTemplate, labelsToPrint, layoutPages, perSheet, slotPosition, type LabelSource, type LabelTemplate, type PrintLabel } from "@/modules/buecherei/etiketten";
 import { canStock } from "@/modules/buecherei/service";
+import { canMaterials, lernmittelEnabled, materialLabels } from "@/modules/buecherei/lernmittel";
 import { Button } from "@schulos/ui/button";
 import { PrintButton } from "@schulos/ui/print-button";
 import { Barcode } from "@/ui/barcode";
 
 export const metadata: Metadata = { title: "Bücherei-Etiketten drucken" };
 
-type Search = { quelle?: string; titel?: string; exemplar?: string; vorlage?: string; start?: string; test?: string };
+type Search = { quelle?: string; titel?: string; exemplar?: string; lernmittel?: string; "lernmittel-exemplar"?: string; vorlage?: string; start?: string; test?: string };
 
 const mm = (n: number) => `${n}mm`;
 
@@ -39,21 +40,30 @@ function LabelBody({ l, t }: { l: PrintLabel; t: LabelTemplate }) {
 export default async function EtikettenDruckPage({ searchParams }: { searchParams: Promise<Search> }) {
   await requireModulePage("buecherei");
   const { perms } = await requireUser();
-  if (!canStock(perms)) notFound();
   const sp = await searchParams;
+  const db = await getDb();
+  // BU-10: Inventarnummern der Lernmittel mit demselben Baustein – Recht `materials`, nur mit eingeschalteter Schulbuchausleihe
+  const material = sp.lernmittel ? { materialId: sp.lernmittel } : sp["lernmittel-exemplar"] ? { copyId: sp["lernmittel-exemplar"] } : null;
+  if (material ? !canMaterials(perms) || !(await lernmittelEnabled(db)) : !canStock(perms)) notFound();
   const t = labelTemplate(sp.vorlage);
   const test = sp.test === "1";
   const start = clampStart(t, sp.start);
   const src: LabelSource | null = sp.exemplar ? { kind: "exemplar", copyId: sp.exemplar } : sp.titel ? { kind: "titel", titleId: sp.titel } : sp.quelle === "warteschlange" ? { kind: "warteschlange" } : null;
-  if (!test && !src) notFound();
-  const labels = test || !src ? [] : await labelsToPrint(await getDb(), perms, src);
+  if (!test && !src && !material) notFound();
+  const labels = test ? [] : material ? await materialLabels(db, perms, material) : src ? await labelsToPrint(db, perms, src) : [];
   const open = labels.filter((l) => !l.printed);
   // Testseite: alle Plätze eines Bogens bzw. ein Etikett, nur Rahmen und Nummer
   const pages: (PrintLabel | number | null)[][] = test ? [Array.from({ length: perSheet(t) }, (_, i) => i)] : layoutPages(t, labels, start);
-  const back = sp.titel ? `/buecherei/bestand/${encodeURIComponent(sp.titel)}` : "/buecherei/etiketten";
+  const back = sp.titel
+    ? `/buecherei/bestand/${encodeURIComponent(sp.titel)}`
+    : sp.lernmittel
+      ? `/buecherei/lernmittel/${encodeURIComponent(sp.lernmittel)}`
+      : material
+        ? "/buecherei/lernmittel"
+        : "/buecherei/etiketten";
   const query = (o: Record<string, string>) => {
     const base: Record<string, string> = {};
-    for (const k of ["quelle", "titel", "exemplar", "test", "start"] as const) if (sp[k]) base[k] = sp[k]!;
+    for (const k of ["quelle", "titel", "exemplar", "lernmittel", "lernmittel-exemplar", "test", "start"] as const) if (sp[k]) base[k] = sp[k]!;
     return `?${new URLSearchParams({ ...base, ...o })}`;
   };
   const pageCss =

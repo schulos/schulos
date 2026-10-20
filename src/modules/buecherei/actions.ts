@@ -11,6 +11,18 @@ import { ValidationError } from "@/modules/verwaltung/users";
 import { classMemberIds, ensureCards, replaceCard } from "./cards";
 import { markLabelsPrinted, markQueuePrinted, requeueLabel } from "./etiketten";
 import { lookupIsbn } from "./isbn";
+import {
+  addMaterialCopies,
+  createMaterial,
+  deleteMaterial,
+  restoreMaterialCopy,
+  saveBooklist,
+  setMaterialArchived,
+  updateMaterial,
+  updateMaterialCopy,
+  withdrawMaterialCopy,
+  type MaterialInput,
+} from "./lernmittel";
 import { checkin, renewLoan, renewOwnLoan, resolveFinding, scanAtDesk } from "./loans";
 import { cancelReservation, reserve } from "./reservations";
 import { MAX_TITLE_CSV_BYTES, addCopies, createTitle, deleteTitle, importTitles, restoreCopy, updateCopy, updateTitle, withdrawCopy, type TitleInput } from "./service";
@@ -314,4 +326,123 @@ export async function lookupIsbnAction(_prev: FormState, form: FormData): Promis
   } catch (err) {
     return fail(err, form);
   }
+}
+
+// ---------------------------------------------------------------- Stufe 2: Lernmittel (BU-10)
+
+function materialInput(form: FormData): MaterialInput {
+  const str = (k: string) => String(form.get(k) ?? "");
+  return {
+    title: str("title"),
+    author: str("author"),
+    isbn: str("isbn"),
+    publisher: str("publisher"),
+    subjectId: str("subjectId"),
+    grades: form.getAll("grades").map(String),
+    course: str("course"),
+    provision: str("provision"),
+    price: str("price"),
+    note: str("note"),
+  };
+}
+
+export async function createMaterialAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  let id: string;
+  try {
+    ({ id } = await createMaterial(await getDb(), perms, materialInput(form), {
+      count: String(form.get("count") ?? ""),
+      acquiredYear: String(form.get("acquiredYear") ?? ""),
+    }));
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  redirect(`/buecherei/lernmittel/${id}`);
+}
+
+export async function updateMaterialAction(id: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await updateMaterial(await getDb(), perms, id, materialInput(form));
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  return { ok: true };
+}
+
+export async function archiveMaterialAction(id: string, archived: boolean, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await setMaterialArchived(await getDb(), perms, id, archived, today());
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  return { ok: true, values: { result: archived ? "Archiviert – steht nicht mehr auf Bücherlisten." : "Wieder aktiv." } };
+}
+
+export async function deleteMaterialAction(id: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await deleteMaterial(await getDb(), perms, id);
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  redirect("/buecherei/lernmittel");
+}
+
+export async function addMaterialCopiesAction(materialId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const str = (k: string) => String(form.get(k) ?? "");
+  try {
+    const nrs = await addMaterialCopies(await getDb(), perms, materialId, { count: str("count"), condition: str("condition"), acquiredYear: str("acquiredYear") });
+    revalidatePath("/buecherei", "layout");
+    return { ok: true, values: { result: nrs.length === 1 ? `Exemplar ${nrs[0]} angelegt` : `${nrs.length} Exemplare angelegt (${nrs[0]} bis ${nrs.at(-1)})` } };
+  } catch (err) {
+    return fail(err, form);
+  }
+}
+
+export async function updateMaterialCopyAction(copyId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const str = (k: string) => String(form.get(k) ?? "");
+  try {
+    await updateMaterialCopy(await getDb(), perms, copyId, { condition: str("condition"), conditionNote: str("conditionNote"), acquiredYear: str("acquiredYear") });
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  return { ok: true };
+}
+
+export async function withdrawMaterialCopyAction(copyId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await withdrawMaterialCopy(await getDb(), perms, copyId, String(form.get("reason") ?? ""), today());
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  return { ok: true };
+}
+
+export async function restoreMaterialCopyAction(copyId: string): Promise<void> {
+  const { perms } = await requireUser();
+  await restoreMaterialCopy(await getDb(), perms, copyId);
+  revalidatePath("/buecherei", "layout");
+}
+
+export async function saveBooklistAction(grade: number, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await saveBooklist(await getDb(), perms, grade, { text: String(form.get("text") ?? ""), published: form.get("published") === "on" });
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  revalidatePath("/druck/buecherliste");
+  return { ok: true, values: { result: "Gespeichert." } };
 }

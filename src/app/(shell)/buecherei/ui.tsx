@@ -5,6 +5,8 @@ import { Badge } from "@schulos/ui/badge";
 import { canUse } from "@/modules/buecherei/katalog";
 import { canDesk } from "@/modules/buecherei/loans";
 import { canStock } from "@/modules/buecherei/service";
+import { getDb } from "@/core/db/client";
+import { canMaterials, canReadBooklist, lernmittelEnabled } from "@/modules/buecherei/lernmittel";
 
 const SECTIONS = [
   { key: "katalog", href: "/buecherei/katalog", label: "Katalog", allowed: canUse },
@@ -15,13 +17,20 @@ const SECTIONS = [
   { key: "ausweise", href: "/buecherei/ausweise", label: "Ausweise", allowed: canDesk },
   { key: "etiketten", href: "/buecherei/etiketten", label: "Etiketten", allowed: canStock },
   { key: "statistik", href: "/buecherei/statistik", label: "Statistik", allowed: canStock },
+  // Stufe 2 (BU-10): nur mit eingeschalteter Schulbuchausleihe
+  { key: "lernmittel", href: "/buecherei/lernmittel", label: "Lernmittel", allowed: canMaterials, stage2: true },
+  { key: "buecherliste", href: "/buecherei/buecherliste", label: "Bücherliste", allowed: canReadBooklist, stage2: true },
 ] as const;
 
 export type BuechereiSection = (typeof SECTIONS)[number]["key"];
 
-/** Bereiche der Bücherei nach Recht (Katalog: `use`, Meine Ausleihen: `use` oder Eltern, Theke, Mahnliste und Ausweise: `desk`, Bestand, Etiketten und Statistik: `stock`). */
-export function BuechereiNav({ current, perms }: { current: BuechereiSection; perms: PermissionSet }) {
-  const visible = SECTIONS.filter((s) => s.allowed(perms));
+/**
+ * Bereiche der Bücherei nach Recht (Katalog: `use`, Meine Ausleihen: `use` oder Eltern, Theke, Mahnliste und Ausweise: `desk`,
+ * Bestand, Etiketten und Statistik: `stock`; mit Schulbuchausleihe Lernmittel: `materials`, Bücherliste: alle mit Bücherei-Zugang).
+ */
+export async function BuechereiNav({ current, perms }: { current: BuechereiSection; perms: PermissionSet }) {
+  const stage2 = await lernmittelEnabled(await getDb());
+  const visible = SECTIONS.filter((s) => s.allowed(perms) && (stage2 || !("stage2" in s)));
   if (visible.length < 2) return null;
   return (
     <nav aria-label="Bücherei" className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
