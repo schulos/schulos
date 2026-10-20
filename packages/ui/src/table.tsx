@@ -2,10 +2,16 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "./cn";
 
-/** Tabelle im Karten-Rahmen; scrollt auf schmalen Bildschirmen horizontal. */
-export function Table({ children, className }: { children: React.ReactNode; className?: string }) {
+/**
+ * Tabelle im Karten-Rahmen; scrollt auf schmalen Bildschirmen horizontal. Mit `scrollLabel` ist der Rahmen per Tastatur
+ * fokussierbar (Bereich mit Namen) – nötig, wenn die Tabelle bewusst schmal (z. B. nebeneinander) steht und scrollt.
+ */
+export function Table({ children, className, scrollLabel }: { children: React.ReactNode; className?: string; scrollLabel?: string }) {
   return (
-    <div className={cn("overflow-x-auto rounded-card border border-border bg-surface", className)}>
+    <div
+      className={cn("overflow-x-auto rounded-card border border-border bg-surface", className)}
+      {...(scrollLabel ? { role: "region", "aria-label": scrollLabel, tabIndex: 0 } : {})}
+    >
       <table className="w-full border-collapse text-left text-sm [&_td]:border-t [&_td]:border-border [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3 [&_th]:text-xs [&_th]:font-semibold [&_th]:tracking-wide [&_th]:text-muted [&_th]:uppercase [&_tbody_tr:hover]:bg-surface-2">
         {children}
       </table>

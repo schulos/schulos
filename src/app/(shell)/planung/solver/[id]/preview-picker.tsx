@@ -12,19 +12,22 @@ interface Option {
 export function PreviewPicker({
   action,
   value,
-  kategorie,
+  hidden,
   groups,
   teachers,
 }: {
   action: string;
   value: string;
-  kategorie: string | null;
+  /** weitere Parameter, die beim Absenden erhalten bleiben (Kostenfilter, Lauf-Auswahl) */
+  hidden: Record<string, string>;
   groups: Option[];
   teachers: Option[];
 }) {
   return (
     <form action={action} aria-label="Vorschau wählen" className="flex flex-wrap items-end gap-2">
-      {kategorie && <input type="hidden" name="kategorie" value={kategorie} />}
+      {Object.entries(hidden).map(([k, v]) => (
+        <input key={k} type="hidden" name={k} value={v} />
+      ))}
       <Field label="Klasse, Kurs oder Lehrkraft" className="w-64">
         <Select name="vorschau" defaultValue={value} required>
           <option value="" disabled>

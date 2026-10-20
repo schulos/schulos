@@ -66,7 +66,7 @@ test("SP-07: Lauf mit eigenen Gewichten starten → weiterer Lauf abbrechen → 
   await expect(rowB).toContainText("gründlich · ausgewogen");
   const rowA = table.getByRole("row").filter({ has: page.getByRole("link", { name: A }) });
   await expect(rowA).toContainText("schnell · eigene");
-  await expect(rowA.getByRole("cell").nth(4)).toHaveText("0");
+  await expect(rowA.getByRole("cell").nth(5)).toHaveText("0");
   const filters = page.getByRole("navigation", { name: "Läufe filtern" });
   await filters.getByRole("link", { name: "Fertig" }).click();
   await expect(filters.getByRole("link", { name: "Fertig" })).toHaveAttribute("aria-current", "page");
@@ -124,4 +124,142 @@ test("SP-07: alte Links mit ?lauf= führen auf die Detailseite; unbekannter Lauf
   await login(page, "sabine.kowalski");
   expect((await page.request.get(`/api/stundenplan/solver/status?ids=${id}`)).status()).toBe(403);
   expect((await page.goto(`/planung/solver/${id}`))?.status()).toBe(404);
+});
+
+// SP-08: Läufe der Historie ankreuzen (höchstens drei) → Vergleich mit bestem Wert, Delta, Parametern und Vorschau nebeneinander.
+test("SP-08: drei Läufe vergleichen – Auswahl begrenzt, Kennzahlen mit Bestwert und Delta, Vorschau nebeneinander, A11Y", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const errors = collectErrors(page);
+  const v = (n: number) => `E2E Vergleich ${n} ${tag}`;
+  await login(page, "frank.schulte");
+  await startRun(page, {
+    label: v(1),
+    effort: "schnell",
+    preset: "ausgewogen",
+  });
+  await startRun(page, { label: v(2), effort: "schnell", preset: "raumtreu" });
+  await startRun(page, {
+    label: v(3),
+    effort: "schnell",
+    preset: "ausgewogen",
+  });
+
+  await page.goto("/planung/solver");
+  const table = page.getByRole("table", {
+    name: /Läufe der automatischen Planung/,
+  });
+  const row = (n: number) =>
+    table
+      .getByRole("row")
+      .filter({ has: page.getByRole("link", { name: v(n) }) });
+  await expect(async () => {
+    await page.reload();
+    for (const n of [1, 2, 3])
+      await expect(row(n).getByText("fertig")).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 120_000 });
+
+  const compare = page.getByRole("form", { name: "Läufe vergleichen" });
+  const submit = compare.getByRole("button", {
+    name: "Ausgewählte Läufe vergleichen",
+  });
+  await expect(submit).toBeDisabled();
+  const box = (n: number) => row(n).getByRole("checkbox");
+  await box(1).check();
+  await expect(submit).toBeDisabled();
+  await expect(compare.getByRole("status")).toContainText("1 gewählt");
+  await box(2).check();
+  await box(3).check();
+  await expect(submit).toBeEnabled();
+  await expect(compare.getByRole("status")).toContainText(
+    "3 gewählt (höchstens 3)",
+  );
+  // ab drei sind alle übrigen Kästchen gesperrt
+  const rest = table.locator("input[type=checkbox]:not(:checked)");
+  for (let i = 0; i < (await rest.count()); i++)
+    await expect(rest.nth(i)).toBeDisabled();
+  await submit.click();
+  await expect(page).toHaveURL(
+    /\/planung\/solver\/vergleich\?laeufe=[\w-]+,[\w-]+,[\w-]+$/,
+  );
+
+  await expect(
+    page.getByRole("heading", { name: "Läufe vergleichen", level: 1 }),
+  ).toBeVisible();
+  const kenn = page.getByRole("table", {
+    name: /Kennzahlen der verglichenen Läufe/,
+  });
+  for (const n of [1, 2, 3])
+    await expect(
+      kenn.getByRole("columnheader", { name: new RegExp(v(n)) }),
+    ).toBeVisible();
+  const score = kenn.getByRole("row", { name: /^Bewertung/ });
+  await expect(score.getByRole("cell")).toHaveCount(3);
+  // Bestwert: genau die Läufe mit dem kleinsten Wert tragen die Marke; Delta nur bei Lauf 2 und 3
+  const scores = (await score.getByRole("cell").allInnerTexts()).map((t) =>
+    Number(
+      t
+        .replace(/\s*(Bestwert|[+±−][\d.,]+)\s*/g, " ")
+        .trim()
+        .split(" ")[0]!
+        .replace(/\./g, "")
+        .replace(",", "."),
+    ),
+  );
+  const min = Math.min(...scores);
+  for (let i = 0; i < 3; i++)
+    await expect(
+      score.getByRole("cell").nth(i).getByText("Bestwert"),
+    ).toHaveCount(scores[i] === min && new Set(scores).size > 1 ? 1 : 0);
+  await expect(score.getByRole("cell").nth(0)).not.toContainText(/[+±−]\d/);
+  await expect(score.getByRole("cell").nth(1)).toContainText(/[+±−]\d/);
+  await expect(
+    kenn.getByRole("row", { name: /^Dauer/ }).getByText("Bestwert"),
+  ).toHaveCount(0);
+  const params = page.getByRole("table", {
+    name: /Parameter der verglichenen Läufe/,
+  });
+  await expect(params.getByRole("row", { name: /^Gewichtung/ })).toContainText(
+    "abweichend",
+  );
+  await expect(
+    params.getByRole("row", { name: /^Gründlichkeit/ }),
+  ).not.toContainText("abweichend");
+
+  // Vorschau nebeneinander: dieselbe Lehrkraft in allen drei Läufen
+  await page
+    .getByLabel("Klasse, Kurs oder Lehrkraft")
+    .selectOption({ label: "BRA – Jana Brandt" });
+  await page.getByRole("button", { name: "Anzeigen" }).click();
+  await expect(page).toHaveURL(/vorschau=t%3A|vorschau=t:/);
+  for (const n of [1, 2, 3])
+    await expect(
+      page.getByRole("table", { name: `Vorschlag ${v(n)} · BRA (Lehrkraft)` }),
+    ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Parameter" })).toBeVisible();
+  await page.screenshot({
+    path: ".data/shots/e2e/solver-vergleich.png",
+    fullPage: true,
+  });
+  const axe = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+  expect(
+    axe.violations.map(
+      (x) => `${x.id}: ${x.nodes.map((n) => n.target.join(" ")).join(", ")}`,
+    ),
+  ).toEqual([]);
+
+  // ungültige Auswahl: verständliche Meldung statt Fehlerseite
+  await page.goto("/planung/solver/vergleich?laeufe=gibt-es-nicht");
+  await expect(page.locator("main").getByRole("alert")).toContainText("mindestens 2");
+  await page.goto("/planung/solver/vergleich");
+  await expect(page.locator("main").getByRole("alert")).toContainText("mindestens 2");
+  expect(errors).toEqual([]);
+
+  // Sekretariat hat keinen Zugriff
+  await logoutForSwitch(page);
+  await login(page, "sabine.kowalski");
+  expect(
+    (await page.goto("/planung/solver/vergleich?laeufe=a,b"))?.status(),
+  ).toBe(404);
 });
