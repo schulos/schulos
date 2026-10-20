@@ -97,7 +97,10 @@ export default async function ErsatzPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   {c.userId && (
                     <Button asChild size="sm" variant="secondary">
-                      <Link href={`/druck/buecherei-ersatz?id=${encodeURIComponent(c.id)}`}>Brief drucken</Link>
+                      {/* GATE BU2 (G-BU2-01): kein Vorabladen – das Öffnen vermerkt „Brief gedruckt am“ und schreibt ins Audit-Log */}
+                      <Link href={`/druck/buecherei-ersatz?id=${encodeURIComponent(c.id)}`} prefetch={false}>
+                        Brief drucken
+                      </Link>
                     </Button>
                   )}
                   <form action={compensationStatusAction.bind(null, c.id, "bezahlt")}>

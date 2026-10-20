@@ -16,6 +16,7 @@ import { planDeletion, runDeletion } from "@/core/privacy/loeschlauf";
 import { addDays } from "@/core/time";
 import { issueCopy, resolveIssueFinding, runSchoolbookDunning, takeBack } from "./ausgabe";
 import { ensureCards } from "./cards";
+import { compensationLetter, createCompensation, setCompensationStatus } from "./ersatz";
 import { dueDate } from "./dates";
 import { createMaterial } from "./lernmittel";
 import { DUNNING_MAIL } from "./settings";
@@ -97,6 +98,31 @@ describe("Löschregel Stufe 2 – Schulbuch-Zuordnung nur im laufenden Schuljahr
     await resolveIssueFinding(h.db, s, row!.id, day);
     expect((await item("2027-09-01")).count).toBe(0); // Schuljahr 2026/27 erst seit einem Monat vorbei
     expect((await item("2028-09-01")).count).toBe(1);
+  });
+
+  it("GATE BU2: Verlust → Ersatzforderung → Brief → bezahlt → nach der Frist hängt an keiner Bücherei-Zeile mehr die Person", async () => {
+    const s = await p(SABINE);
+    const KIND = "u-gate-bu2";
+    await h.db.insert(users).values({ id: KIND, username: "gate.bu2", name: "Gate Probe", firstName: "Gate", lastName: "Probe", role: "schueler", email: "gate.bu2@example.org" });
+    const { numbers: nrs } = await createMaterial(h.db, s, { title: "Gate-BU2 Atlas", grades: [7], provision: "leihe", price: "30" }, { count: 1 });
+    await issueCopy(h.db, s, KIND, nrs[0]!, addDays(day, -60));
+    const [issue] = await h.db.select().from(buechereiMaterialIssues).where(eq(buechereiMaterialIssues.userId, KIND));
+    await h.db.update(buechereiMaterialIssues).set({ dueOn: addDays(day, -1) }).where(eq(buechereiMaterialIssues.id, issue!.id));
+    await runSchoolbookDunning(h.db, day, { mail: false, school: "Testschule" });
+    const comp = await createCompensation(h.db, s, { issueId: issue!.id }, { amount: "30" }, day);
+    expect(await compensationLetter(h.db, s, comp, day)).toMatchObject({ amountCents: 3000 });
+    await setCompensationStatus(h.db, s, comp, "bezahlt", day);
+    // bis zur Frist bleiben Nachweis (Forderung) und Befund mit Person
+    const before = await allLibraryRows();
+    expect(before.get("buecherei_compensations")!.some((j) => j.includes(KIND))).toBe(true);
+    expect(before.get("buecherei_material_issues")!.some((j) => j.includes(KIND))).toBe(true);
+
+    const run = await runDeletion(h.db, null, "2028-09-01");
+    expect(run.items.filter((i) => i.table.startsWith("buecherei_") && i.error)).toEqual([]);
+    for (const [table, list] of await allLibraryRows()) for (const j of list) expect(j, table).not.toContain(KIND);
+    // das Exemplar bleibt ausgesondert im Bestand – ohne Person
+    const [copy] = await h.db.select().from(buechereiMaterialCopies).where(eq(buechereiMaterialCopies.inventoryNumber, nrs[0]!));
+    expect(copy).toMatchObject({ withdrawnReason: "verloren (Ersatzforderung)" });
   });
 
   it("nicht zurückgegeben: offener Posten über das Schuljahresende, kein Löschlauf; Kontolöschung entfernt die Person", async () => {
