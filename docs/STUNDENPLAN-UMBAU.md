@@ -364,7 +364,7 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | **SP-11** ✅ | E2E-Szenario „Stundenplaner:in“ (Login `frank.schulte` → Übersicht → Lauf mit Parametern → Abbruch → zweiter Lauf → Vergleich → Übernahme ab Stichtag → zurücknehmen; **Vertretung mit Fachtausch**; Sekretariat 404 auf `/planung`; alte URLs leiten weiter) + **Review-PR GATE SP** (erledigte IDs, Tests, Fragen) | S | Opus | SP-10, SP-12 | – | `e2e/zx-gate-sp.spec.ts` |
 | **GATE SP** | Review mit der Projektleitung (Review-PR aus SP-11; `/code-review ultra` nach Wunsch) – merged nur die Projektleitung | – | – | SP-11 | – | – |
 
-Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ → SP-05 ✅ → SP-06 ✅ ‖ SP-12 ✅ → SP-07 ✅ → SP-08 ✅ ‖ SP-09 ✅ → SP-10 ✅ → SP-11 ✅ → **GATE SP**.
+Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ → SP-05 ✅ → SP-06 ✅ ‖ SP-12 ✅ → SP-07 ✅ → SP-08 ✅ ‖ SP-09 ✅ → SP-10 ✅ → SP-11 ✅ → **GATE SP** (Prüfliste §5.2).
 Parallelisierbar: SP-05 neben SP-03; SP-12 neben SP-06/SP-07 (kein Solver-Kern, berührt nur das Tagesgeschäft); SP-08 neben SP-09.
 Migrationsnummern werden in der Reihenfolge des Mergens vergeben (SP-06 und SP-12 nehmen jeweils die nächste freie Nummer).
 Zwischenstand zum Melden nach SP-04 (Bereich steht, Verwaltung aufgeräumt) und nach SP-07 (Läufe bedienbar). Release-Vorschlag nach
@@ -379,6 +379,28 @@ für Planende und zur „Vertretung mit abweichendem Fach“).
 - `revalidatePath`/`redirect` auf neue Pfade; alte Pfade nur noch in `redirects()` und Tests.
 - E2E-Tests mit dem Planungs-Login, nicht mit dem Sekretariat.
 - Doku-Nachträge (LOG, Abhaken) im selben PR.
+
+### 5.2 GATE SP – Prüfliste (2026-10-20)
+
+Umfang: SP-01 … SP-12 (PRs #21, #23, #29, #31, #33, #35, #37, #40, #43, #45, #46, SP-11 #48; dazu die Fixes #42 2FA-Stichtag
+mit Berliner Datum und #44 `next dev` in instrumentation.ts), Migrationen **0088** (Planungsrechte, Gruppe, Anrechnungsgrund), **0092**
+(`kurswahl.view`), **0094** (Solver-Läufe), **0096** (Fachtausch); SICHERHEIT S79/S80; DATENSCHUTZ §3.4. Abnahme: Review-PR, merged die
+Projektleitung.
+
+| # | Prüfpunkt | Ergebnis |
+|---|---|---|
+| 1 | Rechte: Actions und Seiten prüfen das **passende** Recht | ✅ Durchsicht `stundenplan/actions.ts`: alle Jahresplanungs-Actions (Pflege, Verteilung, Deputate, Zeitwünsche der Planung, Aufsichtsplan, Solver starten/abbrechen/löschen/übernehmen/zurücknehmen) mit `stundenplan.manage`, alle Tages-Actions (Vertretungen, Abwesenheiten, Vorschläge, Veröffentlichen, Raumsperren, Aufsichtsvertretung) mit `stundenplan.substitute`; Seiten unter `/planung` dieselben Rechte (sonst 404), Status-API `/api/stundenplan/solver/status` nur `manage` (403). Tests `permissions`, `registry`, `escalation`, E2E `planung.spec.ts`, `zx-gate-sp.spec.ts` |
+| 2 | Gruppe statt Rolle, Verwaltung ohne Vorgabe, Migration ohne Rechteverlust | ✅ Migration 0088 (zu jedem `manage`-Grant ein `substitute`-Grant, Gruppe „Stundenplanung“ ohne Mitglieder, Rollen-Grant bleibt mit Hinweis), Migrationstest; Demo: Sekretariat plant nicht mehr, `frank.schulte` in der Gruppe |
+| 3 | 2FA sofort für beide Planungsrechte | ✅ `requiresTwoFactor` (permissions.test „SP-02 …“), S80; Demo-Instanzen ausgenommen (wie alle 2FA-Pflichten) – E2E prüft den Hinweis „in einer echten Schule Pflicht“ für das Planungskonto |
+| 4 | Bereich `/planung`, alte Pfade, Sekretariat | ✅ E2E: Navigation, Reiter je Recht, Übersicht mit Kacheln, 307-Weiterleitungen alter `/verwaltung/…`-Pfade (Query bleibt), Sekretariat 404 auf `/planung`, Solver-Detail, Vergleich und alte Lesezeichen |
+| 5 | Solver-Läufe: ein Lauf gleichzeitig, Warteschlange, Abbruch, Heartbeat, Aufräumen, Antwortzeiten | ✅ `solverlauf.test.ts` (Warteschlange, Abbruch vor/nach Konstruktion, Heartbeat, Startup, Nachtjob, Validierung, Vorprüfung), `solverlauf.latenz.test.ts` (Ereignisschleife frei, Zeitscheiben ~25 ms; kein Worker-Thread nötig, Q-SP-9), Groß-Benchmark (LASTTEST.md) |
+| 6 | Übernahme ab Stichtag und Zurücknehmen | ✅ `solverlauf.test.ts` (Kopplungen, bleibende Stunden, Vertretungen, Konflikte), E2E SP-09 und Gesamtszenario: Sonntag abgelehnt mit nächstem Schultag, Plan ab Stichtag neu, Kachel „übernommen · gilt ab“, Löschsperre, Zurücknehmen → Plan wie vorher |
+| 7 | Vertretung mit abweichendem Fach | ✅ `fachtausch.test.ts`, `vertretung`/`vorschlaege`/`display`/`vertretung-gong`, E2E SP-12 und Gesamtszenario „Mathematik statt Sport“ (Klasse, Druck, Monitor, Schülerin) |
+| 8 | Datenschutz/Veröffentlichung | ✅ `retention.test.ts`, Auskunftstest SP-10, VVT, `npm run veroeffentlichen:pruefen` 0 Fehler |
+| 9 | A11Y und Mobil | ✅ `a11y.spec.ts` (Planungsseiten je Rolle) und **neu** im Gesamtszenario: 12 Planungsseiten inkl. Läufe-Detail, Vergleich, Vertretungsstatistik, Diagnose hell **und** dunkel ohne axe-Befund; Vergleich auf 360 px ohne Seitenüberlauf (Tabellen scrollen im Rahmen); Vergleichsseite mobil hell/dunkel per `shot.mjs` gesichtet, ohne Umbruchfehler |
+| 10 | Volle Tests | ✅ `npm run check`: 2192 Vitest in 298 Dateien grün (2 bekannte Last-Flakes `solverlauf.latenz`, `boot-hardening` einzeln wiederholt grün; neuer Last-Fehler `disclaimer.test.ts` behoben, #48); Build grün; volle E2E (Port 3140): 294 bestanden, 1 übersprungen, ohne Ausfall; Backupserver-E2E 4; CI des SP-11-PRs grün |
+| 11 | Bekannte, bewusst hingenommene Lücken | ⏳ blockieren das Gate nicht: bei der Übernahme entfernte Vertretungen kommen beim Zurücknehmen nicht zurück (Hinweis nennt die Zahl); Lehrkraft-IDs in den JSON-Feldern der Läufe werden bei Kontolöschung nicht bereinigt (LK-90); `matchLessons` zählt geteilte Klassen mit zwei Lehrkräften doppelt („zu viel verplant“) → SP2-01/02 (Bänder) |
+| 12 | Release | ⏳ Vorschlag **v0.6.0** nach dem Merge (Rechteänderung + Migrationen). Release-Notes: neue Funktionsgruppe **„Stundenplanung“** (Rechte `stundenplan.manage` + neu `stundenplan.substitute`; bestehende Rollen-Grants bleiben, Empfehlung: Planende in die Gruppe aufnehmen, Rollen-Grant entfernen); **2FA-Pflicht sofort** für alle mit Planungsrecht (vor dem Update Betroffene informieren, sonst sperrt die Pflicht sie bis zur Einrichtung); neuer Bereich `/planung` (alte Lesezeichen leiten weiter); Solver-Läufe (Parameter, Abbruch, Vergleich, Zurücknehmen); Vertretung mit abweichendem Fach |
 
 ---
 
