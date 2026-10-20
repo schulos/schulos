@@ -64,7 +64,7 @@ export default async function SolverRunPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ vorschau?: string; kategorie?: string; fehler?: string; uebernommen?: string; entfallen?: string; zurueckgenommen?: string; wiederhergestellt?: string }>;
+  searchParams: Promise<{ vorschau?: string; kategorie?: string; fehler?: string; uebernommen?: string; entfallen?: string; zurueckgenommen?: string; wiederhergestellt?: string; vertretungen?: string }>;
 }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
@@ -156,7 +156,8 @@ export default async function SolverRunPage({
         )}
         {sp.zurueckgenommen && (
           <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
-            Übernahme zurückgenommen: {n(Number(sp.zurueckgenommen), "Stunde entfernt", "Stunden entfernt")}, {n(Number(sp.wiederhergestellt ?? 0), "Stunde wiederhergestellt", "Stunden wiederhergestellt")}. Der vorherige Plan gilt wieder.
+            Übernahme zurückgenommen: {n(Number(sp.zurueckgenommen), "Stunde entfernt", "Stunden entfernt")}, {n(Number(sp.wiederhergestellt ?? 0), "Stunde wiederhergestellt", "Stunden wiederhergestellt")}
+            {Number(sp.vertretungen ?? 0) > 0 ? `, ${n(Number(sp.vertretungen), "Vertretung wiederhergestellt", "Vertretungen wiederhergestellt")}` : ""}. Der vorherige Plan gilt wieder.
           </p>
         )}
         {active && (
@@ -205,10 +206,13 @@ export default async function SolverRunPage({
               {undo.changed ? ` (${undo.changed} davon seit der Übernahme von Hand verändert – auch sie)` : ""}, {n(undo.restorable, "beendete Stunde gilt wieder bis zu ihrem früheren Ende", "beendete Stunden gelten wieder bis zu ihrem früheren Ende")}
               {undo.reinsert ? `, ${n(undo.reinsert, "entfernte Stunde wird wieder angelegt", "entfernte Stunden werden wieder angelegt")}` : ""}. Der Lauf ist danach wieder „fertig“ und erneut übernehmbar.
             </p>
-            {(undo.substitutions > 0 || undo.lostSubstitutions > 0 || undo.classbook > 0 || undo.materials > 0 || undo.notRestorable > 0 || undo.reinsertSkipped > 0 || undo.foreign > 0 || undo.roomClashes.bookings > 0 || undo.roomClashes.exams > 0) && (
+            {(undo.substitutions > 0 || undo.restoredSubstitutions > 0 || undo.lostSubstitutions > 0 || undo.classbook > 0 || undo.materials > 0 || undo.notRestorable > 0 || undo.reinsertSkipped > 0 || undo.foreign > 0 || undo.roomClashes.bookings > 0 || undo.roomClashes.exams > 0) && (
               <ul className="list-disc pl-5 text-sm text-muted" aria-label="Was beim Zurücknehmen zu beachten ist">
                 {undo.substitutions > 0 && <li>{n(undo.substitutions, "Vertretung an Stunden dieses Laufs geht verloren", "Vertretungen an Stunden dieses Laufs gehen verloren")}.</li>}
-                {undo.lostSubstitutions > 0 && <li>{n(undo.lostSubstitutions, "bei der Übernahme entfernte Vertretung kommt nicht zurück", "bei der Übernahme entfernte Vertretungen kommen nicht zurück")}.</li>}
+                {undo.restoredSubstitutions > 0 && <li>{n(undo.restoredSubstitutions, "bei der Übernahme entfernte Vertretung wird wiederhergestellt", "bei der Übernahme entfernte Vertretungen werden wiederhergestellt")}.</li>}
+                {undo.lostSubstitutions > 0 && (
+                  <li>{n(undo.lostSubstitutions, "bei der Übernahme entfernte Vertretung kommt nicht zurück", "bei der Übernahme entfernte Vertretungen kommen nicht zurück")} (ihre Stunde gilt an dem Tag nicht mehr).</li>
+                )}
                 {undo.classbook > 0 && <li>{n(undo.classbook, "Klassenbucheintrag an diesen Stunden bleibt, verliert aber den Bezug zur Stunde", "Klassenbucheinträge an diesen Stunden bleiben, verlieren aber den Bezug zur Stunde")}.</li>}
                 {undo.materials > 0 && <li>{n(undo.materials, "Vertretungsmaterial an diesen Stunden geht verloren", "Vertretungsmaterialien an diesen Stunden gehen verloren")}.</li>}
                 {undo.notRestorable > 0 && <li>{n(undo.notRestorable, "beendete Stunde lässt sich nicht wiederherstellen", "beendete Stunden lassen sich nicht wiederherstellen")} (inzwischen gelöscht oder von Hand verändert).</li>}
@@ -222,7 +226,7 @@ export default async function SolverRunPage({
               </ul>
             )}
             <div>
-              <UndoApply id={run.id} lessons={undo.lessons} substitutions={undo.substitutions} lostSubstitutions={undo.lostSubstitutions} />
+              <UndoApply id={run.id} lessons={undo.lessons} substitutions={undo.substitutions} restoredSubstitutions={undo.restoredSubstitutions} lostSubstitutions={undo.lostSubstitutions} />
             </div>
           </Card>
         )}
@@ -459,7 +463,7 @@ export default async function SolverRunPage({
             </h2>
             <p className="text-sm text-muted">
               Ab dem Stichtag (ein Schultag) gilt der Vorschlag; der bisherige Plan endet am Vortag (Klassenbuch und Vertretungen davor bleiben). Vertretungen ab dem
-              Stichtag an ersetzten Stunden entfallen. Bis zum Stichtag lässt sich die Übernahme zurücknehmen – die entfallenen Vertretungen kommen dabei nicht zurück.
+              Stichtag an ersetzten Stunden entfallen. Bis zum Stichtag lässt sich die Übernahme zurücknehmen – die entfallenen Vertretungen kommen dabei zurück, sofern ihre Stunde dann wieder gilt.
             </p>
             {applyHint && (
               <p className="text-sm" data-testid="apply-preview">

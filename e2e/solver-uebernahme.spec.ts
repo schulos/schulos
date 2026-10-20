@@ -4,6 +4,7 @@ import { collectErrors, login } from "./helpers";
 
 // SP-09 (docs/STUNDENPLAN-UMBAU.md §3.2, „Umsetzungsstand SP-09“): Lauf ab einem Stichtag (Schultag) übernehmen → der Plan zeigt ab dem
 // Stichtag die neuen Stunden → der Lauf ist bis zum Stichtag nicht löschbar → Übernahme zurücknehmen → alter Stand.
+// SP-13: eine Vertretung (Entfall) am Stichtag entfällt mit der Übernahme und ist nach dem Zurücknehmen wieder da.
 
 const tag = Date.now().toString(36);
 const LABEL = `E2E Übernahme ${tag}`;
@@ -18,7 +19,7 @@ function sundayIn(weeks: number): string {
   return ymd(d);
 }
 
-test("SP-09: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nicht löschbar → zurücknehmen → alter Stand", async ({ page }) => {
+test("SP-09/SP-13: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nicht löschbar → zurücknehmen → alter Stand mit Vertretung", async ({ page }) => {
   test.setTimeout(180_000);
   const errors = collectErrors(page);
   await login(page, "frank.schulte");
@@ -47,6 +48,18 @@ test("SP-09: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nicht lö
   await expect(alert).toContainText("kein Schultag (Wochenende)");
   const from = (await alert.textContent())!.match(/nächster Schultag: (\d{4}-\d{2}-\d{2})/)![1]!;
 
+  // SP-13: Entfall für eine Stunde der 7b am Stichtag
+  const subsUrl = `/planung/vertretungen?datum=${from}&gruppe=g-7b`;
+  const lessons = page.getByRole("region", { name: /^Stunden am/ });
+  await page.goto(subsUrl);
+  const subLabel = (await lessons.getByRole("form").filter({ hasNot: page.getByRole("button", { name: "Aufheben" }) }).first().getAttribute("aria-label"))!;
+  const subForm = lessons.getByRole("form", { name: subLabel, exact: true });
+  await subForm.getByLabel("Art").selectOption("cancel");
+  await subForm.getByRole("button", { name: "Speichern" }).click();
+  await expect(subForm.getByRole("status")).toContainText("Gespeichert");
+  await page.goto(subsUrl);
+  await expect(subForm.getByRole("button", { name: "Aufheben" })).toBeVisible();
+
   // Plan der 7b am Stichtag vorher merken
   const planUrl = `/planung/stundenplan?gruppe=g-7b&stand=${from}`;
   const plan = page.getByRole("table", { name: "Stundenplan Klasse 7b" });
@@ -65,6 +78,7 @@ test("SP-09: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nicht lö
   await expect(page.getByRole("button", { name: "Lauf löschen" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Übernahme zurücknehmen" })).toBeVisible();
   await expect(page.getByText(/beendete Stunden gelten wieder bis zu ihrem früheren Ende/)).toBeVisible();
+  await expect(page.getByRole("list", { name: "Was beim Zurücknehmen zu beachten ist" })).toContainText(/\d+ bei der Übernahme entfernte Vertretunge?n? (wird|werden) wiederhergestellt/);
   const axe = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
   // Historie: übernommen ab Stichtag, zurücknehmbar
@@ -72,6 +86,9 @@ test("SP-09: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nicht lö
   const row = page.getByRole("table", { name: /Läufe der automatischen Planung/ }).getByRole("row").filter({ has: page.getByRole("link", { name: LABEL }) });
   await expect(row).toContainText("übernommen");
   await expect(row).toContainText("zurücknehmbar");
+  // die Vertretung ist mit der Übernahme entfallen (ihre Stunde gilt ab dem Stichtag nicht mehr)
+  await page.goto(subsUrl);
+  await expect(lessons.getByRole("form", { name: subLabel, exact: true }).getByRole("button", { name: "Aufheben" })).toHaveCount(0);
   // der Plan zeigt ab dem Stichtag den Vorschlag (anders als vorher), vor dem Stichtag unverändert
   await page.goto(planUrl);
   await expect(plan).toBeVisible();
@@ -83,13 +100,19 @@ test("SP-09: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nicht lö
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Übernahme zurücknehmen" }).click();
   await expect(page).toHaveURL(/zurueckgenommen=\d+/);
-  await expect(page.getByRole("status").filter({ hasText: "Übernahme zurückgenommen" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Übernahme zurückgenommen" })).toContainText(/Vertretunge?n? wiederhergestellt/);
   await expect(page.getByRole("heading", { name: "Übernehmen" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Lauf löschen" })).toBeVisible();
   await expect(page.getByText(/Zurückgenommen/).first()).toBeVisible();
   await page.goto(planUrl);
   await expect(plan).toBeVisible();
   expect(await plan.innerText()).toBe(before);
+  // SP-13: der Entfall ist wieder da – aufheben
+  await page.goto(subsUrl);
+  const back = lessons.getByRole("form", { name: subLabel, exact: true });
+  await expect(back.getByRole("button", { name: "Aufheben" })).toBeVisible();
+  await back.getByRole("button", { name: "Aufheben" }).click();
+  await expect(back.getByRole("button", { name: "Aufheben" })).toHaveCount(0);
 
   // aufräumen
   await page.goto(url);

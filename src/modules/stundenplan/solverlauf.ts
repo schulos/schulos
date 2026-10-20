@@ -22,6 +22,7 @@ import {
   timetableSubstitutions,
   users,
   type TimetableLesson,
+  type TimetableSubstitution,
 } from "@/core/db/schema";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { addDays, fromBerlinLocal, toBerlinDate, TZ, weekdayMon0 } from "@/core/time";
@@ -115,6 +116,12 @@ export type RunStatus = (typeof timetableSolverRuns.$inferSelect)["status"];
 export type UndoLesson = Pick<TimetableLesson, "id" | "groupId" | "weekday" | "periodNr" | "subjectId" | "teacherId" | "roomId" | "week" | "validFrom" | "validUntil" | "couplingId" | "fixed" | "solverRunId">;
 
 /**
+ * SP-13: eine bei der Übernahme entfernte Vertretung – vollständig, damit das Zurücknehmen sie wiederherstellt, sofern ihre Stunde
+ * an dem Tag wieder gilt. `createdAt` als ISO-Zeitpunkt (JSONB).
+ */
+export type UndoSubstitution = Pick<TimetableSubstitution, "id" | "lessonId" | "date" | "kind" | "substituteId" | "roomId" | "note" | "subjectId" | "createdBy"> & { createdAt: string };
+
+/**
  * SP-09: was die Übernahme am bestehenden Plan geändert hat – Grundlage für „Übernahme zurücknehmen“. Enthält Lehrkraft-IDs
  * (Personenbezug) und wird deshalb geleert, sobald der Stichtag erreicht ist (Nachtjob) oder die Übernahme zurückgenommen wurde.
  */
@@ -123,8 +130,10 @@ export interface UndoData {
   ended: { id: string; validUntil: string | null }[];
   /** Stunden, die ganz entfernt wurden (sie begannen erst ab dem Stichtag) */
   deleted: UndoLesson[];
-  /** Vertretungen ab dem Stichtag an ersetzten Stunden, die entfernt wurden – sie kommen beim Zurücknehmen nicht zurück */
+  /** Zahl der Vertretungen ab dem Stichtag an ersetzten Stunden, die entfernt wurden */
   removedSubstitutions: number;
+  /** SP-13: diese Vertretungen vollständig – fehlt bei Übernahmen vor SP-13 (dann kommt keine zurück) */
+  substitutions?: UndoSubstitution[];
 }
 
 export interface SolverRun {
@@ -861,7 +870,7 @@ export interface ApplyPreview {
   ended: number;
   /** Stunden, die ganz entfallen (sie beginnen erst ab dem Stichtag) */
   deleted: number;
-  /** Vertretungen ab dem Stichtag an ersetzten Stunden – sie entfallen und kommen beim Zurücknehmen nicht zurück */
+  /** Vertretungen ab dem Stichtag an ersetzten Stunden – sie entfallen; das Zurücknehmen stellt sie wieder her, sofern ihre Stunde dann wieder gilt (SP-13) */
   substitutions: number;
   /** Raumbuchungen/Klausuren ab dem Stichtag in Räumen, die der Vorschlag zu dieser Zeit belegt */
   roomClashes: { bookings: number; exams: number };
@@ -890,7 +899,7 @@ export async function applyPreview(db: Db, run: SolverRun, fromYmd: string): Pro
  * (nicht fixiert, mit Lehrauftrag) enden am Vortag bzw. werden gelöscht, wenn sie erst danach beginnen; Vertretungen ab dem
  * Stichtag an diesen Stunden entfallen. Die vorgeschlagenen Stunden gelten ab dem Stichtag bis zum Schuljahresende und tragen
  * den Lauf als Herkunft (SP-06). Was geändert wurde, steht in `undo` – „Übernahme zurücknehmen“ (SP-09) stellt es bis zum
- * Stichtag wieder her (nicht die Vertretungen).
+ * Stichtag wieder her, auch die entfernten Vertretungen, sofern ihre Stunde an dem Tag wieder gilt (SP-13).
  */
 export async function applyRun(
   db: Db,
@@ -921,22 +930,34 @@ export async function applyRun(
   const out = await db.transaction(async (tx) => {
     const current = await replaceableLessons(tx, year, fromYmd, kept);
     const ids = current.map((l) => l.id);
-    let removedSubstitutions = 0;
     const later = current.filter((l) => l.validFrom >= fromYmd);
     const running = current.filter((l) => l.validFrom < fromYmd);
+    const removed: UndoSubstitution[] = [];
     for (const part of chunks(ids))
-      removedSubstitutions += (
-        await tx
-          .delete(timetableSubstitutions)
-          .where(and(inArray(timetableSubstitutions.lessonId, part), gte(timetableSubstitutions.date, fromYmd)))
-          .returning({ id: timetableSubstitutions.id })
-      ).length;
+      for (const s of await tx
+        .delete(timetableSubstitutions)
+        .where(and(inArray(timetableSubstitutions.lessonId, part), gte(timetableSubstitutions.date, fromYmd)))
+        .returning())
+        removed.push({
+          id: s.id,
+          lessonId: s.lessonId,
+          date: s.date,
+          kind: s.kind,
+          substituteId: s.substituteId,
+          roomId: s.roomId,
+          note: s.note,
+          subjectId: s.subjectId,
+          createdBy: s.createdBy,
+          createdAt: s.createdAt.toISOString(),
+        });
+    const removedSubstitutions = removed.length;
     for (const part of chunks(later.map((l) => l.id))) await tx.delete(timetableLessons).where(inArray(timetableLessons.id, part));
     for (const part of chunks(running.map((l) => l.id))) await tx.update(timetableLessons).set({ validUntil: dayBefore }).where(inArray(timetableLessons.id, part));
     const undo: UndoData = {
       ended: running.map((l) => ({ id: l.id, validUntil: l.validUntil })),
       deleted: later.map(({ id, groupId, weekday, periodNr, subjectId, teacherId, roomId, week, validFrom, validUntil, couplingId, fixed, solverRunId }) => ({ id, groupId, weekday, periodNr, subjectId, teacherId, roomId, week, validFrom, validUntil, couplingId, fixed, solverRunId })),
       removedSubstitutions,
+      substitutions: removed,
     };
     const rows = withCouplingIds(proposal).map((l) => ({
       groupId: l.groupId,
@@ -997,7 +1018,9 @@ export interface UndoPreview {
   reinsertSkipped: number;
   /** Stunden ab dem Stichtag, die nach der Übernahme von Hand angelegt wurden – bleiben; Kollisionen mit dem alten Plan prüfen */
   foreign: number;
-  /** Vertretungen, die die Übernahme entfernt hatte – kommen nicht zurück */
+  /** SP-13: Vertretungen, die die Übernahme entfernt hatte und die wiederhergestellt werden (ihre Stunde gilt an dem Tag wieder) */
+  restoredSubstitutions: number;
+  /** Vertretungen, die die Übernahme entfernt hatte und die nicht zurückkommen (Stunde gilt nicht mehr bzw. Übernahme vor SP-13) */
   lostSubstitutions: number;
   /** Raumbuchungen/Klausuren ab dem Stichtag in Räumen, die der alte Plan zu dieser Zeit belegt */
   roomClashes: { bookings: number; exams: number };
@@ -1015,6 +1038,40 @@ async function countOnLessons(db: Db, ids: string[]): Promise<Pick<UndoPreview, 
     out.materials += await db.$count(timetableAbsenceMaterials, inArray(timetableAbsenceMaterials.lessonId, part));
   }
   return out;
+}
+
+type Validity = Pick<TimetableLesson, "validFrom" | "validUntil">;
+interface ExistingIds {
+  users: Set<string>;
+  rooms: Set<string>;
+  subjects: Set<string>;
+}
+
+/**
+ * SP-13: die bei der Übernahme entfernten Vertretungen, deren Stunde nach dem Zurücknehmen am Tag der Vertretung wieder gilt, als
+ * Zeilen zum Wiederanlegen (alte ID). Inzwischen gelöschte Lehrkraft/Raum/Fach werden leer – wie es die Fremdschlüssel beim Löschen
+ * auch täten. Bänder/Kopplungen: jede Vertretung hängt an genau einer Stunde (einem Teil); die Teile kommen mit ihrer alten
+ * `coupling_id` zurück, ihre Vertretungen damit je Teil.
+ */
+function substitutionsToRestore(subs: UndoSubstitution[], lessons: Map<string, Validity>, ids: ExistingIds): (typeof timetableSubstitutions.$inferInsert)[] {
+  const keep = (id: string | null, set: Set<string>) => (id && set.has(id) ? id : null);
+  return subs
+    .filter((s) => {
+      const l = lessons.get(s.lessonId);
+      return l !== undefined && l.validFrom <= s.date && (l.validUntil === null || l.validUntil >= s.date);
+    })
+    .map((s) => ({
+      id: s.id,
+      lessonId: s.lessonId,
+      date: s.date,
+      kind: s.kind,
+      substituteId: keep(s.substituteId, ids.users),
+      roomId: keep(s.roomId, ids.rooms),
+      note: s.note,
+      subjectId: s.kind === "substitute" ? keep(s.subjectId, ids.subjects) : null,
+      createdBy: keep(s.createdBy, ids.users),
+      createdAt: new Date(s.createdAt),
+    }));
 }
 
 /** Stand für das Zurücknehmen: Stunden des Laufs, wiederherstellbare und fremde Stunden – gemeinsam für Vorschau und Rücknahme. */
@@ -1064,7 +1121,14 @@ async function undoState(db: Db, run: SolverRun) {
     ...restorable.map((e) => ({ ...endedRows.get(e.id)!, validUntil: e.validUntil })),
     ...reinsert,
   ];
-  return { undo, from, dayBefore, own, changed, restorable, reinsert, foreign, roomClashes: await roomClashes(db, restored, from) };
+  // SP-13: Gültigkeit der Stunden nach dem Zurücknehmen – beendete wie jetzt bzw. wieder verlängert, entfernte wie wieder angelegt
+  const after = new Map<string, Validity>([...endedRows].map(([id, l]) => [id, { validFrom: l.validFrom, validUntil: l.validUntil }]));
+  for (const e of restorable) after.set(e.id, { validFrom: endedRows.get(e.id)!.validFrom, validUntil: e.validUntil });
+  for (const l of reinsert) if (!after.has(l.id)) after.set(l.id, { validFrom: l.validFrom, validUntil: l.validUntil });
+  const existing: ExistingIds = { users: teacherIds, rooms: roomIds, subjects: subjectIds };
+  const subs = undo.substitutions ?? [];
+  const restoredSubstitutions = substitutionsToRestore(subs, after, existing).length;
+  return { undo, from, dayBefore, own, changed, restorable, reinsert, foreign, subs, existing, restoredSubstitutions, roomClashes: await roomClashes(db, restored, from) };
 }
 
 /** Vorschau für „Übernahme zurücknehmen“ – `null`, wenn die Übernahme nicht (mehr) zurücknehmbar ist. */
@@ -1080,7 +1144,8 @@ export async function undoPreview(db: Db, run: SolverRun, todayYmd: string): Pro
     reinsert: s.reinsert.length,
     reinsertSkipped: s.undo.deleted.length - s.reinsert.length,
     foreign: s.foreign,
-    lostSubstitutions: s.undo.removedSubstitutions,
+    restoredSubstitutions: s.restoredSubstitutions,
+    lostSubstitutions: s.undo.removedSubstitutions - s.restoredSubstitutions,
     roomClashes: s.roomClashes,
   };
 }
@@ -1091,7 +1156,8 @@ export async function undoPreview(db: Db, run: SolverRun, todayYmd: string): Pro
  * einträge verlieren den Bezug), beendete Stunden gelten wieder bis zu ihrem früheren Ende (nur, wenn sie seitdem unverändert
  * sind), entfernte Stunden werden wieder angelegt (mit ihrer alten ID; fehlt inzwischen Gruppe oder Fach, entfallen sie; eine
  * gelöschte Lehrkraft oder ein gelöschter Raum wird leer). Nach der Übernahme von Hand angelegte Stunden bleiben. Die bei der
- * Übernahme entfernten Vertretungen kommen nicht zurück. Der Lauf ist danach wieder „fertig“ und erneut übernehmbar.
+ * Übernahme entfernten Vertretungen kommen zurück, sofern ihre Stunde an dem Tag wieder gilt (SP-13, Q-SP-9-1). Der Lauf ist
+ * danach wieder „fertig“ und erneut übernehmbar.
  */
 export async function undoApply(db: Db, actorId: string, runId: string, todayYmd: string): Promise<UndoPreview> {
   const run = await getRun(db, runId);
@@ -1120,6 +1186,14 @@ export async function undoApply(db: Db, actorId: string, runId: string, todayYmd
     // 3. entfernte Stunden wieder anlegen (gleiche ID; gibt es sie wider Erwarten schon, bleibt die vorhandene)
     let reinserted = 0;
     for (const part of chunks(s.reinsert)) reinserted += (await tx.insert(timetableLessons).values(part).onConflictDoNothing().returning({ id: timetableLessons.id })).length;
+    // 4. SP-13: entfernte Vertretungen wieder anlegen, sofern ihre Stunde an dem Tag jetzt wieder gilt
+    const lessonsNow = new Map<string, Validity>();
+    for (const part of chunks([...new Set(s.subs.map((x) => x.lessonId))]))
+      for (const l of await tx.select({ id: timetableLessons.id, validFrom: timetableLessons.validFrom, validUntil: timetableLessons.validUntil }).from(timetableLessons).where(inArray(timetableLessons.id, part)))
+        lessonsNow.set(l.id, l);
+    let restoredSubstitutions = 0;
+    for (const part of chunks(substitutionsToRestore(s.subs, lessonsNow, s.existing)))
+      restoredSubstitutions += (await tx.insert(timetableSubstitutions).values(part).onConflictDoNothing().returning({ id: timetableSubstitutions.id })).length;
     const result: UndoPreview = {
       lessons: ownIds.length,
       changed: s.changed,
@@ -1129,14 +1203,15 @@ export async function undoApply(db: Db, actorId: string, runId: string, todayYmd
       reinsert: reinserted,
       reinsertSkipped: s.undo.deleted.length - reinserted,
       foreign: s.foreign,
-      lostSubstitutions: s.undo.removedSubstitutions,
+      restoredSubstitutions,
+      lostSubstitutions: s.undo.removedSubstitutions - restoredSubstitutions,
       roomClashes: s.roomClashes,
     };
     const log = [
       ...run.log,
       logEntry(
         "undo",
-        `Übernahme ab ${dayFmt.format(fromBerlinLocal(s.from))} zurückgenommen: ${result.lessons} Stunden entfernt (${result.changed} davon seit der Übernahme verändert), ${result.restorable} beendete wieder verlängert${result.notRestorable ? ` (${result.notRestorable} nicht mehr wiederherstellbar)` : ""}, ${result.reinsert} entfernte wieder angelegt${result.foreign ? `, ${result.foreign} von Hand angelegte Stunden bleiben` : ""}${result.lostSubstitutions ? `, ${result.lostSubstitutions} bei der Übernahme entfernte Vertretungen kommen nicht zurück` : ""}`,
+        `Übernahme ab ${dayFmt.format(fromBerlinLocal(s.from))} zurückgenommen: ${result.lessons} Stunden entfernt (${result.changed} davon seit der Übernahme verändert), ${result.restorable} beendete wieder verlängert${result.notRestorable ? ` (${result.notRestorable} nicht mehr wiederherstellbar)` : ""}, ${result.reinsert} entfernte wieder angelegt${result.foreign ? `, ${result.foreign} von Hand angelegte Stunden bleiben` : ""}${result.restoredSubstitutions ? `, ${result.restoredSubstitutions} bei der Übernahme entfernte Vertretungen wiederhergestellt` : ""}${result.lostSubstitutions ? `, ${result.lostSubstitutions} bei der Übernahme entfernte Vertretungen kommen nicht zurück` : ""}`,
         { ...result },
       ),
     ].slice(-LOG_LIMIT);
