@@ -76,9 +76,9 @@ function yearTiles(m: YearPlanningFigures): Tile[] {
     !r
       ? { key: "solver", title: "Automatisch planen", value: "–", detail: "Noch kein Lauf – Planvorschlag berechnen und ab Stichtag übernehmen.", href: "/planung/solver" }
       : r.status === "running" || r.status === "queued"
-        ? { key: "solver", title: "Letzter Solver-Lauf", value: r.status === "queued" ? "–" : `${r.progress} %`, status: r.status === "queued" ? { label: "wartet", tone: "neutral" } : { label: "rechnet", tone: "warn" }, detail: `gestartet ${dateTimeFmt.format(r.createdAt)} Uhr`, href: `/planung/solver?lauf=${r.id}` }
+        ? { key: "solver", title: "Letzter Solver-Lauf", value: r.status === "queued" ? "–" : `${r.progress} %`, status: r.status === "queued" ? { label: "wartet", tone: "neutral" } : { label: "rechnet", tone: "warn" }, detail: `gestartet ${dateTimeFmt.format(r.createdAt)} Uhr`, href: `/planung/solver/${r.id}` }
         : r.status === "failed" || r.status === "cancelled"
-          ? { key: "solver", title: "Letzter Solver-Lauf", value: "–", status: r.status === "failed" ? { label: "Fehler", tone: "danger" } : { label: "abgebrochen", tone: "neutral" }, detail: `gestartet ${dateTimeFmt.format(r.createdAt)} Uhr`, href: `/planung/solver?lauf=${r.id}` }
+          ? { key: "solver", title: "Letzter Solver-Lauf", value: "–", status: r.status === "failed" ? { label: "Fehler", tone: "danger" } : { label: "abgebrochen", tone: "neutral" }, detail: `gestartet ${dateTimeFmt.format(r.createdAt)} Uhr`, href: `/planung/solver/${r.id}` }
           : {
               key: "solver",
               title: "Letzter Solver-Lauf",
@@ -91,7 +91,7 @@ function yearTiles(m: YearPlanningFigures): Tile[] {
               ]
                 .filter(Boolean)
                 .join(" · "),
-              href: `/planung/solver?lauf=${r.id}`,
+              href: `/planung/solver/${r.id}`,
             },
   );
   return tiles;

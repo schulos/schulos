@@ -533,52 +533,62 @@ export async function closePrefWindowAction(): Promise<void> {
 // ---------------------------------------------------------------- Automatische Planung (P2b-23)
 
 const SOLVER_PAGE = "/planung/solver";
+const runPage = (runId: string) => `${SOLVER_PAGE}/${encodeURIComponent(runId)}`;
+/** Rücksprung nur innerhalb der Solver-Seiten (Liste mit Filter oder Detailseite) */
+const solverReturn = (to: string | undefined, fallback: string) => (to && /^\/planung\/solver(\/[\w-]+)?(\?[\w=&%.-]*)?$/.test(to) ? to : fallback);
+const withQuery = (path: string, key: string, value: string) => `${path}${path.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`;
 
-/** Lauf anlegen und im Hintergrund rechnen lassen (Seite zeigt den Fortschritt); rechnet schon einer, wartet der neue (SP-06). */
-export async function startSolverAction(form: FormData): Promise<void> {
+/**
+ * Lauf mit Parametern anlegen (SP-07: Bezeichnung, Gründlichkeit, Startwert, Gewichtung inkl. „eigene“) und im Hintergrund rechnen
+ * lassen; rechnet schon einer, wartet der neue (SP-06). Weiter auf die Detailseite mit Fortschritt.
+ */
+export async function startSolverAction(_prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
   const str = (k: string) => String(form.get(k) ?? "").trim();
   const num = (k: string) => (str(k) === "" ? undefined : Number(str(k)));
+  const preset = str("preset") || "ausgewogen";
   const weightKeys = ["pref", "teacherGap", "classGap", "subjectTwice", "roomWish", "noRoom", "late", "lateFrom"] as const;
-  const weights = Object.fromEntries(weightKeys.map((k) => [k, num(`w_${k}`)]).filter(([, v]) => v !== undefined));
+  const weights = preset === "eigene" ? Object.fromEntries(weightKeys.map((k) => [k, num(`w_${k}`)]).filter(([, v]) => v !== undefined)) : undefined;
   const today = toBerlinDate(new Date());
   let id: string;
   try {
-    id = await createRun(db, user.id, { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset: str("preset") || "ausgewogen", weights }, today);
+    id = await createRun(db, user.id, { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights }, today);
   } catch (err) {
-    if (err instanceof ValidationError) redirect(`${SOLVER_PAGE}?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    if (err instanceof ValidationError) return { error: firstError(err), fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
   // bewusst nicht abwarten: läuft im Serverprozess weiter (unter der Job-Sperre „solver“), Fortschritt steht in der Datenbank
   void executeQueued(db, today);
-  redirect(`${SOLVER_PAGE}?lauf=${id}`);
+  revalidatePath(SOLVER_PAGE);
+  redirect(runPage(id));
 }
 
 /** Lauf abbrechen: wartende enden sofort, rechnende in der nächsten Zeitscheibe (nach der Konstruktion mit dem bisherigen Stand). */
-export async function cancelSolverAction(runId: string): Promise<void> {
+export async function cancelSolverAction(runId: string, returnTo?: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
+  const back = solverReturn(returnTo, runPage(runId));
   try {
     await cancelRun(await getDb(), user.id, runId);
   } catch (err) {
-    if (err instanceof ValidationError) redirect(`${SOLVER_PAGE}?lauf=${runId}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    if (err instanceof ValidationError) redirect(withQuery(back, "fehler", firstError(err)));
     throw err;
   }
-  revalidatePath(SOLVER_PAGE);
-  redirect(`${SOLVER_PAGE}?lauf=${runId}`);
+  revalidatePath(SOLVER_PAGE, "layout");
+  redirect(back);
 }
 
-/** Lauf löschen (nicht während er rechnet). */
+/** Lauf löschen (nicht während er rechnet) – zurück zur Liste. */
 export async function deleteSolverAction(runId: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   try {
     await deleteRun(await getDb(), user.id, runId);
   } catch (err) {
-    if (err instanceof ValidationError) redirect(`${SOLVER_PAGE}?lauf=${runId}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    if (err instanceof ValidationError) redirect(withQuery(runPage(runId), "fehler", firstError(err)));
     throw err;
   }
-  revalidatePath(SOLVER_PAGE);
-  redirect(SOLVER_PAGE);
+  revalidatePath(SOLVER_PAGE, "layout");
+  redirect(`${SOLVER_PAGE}?geloescht=1`);
 }
 
 export async function applySolverAction(runId: string, form: FormData): Promise<void> {
@@ -588,11 +598,11 @@ export async function applySolverAction(runId: string, form: FormData): Promise<
   try {
     res = await applyRun(await getDb(), user.id, runId, from, toBerlinDate(new Date()));
   } catch (err) {
-    if (err instanceof ValidationError) redirect(`${SOLVER_PAGE}?lauf=${runId}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    if (err instanceof ValidationError) redirect(withQuery(runPage(runId), "fehler", firstError(err)));
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(`${SOLVER_PAGE}?lauf=${runId}&uebernommen=${res.created}`);
+  redirect(withQuery(runPage(runId), "uebernommen", String(res.created)));
 }
 
 /** Stunde fixieren/lösen (Pflege-Seite). */
