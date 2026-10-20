@@ -205,6 +205,23 @@ export async function checkout(db: Db, viewer: PermissionSet, userId: string, ra
   if (u.status !== "active") throw new ValidationError({ code: "Konto gesperrt – keine neue Ausleihe" });
   const reservation = await checkoutReservation(db, copy.titleId, userId, code);
   const dueOn = await dueDate(db, today, await loanDays(db, copy.mediaType));
+  try {
+    await insertLoan(db, copy, userId, today, dueOn, reservation);
+  } catch (err) {
+    // GATE BU1: zwei Theken verbuchen dasselbe Exemplar gleichzeitig – der eindeutige Index (offene Ausleihe je Exemplar)
+    // lässt nur eine Ausleihe zu; die andere bekommt eine Meldung statt eines Serverfehlers (nichts ist gezählt oder gelöscht)
+    if (isUniqueViolation(err)) throw new ValidationError({ code: `${code} wurde gerade ausgeliehen – erst zurückbuchen` });
+    throw err;
+  }
+  return { title: copy.title, barcode: copy.barcode, dueOn };
+}
+
+const isUniqueViolation = (err: unknown): boolean => {
+  const e = err as { code?: string; cause?: { code?: string } } | null;
+  return e?.code === "23505" || e?.cause?.code === "23505";
+};
+
+async function insertLoan(db: Db, copy: { id: string; mediaType: MediaType }, userId: string, today: string, dueOn: string, reservation: { id: string } | null) {
   await db.transaction(async (raw) => {
     const tx = raw as unknown as Db;
     await tx.insert(buechereiLoans).values({ copyId: copy.id, userId, loanedOn: today, dueOn });
@@ -216,7 +233,6 @@ export async function checkout(db: Db, viewer: PermissionSet, userId: string, ra
       .where(eq(buechereiCopies.id, copy.id));
     if (reservation) await tx.delete(buechereiReservations).where(eq(buechereiReservations.id, reservation.id));
   });
-  return { title: copy.title, barcode: copy.barcode, dueOn };
 }
 
 /**
