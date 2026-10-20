@@ -229,6 +229,15 @@ je Einheit (Demo, Benchmark) ergibt dieselben Lösungen wie vorher (Determinismu
 zählt bei zwei Lehrkräften beide Zeilen auf die Gruppe („zu viel verplant“) – das ist das bestehende Zählmodell für Teamteaching/geteilte Klassen und
 Thema für SP2-01/02 (Bänder), ebenso die Diagnose-Kapazität je Raum (nimmt die ganze Klasse je Raum).
 
+**Umsetzungsstand SP-10 (2026-10-20, nur Doku/Test, keine Migration):** SICHERHEIT **S80 „Planungsrechte“** (zwei Rechte, Gruppe statt Rolle, `kurswahl.view`, 2FA sofort,
+SEC-04, kein S28, ein Lauf gleichzeitig, Auskunft); `docs/STUNDENPLAN.md` neuer Abschnitt „0. Stand 2026-10“ (Bereich, Reiter, Läufe, Übernahme, Fachtausch,
+Grenzen → SP2; §1 als „Ausgangslage“ gekennzeichnet); DATENSCHUTZ-Zeile Solver-Läufe um **Auskunft** und **Kontolöschung** ergänzt; `processing.note` nennt Läufe und
+Fachtausch. **Auskunfts-Test** (`auskunft.test.ts` „SP-10 …“): die planende Person bekommt zu Läufen nur die Handlung (nie `result`/`params`/`metrics`/`log`/`undo`/`label`),
+die vertretende Lehrkraft die Vertretung samt Fach, kein Entwurf wird einer Lehrkraft zugeordnet. Bewusst hingenommene Lücke: Lehrkraft-IDs in den JSON-Feldern der
+Läufe haben keinen Fremdschlüssel und werden bei Kontolöschung nicht bereinigt (LK-90, `undo` bis zum Stichtag; nach der Löschung nicht auflösbar). README/CLAUDE.md
+(Demo-Login `frank.schulte`) waren seit SP-03 aktuell; INSTALLATION.md kennt keinen Stundenplan-Abschnitt (kein Handbuch im Repo) – Release-Hinweise zur Gruppe/2FA
+gehören in die Notes zu v0.6.0 (GATE SP).
+
 **Außenzugang:** bleibt wie für Lehrkräfte (Gerätezertifikat nach Schuleinstellung); die Planung ist **kein** Verwaltungsrecht im Sinne von
 S28 (keine Außen-Sperre). Begründung: Vertretungsplanung findet morgens um 7 Uhr auch von zu Hause statt.
 
@@ -350,12 +359,12 @@ Reihenfolge und Abhängigkeiten; jede Runde `npm run check` grün, UI-Runden zus
 | **SP-07** ✅ | Solver-Läufe UI: Liste aller Läufe (Filter), Start-Formular mit Bezeichnung/Gründlichkeit/Startwert/Gewichtungs-Voreinstellung + „eigene“ (alle Felder von `SolverWeights` **plus `lateFrom`**, SP-G-16), Detailseite `/planung/solver/[id]` (Fortschritt, Protokoll, Konflikte vollständig **mit Grund je Einheit** aus SP-G-03, Ergebnis der Vorprüfung, Kostenposten mit Filter, Vorschau Klasse **und** Lehrkraft), Abbrechen, Löschen | M | Opus | SP-06 | – | `npm run verify`; E2E Lauf starten → abbrechen → zweiter Lauf |
 | **SP-08** ✅ | Vergleich `/planung/solver/vergleich?laeufe=…` (2–3 Läufe, bester Wert markiert, Delta, Vorschau nebeneinander) | S | Opus | SP-07 | – | Service-Test der Delta-Berechnung, E2E Vergleich |
 | **SP-09** ✅ (**Kern**) | Übernahme: `solver_run_id` an Stunden, `undo` schreiben, „Übernahme zurücknehmen“ bis zum Stichtag, Stichtag = Schultag, Hinweis mit Zahl der entfallenden Vertretungen; Randfälle Kopplungen/A-B-Woche/Vertretungen am Stichtag; **Raum je Kopplungsteil** (SP-G-02: `chooseRoom` je Teil, gleiche Lehrkraft → gleicher Raum) | M | **Fable** | SP-06 | – (Spalten aus SP-06) | `solverlauf.test` (Übernahme/Zurücknehmen mit Kopplungen, bleibenden Stunden, Vertretungen), `solver.test` (geteilte Klasse mit zwei Lehrkräften → zwei Räume, bis zur Übernahme), E2E Übernahme → zurücknehmen |
-| **SP-10** | Datenschutz + Doku: DATENSCHUTZ §3.4 Zeile, Manifest `retention`/`processing`, SICHERHEIT S-xx, STUNDENPLAN.md „Stand 2026-10“, VVT-/Auskunftstest | S | Opus | SP-09 | – | `retention.test`, VVT-Snapshot, Auskunftstest |
+| **SP-10** ✅ | Datenschutz + Doku: DATENSCHUTZ §3.4 Zeile, Manifest `retention`/`processing`, SICHERHEIT S-xx, STUNDENPLAN.md „Stand 2026-10“, VVT-/Auskunftstest | S | Opus | SP-09 | – | `retention.test`, VVT-Snapshot, Auskunftstest |
 | **SP-12** ✅ | **Vertretung mit abweichendem Fach** („Fachtausch“, SP-G-Fachtausch, §6.4): `timetable_substitutions.subject_id` (nullable, nur bei `substitute`, Check-Constraint), Formularfeld „Fach“, Vorschlag „kennt die Klasse → eigenes Fach“ (+10, Knopf übernimmt Lehrkraft **und** Fach), Anzeige „Mathe statt Sport“ in allen Plänen/Tagesleiste/Vertretungsplan/Druck/Monitor, Gong-Text, Klassenbuch-Eintrag mit tatsächlichem Fach, Statistik-Zähler „davon mit eigenem Fach“, Klausur-Hinweis im Formular, DATENSCHUTZ §3.4/STUNDENPLAN §2.3 | M | Opus | SP-03 (Recht `substitute` aus SP-02, Seiten unter `/planung/vertretungen`) | nächste freie Nummer (Spalte + Check) | `vertretung.test`, `vorschlaege.test`, `display.test`, `vertretung-gong.test`, Klassenbuch-Test, E2E `vertretungsbedarf.spec.ts` erweitert |
 | **SP-11** | E2E-Szenario „Stundenplaner:in“ (Login `frank.schulte` → Übersicht → Lauf mit Parametern → Abbruch → zweiter Lauf → Vergleich → Übernahme ab Stichtag → zurücknehmen; **Vertretung mit Fachtausch**; Sekretariat 404 auf `/planung`; alte URLs leiten weiter) + **Review-PR GATE SP** (erledigte IDs, Tests, Fragen) | S | Opus | SP-10, SP-12 | – | `e2e/zx-gate-sp.spec.ts` |
 | **GATE SP** | Review mit der Projektleitung (Review-PR aus SP-11; `/code-review ultra` nach Wunsch) – merged nur die Projektleitung | – | – | SP-11 | – | – |
 
-Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ → SP-05 ✅ → SP-06 ✅ ‖ SP-12 ✅ → SP-07 ✅ → SP-08 ✅ ‖ SP-09 ✅ → SP-10 → SP-11 → **GATE SP**.
+Reihenfolge: SP-02 ✅ → SP-03 ✅ → SP-04 ✅ → SP-05 ✅ → SP-06 ✅ ‖ SP-12 ✅ → SP-07 ✅ → SP-08 ✅ ‖ SP-09 ✅ → SP-10 ✅ → SP-11 → **GATE SP**.
 Parallelisierbar: SP-05 neben SP-03; SP-12 neben SP-06/SP-07 (kein Solver-Kern, berührt nur das Tagesgeschäft); SP-08 neben SP-09.
 Migrationsnummern werden in der Reihenfolge des Mergens vergeben (SP-06 und SP-12 nehmen jeweils die nächste freie Nummer).
 Zwischenstand zum Melden nach SP-04 (Bereich steht, Verwaltung aufgeräumt) und nach SP-07 (Läufe bedienbar). Release-Vorschlag nach

@@ -1,6 +1,6 @@
 # SchulOS – Stunden- und Raumplanung, Statusmonitor, Schulformen
 
-> Stand: 2026-10-03 · Status: **bestätigt** – Phase 2b vor Track B, echter Solver in 2b, alle weiterführenden
+> Stand: 2026-10 (Umbau, siehe §0) · Konzept vom 2026-10-03 · Status: **bestätigt** – Phase 2b vor Track B, echter Solver in 2b, alle weiterführenden
 > Schulformen ohne Berufskolleg, alle 16 Länder (NRW ausgearbeitet). Aufgaben: `BACKLOG.md` P2b-01 … P2b-25
 > Anlass: Vorgabe der Projektleitung nach Phase 2 – das Stundenplanmodul soll verbreiteter Stundenplan-Software nahekommen, Raumplanung
 > gehört gleichrangig dazu, ein Statusmonitor für den Vertretungsplan ist Pflicht, und SchulOS soll für
@@ -8,7 +8,34 @@
 
 ---
 
-## 1. Was heute da ist (Ende Phase 2)
+## 0. Stand 2026-10 (nach dem Stundenplan-Umbau)
+
+Der Umbau (Plan und Begründungen: [`STUNDENPLAN-UMBAU.md`](STUNDENPLAN-UMBAU.md), Aufgaben BACKLOG SP-01 … SP-12) hat die Planung in einen
+eigenen Bereich verlegt und die automatische Planung zu einer Funktion mit Läufen ausgebaut. §1 beschreibt den alten Stand Ende Phase 2 und
+bleibt als Ausgangslage stehen; die Abschnitte 2 bis 6 sind das Konzept – was davon gebaut ist, steht in BACKLOG P2b.
+
+| Thema | Stand |
+|---|---|
+| **Bereich `/planung`** | Eigener Bereich „Stundenplanung“ (Navigation, nur mit `stundenplan.manage` oder `stundenplan.substitute`, sonst 404). Reiter nach Recht: Übersicht · Stundenplan · Unterrichtsverteilung · Zeitwünsche · Automatisch planen (`manage`) · Vertretungen (`substitute`) · Aufsichten. Stammdaten (Fächer, Räume, Zeitraster, Schuljahre, Ferien) und Deputate bleiben in der Verwaltung. Die alten Adressen unter `/verwaltung/…` leiten weiter |
+| **Übersicht** | Kennzahlen aus den vorhandenen Diensten, je Recht getrennt: Jahresplanung (offene Lehraufträge, Diagnose, Zeitwunsch-Fenster, letzter Lauf) und Tagesgeschäft (Vertretungsbedarf, Entwürfe, unbesetzte Aufsichten, Raumsperren) |
+| **Rechte** | Zwei getrennte Rechte (`manage` = Jahresplanung, `substitute` = Tagesgeschäft), vergeben über die Funktionsgruppe „Stundenplanung“ statt über eine Rolle; Schulleitung hat `substitute`. Das Sekretariat plant per Vorgabe nicht mehr (Bestandsinstallationen behalten ihren Grant, bis der Admin ihn entzieht). 2FA ist für beide Rechte sofort Pflicht. Die Gruppe darf Kurswahlen lesen (`kurswahl.view`, nur Zahlen je Angebot, nie Schüler:innen-Wünsche). Mitglieder trägt nur ein, wer beide Rechte selbst hat – auf neuen Installationen der Admin (SICHERHEIT S80) |
+| **Solver-Läufe** | Jeder Lauf hat Bezeichnung, Gründlichkeit, Startwert und Gewichtung (Voreinstellungen oder eigene). Läufe kommen in eine **Warteschlange** (ein Lauf rechnet gleichzeitig, der Rest wartet), lassen sich **abbrechen** (wartend sofort, laufend mit dem bis dahin besten Stand), sind nach einem Neustart des Servers nicht verloren und werden vor dem Start auf fehlende Eingaben **geprüft** (Zeitraster, Lehraufträge, Räume). Die Detailseite zeigt Fortschritt, Vorprüfung, Protokoll, Kostenposten und „nicht gesetzt“ mit Grund je Einheit sowie eine Vorschau je Klasse oder Lehrkraft |
+| **Vergleich** | 2 bis 3 fertige Läufe nebeneinander: Kennzahlen mit Bestwert und Abstand zum ersten Lauf, Parameter-Abweichungen, Vorschau |
+| **Übernahme / Zurücknehmen** | Übernahme ab einem Stichtag, der ein **Schultag** sein muss (sonst Vorschlag des nächsten Schultags); vorab der Hinweis, wie viele Vertretungen entfallen. Jede übernommene Stunde merkt sich ihren Lauf. **Zurücknehmen** geht, solange der Stichtag in der Zukunft liegt – von Hand geänderte Stunden werden nie überschrieben, entfallene Vertretungen kommen nicht zurück. Bis zum Stichtag ist ein übernommener Lauf nicht löschbar; danach leert ein Nachtjob die Rücknahme-Daten. Aufräumen: gescheiterte/abgebrochene Läufe nach 7 Tagen, je Schuljahr bleiben die neuesten 20 fertigen Läufe mit Vorschlag (Löschfrist DATENSCHUTZ §3.4) |
+| **Kopplungen im Solver** | Eine Kopplung wird als Block gesetzt; **jeder Teil bekommt seinen eigenen Raum** (geteilte Klasse mit zwei Lehrkräften → zwei Räume; dieselbe Lehrkraft in mehreren Teilen → derselbe Raum) |
+| **Vertretung mit Fachtausch** | Die Vertretung kann ein abweichendes Fach tragen („Mathe statt Sport“); Vorschläge bevorzugen Lehrkräfte, die die Klasse kennen, und übernehmen Lehrkraft **und** Fach mit einem Knopf. Die Anzeige in Plänen, Vertretungsplan, Druck, Monitor und Gong nennt das tatsächliche Fach, das Klassenbuch trägt es ein, die Statistik zählt „davon mit eigenem Fach“ |
+| **Deputat** | Neuer Anrechnungsgrund „Stundenplanung“ (Ermäßigung für das Planen selbst) |
+| **Demo** | Login `frank.schulte` (Passwort `schulos`) gehört zur Gruppe Stundenplanung und plant unter `/planung` |
+
+**Grenzen (kommen im Folgeblock SP2, siehe [`STUNDENPLAN-UMBAU.md`](STUNDENPLAN-UMBAU.md) §7):** keine Oberstufen-Bänder/Blockung, keine
+Tagesgrenzen oder Ganztags-Regeln je Gruppe, kein CSV-Import der Unterrichtsverteilung, keine Verlegung/Zusammenlegung/Bereitschaft bei der
+Vertretung, kein Warmstart des Solvers vom aktuellen Plan, keine Exporte/Drucke/Statistiken der Planung (nur der bestehende Plandruck). Der Solver
+setzt Sek I belastbar (Benchmark 7-zügig, 1 323 Einheiten, unter 1 s), Oberstufenkurse mit dichten Konflikten über mehrere Schienen können
+offen bleiben – sie stehen dann mit Grund unter „nicht gesetzt“.
+
+---
+
+## 1. Ausgangslage (Ende Phase 2)
 
 | Bereich | vorhanden |
 |---|---|
