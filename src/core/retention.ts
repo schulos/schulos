@@ -261,6 +261,9 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   buecherei_titles: "Bücherei-Bestand: Titel (bibliografische Angaben) – keine Personen",
   buecherei_copies: "Bücherei-Bestand: Exemplare (Nummer, Signatur, Standort, Zustand, Aussonderung) – keine Personen",
   buecherei_stats: "Bücherei: Zahl der Ausleihen und Verlängerungen je Monat und Medienart – keine Personen",
+  buecherei_teaching_materials: "Schulbuchausleihe: Lernmittel je Jahrgang/Fach/Kurs (bibliografische Angaben, Preis) – keine Personen",
+  buecherei_material_copies: "Schulbuchausleihe: Exemplare mit Inventarnummer, Zustand (Vermerk zur Sache), Aussonderung – keine Personen",
+  buecherei_booklists: "Schulbuchausleihe: Hinweistext der Bücherliste je Jahrgang – keine Personen",
 };
 
 export interface RetentionEntry {

@@ -3,9 +3,11 @@
 // Vormerkung (BU-03), Nutzung je Exemplar und Druckwarteschlange (BU-05).
 import { eq, inArray, lte } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { buechereiCopies, buechereiLoans, buechereiReservations, buechereiStats, buechereiTitles } from "@/core/db/schema";
+import { buechereiBooklists, buechereiCopies, buechereiLoans, buechereiMaterialCopies, buechereiReservations, buechereiStats, buechereiTeachingMaterials, buechereiTitles } from "@/core/db/schema";
+import { writeModuleSetting } from "@/core/modules/settings";
 import { addDays, toBerlinDate } from "@/core/time";
-import { copyNumber, normalizeIsbn, type MediaType } from "./labels";
+import { copyNumber, materialNumber, normalizeIsbn, type MaterialProvision, type MediaType } from "./labels";
+import { LERNMITTEL } from "./settings";
 
 interface DemoTitle {
   title: string;
@@ -108,5 +110,43 @@ export async function seedBuecherei(db: Db, opts: { now?: Date; borrowers?: read
     { month: month(1), mediaType: "spiel", loans: 2 },
     { month: month(0), mediaType: "buch", loans: 9, renewals: 1 },
     { month: month(0), mediaType: "film", loans: 1, dunnings: 2 },
+  ]);
+}
+
+// BU-10: Schulbuchausleihe in der Demo eingeschaltet – erfundene Lernmittel (keine echten Werke, ISBN ohne Bezug zu echten
+// Büchern) für die Jahrgänge 5–7, Exemplare mit Inventarnummer, Bücherliste 5 freigegeben, 6 als Entwurf. Ohne Personenbezug.
+const MATERIALS: { title: string; publisher: string; isbn?: string; subjectId: string; grades: number[]; course?: string; provision: MaterialProvision; priceCents?: number; copies?: number }[] = [
+  { title: "Wortwerkstatt Deutsch 5", publisher: "Lindenblatt", isbn: "978-3-00-000011-9", subjectId: "D", grades: [5], provision: "leihe", priceCents: 2650, copies: 6 },
+  { title: "Zahlenwege 5", publisher: "Wissenswerk", isbn: "978-3-00-000012-6", subjectId: "M", grades: [5], provision: "leihe", priceCents: 2890, copies: 6 },
+  { title: "Zahlenwege 5 – Arbeitsheft", publisher: "Wissenswerk", subjectId: "M", grades: [5], provision: "kauf", priceCents: 1095 },
+  { title: "Green Paths 1", publisher: "Kleiner Hafen", isbn: "978-3-00-000013-3", subjectId: "E", grades: [5], provision: "leihe", priceCents: 2775, copies: 4 },
+  { title: "Schulatlas Lindenhof", publisher: "Wissenswerk", isbn: "978-3-00-000014-0", subjectId: "EK", grades: [5, 6, 7, 8, 9, 10], provision: "leihe", priceCents: 3450, copies: 8 },
+  { title: "Zahlenwege 6", publisher: "Wissenswerk", isbn: "978-3-00-000015-7", subjectId: "M", grades: [6], provision: "leihe", priceCents: 2890, copies: 3 },
+  { title: "Zahlenwege 7 (E-Kurs)", publisher: "Wissenswerk", isbn: "978-3-00-000016-4", subjectId: "M", grades: [7], course: "E-Kurs", provision: "leihe", priceCents: 2990, copies: 2 },
+];
+
+export async function seedLernmittel(db: Db) {
+  await writeModuleSetting(db, LERNMITTEL, "1");
+  let seq = 0;
+  for (const m of MATERIALS) {
+    const [row] = await db
+      .insert(buechereiTeachingMaterials)
+      .values({ title: m.title, publisher: m.publisher, isbn: m.isbn ? normalizeIsbn(m.isbn) : null, subjectId: m.subjectId, grades: m.grades, course: m.course ?? null, provision: m.provision, priceCents: m.priceCents ?? null })
+      .returning({ id: buechereiTeachingMaterials.id });
+    for (let i = 0; i < (m.copies ?? 0); i++) {
+      seq++;
+      await db.insert(buechereiMaterialCopies).values({
+        materialId: row!.id,
+        seq,
+        inventoryNumber: materialNumber(seq),
+        condition: i === 0 ? "gebraucht" : i === 1 && m.grades.length > 1 ? "schlecht" : "gut",
+        conditionNote: i === 1 && m.grades.length > 1 ? "Einband lose" : null,
+        acquiredYear: 2024,
+      });
+    }
+  }
+  await db.insert(buechereiBooklists).values([
+    { gradeLevel: 5, text: "Die ausgeliehenen Bücher bitte mit einem Schutzumschlag versehen und am Schuljahresende vollständig zurückgeben.\nArbeitshefte kaufen Sie bitte selbst bis zum ersten Schultag.", published: true },
+    { gradeLevel: 6, text: "", published: false },
   ]);
 }

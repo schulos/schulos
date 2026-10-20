@@ -1,11 +1,13 @@
 // Schulbücherei – Bestand ohne Personenbezug (BU-01), Ausleihen (BU-02). Nur relative Imports (drizzle-kit).
-import { date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "../../core/db/schema-auth";
-import { COPY_CONDITIONS, MEDIA_TYPES } from "./labels";
+import { gradeLevels, subjects } from "../../core/db/schema-core";
+import { COPY_CONDITIONS, MATERIAL_PROVISIONS, MEDIA_TYPES } from "./labels";
 
 export const buechereiMediaTypeEnum = pgEnum("buecherei_media_type", MEDIA_TYPES);
 export const buechereiConditionEnum = pgEnum("buecherei_condition", COPY_CONDITIONS);
+export const buechereiProvisionEnum = pgEnum("buecherei_material_provision", MATERIAL_PROVISIONS);
 
 /** Titel (bibliografische Angaben). ISBN als ISBN-13 normalisiert, je Titel höchstens einmal. */
 export const buechereiTitles = pgTable(
@@ -152,3 +154,78 @@ export const buechereiReservations = pgTable(
   },
   (t) => [uniqueIndex("buecherei_reservations_title_user_idx").on(t.titleId, t.userId), index("buecherei_reservations_user_idx").on(t.userId)],
 );
+
+// ---------------------------------------------------------------- Stufe 2: Schulbuchausleihe (BU-10, Schalter `buecherei.lernmittel`)
+
+/**
+ * Lernmittel (Schulbuch, Arbeitsheft, Atlas …) mit Zuordnung zu Jahrgängen, Fach und optional Kurs/Zweig. `provision`: leiht
+ * die Schule aus (Exemplare mit Inventarnummer) oder kaufen die Familien selbst (Bücherliste mit Preis). Kein Personenbezug.
+ * Nicht mehr verwendete Lernmittel werden archiviert (`archived_on`), nicht gelöscht, solange es Exemplare gibt.
+ */
+export const buechereiTeachingMaterials = pgTable(
+  "buecherei_teaching_materials",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    title: text("title").notNull(),
+    author: text("author"),
+    isbn: text("isbn"),
+    publisher: text("publisher"),
+    subjectId: text("subject_id").references(() => subjects.id, { onDelete: "set null", onUpdate: "cascade" }),
+    /** Jahrgänge (grade_levels.level), in denen das Lernmittel gebraucht wird, z. B. {5,6} */
+    grades: integer("grades").array().notNull(),
+    /** Kurs/Zweig, wenn nicht die ganze Jahrgangsstufe es braucht, z. B. „E-Kurs“, „Französisch“, „bilingual“ */
+    course: text("course"),
+    provision: buechereiProvisionEnum("provision").notNull().default("leihe"),
+    /** Ladenpreis in Cent (Bücherliste bei „selbst kaufen“; Grundlage einer späteren Ersatzforderung, BU-12) */
+    priceCents: integer("price_cents"),
+    note: text("note"),
+    archivedOn: date("archived_on"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("buecherei_teaching_materials_isbn_idx").on(t.isbn).where(sql`${t.isbn} is not null`),
+    check("buecherei_teaching_materials_price", sql`${t.priceCents} is null or ${t.priceCents} between 0 and 99999`),
+  ],
+);
+
+/**
+ * Exemplar eines Lernmittels mit Inventarnummer (`L-000042-7`, eigener Nummernkreis, Prüfziffer) und Zustand; Zustandsvermerk
+ * nur zur Sache (keine Namen). Wem es im laufenden Schuljahr gehört, steht nicht hier, sondern ab BU-11 in einer eigenen
+ * Zuordnung (nur im laufenden Schuljahr, Rücknahme ohne Befund löscht sie). Kein Personenbezug.
+ */
+export const buechereiMaterialCopies = pgTable(
+  "buecherei_material_copies",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    materialId: text("material_id")
+      .notNull()
+      .references(() => buechereiTeachingMaterials.id, { onDelete: "restrict" }),
+    seq: integer("seq").notNull(),
+    inventoryNumber: text("inventory_number").notNull().unique(),
+    condition: buechereiConditionEnum("condition").notNull().default("neu"),
+    /** Zustandsvermerk zur Sache, z. B. „Einband lose“ – keine Namen */
+    conditionNote: text("condition_note"),
+    /** Jahr der Anschaffung (Nutzungsdauer, Aussonderung) */
+    acquiredYear: integer("acquired_year"),
+    withdrawnOn: date("withdrawn_on"),
+    withdrawnReason: text("withdrawn_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("buecherei_material_copies_material_idx").on(t.materialId), uniqueIndex("buecherei_material_copies_seq_idx").on(t.seq)],
+);
+
+/** Bücherliste je Jahrgang: Hinweistext für Eltern (Abgabe, Eigenanteil, Umschläge …); die Lernmittel kommen aus der Zuordnung. */
+export const buechereiBooklists = pgTable("buecherei_booklists", {
+  gradeLevel: integer("grade_level")
+    .primaryKey()
+    .references(() => gradeLevels.level, { onDelete: "cascade" }),
+  text: text("text").notNull().default(""),
+  /** Liste für Eltern freigegeben (sonst sehen sie nur Verwaltung/Lernmittel-Team) */
+  published: boolean("published").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

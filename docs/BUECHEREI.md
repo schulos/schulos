@@ -39,7 +39,10 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 | `buecherei_cards` | pseudonymer Ausweis-Code je Konto (zufällig, bei Verlust neu = alter ungültig) | BU-07 |
 | `buecherei_reservations` | Vormerkung Titel ↔ Person | BU-03 |
 | `buecherei_stats` | Zähler ohne Personenbezug (Ausleihen, Verlängerungen, Mahnungen je Monat/Medienart) | BU-02/04/05 |
-| `buecherei_teaching_materials`, `buecherei_compensations` | Lernmittel ↔ Jahrgang/Fach, Ersatzforderungen | Stufe 2 |
+| `buecherei_teaching_materials` | Lernmittel: Titel, ISBN, Verlag, Fach, Jahrgänge, Kurs/Zweig, „leiht die Schule aus“/„selbst kaufen“, Preis, archiviert – ohne Personenbezug | BU-10 |
+| `buecherei_material_copies` | Lernmittel-Exemplar: Inventarnummer `L-…` (eigener Nummernkreis, Prüfziffer), Zustand + Vermerk zur Sache, Anschaffungsjahr, ausgesondert – ohne Personenbezug | BU-10 |
+| `buecherei_booklists` | Bücherliste je Jahrgang: Hinweistext für Eltern, freigegeben ja/nein – ohne Personenbezug | BU-10 |
+| Zuordnung Exemplar ↔ Person (Schuljahr), `buecherei_compensations` | Ausgabe/Rücknahme im laufenden Schuljahr, Ersatzforderungen | BU-11/12 |
 
 ## Rechte
 
@@ -63,7 +66,9 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
   Medienart gezählt. Eltern ab der 2. Stufe nur bei Minderjährigen (Zuordnung „handelt für“, nicht bei Eigenständigen – auch
   nicht mit Einwilligung „Eltern informieren“: eine Mahnung fordert zum Handeln auf, das tut dann die Person selbst).
   Mahnliste fürs Team: Mahnstufen nur für Erwachsene, Schüler-Helfer:innen sehen nur „fällig seit“.
-- Schulbuchausleihe: Zuordnung Exemplar ↔ Person nur im laufenden Schuljahr, nach Rücknahme entkoppelt.
+- Schulbuchausleihe: Zuordnung Exemplar ↔ Person nur im laufenden Schuljahr, nach Rücknahme entkoppelt (Löschregel unten,
+  „Stufe 2 – Festlegungen“). Lernmittel, Exemplare und Bücherlisten (BU-10) haben keinen Personenbezug; die Bücherliste lesen
+  alle mit Bücherei-Zugang und Eltern, aber nur freigegebene Jahrgänge.
 - Abgang: offene Ausleihen blockieren die Löschung nicht, erscheinen aber als Hinweis.
 - Auskunft (Art. 15) und Eigenexport: eigene offene Ausleihen, Vormerkungen, Forderungen.
 - Externe ISBN-Abfrage überträgt nur die ISBN; Vorgabe aus, im VVT als Empfänger genannt. Umgesetzt (BU-06): Schalter
@@ -115,3 +120,21 @@ Umfang: BU-01, BU-02, BU-07, BU-03, BU-04, BU-05, BU-06 (PRs #24, #26, #28, #30,
 Für Stufe 2 (BU-10 ff.): Schulbücher haben eine eigene Zuordnung Exemplar ↔ Person im laufenden Schuljahr (nicht die
 Ausleihe der Stufe 1); Elternmahnung bei Schulbüchern von Anfang an (Entscheidung 4); Befunde/Ersatzforderungen hängen an
 `buecherei.materials` – die Rückgaben mit Befund aus Stufe 1 sind ihr Ausgangspunkt.
+
+## Stufe 2 – Festlegungen (BU-10, 2026-10-20)
+
+Datensparsam vorbelegt bei der Umsetzung; Abweichungen entscheidet die Projektleitung (offene Fragen in DSB-FRAGEN §18).
+
+1. **Eigene Datenhaltung:** Lernmittel und ihre Exemplare stehen in eigenen Tabellen (Inventarnummer `L-…`, eigener
+   Nummernkreis) – nicht im Bestand der Bücherei. Katalog, Theke, Mahnungen und Statistik der Stufe 1 sehen sie nicht.
+2. **Schalter:** `buecherei.lernmittel` ab Werk aus; ausgeschaltet verschwinden Seiten und Reiter, gespeicherte Lernmittel bleiben.
+3. **Bücherliste:** je Jahrgang ein Hinweistext und eine Freigabe; Lernmittel mit „selbst kaufen“ erscheinen mit Preis und
+   Summe (nur Information, keine Zahlungen). Entwürfe sieht nur, wer Lernmittel pflegt (`buecherei.materials`).
+4. **Löschregel für die Zuordnung Exemplar ↔ Person (gilt ab BU-11):** Sie gehört zum laufenden Schuljahr (`school_year_id`).
+   Rücknahme **ohne** Befund löscht die Zeile sofort (wie Stufe 1: kein Verlauf, nur Zähler ohne Person). Rücknahme **mit**
+   Befund bleibt bis zur Erledigung der Ersatzforderung (BU-12), danach `LK-SJ-1J`. Nicht zurückgegebene Schulbücher bleiben
+   über das Schuljahresende nur als offener Posten (Prüfschritt im Schuljahreswechsel, BU-13) und gehen spätestens mit dem
+   Konto (`LK-KONTO`, Kontolöschung leert die Person). Querschnittstest dazu in BU-11 (Gegenstück zu `gate-bu1.test.ts`);
+   BU-10 prüft in `lernmittel.test.ts`, dass Lernmittel, Exemplare und Bücherlisten keine Personenspalten haben.
+5. **Elternmahnung bei Schulbüchern von Anfang an** (Entscheidung 4) – wie Stufe 1 nur bei Minderjährigen über „handelt für“,
+   ohne Titel; kommt mit BU-11/BU-12.

@@ -2,6 +2,7 @@
 // CSV-Import in der Vorschau; Lehrkraft ohne Teamrecht bekommt 404. Theke (BU-02): Person suchen, scannen, verlängern,
 // Rückgabe nur scannen, Rückgabe mit Befund; Befunde nur für die Verwaltung. Ausweise (BU-07): drucken, scannen, ersetzen.
 // Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht. Mahnliste und Widget (BU-04). Etiketten und Statistik (BU-05). ISBN-Abfrage (BU-06) ohne Netz: Schalter, Hinweis, Dublette, ungültige ISBN.
+// Stufe 2 (BU-10): Lernmittel mit Inventarnummern anlegen, Etiketten, Bücherliste freigeben, Eltern lesen sie.
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch } from "./helpers";
 
@@ -202,7 +203,8 @@ test.describe("Bücherei", () => {
     await page.getByRole("link", { name: "Bücherei", exact: true }).first().click();
     await expect(page).toHaveURL("/buecherei/katalog");
     const nav = page.getByRole("navigation", { name: "Bücherei" });
-    await expect(nav.getByRole("link")).toHaveText(["Katalog", "Meine Ausleihen"]);
+    // BU-10: mit eingeschalteter Schulbuchausleihe (Demo) auch die Bücherliste – Lernmittel-Pflege nicht
+    await expect(nav.getByRole("link")).toHaveText(["Katalog", "Meine Ausleihen", "Bücherliste"]);
     expect((await page.goto("/buecherei/bestand"))?.status()).toBe(404);
     await logoutForSwitch(page);
   });
@@ -388,5 +390,64 @@ test.describe("Bücherei", () => {
     }
     await admin.context().close();
     await team.context().close();
+  });
+
+  test("BU-10: Lernmittel mit Inventarnummern, Etiketten, Bücherliste freigeben – Eltern lesen sie", async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = collectErrors(page);
+    const MAT = "Farbenlehre 6 (E2E)";
+    await login(page, "sabine.kowalski"); // Verwaltung: `buecherei.materials`
+    await page.goto("/buecherei/lernmittel");
+    await expect(page.getByRole("heading", { name: "Lernmittel", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Zahlenwege 5", exact: true })).toBeVisible();
+
+    const form = page.getByRole("form", { name: "Lernmittel anlegen" });
+    await form.getByLabel("Titel", { exact: true }).fill(MAT);
+    await form.getByLabel("Jahrgänge").selectOption(["6"]);
+    await form.getByLabel("Fach").selectOption({ label: "Kunst" });
+    await form.getByLabel("Exemplare der Schule").fill("2");
+    await form.getByRole("button", { name: "Anlegen" }).click();
+    await expect(page).toHaveURL(/\/buecherei\/lernmittel\/[0-9a-f-]+$/);
+    await expect(page.getByRole("heading", { name: MAT })).toBeVisible();
+    const copies = page.getByRole("table", { name: `Exemplare von ${MAT}` });
+    await expect(copies.getByRole("row")).toHaveCount(3);
+    await expect(copies.getByText(/^L-\d{6}-\d$/)).toHaveCount(2);
+
+    await page.getByRole("link", { name: "Etiketten drucken" }).click();
+    await expect(page).toHaveURL(/\/druck\/buecherei-etiketten\?lernmittel=/);
+    await expect(page.getByText(/^2 Etiketten/)).toBeVisible();
+    await expect(page.getByRole("form", { name: "Als gedruckt markieren" })).toHaveCount(0);
+
+    // Bücherliste 6 ist in der Demo ein Entwurf → Text schreiben und freigeben
+    await page.goto("/buecherei/buecherliste?jahrgang=6");
+    await expect(page.getByText("Entwurf", { exact: true })).toBeVisible();
+    await expect(page.getByText(MAT)).toBeVisible();
+    const save = page.getByRole("form", { name: /^Bücherliste .* speichern$/ });
+    await save.getByLabel("Hinweistext").fill("Bitte alle Bücher einbinden (E2E).");
+    await save.getByLabel("für Eltern, Schüler:innen und Lehrkräfte freigeben").check();
+    await save.getByRole("button", { name: "Speichern" }).click();
+    await expect(save.getByRole("status")).toHaveText("Gespeichert.");
+    await page.reload();
+    await expect(page.getByText("für Eltern freigegeben")).toBeVisible();
+    expect(errors).toEqual([]);
+    await logoutForSwitch(page);
+
+    // Eltern: Bücherliste über die Bücherei-Navigation, nur freigegebene Jahrgänge, keine Pflege
+    await login(page, "daniela.schaefer");
+    await page.goto("/buecherei/meine");
+    await page.getByRole("navigation", { name: "Bücherei" }).getByRole("link", { name: "Bücherliste" }).click();
+    await expect(page).toHaveURL(/\/buecherei\/buecherliste/);
+    await page.goto("/buecherei/buecherliste?jahrgang=6");
+    await expect(page.getByText("Bitte alle Bücher einbinden (E2E).")).toBeVisible();
+    await expect(page.getByText(MAT)).toBeVisible();
+    await expect(page.getByRole("form", { name: /speichern$/ })).toHaveCount(0);
+    expect((await page.goto("/buecherei/lernmittel"))?.status()).toBe(404);
+    await logoutForSwitch(page);
+
+    // Büchereiteam ohne `materials`: keine Lernmittel-Pflege
+    await login(page, "aylin.demir");
+    expect((await page.goto("/buecherei/lernmittel"))?.status()).toBe(404);
+    expect((await page.goto("/druck/buecherei-etiketten?lernmittel=x"))?.status()).toBe(404);
+    await logoutForSwitch(page);
   });
 });

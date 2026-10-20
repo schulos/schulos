@@ -27,8 +27,41 @@ export const CONDITION_LABELS: Record<CopyCondition, string> = {
   schlecht: "schlecht",
 };
 
-/** Präfix der Exemplarnummern der Bücherei (Stufe 2, Lernmittel, bekommt ein eigenes). */
+/** Präfix der Exemplarnummern der Bücherei (Stufe 2, Lernmittel, hat ein eigenes: `MATERIAL_PREFIX`). */
 export const COPY_PREFIX = "B";
+
+/** BU-10: Präfix der Inventarnummern der Lernmittel (Schulbücher) – eigener Nummernkreis, `L-000001-x`. */
+export const MATERIAL_PREFIX = "L";
+
+/** BU-10: Wie ein Lernmittel zu den Familien kommt – von der Schule ausgeliehen oder selbst gekauft (Eigenanteil, Arbeitshefte). */
+export const MATERIAL_PROVISIONS = ["leihe", "kauf"] as const;
+export type MaterialProvision = (typeof MATERIAL_PROVISIONS)[number];
+
+export const PROVISION_LABELS: Record<MaterialProvision, string> = {
+  leihe: "leiht die Schule aus",
+  kauf: "selbst kaufen",
+};
+
+/** Rein: Jahrgänge kompakt – {5,6,7} → „5–7“, {5,7} → „5, 7“. */
+export function gradeRange(grades: readonly number[]): string {
+  const g = [...grades].sort((a, b) => a - b);
+  const contiguous = g.length > 2 && g.every((x, i) => i === 0 || x === g[i - 1]! + 1);
+  return contiguous ? `${g[0]}–${g.at(-1)}` : g.join(", ");
+}
+
+/** Rein: Betrag in Cent als „12,95 €“. */
+export function formatEuro(cents: number): string {
+  return `${(cents / 100).toFixed(2).replace(".", ",")} €`;
+}
+
+/** Rein: „12,95“, „12.95“, „12“ oder „12,95 €“ → Cent; leer → null; ungültig → "bad". Höchstens 999,99 €. */
+export function parseEuro(raw: string | null | undefined): number | null | "bad" {
+  const v = (raw ?? "").replace(/€/g, "").trim();
+  if (!v) return null;
+  const m = /^(\d{1,3})(?:[.,](\d{1,2}))?$/.exec(v);
+  if (!m) return "bad";
+  return Number(m[1]) * 100 + Number((m[2] ?? "0").padEnd(2, "0"));
+}
 
 /** Rein: Prüfziffer (Luhn, Ziffern 0–9) über die laufende Nummer. */
 export function luhnDigit(digits: string): number {
@@ -49,6 +82,9 @@ export function copyNumber(seq: number, prefix = COPY_PREFIX): string {
   const digits = String(seq).padStart(6, "0");
   return `${prefix}-${digits}-${luhnDigit(digits)}`;
 }
+
+/** Rein: Inventarnummer eines Lernmittels, z. B. `L-000042-7` (BU-10, eigener Nummernkreis). */
+export const materialNumber = (seq: number) => copyNumber(seq, MATERIAL_PREFIX);
 
 /** Rein: Exemplarnummer gültig (Form und Prüfziffer)? Tippfehler beim Abtippen fallen so auf. */
 export function isValidCopyNumber(raw: string): boolean {

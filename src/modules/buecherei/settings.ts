@@ -105,4 +105,29 @@ export const DUNNING_MAIL = defineSetting({
   default: "0",
 });
 
-export const BUECHEREI_SETTINGS: readonly ModuleSettingDecl[] = [...MEDIA_TYPES.map((m) => LOAN_DAYS[m]), MAX_RENEWALS, HOLD_DAYS, MAX_RESERVATIONS, REMIND_DAYS, DUNNING_DAYS, DUNNING_MAIL, ...ISBN_SETTINGS];
+/**
+ * BU-10: Stufe 2 – Schulbuchausleihe (Lernmittel) zuschalten (`buecherei.lernmittel`, Vorgabe aus; Entscheidung 1 in
+ * docs/BUECHEREI.md). Aus: keine Lernmittel-Seiten, keine Bücherliste; vorhandene Lernmittel bleiben gespeichert.
+ */
+export const LERNMITTEL = defineSetting({
+  key: "buecherei.lernmittel",
+  label: "Schulbuchausleihe (Lernmittel)",
+  help: "Lernmittel je Jahrgang und Fach mit Inventarnummern pflegen und Bücherlisten für Eltern veröffentlichen. Für Schulen, die Schulbücher über die Bücherei ausleihen.",
+  options: [
+    { value: "0", label: "aus" },
+    { value: "1", label: "an" },
+  ],
+  default: "0",
+});
+
+export const BUECHEREI_SETTINGS: readonly ModuleSettingDecl[] = [
+  ...MEDIA_TYPES.map((m) => LOAN_DAYS[m]),
+  MAX_RENEWALS,
+  HOLD_DAYS,
+  MAX_RESERVATIONS,
+  REMIND_DAYS,
+  DUNNING_DAYS,
+  DUNNING_MAIL,
+  ...ISBN_SETTINGS,
+  LERNMITTEL,
+];
