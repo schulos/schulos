@@ -519,4 +519,64 @@ test.describe("Bücherei", () => {
     await expect(page.getByRole("table", { name: "Schulbücher je Schüler:in in Klasse 7b" }).getByRole("row").filter({ hasText: "Lea Schäfer" })).not.toContainText(nr);
     expect(errors).toEqual([]);
   });
+
+  test("BU-12: Ersatzforderung aus einem Befund, Brief an die Eltern, bezahlt – Eltern sehen die offene Forderung", async ({ page }) => {
+    test.setTimeout(120_000);
+    const errors = collectErrors(page);
+    const MAT = "Ersatzbuch 7 (E2E)";
+    await login(page, "sabine.kowalski");
+    await page.goto("/buecherei/lernmittel");
+    const create = page.getByRole("form", { name: "Lernmittel anlegen" });
+    await create.getByLabel("Titel", { exact: true }).fill(MAT);
+    await create.getByLabel("Jahrgänge").selectOption(["7"]);
+    await create.getByLabel("Preis").fill("19,90");
+    await create.getByLabel("Exemplare der Schule").fill("1");
+    await create.getByRole("button", { name: "Anlegen" }).click();
+    await expect(page.getByRole("heading", { name: MAT })).toBeVisible();
+    const nr = (await page.getByRole("table", { name: `Exemplare von ${MAT}` }).getByText(/^L-\d{6}-\d$/).first().textContent())!.trim();
+
+    // ausgeben und mit Befund zurücknehmen
+    await page.goto("/buecherei/ausgabe?gruppe=g-7b");
+    await page.getByRole("table", { name: "Schulbücher je Schüler:in in Klasse 7b" }).getByRole("link", { name: "Lea Schäfer" }).click();
+    await expect(page.getByRole("heading", { name: "Ausgabe an Lea Schäfer" })).toBeVisible();
+    const scan = page.getByRole("form", { name: "Schulbuch scannen" });
+    await scan.getByLabel("Ausweis oder Schulbuch scannen").fill(nr);
+    await scan.getByRole("button", { name: "Buchen" }).click();
+    await expect(scan.getByRole("status")).toContainText("Ausgegeben");
+    await scan.getByText("Rücknahme: Zustand, Vermerk, Befund").click();
+    await scan.getByLabel("Befund (Ersatz prüfen)").fill("Einband abgerissen");
+    await scan.getByLabel("Ausweis oder Schulbuch scannen").fill(nr);
+    await scan.getByRole("button", { name: "Buchen" }).click();
+    await expect(scan.getByRole("status")).toContainText("Zurückgenommen mit Befund");
+
+    // Ersatz fordern (Preis als Vorschlag), Brief drucken
+    await page.getByRole("navigation", { name: "Bücherei" }).getByRole("link", { name: "Ersatzforderungen" }).click();
+    const claim = page.getByRole("form", { name: `Ersatz fordern: ${MAT} (${nr})` });
+    await expect(claim.getByLabel("Betrag (€)")).toHaveValue("19,90");
+    await expect(claim.getByLabel("Grund")).toHaveValue("Einband abgerissen");
+    await claim.getByRole("button", { name: "Ersatz fordern" }).click();
+    const open = page.getByRole("list", { name: "Offene Forderungen" }).getByRole("listitem").filter({ hasText: nr });
+    await expect(open).toContainText("19,90 €");
+    await open.getByRole("link", { name: "Brief drucken" }).click();
+    await expect(page).toHaveURL(/\/druck\/buecherei-ersatz\?id=/);
+    const letter = page.getByRole("main", { name: "Brief Ersatzforderung" });
+    await expect(letter).toContainText("Sehr geehrte Erziehungsberechtigte");
+    await expect(letter).toContainText("Daniela Schäfer");
+    await expect(letter).toContainText("19,90 €");
+    expect(errors).toEqual([]);
+    await logoutForSwitch(page);
+
+    // Eltern sehen die offene Forderung (nur lesend)
+    await login(page, "daniela.schaefer");
+    await page.goto("/buecherei/meine");
+    await expect(page.getByRole("table", { name: "Ersatzforderungen an Lea Schäfer" })).toContainText("19,90 €");
+    await logoutForSwitch(page);
+
+    // bezahlt → abgeschlossen
+    await login(page, "sabine.kowalski");
+    await page.goto("/buecherei/ersatz");
+    await page.getByRole("button", { name: `${MAT} (${nr}): bezahlt` }).click();
+    await expect(page.getByRole("table", { name: "Abgeschlossene Forderungen" })).toContainText(nr);
+    expect(errors).toEqual([]);
+  });
 });

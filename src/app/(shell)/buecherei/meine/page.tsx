@@ -6,7 +6,9 @@ import { getDb } from "@/core/db/client";
 import { toBerlinDate } from "@/core/time";
 import { cancelReservationAction, renewOwnLoanAction } from "@/modules/buecherei/actions";
 import { childrenSchoolbooks, schoolbooksOf, type IssuedBook } from "@/modules/buecherei/ausgabe";
+import { childrenCompensations, openCompensationsOf } from "@/modules/buecherei/ersatz";
 import { canUse, childrenLibrary, myLibrary, type Library } from "@/modules/buecherei/katalog";
+import { formatEuro } from "@/modules/buecherei/labels";
 import { lernmittelEnabled } from "@/modules/buecherei/lernmittel";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
@@ -143,6 +145,31 @@ function SchoolbookList({ books, who }: { books: IssuedBook[]; who: string }) {
   );
 }
 
+/** BU-12: offene Ersatzforderungen (nur lesend – geklärt wird mit der Schule). */
+function CompensationList({ items, who }: { items: Awaited<ReturnType<typeof openCompensationsOf>>; who: string }) {
+  return (
+    <Table>
+      <caption className="sr-only">Ersatzforderungen an {who}</caption>
+      <thead>
+        <tr>
+          <th>Ersatz für</th>
+          <th>Grund</th>
+          <th className="text-right">Betrag</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((c) => (
+          <tr key={c.id}>
+            <td className="font-medium">{c.item}</td>
+            <td>{c.reason}</td>
+            <td className="text-right tabular-nums">{formatEuro(c.amountCents)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </Table>
+  );
+}
+
 /**
  * „Meine Ausleihen“ (BU-03): eigene offene Ausleihen (selbst verlängern) und Vormerkungen; Eltern sehen die ihrer Kinder nur
  * lesend. Bewusst ohne Verlauf – Zurückgegebenes wird nicht gespeichert.
@@ -154,11 +181,13 @@ export default async function MeinePage() {
   const db = await getDb();
   const today = toBerlinDate(new Date());
   const stage2 = await lernmittelEnabled(db);
-  const [mine, kids, myBooks, kidsBooks] = await Promise.all([
+  const [mine, kids, myBooks, kidsBooks, myComps, kidsComps] = await Promise.all([
     own ? myLibrary(db, perms, today) : null,
     childrenLibrary(db, perms, today),
     own && stage2 ? schoolbooksOf(db, perms.userId, today) : [],
     childrenSchoolbooks(db, perms, today),
+    own && stage2 ? openCompensationsOf(db, perms.userId) : [],
+    childrenCompensations(db, perms),
   ]);
   const booksOfKid = new Map(kidsBooks.map((k) => [k.id, k.books]));
 
@@ -182,6 +211,13 @@ export default async function MeinePage() {
           <SchoolbookList books={myBooks} who="mir" />
         </Card>
       )}
+      {myComps.length > 0 && (
+        <Card aria-labelledby="ersatz">
+          <CardHeader title={<span id="ersatz">Ersatzforderungen</span>} />
+          <p className="text-sm text-muted">Für ein beschädigtes oder verlorenes Medium – wie bezahlt oder ersetzt wird, sagt das Sekretariat.</p>
+          <CompensationList items={myComps} who="mich" />
+        </Card>
+      )}
       {perms.role === "eltern" &&
         (kids.length === 0 ? (
           <EmptyState title="Keine Kinder zugeordnet">Hier erscheinen die Ausleihen Ihrer Kinder, sobald die Schule sie Ihrem Konto zugeordnet hat.</EmptyState>
@@ -194,6 +230,12 @@ export default async function MeinePage() {
                 <>
                   <h3 className="text-sm font-semibold">Schulbücher</h3>
                   <SchoolbookList books={booksOfKid.get(k.id)!} who={k.name} />
+                </>
+              )}
+              {(kidsComps.get(k.id)?.length ?? 0) > 0 && (
+                <>
+                  <h3 className="text-sm font-semibold">Ersatzforderungen</h3>
+                  <CompensationList items={kidsComps.get(k.id)!} who={k.name} />
                 </>
               )}
             </Card>

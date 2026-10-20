@@ -378,7 +378,7 @@ export async function issueFindings(db: Db, viewer: PermissionSet) {
     .innerJoin(buechereiMaterialCopies, eq(buechereiMaterialCopies.id, buechereiMaterialIssues.copyId))
     .innerJoin(buechereiTeachingMaterials, eq(buechereiTeachingMaterials.id, buechereiMaterialCopies.materialId))
     .leftJoin(users, eq(users.id, buechereiMaterialIssues.userId))
-    .where(and(isNotNull(buechereiMaterialIssues.returnedOn), isNull(buechereiMaterialIssues.findingResolvedOn)))
+    .where(and(isNotNull(buechereiMaterialIssues.returnedOn), isNull(buechereiMaterialIssues.findingResolvedOn), sql`not exists (select 1 from buecherei_compensations c where c.issue_id = ${buechereiMaterialIssues.id})`))
     .orderBy(asc(buechereiMaterialIssues.returnedOn), asc(buechereiMaterialCopies.seq));
   const cls = await classNamesOf(
     db,

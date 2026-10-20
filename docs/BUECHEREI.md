@@ -43,7 +43,7 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 | `buecherei_material_copies` | Lernmittel-Exemplar: Inventarnummer `L-…` (eigener Nummernkreis, Prüfziffer), Zustand + Vermerk zur Sache, Anschaffungsjahr, ausgesondert – ohne Personenbezug | BU-10 |
 | `buecherei_booklists` | Bücherliste je Jahrgang: Hinweistext für Eltern, freigegeben ja/nein – ohne Personenbezug | BU-10 |
 | `buecherei_material_issues` | Schulbuch-Ausgabe: Exemplar ↔ Person mit Schuljahr (`school_year_id`), ausgegeben am, zurück bis (Schuljahresende), Mahnstufe; Rücknahme ohne Befund löscht die Zeile, mit Befund bleibt sie bis zur Erledigung | BU-11 |
-| `buecherei_compensations` | Ersatzforderungen | BU-12 |
+| `buecherei_compensations` | Ersatzforderung: Person, Quelle (Ausleihe-Befund oder Schulbuch-Ausgabe), Gegenstand als Text, Grund, Betrag, Status offen/bezahlt/erlassen, Brief gedruckt am | BU-12 |
 
 ## Rechte
 
@@ -158,3 +158,17 @@ Datensparsam vorbelegt bei der Umsetzung; Abweichungen entscheidet die Projektle
 - Ausgabe/Rücknahme im Audit-Log nur mit Inventarnummer, ohne Person (Nachweis über den Bestand, kein Verlauf je Person).
 - Nicht umgesetzt (für später notiert): Klassenleitung sieht offene Schulbücher der Klasse (Rollen-Tabelle oben) – braucht
   eine eigene Freigabe, weil Lehrkräfte bisher keine Bücherei-Daten anderer sehen.
+
+## Stufe 2 – Ersatzforderungen (BU-12, 2026-10-20)
+
+- **Nur erfassen und Brief** (Entscheidung 6): Betrag, Grund, Status offen/bezahlt/erlassen – keine Zahlungsdaten, keine
+  Bankverbindung im Brief, keine Säumnisgebühren. Wie bezahlt wird, sagt das Sekretariat; gleichwertiger Ersatz ist möglich.
+- **Ausgangspunkt:** Befunde aus Rückgaben der Bücherei (Stufe 1), Schulbuch-Rücknahmen mit Befund und Schulbücher nach Ablauf
+  der Rückgabefrist (Verlust). Je Befund höchstens eine Forderung; der Verlust schließt die Ausgabe mit Befund ab (die Mahnung
+  endet) und sondert das Exemplar aus. Vorschlag für den Betrag: Preis des Lernmittels (Bücherei-Titel haben keinen Preis).
+- **Abschluss:** bezahlt oder erlassen erledigt den Befund; danach gehen Forderung und Befund nach `LK-SJ-1J`. „Wieder öffnen“
+  nimmt beides zurück. Offene Forderungen bleiben bis zum Abschluss und gehen spätestens mit dem Konto (Person geleert).
+- **Brief** (`/druck/buecherei-ersatz`): an die Eltern Minderjähriger (über „handelt für“, alle Elternteile mit Namen), sonst an
+  die Person selbst; Browserdruck (auch als PDF). Das Öffnen vermerkt „Brief gedruckt am“ (und steht im Audit-Log).
+- **Sicht:** nur `buecherei.materials` mit eingeschalteter Schulbuchausleihe (auch für Bücherei-Befunde – eine Schule ohne
+  Stufe 2 erledigt Befunde wie bisher ohne Forderung); Person und Eltern sehen offene Forderungen unter „Meine Ausleihen“.

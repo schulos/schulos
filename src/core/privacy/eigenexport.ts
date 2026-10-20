@@ -10,6 +10,7 @@ import { assertExportSize } from "@/core/export-limit";
 import { createZipAsync, type ZipEntry } from "@/core/zip";
 import { taskFiles, tasks, taskSubmissions } from "@/modules/aufgaben/schema";
 import { schoolbookAuskunft, schoolbookText } from "@/modules/buecherei/ausgabe";
+import { compensationAuskunft, compensationText } from "@/modules/buecherei/ersatz";
 import { libraryAuskunft, libraryText } from "@/modules/buecherei/katalog";
 
 const safe = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "_").trim().slice(0, 100) || "unbenannt";
@@ -104,6 +105,9 @@ export async function planOwnExport(db: Db, userId: string): Promise<OwnExportPl
   // BU-11: Schulbücher – offene und Rücknahmen mit Befund
   const schoolbooks = schoolbookText(await schoolbookAuskunft(db, userId));
   if (schoolbooks) push("Schulbücher.txt", { text: schoolbooks });
+  // BU-12: Ersatzforderungen (offen und abgeschlossen)
+  const compensations = compensationText(await compensationAuskunft(db, userId));
+  if (compensations) push("Ersatzforderungen.txt", { text: compensations });
   const bytes = entries.reduce((sum, e) => sum + (e.size ?? 0), 0);
   return { entries, counts: { files, submissions: subs.length, tasks: own.length }, bytes };
 }
