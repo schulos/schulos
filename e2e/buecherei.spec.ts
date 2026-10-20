@@ -369,6 +369,8 @@ test.describe("Bücherei", () => {
       await expect(team.getByRole("heading", { name: "Per ISBN nachschlagen" })).toBeVisible();
       await expect(team.getByText("Externer Dienst:")).toBeVisible();
       await expect(team.getByText(/services\.dnb\.de/)).toBeVisible();
+      // GATE BU1: ab Werk nur die deutschen Kataloge – Open Library (außerhalb der EU) ist nicht dabei
+      await expect(team.getByText(/openlibrary\.org/)).toHaveCount(0);
       const form = team.getByRole("form", { name: "ISBN nachschlagen" });
       // ungültige Prüfziffer → Fehler am Feld, nichts geht raus
       await form.getByLabel("ISBN").fill("978-3-00-000001-1");

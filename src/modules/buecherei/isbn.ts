@@ -1,7 +1,7 @@
 // Schulbücherei – optionale ISBN-Abfrage (BU-06, Entscheidung 5 in docs/BUECHEREI.md): Titelangaben zu einer ISBN aus
 // öffentlichen Bibliothekskatalogen vorschlagen. Ab Werk aus (`buecherei.isbn`, ändern nur mit `verwaltung.privacy`), nur
 // serverseitig, nur die ISBN verlässt den Server (keine Namen, keine Schule, keine Cookies), Quellen der Reihe nach und einzeln
-// abschaltbar, Zeitlimit insgesamt ~5 s, Ergebnis nur als Vorschlag zum Prüfen. Ohne Internet (Schulnetz ohne Außenzugang)
+// abschaltbar (ab Werk nur die Kataloge in Deutschland; Open Library außerhalb der EU ist aus – GATE BU1), Zeitlimit insgesamt ~5 s, Ergebnis nur als Vorschlag zum Prüfen. Ohne Internet (Schulnetz ohne Außenzugang)
 // kommt eine Meldung statt eines Fehlers. Zwischenspeicher im Prozess, damit dieselbe ISBN nicht mehrfach angefragt wird.
 import { eq } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
@@ -28,6 +28,8 @@ interface IsbnSource {
   label: string;
   /** Empfänger der Anfrage (für Hinweis, VVT und Firewall-Freigabe) */
   host: string;
+  /** Empfänger außerhalb der EU (Drittland) – Quelle ab Werk aus */
+  outsideEu?: boolean;
   url: (isbn: string) => string;
   parse: (body: string, isbn: string) => IsbnSuggestion | null;
 }
@@ -47,13 +49,16 @@ export const ISBN_LOOKUP = defineSetting({
   permission: "verwaltung.privacy",
 });
 
-function sourceSetting(id: IsbnSourceId, label: string, host: string): ModuleSettingDecl {
+function sourceSetting(s: { id: IsbnSourceId; label: string; host: string; outsideEu?: boolean }): ModuleSettingDecl {
   return defineSetting({
-    key: `buecherei.isbn_${id}`,
-    label: `ISBN-Quelle: ${label}`,
-    help: `Fragt ${host} (nur wenn die ISBN-Abfrage eingeschaltet ist; Quellen der Reihe nach, bis eine etwas findet).`,
+    key: `buecherei.isbn_${s.id}`,
+    label: `ISBN-Quelle: ${s.label}`,
+    help: s.outsideEu
+      ? `Fragt ${s.host} – ein Dienst außerhalb der EU (die ISBN und die Adresse des Schulservers gehen in ein Drittland). Ab Werk aus, nur nach Prüfung einschalten (nur wenn die ISBN-Abfrage eingeschaltet ist; als letzte Quelle).`
+      : `Fragt ${s.host} (nur wenn die ISBN-Abfrage eingeschaltet ist; Quellen der Reihe nach, bis eine etwas findet).`,
     options: ON_OFF,
-    default: "1",
+    // GATE BU1 (datensparsam): ab Werk nur die Kataloge in Deutschland; Quellen außerhalb der EU muss die Schule bewusst zuschalten
+    default: s.outsideEu ? "0" : "1",
     permission: "verwaltung.privacy",
   });
 }
@@ -179,15 +184,16 @@ export const ISBN_SOURCES: readonly IsbnSource[] = [
     id: "openlibrary",
     label: "Open Library",
     host: "openlibrary.org",
+    outsideEu: true,
     url: (isbn) => `https://openlibrary.org/api/books?bibkeys=ISBN%3A${isbn}&format=json&jscmd=data`,
     parse: parseOpenLibrary,
   },
 ];
 
 export const ISBN_SOURCE_SETTINGS: Record<IsbnSourceId, ModuleSettingDecl> = {
-  dnb: sourceSetting("dnb", ISBN_SOURCES[0]!.label, ISBN_SOURCES[0]!.host),
-  lobid: sourceSetting("lobid", ISBN_SOURCES[1]!.label, ISBN_SOURCES[1]!.host),
-  openlibrary: sourceSetting("openlibrary", ISBN_SOURCES[2]!.label, ISBN_SOURCES[2]!.host),
+  dnb: sourceSetting(ISBN_SOURCES[0]!),
+  lobid: sourceSetting(ISBN_SOURCES[1]!),
+  openlibrary: sourceSetting(ISBN_SOURCES[2]!),
 };
 
 export const ISBN_SETTINGS: readonly ModuleSettingDecl[] = [ISBN_LOOKUP, ...ISBN_SOURCES.map((s) => ISBN_SOURCE_SETTINGS[s.id])];
