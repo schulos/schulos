@@ -178,6 +178,8 @@ const toRun = (r: typeof timetableSolverRuns.$inferSelect): SolverRun => ({
 
 export interface ListRunsOptions {
   schoolYearId?: string;
+  /** nur diese Läufe (SP-08: Vergleich) */
+  ids?: string[];
   status?: RunStatus | RunStatus[];
   limit?: number;
 }
@@ -209,6 +211,7 @@ export async function listRunSummaries(db: Db, opts: ListRunsOptions = {}): Prom
   const t = timetableSolverRuns;
   const conds = [];
   if (opts.schoolYearId) conds.push(eq(t.schoolYearId, opts.schoolYearId));
+  if (opts.ids) conds.push(inArray(t.id, opts.ids));
   if (opts.status) conds.push(Array.isArray(opts.status) ? inArray(t.status, opts.status) : eq(t.status, opts.status));
   const q = db
     .select({

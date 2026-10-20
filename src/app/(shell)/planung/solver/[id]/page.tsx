@@ -5,26 +5,25 @@ import { ArrowLeft } from "lucide-react";
 import { inArray } from "drizzle-orm";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
-import { timetableLessons, users } from "@/core/db/schema";
+import { users } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { applySolverAction, cancelSolverAction } from "@/modules/stundenplan/actions";
 import { DIAGNOSIS_LABELS } from "@/modules/stundenplan/diagnose";
-import { plannableGroups, teacherOptions, WEEKDAYS } from "@/modules/stundenplan/manage";
-import { timetableMasterData } from "@/modules/stundenplan/service";
 import { COST_LABELS, type CostItem } from "@/modules/stundenplan/solver";
-import { applyPreview, canDeleteRun, EFFORT_LABELS, getRun, isUndoable, precheckOf, PRESET_LABELS, proposedLessons, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
+import { applyPreview, canDeleteRun, EFFORT_LABELS, getRun, isUndoable, precheckOf, PRESET_LABELS, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { Field, Input } from "@schulos/ui/field";
-import { PageHeader, SubjectBar } from "@schulos/ui/misc";
+import { PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { DeleteRun } from "../delete-run";
 import { duration, num, runTitle, timeFmt } from "../format";
 import { LiveProgress, LiveStatusBadge, RunLiveProvider } from "../live";
 import { isActive, WEIGHT_FIELDS } from "../status";
+import { loadPreviewContext, parsePreview, PreviewGrid, previewExists, previewLessons, previewName as previewNameOf } from "../preview";
 import { UndoApply } from "../undo-apply";
 import { PreviewPicker } from "./preview-picker";
 
@@ -80,30 +79,17 @@ export default async function SolverRunPage({
   const undoable = isUndoable(run, today);
 
   // Vorschau nur auf Wunsch (Lasttest SP-06: die Seite soll unter Last billig bleiben)
-  const [kind, target] = (sp.vorschau ?? "").split(":", 2) as [string, string | undefined];
-  const wantRaw = Boolean(stored && target && (kind === "g" || kind === "t"));
+  const want = parsePreview(sp.vorschau);
   const personIds = [run.createdBy, run.appliedBy].filter((x): x is string => Boolean(x));
-  const [groupList, teachers, master, people, cal] = await Promise.all([
-    plannableGroups(db),
-    teacherOptions(db),
-    stored ? timetableMasterData(db) : Promise.resolve(null),
+  const [ctx, people, cal] = await Promise.all([
+    loadPreviewContext(db, Boolean(stored)),
     personIds.length ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, personIds)) : Promise.resolve([]),
     run.status === "done" && stored ? loadSchoolCalendar(db) : Promise.resolve(null),
   ]);
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
-  const groupName = new Map(groupList.map((g) => [g.id, g.name]));
-  const teacherCode = new Map(teachers.map((t) => [t.id, t.code ?? t.name]));
-  const subjectOf = new Map((master?.subjects ?? []).map((s) => [s.id, s]));
-  const wantPreview = wantRaw && (kind === "g" ? groupName.has(target!) : teacherCode.has(target!));
-
-  const kept = wantPreview && stored!.keptLessonIds.length ? await db.select().from(timetableLessons).where(inArray(timetableLessons.id, stored!.keptLessonIds)) : [];
-  const proposal = wantPreview
-    ? [
-        ...proposedLessons(stored!).map((l) => ({ ...l, kept: false })),
-        ...kept.map((l) => ({ groupId: l.groupId, subjectId: l.subjectId, teacherId: l.teacherId, roomId: l.roomId, weekday: l.weekday, periodNr: l.periodNr, kept: true })),
-      ].filter((l) => (kind === "g" ? l.groupId === target : l.teacherId === target))
-    : [];
-  const previewName = !wantPreview ? null : kind === "g" ? (groupName.get(target!) ?? target!) : `${teacherCode.get(target!) ?? target!} (Lehrkraft)`;
+  const preview = stored && previewExists(ctx, want) ? want : null;
+  const proposal = preview ? await previewLessons(db, stored!, preview) : [];
+  const previewName = preview ? previewNameOf(ctx, preview) : null;
 
   const findings = precheckOf(run.log);
   const unplaced = stored?.result.unplaced ?? [];
@@ -122,7 +108,7 @@ export default async function SolverRunPage({
   };
   const defaultFrom = cal?.nextSchoolDay(addDays(today, 1)) ?? addDays(today, 1);
   // SP-09: was die Übernahme ab dem vorgeschlagenen Stichtag ändert bzw. was das Zurücknehmen tun würde – nur in dem jeweiligen Zustand
-  const [preview, undo] = await Promise.all([run.status === "done" && stored ? applyPreview(db, run, defaultFrom) : null, undoable ? undoPreview(db, run, today) : null]);
+  const [applyHint, undo] = await Promise.all([run.status === "done" && stored ? applyPreview(db, run, defaultFrom) : null, undoable ? undoPreview(db, run, today) : null]);
   const liveInitial = active
     ? [{ id: run.id, status: run.status, progress: run.progress, cancelRequested: run.cancelRequested, heartbeatAt: run.heartbeatAt?.toISOString() ?? null, note: run.log.at(-1)?.text ?? null }]
     : [];
@@ -444,7 +430,7 @@ export default async function SolverRunPage({
           </section>
         )}
 
-        {stored && master && (
+        {stored && ctx.master && (
           <section aria-labelledby="preview-title" className="flex flex-col gap-3">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <h2 id="preview-title" className="font-display text-xl font-bold">
@@ -452,52 +438,16 @@ export default async function SolverRunPage({
               </h2>
               <PreviewPicker
                 action={base}
-                kategorie={category}
-                value={wantPreview ? (sp.vorschau ?? "") : ""}
-                groups={groupList.map((g) => ({ value: `g:${g.id}`, label: g.name }))}
-                teachers={teachers.map((t) => ({ value: `t:${t.id}`, label: t.code ? `${t.code} – ${t.name}` : t.name }))}
+                hidden={category ? { kategorie: category } : {}}
+                value={preview ? (sp.vorschau ?? "") : ""}
+                groups={ctx.options.groups}
+                teachers={ctx.options.teachers}
               />
             </div>
-            {!wantPreview ? (
+            {!preview ? (
               <p className="text-sm text-muted">Klasse, Kurs oder Lehrkraft wählen, um den Vorschlag als Wochenplan zu sehen.</p>
             ) : (
-              <Table>
-                <caption className="sr-only">Vorschlag {previewName}</caption>
-                <thead>
-                  <tr>
-                    <th>Stunde</th>
-                    {WEEKDAYS.map((d) => (
-                      <th key={d}>{d}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {master.periods.map((p) => (
-                    <tr key={p.nr}>
-                      <td className="whitespace-nowrap">{p.nr}.</td>
-                      {WEEKDAYS.map((d, wd) => (
-                        <td key={d} className="min-w-28 !py-2">
-                          {proposal
-                            .filter((l) => l.weekday === wd && l.periodNr === p.nr)
-                            .map((l, i) => (
-                              <span key={i} className="flex items-center gap-1.5 text-sm">
-                                <SubjectBar color={subjectOf.get(l.subjectId)?.color ?? "#999"} className="h-5 w-1 shrink-0" />
-                                <span>
-                                  <span className="font-medium">{subjectOf.get(l.subjectId)?.name ?? l.subjectId}</span>
-                                  <span className="block text-xs text-muted">
-                                    {[kind === "g" ? (l.teacherId ? teacherCode.get(l.teacherId) : null) : (groupName.get(l.groupId) ?? l.groupId), l.roomId, l.kept ? "bleibt" : null]
-                                      .filter(Boolean)
-                                      .join(" · ")}
-                                  </span>
-                                </span>
-                              </span>
-                            ))}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
+              <PreviewGrid ctx={ctx} p={preview} lessons={proposal} caption={`Vorschlag ${previewName}`} />
             )}
           </section>
         )}
@@ -511,12 +461,12 @@ export default async function SolverRunPage({
               Ab dem Stichtag (ein Schultag) gilt der Vorschlag; der bisherige Plan endet am Vortag (Klassenbuch und Vertretungen davor bleiben). Vertretungen ab dem
               Stichtag an ersetzten Stunden entfallen. Bis zum Stichtag lässt sich die Übernahme zurücknehmen – die entfallenen Vertretungen kommen dabei nicht zurück.
             </p>
-            {preview && (
+            {applyHint && (
               <p className="text-sm" data-testid="apply-preview">
-                Ab {dayFmt.format(fromBerlinLocal(preview.from))}: {n(preview.ended, "Stunde endet am Vortag", "Stunden enden am Vortag")}
-                {preview.deleted ? `, ${n(preview.deleted, "später beginnende Stunde entfällt", "später beginnende Stunden entfallen")}` : ""}, {n(preview.substitutions, "Vertretung ab dem Stichtag entfällt", "Vertretungen ab dem Stichtag entfallen")}
-                {preview.roomClashes.bookings || preview.roomClashes.exams
-                  ? `; der Vorschlag belegt Räume, in denen ${[preview.roomClashes.bookings ? n(preview.roomClashes.bookings, "Raumbuchung", "Raumbuchungen") : null, preview.roomClashes.exams ? n(preview.roomClashes.exams, "Klausur", "Klausuren") : null].filter(Boolean).join(" und ")} ab dem Stichtag liegen – Räume prüfen`
+                Ab {dayFmt.format(fromBerlinLocal(applyHint.from))}: {n(applyHint.ended, "Stunde endet am Vortag", "Stunden enden am Vortag")}
+                {applyHint.deleted ? `, ${n(applyHint.deleted, "später beginnende Stunde entfällt", "später beginnende Stunden entfallen")}` : ""}, {n(applyHint.substitutions, "Vertretung ab dem Stichtag entfällt", "Vertretungen ab dem Stichtag entfallen")}
+                {applyHint.roomClashes.bookings || applyHint.roomClashes.exams
+                  ? `; der Vorschlag belegt Räume, in denen ${[applyHint.roomClashes.bookings ? n(applyHint.roomClashes.bookings, "Raumbuchung", "Raumbuchungen") : null, applyHint.roomClashes.exams ? n(applyHint.roomClashes.exams, "Klausur", "Klausuren") : null].filter(Boolean).join(" und ")} ab dem Stichtag liegen – Räume prüfen`
                   : ""}
                 . Bei einem späteren Stichtag können die Zahlen abweichen.
               </p>
