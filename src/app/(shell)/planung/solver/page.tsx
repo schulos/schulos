@@ -10,12 +10,14 @@ import { hasPermission } from "@/core/permissions";
 import { TZ, fromBerlinLocal } from "@/core/time";
 import { cancelSolverAction, startSolverAction } from "@/modules/stundenplan/actions";
 import { EFFORT_LABELS, listRunSummaries, PRESET_LABELS, WEIGHT_PRESETS, type RunSummary } from "@/modules/stundenplan/solverlauf";
+import { isComparable, MAX_COMPARE, MIN_COMPARE } from "@/modules/stundenplan/solververgleich";
 import { planningYear } from "@/modules/stundenplan/verteilung";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { LiveStatusBadge, RunLiveProvider } from "./live";
+import { CompareBar, CompareCheckbox, CompareProvider } from "./compare-select";
 import { SolverStartForm } from "./start-form";
 import { duration, num, runTitle, timeFmt } from "./format";
 import { isActive, STATUS_FILTERS } from "./status";
@@ -108,10 +110,15 @@ export default async function SolverPage({
               {filter.statuses ? "Anderen Filter wählen." : "Mit „Plan berechnen“ einen Vorschlag erstellen."}
             </EmptyState>
           ) : (
+            <CompareProvider max={MAX_COMPARE}>
+            {runs.filter(isComparable).length >= MIN_COMPARE && <CompareBar min={MIN_COMPARE} />}
             <Table>
               <caption className="sr-only">Läufe der automatischen Planung, neueste zuerst</caption>
               <thead>
                 <tr>
+                  <th>
+                    <span className="sr-only">Vergleichen</span>
+                  </th>
                   <th>Lauf</th>
                   <th>Parameter</th>
                   <th className="text-right">Dauer</th>
@@ -129,6 +136,7 @@ export default async function SolverPage({
               <tbody>
                 {runs.map((r) => (
                   <tr key={r.id}>
+                    <td className="w-8 !pr-0">{isComparable(r) && <CompareCheckbox id={r.id} label={runTitle(r)} />}</td>
                     <td>
                       <Link href={`/planung/solver/${r.id}`} className="font-medium text-accent-ink underline-offset-2 hover:underline">
                         {runTitle(r)}
@@ -165,6 +173,7 @@ export default async function SolverPage({
                 ))}
               </tbody>
             </Table>
+            </CompareProvider>
           )}
           {runs.length === HISTORY_LIMIT && <p className="text-sm text-muted">Die neuesten {HISTORY_LIMIT} Läufe; ältere mit dem Filter eingrenzen.</p>}
           <p className="text-sm text-muted">
