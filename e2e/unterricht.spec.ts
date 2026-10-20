@@ -63,8 +63,10 @@ test.describe("Stundenplanung · Unterrichtsverteilung", () => {
     await page.getByRole("navigation", { name: "Ansicht" }).getByRole("link", { name: "Bänder" }).click();
     await expect(page.getByRole("heading", { name: "Bänder", level: 2 })).toBeVisible();
     const demo = page.getByRole("row").filter({ has: page.getByRole("link", { name: "Q1 GK-Schiene A" }) });
-    await expect(demo.getByText("Solver: noch einzeln")).toBeVisible();
     await expect(demo.getByText(/Q1 Biologie GK1 · Biologie/)).toBeVisible();
+    // SP2-02: der Solver setzt das Band als Einheit – vollständig verplant, alle Stunden zur selben Zeit
+    await expect(demo.getByText("vollständig verplant")).toHaveCount(1);
+    await expect(demo.getByText(/zur selben Zeit/)).toHaveCount(0);
     const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"]).analyze();
     expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 

@@ -752,6 +752,19 @@ export function proposedLessons(stored: StoredResult): ProposedLesson[] {
   return out;
 }
 
+/**
+ * Rein: eine `coupling_id` je Einheit und Stunde für alle Zeilen einer Kopplung (geteilte Klasse, Band – SP2-02: ein Band ist je
+ * Stunde eine Kopplung); Einzelstunden bleiben ohne. Übernahme und Demo-Seed nutzen dasselbe.
+ */
+export function withCouplingIds<T extends Pick<ProposedLesson, "unitId" | "coupled">>(rows: T[], newId: () => string = () => crypto.randomUUID()): (T & { couplingId: string | null })[] {
+  const ids = new Map<string, string>();
+  return rows.map((l) => {
+    if (!l.coupled) return { ...l, couplingId: null };
+    if (!ids.has(l.unitId)) ids.set(l.unitId, newId());
+    return { ...l, couplingId: ids.get(l.unitId)! };
+  });
+}
+
 /** Diagnose des Vorschlags (Hohlstunden, Fach mehrfach am Tag, Räume) inklusive der Stunden, die bleiben. */
 export async function proposalDiagnosis(db: Db, stored: StoredResult): Promise<Finding[]> {
   const kept = stored.keptLessonIds.length ? await db.select().from(timetableLessons).where(inArray(timetableLessons.id, stored.keptLessonIds)) : [];
@@ -925,27 +938,19 @@ export async function applyRun(
       deleted: later.map(({ id, groupId, weekday, periodNr, subjectId, teacherId, roomId, week, validFrom, validUntil, couplingId, fixed, solverRunId }) => ({ id, groupId, weekday, periodNr, subjectId, teacherId, roomId, week, validFrom, validUntil, couplingId, fixed, solverRunId })),
       removedSubstitutions,
     };
-    const couplings = new Map<string, string>();
-    const rows = proposal.map((l) => {
-      let couplingId: string | null = null;
-      if (l.coupled) {
-        if (!couplings.has(l.unitId)) couplings.set(l.unitId, crypto.randomUUID());
-        couplingId = couplings.get(l.unitId)!;
-      }
-      return {
-        groupId: l.groupId,
-        subjectId: l.subjectId,
-        teacherId: l.teacherId,
-        roomId: l.roomId,
-        weekday: l.weekday,
-        periodNr: l.periodNr,
-        week: "all" as const,
-        validFrom: fromYmd,
-        validUntil: year.endsOn,
-        couplingId,
-        solverRunId: runId,
-      };
-    });
+    const rows = withCouplingIds(proposal).map((l) => ({
+      groupId: l.groupId,
+      subjectId: l.subjectId,
+      teacherId: l.teacherId,
+      roomId: l.roomId,
+      weekday: l.weekday,
+      periodNr: l.periodNr,
+      week: "all" as const,
+      validFrom: fromYmd,
+      validUntil: year.endsOn,
+      couplingId: l.couplingId,
+      solverRunId: runId,
+    }));
     for (const part of chunks(rows)) await tx.insert(timetableLessons).values(part);
     const result = { created: rows.length, ended: running.length, deleted: later.length, removedSubstitutions };
     const log = [

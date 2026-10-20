@@ -1,10 +1,13 @@
 // Solver-Kern (P2b-22): automatische Stundenplanerstellung – reines TypeScript, deterministisch (fester Startwert).
 //
 // Harte Regeln: Lehrkraft, Gruppe und Raum nie doppelt; Gruppen mit gemeinsamen Schüler:innen nie parallel;
-// Kopplungen liegen als eine Einheit gemeinsam; gesperrte Zeiten (Zeitwünsche); fixierte Stunden bleiben;
+// Kopplungen und Bänder liegen als eine Einheit gemeinsam; gesperrte Zeiten (Zeitwünsche); fixierte Stunden bleiben;
 // Doppelstunden nicht über eine große Pause (SP-G-04a). Weiche Regeln (gewichtet, erklärbar): Zeitwünsche,
 // Hohlstunden (Lehrkraft/Klasse), Fach mehrfach am Tag, Raumwunsch, späte Stunden. Doppelstunden werden als Zweier-Block gesetzt.
 // Räume werden je Teil einer Einheit vergeben (SP-G-02): eine geteilte Klasse mit zwei Lehrkräften bekommt zwei Räume.
+// Bänder (SP2-02): eine Einheit mit einem Teil je Mitglied – eigenes Fach, eigene Lehrkraft, eigener Raum je Teil; Fachsperren,
+// Zeitwünsche des Fachs und „Fach mehrfach am Tag“ gelten je Teil. Gruppen eines Bands mit gemeinsamen Schüler:innen dürfen parallel
+// liegen (Q-SP2-6 – die Diagnose warnt).
 //
 // Verfahren: gierige Konstruktion (schwierigste Einheiten zuerst, je Einheit der günstigste zulässige Slot), danach
 // lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand). Beides läuft in Schritten, damit ein
@@ -34,8 +37,8 @@ export interface SolverRoom {
 }
 
 /**
- * Ein Teil einer Einheit (Q-SP-13, bandfähiges Format): heute genau ein Teil je Einheit (= ein Lehrauftrag: Gruppe(n) ×
- * Lehrkräfte, ein Fach). Bänder (SP2-02) bekommen mehrere Teile mit eigener Lehrkraft, eigenem Fach und Raum je Teil.
+ * Ein Teil einer Einheit (Q-SP-13, bandfähiges Format): ein Lehrauftrag (Gruppe × Lehrkraft, ein Fach) – bei Teamteaching ein
+ * Teil je Lehrkraft, bei Bändern (SP2-02) ein Teil je Mitglied mit eigener Lehrkraft, eigenem Fach und Raum.
  */
 export interface UnitPart {
   /** Lehrauftrag dieses Teils */
@@ -55,14 +58,14 @@ export interface UnitPart {
 
 export interface SolverUnit {
   id: string;
-  /** Lehrauftrag (für die Erklärung und das Zusammenfassen) */
+  /** Lehrauftrag (bei Bändern: das erste Mitglied) – für die Erklärung und das Zusammenfassen */
   assignmentId: string;
   label: string;
   /** alle Gruppen über alle Teile (harte Regeln, Kosten) */
   groupIds: string[];
   /** alle Lehrkräfte über alle Teile */
   teacherIds: string[];
-  /** Fach des (ersten) Teils – Sperrzeiten des Fachs, Fach mehrfach am Tag */
+  /** Fach des ersten Teils; Sperrzeiten, Zeitwünsche und „Fach mehrfach am Tag“ gelten je Teil (`parts[].subjectId`) */
   subjectId: string;
   /** 1 = Einzelstunde, 2 = Doppelstunde */
   length: 1 | 2;
@@ -119,6 +122,11 @@ export interface SolverInput {
   conflicts: Map<string, Set<string>>;
   /** Gruppen, deren Hohlstunden zählen (Klassen) */
   classIds: Set<string>;
+  /**
+   * Jahrgangsstufe je Gruppe (Klassen und Kurse). SP2-02: Stunden eines Kurses (Wahlpflicht, Förderkurs, Kursband) zählen für die
+   * Klassen desselben Jahrgangs als belegt – die Klasse ist dort beschäftigt, keine Hohlstunde. Fehlt die Angabe, zählen nur eigene Stunden.
+   */
+  gradeOf?: Map<string, number>;
   weights?: Partial<SolverWeights>;
   seed?: number;
   iterations?: number;
@@ -146,6 +154,26 @@ export function placementRooms(p: Pick<Placement, "roomId" | "roomIds">, parts: 
 
 /** Was ein Teil für die Raumwahl braucht. */
 type RoomNeed = Pick<UnitPart, "roomId" | "roomKind" | "homeRoomId" | "size">;
+
+/** Fächer einer Einheit (je Teil eines, ohne Doppelte) – bei Bändern mehrere. */
+export function unitSubjects(u: Pick<SolverUnit, "subjectId"> & Partial<Pick<SolverUnit, "parts">>): string[] {
+  if (!u.parts?.length) return [u.subjectId];
+  return [...new Set(u.parts.map((p) => p.subjectId))];
+}
+
+/** Paare Gruppe × Fach einer Einheit (je Teil, ohne Doppelte) – was eine Gruppe an diesem Tag hat. */
+function unitGroupSubjects(u: SolverUnit): { g: string; s: string }[] {
+  const seen = new Set<string>();
+  const out: { g: string; s: string }[] = [];
+  for (const part of unitParts(u))
+    for (const g of part.groupIds) {
+      const k = `${g}|${part.subjectId}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ g, s: part.subjectId });
+    }
+  return out;
+}
 
 export interface CostItem {
   category: "pref" | "teacherGap" | "classGap" | "subjectTwice" | "roomWish" | "noRoom" | "late";
@@ -249,7 +277,13 @@ class State {
   /** Stunden je Lehrkraft-Tag bzw. Gruppen-Tag (inkl. fixierter), für Kosten */
   readonly teacherDay = new Map<string, number[]>();
   readonly groupDay = new Map<string, { nr: number; subjectId: string }[]>();
+  /** Kurs-Stunden je Jahrgang × Tag (`${grade}|${wd}`): zählen für die Klassen des Jahrgangs als belegt (SP2-02) */
+  private readonly gradeDay = new Map<string, number[]>();
+  /** Klassen je Jahrgang (für die berührten Tage einer Kurs-Einheit) */
+  private readonly classesByGrade = new Map<number, string[]>();
   readonly unitById: Map<string, SolverUnit>;
+  /** je Einheit: Fächer und Paare Gruppe × Fach über alle Teile (einmal berechnet – `feasible` ist die heiße Schleife) */
+  private readonly meta = new Map<string, { subjects: string[]; gs: { g: string; s: string }[] }>();
   readonly periodSet: Set<number>;
   /** nach diesen Stunden beginnt keine Doppelstunde (große Pause) */
   readonly noDoubleAfter: Set<number>;
@@ -257,6 +291,8 @@ class State {
   constructor(readonly input: SolverInput) {
     this.w = { ...DEFAULT_WEIGHTS, ...input.weights };
     this.unitById = new Map(input.units.map((u) => [u.id, u]));
+    for (const u of input.units) this.meta.set(u.id, { subjects: unitSubjects(u), gs: unitGroupSubjects(u) });
+    for (const [g, grade] of input.gradeOf ?? []) if (input.classIds.has(g)) this.classesByGrade.set(grade, [...(this.classesByGrade.get(grade) ?? []), g]);
     this.periodSet = new Set(input.periods);
     this.noDoubleAfter = new Set(input.breakAfter ?? []);
     for (const f of input.fixed) {
@@ -285,14 +321,29 @@ class State {
     const i = arr.indexOf(nr);
     if (i >= 0) arr.splice(i, 1);
   }
+  /** Jahrgang eines Kurses (keine Klasse) – dessen Stunden zählen für die Klassen des Jahrgangs */
+  private courseGrade(g: string): number | undefined {
+    return this.input.classIds.has(g) ? undefined : this.input.gradeOf?.get(g);
+  }
   private addGroupDay(g: string, wd: number, nr: number, subjectId: string) {
     const k = `${g}|${wd}`;
     this.groupDay.set(k, [...(this.groupDay.get(k) ?? []), { nr, subjectId }]);
+    const grade = this.courseGrade(g);
+    if (grade !== undefined) this.addDay(this.gradeDay, `${grade}|${wd}`, nr);
   }
-  private removeGroupDay(g: string, wd: number, nr: number) {
+  private removeGroupDay(g: string, wd: number, nr: number, subjectId: string) {
     const arr = this.groupDay.get(`${g}|${wd}`) ?? [];
-    const i = arr.findIndex((x) => x.nr === nr);
+    const i = arr.findIndex((x) => x.nr === nr && x.subjectId === subjectId);
     if (i >= 0) arr.splice(i, 1);
+    const grade = this.courseGrade(g);
+    if (grade !== undefined) this.removeDay(this.gradeDay, `${grade}|${wd}`, nr);
+  }
+  /** Fächer einer Einheit (je Teil) */
+  subjectsOf(u: SolverUnit): string[] {
+    return this.meta.get(u.id)?.subjects ?? unitSubjects(u);
+  }
+  private groupSubjectsOf(u: SolverUnit): { g: string; s: string }[] {
+    return this.meta.get(u.id)?.gs ?? unitGroupSubjects(u);
   }
 
   /** Stunden, die eine Einheit ab `nr` belegt (Doppelstunde: zwei aufeinanderfolgende, nicht über eine große Pause). */
@@ -301,17 +352,21 @@ class State {
     return this.periodSet.has(nr + 1) && !this.noDoubleAfter.has(nr) ? [nr, nr + 1] : null;
   }
 
-  /** Harte Regeln ohne Raum: Lehrkräfte/Gruppen frei, keine Konfliktgruppe parallel, nichts gesperrt. */
+  /**
+   * Harte Regeln ohne Raum: Lehrkräfte/Gruppen frei, keine Konfliktgruppe parallel, nichts gesperrt (Fächer je Teil). Gruppen
+   * derselben Einheit (Band) zählen nicht als Konflikt untereinander (Q-SP2-6).
+   */
   feasible(u: SolverUnit, wd: number, nr: number): boolean {
     const span = this.span(u, nr);
     if (!span) return false;
+    const subjects = this.subjectsOf(u);
     for (const p of span) {
       for (const t of u.teacherIds) if (this.isBusy(`t:${t}`, wd, p) || this.blocked("teacher", t, wd, p)) return false;
       for (const g of u.groupIds) {
         if (this.isBusy(`g:${g}`, wd, p) || this.blocked("group", g, wd, p)) return false;
         for (const c of this.input.conflicts.get(g) ?? []) if (!u.groupIds.includes(c) && this.isBusy(`g:${c}`, wd, p)) return false;
       }
-      if (this.blocked("subject", u.subjectId, wd, p)) return false;
+      for (const s of subjects) if (this.blocked("subject", s, wd, p)) return false;
     }
     return true;
   }
@@ -368,14 +423,15 @@ class State {
           () => false,
         );
     }
-    if (this.input.prefs.has(`subject:${u.subjectId}`))
-      count(
-        "subject",
-        u.subjectId,
-        `Fach ${name(u.subjectId)}`,
-        () => false,
-        (wd, p) => this.blocked("subject", u.subjectId, wd, p),
-      );
+    for (const s of this.subjectsOf(u))
+      if (this.input.prefs.has(`subject:${s}`))
+        count(
+          "subject",
+          s,
+          `Fach ${name(s)}`,
+          () => false,
+          (wd, p) => this.blocked("subject", s, wd, p),
+        );
     return causes.sort((a, b) => a.free - b.free || a.label.localeCompare(b.label, "de"));
   }
 
@@ -418,13 +474,19 @@ class State {
     const out: (string | null)[] = [];
     const taken = new Set<string>();
     const byTeacher = new Map<string, string | null>();
-    for (const part of u.parts) {
+    u.parts.forEach((part, i) => {
       const shared = part.teacherIds.find((t) => byTeacher.has(t));
-      const room = shared !== undefined ? byTeacher.get(shared)! : this.chooseRoom(part, wd, span, taken);
+      let room: string | null;
+      if (shared !== undefined) room = byTeacher.get(shared)!;
+      else {
+        // Teile, die sich mit dieser Lehrkraft den Raum teilen (eine Lehrkraft, mehrere Gruppen), zählen zur Raumgröße mit
+        const size = u.parts.slice(i + 1).reduce((s, q) => (q.teacherIds.some((t) => part.teacherIds.includes(t)) ? s + q.size : s), part.size);
+        room = this.chooseRoom(size === part.size ? part : { ...part, size }, wd, span, taken);
+      }
       if (room) taken.add(room);
       for (const t of part.teacherIds) byTeacher.set(t, room);
       out.push(room);
-    }
+    });
     return out;
   }
 
@@ -451,15 +513,14 @@ class State {
   apply(p: Placement) {
     const u = this.unitById.get(p.unitId)!;
     const rooms = this.roomsOf(u, p);
+    const gs = this.groupSubjectsOf(u);
     for (const nr of this.span(u, p.periodNr)!) {
       for (const t of u.teacherIds) {
         this.mark(`t:${t}`, p.weekday, nr, true);
         this.addDay(this.teacherDay, `${t}|${p.weekday}`, nr);
       }
-      for (const g of u.groupIds) {
-        this.mark(`g:${g}`, p.weekday, nr, true);
-        this.addGroupDay(g, p.weekday, nr, u.subjectId);
-      }
+      for (const g of u.groupIds) this.mark(`g:${g}`, p.weekday, nr, true);
+      for (const x of gs) this.addGroupDay(x.g, p.weekday, nr, x.s);
       for (const r of rooms) this.mark(`r:${r}`, p.weekday, nr, true);
     }
     this.place.set(u.id, p);
@@ -470,15 +531,14 @@ class State {
     if (!p) return;
     const u = this.unitById.get(unitId)!;
     const rooms = this.roomsOf(u, p);
+    const gs = this.groupSubjectsOf(u);
     for (const nr of this.span(u, p.periodNr)!) {
       for (const t of u.teacherIds) {
         this.mark(`t:${t}`, p.weekday, nr, false);
         this.removeDay(this.teacherDay, `${t}|${p.weekday}`, nr);
       }
-      for (const g of u.groupIds) {
-        this.mark(`g:${g}`, p.weekday, nr, false);
-        this.removeGroupDay(g, p.weekday, nr);
-      }
+      for (const g of u.groupIds) this.mark(`g:${g}`, p.weekday, nr, false);
+      for (const x of gs) this.removeGroupDay(x.g, p.weekday, nr, x.s);
       for (const r of rooms) this.mark(`r:${r}`, p.weekday, nr, false);
     }
     this.place.delete(unitId);
@@ -491,11 +551,12 @@ class State {
     const w = this.w;
     const rooms = u.parts.length <= 1 ? [p.roomId] : placementRooms(p, u.parts.length);
     const distinctRooms = this.roomsOf(u, p);
+    const subjects = this.subjectsOf(u);
     for (const nr of this.span(u, p.periodNr)!) {
       let pv = 0;
       for (const t of u.teacherIds) pv += this.pref("teacher", t, p.weekday, nr);
       for (const g of u.groupIds) pv += this.pref("group", g, p.weekday, nr);
-      pv += this.pref("subject", u.subjectId, p.weekday, nr);
+      for (const s of subjects) pv += this.pref("subject", s, p.weekday, nr);
       for (const r of distinctRooms) pv += this.pref("room", r, p.weekday, nr);
       if (pv !== 0) {
         c -= pv * w.pref;
@@ -532,13 +593,15 @@ class State {
     return h * this.w.teacherGap;
   }
 
+  /** Hohlstunden einer Klasse an einem Tag; Kurs-Stunden des Jahrgangs (Kursband) zählen als belegt, wenn die Klasse an dem Tag Unterricht hat. */
   classHoles(key: string): number {
-    const [g] = key.split("|");
+    const [g, wd] = key.split("|");
     if (!this.input.classIds.has(g!)) return 0;
-    return holes(
-      (this.groupDay.get(key) ?? []).map((x) => x.nr),
-      this.input.periods,
-    ).length;
+    const own = (this.groupDay.get(key) ?? []).map((x) => x.nr);
+    if (!own.length) return 0;
+    const grade = this.input.gradeOf?.get(g!);
+    const band = grade === undefined ? [] : (this.gradeDay.get(`${grade}|${wd}`) ?? []);
+    return holes(band.length ? [...own, ...band] : own, this.input.periods).length;
   }
 
   groupDayCost(key: string, items?: CostItem[], label?: string): number {
@@ -561,13 +624,17 @@ class State {
     return c;
   }
 
-  /** Kosten aller Tage, die eine Einheit berührt (für Deltas). */
+  /** Kosten aller Tage, die eine Einheit berührt (für Deltas) – ein Kurs berührt auch die Klassen seines Jahrgangs (Hohlstunden). */
   touchedDays(u: SolverUnit, wds: number[]): { t: string[]; g: string[] } {
     const t: string[] = [];
     const g: string[] = [];
     for (const wd of new Set(wds)) {
       for (const x of u.teacherIds) t.push(`${x}|${wd}`);
-      for (const x of u.groupIds) g.push(`${x}|${wd}`);
+      for (const x of u.groupIds) {
+        g.push(`${x}|${wd}`);
+        const grade = this.courseGrade(x);
+        if (grade !== undefined) for (const c of this.classesByGrade.get(grade) ?? []) g.push(`${c}|${wd}`);
+      }
     }
     return { t, g };
   }
@@ -628,11 +695,12 @@ class State {
 
 // ---------------------------------------------------------------- Lösen
 
-/** Wie schwer ist eine Einheit unterzubringen? Mehr Beteiligte, Doppelstunden, Fachräume und Sperren zuerst. */
+/** Wie schwer ist eine Einheit unterzubringen? Mehr Beteiligte, Doppelstunden, Fachräume (in einem Teil) und Sperren zuerst. */
 function difficulty(s: State, u: SolverUnit): number {
   let free = 0;
   for (const wd of s.input.weekdays) for (const nr of s.input.periods) if (s.feasible(u, wd, nr)) free++;
-  return -free * 10 + u.groupIds.length * 5 + u.teacherIds.length * 5 + (u.length === 2 ? 20 : 0) + (u.roomKind ? 10 : 0);
+  const roomKind = u.parts.length ? u.parts.some((p) => p.roomKind) : Boolean(u.roomKind);
+  return -free * 10 + u.groupIds.length * 5 + u.teacherIds.length * 5 + (u.length === 2 ? 20 : 0) + (roomKind ? 10 : 0);
 }
 
 /** Lesbarer Grund aus der Zählung: engste Beteiligte zuerst, höchstens drei. */
@@ -691,7 +759,7 @@ export function createSolver(input: SolverInput) {
       if (
         u.teacherIds.some((t) => s.blocked("teacher", t, wd, p)) ||
         u.groupIds.some((g) => s.blocked("group", g, wd, p)) ||
-        s.blocked("subject", u.subjectId, wd, p)
+        s.subjectsOf(u).some((x) => s.blocked("subject", x, wd, p))
       )
         return null;
     }

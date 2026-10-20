@@ -253,6 +253,113 @@ describe("solve", () => {
     expect(clash).toEqual([`${other.label}: Raum SP2 doppelt belegt`]);
   });
 
+  it("Band (SP2-02): Teile mit verschiedenen Fächern/Lehrkräften liegen gemeinsam, Raum je Teil, Fachsperre eines Teils sperrt, Fach mehrfach am Tag je Teil", () => {
+    // Band Reli/Philo 7: REL 7a (RIC), PP 7b (NEU, Musikraum gewünscht), REL 7c (RIC) – zwei Stunden, eine Doppelstunde
+    const need = { roomId: null, roomKind: null, homeRoomId: null, size: 25 };
+    const bandParts = [
+      { ...need, assignmentId: "rel-a", groupIds: ["7a"], teacherIds: ["RIC"], subjectId: "REL", homeRoomId: "101" },
+      { ...need, assignmentId: "pp-b", groupIds: ["7b"], teacherIds: ["NEU"], subjectId: "PP", roomKind: "nw" },
+      { ...need, assignmentId: "rel-c", groupIds: ["7c"], teacherIds: ["RIC"], subjectId: "REL", homeRoomId: "102" },
+    ];
+    const band = (length: 1 | 2) =>
+      unit({ groupIds: ["7a", "7b", "7c"], teacherIds: ["RIC", "NEU"], subjectId: "REL", length, roomKind: null, parts: bandParts, label: "Reli/PP 7", assignmentId: "rel-a" });
+    const dbl = band(2);
+    const single = band(1);
+    // PP ist Mo–Do gesperrt (Zeitwunsch des Fachs) → das Band kann nur Freitag liegen; 7b hat Fr 1 schon Mathe
+    const blockedPP = new Map<string, number | null>();
+    for (let wd = 0; wd < 4; wd++) for (let p = 1; p <= 6; p++) blockedPP.set(`${wd}-${p}`, null);
+    const others = [
+      ...hours(4, { groupIds: ["7a"], teacherIds: ["BRA"], subjectId: "D", homeRoomId: "101" }),
+      ...hours(4, { groupIds: ["7b"], teacherIds: ["KLE"], subjectId: "M", homeRoomId: "102" }),
+    ];
+    const input = base([dbl, single, ...others], {
+      prefs: new Map([["subject:PP", blockedPP]]),
+      fixed: [{ groupId: "7b", teacherId: "KLE", roomId: "102", subjectId: "M", weekday: 4, periodNr: 1 }],
+      classIds: new Set(["7a", "7b", "7c"]),
+      names: new Map([["PP", "Philosophie"], ["7b", "Klasse 7b"]]),
+    });
+    const r = solve(input);
+    expect(r.unplaced).toEqual([]);
+    expect(validate(input, r.placements)).toEqual([]);
+    const at = new Map(r.placements.map((p) => [p.unitId, p]));
+    const pd = at.get(dbl.id)!;
+    const ps = at.get(single.id)!;
+    expect(pd.weekday).toBe(4);
+    expect(ps.weekday).toBe(4);
+    expect(pd.periodNr).toBeGreaterThan(1); // Fr 1 ist für die 7b fix belegt, ein Block ab 1 geht nicht
+    expect(ps.periodNr).not.toBe(1);
+    // Räume je Teil: RIC in einem Raum für 7a und 7c (Stammraum des ersten Teils), NEU im Fachraum
+    expect(pd.roomIds).toEqual(["101", "NW1", "101"]);
+    // andere Einheiten im Band-Slot: keine der 7a/7b/7c, kein RIC/NEU
+    for (const p of r.placements) {
+      if (p.unitId === dbl.id || p.unitId === single.id) continue;
+      expect(p.weekday === 4 && (p.periodNr === pd.periodNr || p.periodNr === pd.periodNr + 1 || p.periodNr === ps.periodNr)).toBe(false);
+    }
+    // „Fach mehrfach am Tag“ je Teil: Religion am Freitag in 7a als Doppelstunde + Einzelstunde getrennt → Kosten, Philosophie ebenso
+    expect(r.breakdown.subjectTwice).toBeGreaterThan(0);
+    expect(r.items.filter((i) => i.category === "subjectTwice").map((i) => i.text)).toEqual(expect.arrayContaining([expect.stringMatching(/^Klasse 7b Fr: Philosophie 3× am Tag$/)]));
+
+    // Fachsperre überall → nicht gesetzt mit dem Fach als Grund
+    const all = new Map<string, number | null>();
+    for (let wd = 0; wd < 5; wd++) for (let p = 1; p <= 6; p++) all.set(`${wd}-${p}`, null);
+    const none = solve(base([band(1)], { prefs: new Map([["subject:PP", all]]), names: new Map([["PP", "Philosophie"]]) }));
+    expect(none.unplaced).toHaveLength(1);
+    expect(none.unplaced[0]!.causes.find((c) => c.kind === "subject")).toMatchObject({ id: "PP", label: "Fach Philosophie", free: 0, blocked: 30 });
+    expect(none.unplaced[0]!.reason).toContain("Fach Philosophie: 0 von 30 Slots frei (30 gesperrt)");
+  });
+
+  it("Band (SP2-02): dieselbe Gruppe in zwei Teilen (Reli/Philo einer Klasse) – Tag-Kosten je Fach, Lösen und Setzen bleiben konsistent", () => {
+    const need = { roomId: null, roomKind: null, homeRoomId: "101", size: 14 };
+    const split = unit({
+      groupIds: ["7a"],
+      teacherIds: ["RIC", "NEU"],
+      subjectId: "REL",
+      parts: [
+        { ...need, assignmentId: "rel", groupIds: ["7a"], teacherIds: ["RIC"], subjectId: "REL" },
+        { ...need, assignmentId: "pp", groupIds: ["7a"], teacherIds: ["NEU"], subjectId: "PP" },
+      ],
+    });
+    const units = [split, ...hours(3, { groupIds: ["7a"], teacherIds: ["BRA"], subjectId: "D", homeRoomId: "101" })];
+    const input = base(units, { weekdays: [0], periods: [1, 2, 3, 4] });
+    const solver = createSolver(input);
+    solver.construct();
+    solver.improve(200);
+    const r = solver.result();
+    expect(r.unplaced).toEqual([]);
+    expect(validate(input, r.placements)).toEqual([]);
+    const p = r.placements.find((x) => x.unitId === split.id)!;
+    expect(p.roomIds).toEqual(["101", "102"]);
+    // kein Fach mehrfach: Religion und Philosophie je einmal, Deutsch dreimal am Stück ist ein Block mit 3 → ein Posten
+    expect(r.items.filter((i) => i.category === "subjectTwice").map((i) => i.text)).toEqual(["7a Mo: D 3× am Tag"]);
+    // Tag-Daten der Gruppe nach vielen Verschiebungen konsistent: vier Stunden belegt, keine Reste
+    expect(r.gaps.classTotal).toBe(0);
+    expect(r.score).toBe(Object.values(r.breakdown).reduce((s, x) => s + x, 0));
+  });
+
+  it("Kursband zählt für Klassen-Hohlstunden (SP2-02): WP-Kurs des Jahrgangs füllt die Lücke der Klasse; ohne gradeOf wie bisher", () => {
+    // 7a hat Mo 1 und Mo 3 fix; ein WP-Kurs der Stufe 7 kann nur Mo 2 liegen (alles andere gesperrt)
+    const wp = unit({ groupIds: ["wp7"], teacherIds: ["X"], subjectId: "WP" });
+    const onlyMo2 = new Map<string, number | null>();
+    for (let wd = 0; wd < 5; wd++) for (let p = 1; p <= 6; p++) if (!(wd === 0 && p === 2)) onlyMo2.set(`${wd}-${p}`, null);
+    const fixed = [
+      { groupId: "7a", teacherId: "A", roomId: "101", subjectId: "D", weekday: 0, periodNr: 1 },
+      { groupId: "7a", teacherId: "B", roomId: "101", subjectId: "M", weekday: 0, periodNr: 3 },
+    ];
+    const plain = solve(base([wp], { prefs: new Map([["group:wp7", onlyMo2]]), fixed }));
+    expect(plain.placements[0]).toMatchObject({ weekday: 0, periodNr: 2 });
+    expect(plain.gaps.classTotal).toBe(1);
+    expect(plain.breakdown.classGap).toBe(10);
+    const banded = solve(base([wp], { prefs: new Map([["group:wp7", onlyMo2]]), fixed, gradeOf: new Map([["7a", 7], ["7b", 7], ["wp7", 7]]) }));
+    expect(banded.gaps.classTotal).toBe(0);
+    expect(banded.breakdown.classGap).toBe(0);
+    // ein Kurs einer anderen Stufe füllt nichts; eine Klasse ohne eigene Stunden am Tag hat keine Hohlstunden
+    expect(solve(base([wp], { prefs: new Map([["group:wp7", onlyMo2]]), fixed, gradeOf: new Map([["7a", 7], ["wp7", 8]]) })).gaps.classTotal).toBe(1);
+    // der Kurs wird in der lokalen Suche bevorzugt dorthin gesetzt, wo er der Klasse die Lücke schließt
+    const free = solve(base([wp], { fixed, gradeOf: new Map([["7a", 7], ["wp7", 7]]), weekdays: [0], periods: [1, 2, 3, 4] }));
+    expect(free.placements[0]).toMatchObject({ weekday: 0, periodNr: 2 });
+    expect(free.gaps.classTotal).toBe(0);
+  });
+
   it("Teile (Q-SP-13): Einheit mit einem Teil je Lehrauftrag; unitParts ergänzt alte Einheiten ohne Teile", () => {
     const u = unit({ groupIds: ["7a", "7b"], teacherIds: ["RIC", "NEU"], subjectId: "REL", roomKind: "mu" });
     expect(u.parts).toEqual([{ assignmentId: u.assignmentId, groupIds: ["7a", "7b"], teacherIds: ["RIC", "NEU"], subjectId: "REL", roomId: null, roomKind: "mu", homeRoomId: null, size: 25 }]);

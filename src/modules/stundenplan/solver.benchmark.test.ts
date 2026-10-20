@@ -13,6 +13,8 @@ interface SchoolSpec {
   studentsPerGrade: number;
   /** SP-G-02: Sport in der Sek I als geteilte Klasse mit zwei Lehrkräften (zwei Teile, zwei Räume je Stunde) */
   splitSport?: boolean;
+  /** SP2-02: Oberstufenkurse je Schiene als Band – eine Einheit je Stunde mit einem Teil je Kurs (eigenes Fach, Lehrkraft, Raum) */
+  bands?: boolean;
 }
 
 /** Stundentafel Sek I (vereinfacht, 31 Stunden): Fach → [Stunden, Doppelstunden, Raumart] */
@@ -80,15 +82,38 @@ export function syntheticSchool(spec: SchoolSpec, seed = 11): SolverInput {
   addRooms("musik", 2, 30);
   addRooms("technik", 2, 20);
   let a = 0;
-  const push = (group: string[], subject: string, hours: number, doubles: number, roomKind: string | null, homeRoom: string | null, size: number) => {
-    const assignmentId = `a${++a}`;
+  const pushUnits = (idPrefix: string, hours: number, doubles: number, common: Omit<SolverUnit, "id" | "length">) => {
+    const d = Math.min(doubles, Math.floor(hours / 2));
+    for (let i = 0; i < d; i++) units.push({ ...common, id: `${idPrefix}#d${i}`, length: 2 });
+    for (let i = 0; i < hours - 2 * d; i++) units.push({ ...common, id: `${idPrefix}#e${i}`, length: 1 });
+  };
+  const partsFor = (assignmentId: string, group: string[], subject: string, hours: number, roomKind: string | null, homeRoom: string | null, size: number) => {
     const teacherIds = spec.splitSport && subject === "SP" && homeRoom ? [teacherFor(subject, hours), teacherFor(subject, hours)] : [teacherFor(subject, hours)];
     const need = { assignmentId, groupIds: group, subjectId: subject, roomId: null, roomKind, homeRoomId: homeRoom };
     const parts: UnitPart[] = teacherIds.length > 1 ? teacherIds.map((t) => ({ ...need, teacherIds: [t], size: Math.ceil(size / teacherIds.length) })) : [{ ...need, teacherIds, size }];
-    const common = { ...need, teacherIds, size, label: `${group.join("+")} ${subject}`, parts };
-    const d = Math.min(doubles, Math.floor(hours / 2));
-    for (let i = 0; i < d; i++) units.push({ ...common, id: `${assignmentId}#d${i}`, length: 2 });
-    for (let i = 0; i < hours - 2 * d; i++) units.push({ ...common, id: `${assignmentId}#e${i}`, length: 1 });
+    return { need, teacherIds, parts };
+  };
+  const push = (group: string[], subject: string, hours: number, doubles: number, roomKind: string | null, homeRoom: string | null, size: number) => {
+    const assignmentId = `a${++a}`;
+    const { need, teacherIds, parts } = partsFor(assignmentId, group, subject, hours, roomKind, homeRoom, size);
+    pushUnits(assignmentId, hours, doubles, { ...need, teacherIds, size, label: `${group.join("+")} ${subject}`, parts });
+  };
+  /** SP2-02: ein Band aus mehreren Kursen (gleiche Stundenzahl) – ein Teil je Kurs */
+  const pushBand = (bandId: string, members: { group: string; subject: string; roomKind: string | null }[], hours: number, doubles: number, size: number) => {
+    const parts = members.flatMap((m) => partsFor(`a${++a}`, [m.group], m.subject, hours, m.roomKind, null, size).parts);
+    const first = parts[0]!;
+    pushUnits(bandId, hours, doubles, {
+      assignmentId: first.assignmentId,
+      label: `${bandId}: ${members.map((m) => `${m.group} ${m.subject}`).join(" + ")}`,
+      groupIds: parts.flatMap((p) => p.groupIds),
+      teacherIds: [...new Set(parts.flatMap((p) => p.teacherIds))],
+      subjectId: first.subjectId,
+      roomId: null,
+      roomKind: parts.find((p) => p.roomKind)?.roomKind ?? null,
+      homeRoomId: null,
+      size: size * members.length,
+      parts,
+    });
   };
   // Sek I: Klassen mit Stammraum, Jahrgänge 5–8 nur bis zur 7. Stunde (Sperrzeiten), 9–10 bis zur 8.
   const prefs: SolverInput["prefs"] = new Map();
@@ -114,14 +139,21 @@ export function syntheticSchool(spec: SchoolSpec, seed = 11): SolverInput {
   const perBand = 4;
   for (const grade of ["EF", "Q1", "Q2"]) {
     const bands: string[][] = [];
+    const pending: { group: string; subject: string; roomKind: string | null }[][] = [];
     for (let k = 0; k < spec.coursesPerGrade; k++) {
       const [subject, hours, doubles, kind] = OBERSTUFE[k % OBERSTUFE.length]!;
       const id = `${grade}-${subject}${Math.floor(k / OBERSTUFE.length) + 1}`;
       names.set(id, id);
-      push([id], subject, hours, doubles, kind, null, 20);
       const band = Math.floor(k / perBand);
       (bands[band] ??= []).push(id);
+      // mit Bändern: Schienen aus 3-Stunden-Kursen werden eine Einheit je Stunde (Sport mit 2 Stunden bleibt einzeln)
+      if (spec.bands && hours === 3) (pending[band] ??= []).push({ group: id, subject, roomKind: kind });
+      else push([id], subject, hours, doubles, kind, null, 20);
     }
+    pending.forEach((members, b) => {
+      if (members.length > 1) pushBand(`${grade}-S${b + 1}`, members, 3, 1, 20);
+      else for (const m of members) push([m.group], m.subject, 3, 1, m.roomKind, null, 20);
+    });
     for (let s = 0; s < spec.studentsPerGrade; s++) {
       const chosenBands = new Set<number>();
       while (chosenBands.size < Math.min(8, bands.length)) chosenBands.add(Math.floor(random() * bands.length));
@@ -208,6 +240,28 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     expect(twoRooms).toBe(placed.length);
     expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(r.breakdown.noRoom).toBe(0);
+    expect(ms).toBeLessThan(120_000);
+  }, 300_000);
+
+  it("SP2-02: dieselbe Schule mit Oberstufen-Schienen als Bänder (vier Kurse je Einheit, eigenes Fach/Lehrkraft/Raum je Teil) – gültig, zusammen gesetzt", () => {
+    const input = syntheticSchool({ zuege: 7, coursesPerGrade: 40, studentsPerGrade: 130, bands: true });
+    const bandUnits = input.units.filter((u) => u.parts.length > 1);
+    // 3 Jahrgänge × 10 Schienen × (eine Doppel- + eine Einzelstunde); Schienen mit Sport (2 Std.) haben einen Kurs weniger im Band
+    expect(bandUnits.length).toBe(3 * 10 * 2);
+    expect(bandUnits.every((u) => u.parts.length >= 3 && new Set(u.parts.map((p) => p.subjectId)).size === u.parts.length)).toBe(true);
+    const t0 = performance.now();
+    const r = solve(input);
+    const ms = performance.now() - t0;
+    expect(validate(input, r.placements)).toEqual([]);
+    const ids = new Set(bandUnits.map((u) => u.id));
+    const placed = r.placements.filter((p) => ids.has(p.unitId));
+    const distinctRooms = placed.filter((p) => p.roomIds && new Set(p.roomIds).size === p.roomIds.length).length;
+    console.log(`[benchmark] bands ${JSON.stringify({ units: input.units.length, bandUnits: bandUnits.length, placedBands: placed.length, distinctRooms, totalMs: Math.round(ms), unplaced: r.unplaced.length, score: r.score, breakdown: r.breakdown, gaps: r.gaps })}`);
+    for (const u of r.unplaced) console.log(`[benchmark] nicht gesetzt: ${u.label} – ${u.reason}`);
+    // jede gesetzte Band-Stunde hat je Teil einen eigenen Raum
+    expect(distinctRooms).toBe(placed.length);
+    expect(r.breakdown.noRoom).toBe(0);
+    expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(ms).toBeLessThan(120_000);
   }, 300_000);
 });

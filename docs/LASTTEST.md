@@ -168,6 +168,14 @@ Teilen, 6 Sporthallen, 76 Lehrkräfte): alle 84 geteilten Einheiten mit **zwei v
 Klassenraum – Raumwunsch 784 statt 756), 10 Einheiten (0,8 %) nicht gesetzt (wieder Oberstufenkurse mit dichten Konfliktmengen), kein Raum fehlt,
 Hohlstunden 169/11, gesamt 0,9 s. Grenzwerte unverändert (≤ 1 % nicht gesetzt, kein „ohne Raum“, < 120 s).
 
+**Nachmessung SP2-02 (2026-10-20, Bänder als Einheiten mit Teilen):** Fachsperren, Zeitwünsche und „Fach mehrfach am Tag“ gelten jetzt je
+Teil; für Einheiten mit einem Teil ändert sich nichts – der Benchmark liefert vor und nach der Änderung **dieselbe Lösung** (9 nicht gesetzt,
+Bewertung 2 163, Hohlstunden 169/13; Konstruktion 0,23 → 0,24 s, gesamt 0,66 → 0,68 s; „geteilter Sport“ 0,68 → 0,71 s, 10 nicht gesetzt,
+Bewertung 2 395 – Streuung des Entwicklungsrechners). Neue Variante **„Oberstufen-Schienen als Bänder“** (je Jahrgang 10 Schienen aus 3–4
+Kursen mit je eigenem Fach/Lehrkraft/Raumart als eine Einheit je Stunde → 60 Band-Einheiten mit 3–4 Teilen, 1 161 Einheiten statt 1 323):
+**0 nicht gesetzt** (die Schienen nehmen den Konfliktmengen die Enge), alle 60 Band-Stunden mit je Teil verschiedenen Räumen, Bewertung 2 091,
+Hohlstunden Lehrkräfte 151 (max. 8), Klassen 4, gesamt **0,69 s**. Grenzwerte unverändert.
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:

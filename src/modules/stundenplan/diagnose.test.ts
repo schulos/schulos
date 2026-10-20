@@ -135,6 +135,51 @@ describe("diagnose", () => {
     ]);
   });
 
+  it("Bänder (SP2-02): nicht zur selben Zeit, gemeinsame Schüler:innen in zwei Mitgliedern (Q-SP2-6), leeres Band", () => {
+    const assignment = (id: string, groupId: string, subjectId: string) => ({
+      id,
+      subjectId,
+      subjectName: subjectId,
+      color: "#000",
+      hours: 2,
+      doubleLessons: 0,
+      roomId: null,
+      note: null,
+      bandId: "b1",
+      groups: [{ id: groupId, name: groupId }],
+      teachers: [],
+      planned: 2,
+      otherTeacher: false,
+    });
+    const band = (id: string, name: string, memberIds: string[], planned: number, together: number) => ({ id, name, hours: 2, doubleLessons: 0, memberIds, planned, together, uniform: false });
+    const fs = diagnose(
+      base([], {
+        distribution: {
+          assignments: [assignment("a", "7a", "D"), assignment("b", "7b", "M"), assignment("c", "k7", "BI")],
+          unmatched: [],
+          curriculum: new Map(),
+          bands: [band("b1", "Schiene 7", ["a", "b", "c"], 2, 1), band("b2", "leer", [], 0, 0), band("b3", "einzeln", ["a"], 2, 2)],
+        },
+        conflicts: new Map([
+          ["7b", new Set(["k7"])],
+          ["k7", new Set(["7b"])],
+        ]),
+      }),
+    );
+    expect(messages(fs, "band")).toEqual([
+      "Schiene 7: nur 1 Stunde von 2 Stunden zur selben Zeit – die Lehraufträge des Bands liegen teils in verschiedenen Slots",
+      "Schiene 7: 7b und 7 WP Bio haben gemeinsame Schüler:innen – im Band liegen sie zur selben Zeit, diese Schüler:innen können nur einen Kurs besuchen",
+      "leer: Band ohne Lehraufträge",
+    ]);
+    expect(fs.filter((f) => f.category === "band").map((f) => [f.target.kind, f.target.id, f.severity])).toEqual([
+      ["band", "b1", "warn"],
+      ["band", "b1", "warn"],
+      ["band", "b2", "info"],
+    ]);
+    // Band vollständig gemeinsam, keine gemeinsamen Schüler:innen → nichts
+    expect(messages(diagnose(base([], { distribution: { assignments: [assignment("a", "7a", "D"), assignment("b", "7b", "M")], unmatched: [], curriculum: new Map(), bands: [band("b1", "ok", ["a", "b"], 2, 2)] } })), "band")).toEqual([]);
+  });
+
   it("offene Stunden, Stundentafel und Deputat", () => {
     const a = (id: string, subjectId: string, subjectName: string, hours: number, planned: number, teachers = [{ id: "t1", code: "BRA", name: "Jana Brandt" }]) => ({
       id,
@@ -205,6 +250,8 @@ describe("diagnoseYear (Demo-Schule)", () => {
     expect(r.counts.room.error).toBe(0);
     // Deputat: Demo-Lehrkräfte sind nicht voll ausgeplant
     expect(r.counts.deputy.warn).toBeGreaterThan(0);
+    // SP2-02: das Demo-Band liegt vollständig gemeinsam, seine Kurse haben getrennte Schüler:innen
+    expect(r.counts.band).toEqual({ error: 0, warn: 0, info: 0 });
 
     // eine Biologie-Stunde der 7b im Klassenraum und zusätzlich am selben Tag getrennt → Raum + Fach mehrfach
     const bio = (await h.db.select().from(timetableLessons)).find((l) => l.groupId === "g-7b" && l.subjectId === "BI")!;

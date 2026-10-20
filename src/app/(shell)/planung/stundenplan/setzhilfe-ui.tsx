@@ -52,7 +52,12 @@ export function OpenPanel({ open, base, placing }: { open: OpenAssignment[]; bas
                   >
                     <SubjectBar color={a.color} className="h-5 w-1 shrink-0" />
                     <span className="font-medium">{label}</span>
-                    {a.groups.length > 1 && <span className="text-xs text-muted">mit {a.groups.map((g) => g.name).join(", ")}</span>}
+                    {a.band && (
+                      <span className="text-xs text-muted" title="Band: alle Mitglieder werden zur selben Zeit als Kopplung gesetzt">
+                        Band {a.band.name}
+                        {a.band.members.length > 1 ? ` · mit ${a.band.members.filter((m) => m.id !== a.id).map((m) => `${m.groups.map((g) => g.name).join(" + ")} ${m.subjectName}`).join(", ")}` : ""}
+                      </span>
+                    )}
                     <Badge tone={active ? "accent" : "warn"}>
                       {hoursFmt(a.open)} von {a.hours} offen
                     </Badge>

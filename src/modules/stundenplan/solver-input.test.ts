@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbHandle } from "@/core/db/client";
 import { createSeededTestDb } from "@/core/db/testing";
 import { solve, validate } from "./solver";
-import { checkInput, collapseBands, conflictsFrom, solverInputFromDb, unitsFrom } from "./solver-input";
+import { bandsWithSharedStudents, checkInput, conflictsFrom, solverInputFromDb, unitsFrom } from "./solver-input";
 import { planningYear } from "./verteilung";
 
 describe("conflictsFrom / unitsFrom", () => {
@@ -22,16 +22,11 @@ describe("conflictsFrom / unitsFrom", () => {
       id,
       subjectId: "D",
       subjectName: "Deutsch",
-      color: "#000",
       hours,
       doubleLessons,
       roomId: null,
-      note: null,
       groups: groups.map((g) => ({ id: g, name: g })),
       teachers: [{ id: "t", code: "BRA", name: "Jana Brandt" }],
-      planned: 0,
-      otherTeacher: false,
-      bandId: null,
     });
     const units = unitsFrom(
       { assignments: [a("x", ["7a"], 5, 2), a("y", ["7a", "7b"], 2, 0)] },
@@ -68,52 +63,93 @@ describe("conflictsFrom / unitsFrom", () => {
     ]);
   });
 
-  it("SP2-01: einheitliches Band = frühere Kopplung (gleiche Einheiten), gemischtes Band je Mitglied einzeln", () => {
-    const a = (id: string, group: string, subjectId = "REL", teachers = [{ id: "t1", code: "RIC", name: "R" }]) => ({
+  it("SP2-02: Band = eine Einheit je Stunde mit einem Teil je Mitglied (eigenes Fach, eigene Lehrkraft, eigener Raumwunsch)", () => {
+    const a = (id: string, group: string, subjectId = "REL", teachers = [{ id: "t1", code: "RIC", name: "R" }], roomId: string | null = null) => ({
       id,
       subjectId,
       subjectName: subjectId === "REL" ? "Religion" : "Philosophie",
-      color: "#000",
       hours: 2,
       doubleLessons: 1,
-      roomId: null,
-      note: null,
+      roomId,
       groups: [{ id: group, name: group }],
       teachers,
-      planned: 0,
-      otherTeacher: false,
-      bandId: "b",
     });
-    const info = { roomKindOf: new Map(), homeRoomOf: new Map([["7a", "106"]]), sizeOf: new Map([["7a", 28], ["7b", 27]]), classIds: new Set(["7a", "7b"]) };
-    const old = unitsFrom({ assignments: [{ ...a("m1", "7a"), groups: [{ id: "7a", name: "7a" }, { id: "7b", name: "7b" }], bandId: null }] }, info);
-    // Mitglieder in umgekehrter Reihenfolge: die Gruppen werden nach Namen sortiert, id vom ersten Mitglied
-    const band = unitsFrom({ assignments: [a("m2", "7b"), a("m1", "7a")], bands: [{ id: "b", memberIds: ["m2", "m1"], uniform: true }] }, info);
-    expect(band).toEqual(old);
-    expect(collapseBands([a("m2", "7b"), a("m1", "7a")], [{ id: "b", memberIds: ["m2", "m1"], uniform: true }]).map((x) => x.id)).toEqual(["m1"]);
-
-    const mixed = unitsFrom(
-      { assignments: [a("m1", "7a"), a("m3", "7a", "PP", [{ id: "t2", code: "NEU", name: "N" }])], bands: [{ id: "b", memberIds: ["m1", "m3"], uniform: false }] },
+    const info = { roomKindOf: new Map([["PP", "mu"]]), homeRoomOf: new Map([["7a", "106"], ["7b", "107"]]), sizeOf: new Map([["7a", 28], ["7b", 27]]), classIds: new Set(["7a", "7b"]) };
+    const band = { id: "b", name: "Reli/PP 7", hours: 2, doubleLessons: 1, memberIds: ["m2", "m1", "m3"] };
+    const units = unitsFrom(
+      {
+        assignments: [a("m1", "7a"), a("m3", "7a", "PP", [{ id: "t2", code: "NEU", name: "N" }], "MU1"), a("m2", "7b"), a("x", "7b", "D", [{ id: "t3", code: "DRE", name: "D" }])],
+        bands: [band],
+      },
       info,
     );
-    expect(mixed.map((u) => [u.assignmentId, u.groupIds])).toEqual([
-      ["m1", ["7a"]],
-      ["m3", ["7a"]],
+    // Band: eine Doppelstunde (ids nach dem Band), Mitglieder nach Gruppenname sortiert; Deutsch 7b bleibt ein eigener Lehrauftrag
+    expect(units.map((u) => [u.id, u.length])).toEqual([
+      ["b#d0", 2],
+      ["x#d0", 2],
     ]);
+    const u = units[0]!;
+    expect(u).toMatchObject({ assignmentId: "m1", groupIds: ["7a", "7b"], teacherIds: ["t1", "t2"], subjectId: "REL", roomKind: "mu", homeRoomId: null, size: 55 });
+    expect(u.label).toBe("Reli/PP 7: 7a Religion (RIC) + 7a Philosophie (NEU) + 7b Religion (RIC)");
+    expect(u.parts).toEqual([
+      { assignmentId: "m1", groupIds: ["7a"], teacherIds: ["t1"], subjectId: "REL", roomId: null, roomKind: null, homeRoomId: "106", size: 28 },
+      { assignmentId: "m3", groupIds: ["7a"], teacherIds: ["t2"], subjectId: "PP", roomId: "MU1", roomKind: "mu", homeRoomId: "106", size: 28 },
+      { assignmentId: "m2", groupIds: ["7b"], teacherIds: ["t1"], subjectId: "REL", roomId: null, roomKind: null, homeRoomId: "107", size: 27 },
+    ]);
+
+    // Teamteaching in einem Mitglied: ein Teil je Lehrkraft; fixierte Stunden zählen je Mitglied – geplant wird, was dem am weitesten
+    // fixierten Mitglied fehlt (kein Mitglied bekommt mehr als das Soll)
+    const team = unitsFrom(
+      {
+        assignments: [a("m1", "7a", "REL", [{ id: "t1", code: "RIC", name: "R" }, { id: "t4", code: "VIE", name: "V" }]), a("m2", "7b")],
+        bands: [{ ...band, hours: 3, doubleLessons: 0, memberIds: ["m1", "m2"] }],
+      },
+      { ...info, fixedHours: new Map([["m1", 1], ["m2", 2]]) },
+    );
+    expect(team.map((u) => u.id)).toEqual(["b#e0"]);
+    expect(team[0]!.parts.map((p) => [p.groupIds[0], p.teacherIds[0], p.size])).toEqual([
+      ["7a", "t1", 14],
+      ["7a", "t4", 14],
+      ["7b", "t1", 27],
+    ]);
+    expect(team[0]!.teacherIds).toEqual(["t1", "t4"]);
+
+    // Band mit einem Mitglied: wie ein Lehrauftrag, aber mit der Band-id; leeres Band und Mitglied ohne Gruppe ergeben nichts
+    const single = unitsFrom({ assignments: [a("m1", "7a"), { ...a("m9", "7a"), groups: [] }], bands: [{ ...band, memberIds: ["m1", "m9"] }, { ...band, id: "leer", memberIds: [] }] }, info);
+    expect(single.map((u) => [u.id, u.label, u.parts.length])).toEqual([["b#d0", "Reli/PP 7: 7a Religion (RIC)", 1]]);
+    expect(single[0]!.homeRoomId).toBe("106");
+  });
+
+  it("SP2-02 (Q-SP2-6): Band-Mitglieder mit gemeinsamen Schüler:innen – Warnung in der Vorprüfung, Paare für die Diagnose", () => {
+    const assignments = [
+      { id: "m1", groups: [{ id: "k1", name: "Q1 Englisch GK1" }] },
+      { id: "m2", groups: [{ id: "k2", name: "Q1 Deutsch GK1" }] },
+      { id: "m3", groups: [{ id: "k3", name: "Q1 Biologie GK1" }] },
+    ];
+    const conflicts = conflictsFrom([
+      { groupId: "k1", userId: "s1" },
+      { groupId: "k2", userId: "s1" },
+      { groupId: "k3", userId: "s2" },
+    ]);
+    const bands = [
+      { name: "Schiene A", memberIds: ["m1", "m2", "m3"] },
+      { name: "Schiene B", memberIds: ["m1", "m3"] },
+      { name: "leer", memberIds: [] },
+    ];
+    expect(bandsWithSharedStudents(bands, assignments, conflicts).map((b) => [b.name, b.pairs])).toEqual([["Schiene A", [["k1", "k2"]]]]);
     const warn = checkInput({
       periods: 8,
-      assignments: [{ id: "m1", groups: [{ id: "7a", name: "7a" }] }],
+      assignments,
       activeRooms: 1,
-      groupsWithMembers: new Set(["7a"]),
-      groupKind: new Map([["7a", "klasse"]]),
-      groupName: new Map([["7a", "7a"]]),
+      groupsWithMembers: new Set(["k1", "k2", "k3"]),
+      groupKind: new Map([["k1", "kurs"], ["k2", "kurs"], ["k3", "kurs"]]),
+      groupName: new Map(),
       replaceable: [],
-      bands: [
-        { name: "Reli/PP 7", memberIds: ["m1", "m3"], uniform: false },
-        { name: "Reli 8", memberIds: ["x", "y"], uniform: true },
-        { name: "leer", memberIds: [], uniform: true },
-      ],
+      bands,
+      conflicts,
     }).warnings;
-    expect(warn).toEqual([expect.stringMatching(/^1 Band mit verschiedenen Fächern oder Lehrkräften \(Reli\/PP 7\)/)]);
+    expect(warn).toEqual([expect.stringMatching(/^1 Band mit gemeinsamen Schüler:innen in mehreren Mitgliedern \(Schiene A\)/)]);
+    expect(checkInput({ periods: 8, assignments, activeRooms: 1, groupsWithMembers: new Set(["k1", "k2", "k3"]), groupKind: new Map(), groupName: new Map(), replaceable: [], bands }).warnings).toEqual([]);
   });
 
   it("checkInput: Fehler ohne Zeitraster/Lehraufträge/Räume; Warnungen für Kurse ohne Mitglieder (SP-G-13) und A/B-Stunden", () => {
@@ -165,14 +201,26 @@ describe("Solver auf der Demo-Schule", () => {
     expect(input.units.length).toBeGreaterThan(300);
     // Demo-Raster: große Pausen nach der 2., 4. und 6. Stunde; Eingabe ohne Hinweise
     expect(input.breakAfter).toEqual([2, 4, 6]);
-    // einzige Warnung: das Demo-Band (SP2-01) mit verschiedenen Fächern – bis SP2-02 setzt der Solver dessen Kurse einzeln
-    expect(input.check).toEqual({ errors: {}, warnings: [expect.stringMatching(/^1 Band mit verschiedenen Fächern oder Lehrkräften \(Q1 GK-Schiene A\)/)] });
+    // keine Warnungen: die Kurse des Demo-Bands haben getrennte Schüler:innen (Q-SP2-6)
+    expect(input.check).toEqual({ errors: {}, warnings: [] });
+    // SP2-02: das Demo-Band „Q1 GK-Schiene A“ ist eine Einheit je Stunde mit drei Teilen (Englisch, Deutsch, Biologie – drei Lehrkräfte)
+    const band = input.units.filter((u) => u.id.startsWith("band-q1-gk-a#"));
+    expect(band).toHaveLength(3);
+    expect(band[0]!.parts.map((p) => p.subjectId).sort()).toEqual(["BI", "D", "E"]);
+    expect(new Set(band[0]!.teacherIds).size).toBe(3);
+    expect(band[0]!.groupIds.sort()).toEqual(["g-q1-bi-gk1", "g-q1-d-gk1", "g-q1-e-gk1"]);
+    expect(input.units.filter((u) => u.parts.length > 1)).toHaveLength(3);
     const t0 = performance.now();
     const r = solve(input);
     const ms = performance.now() - t0;
     expect(r.unplaced).toEqual([]);
     expect(validate(input, r.placements)).toEqual([]);
     expect(r.breakdown.noRoom).toBe(0);
+    // Band-Stunden: drei Räume je Platzierung (Biologie im NW-Raum), die drei Kurse liegen zur selben Zeit
+    for (const p of r.placements.filter((x) => x.unitId.startsWith("band-q1-gk-a#"))) {
+      expect(p.roomIds).toHaveLength(3);
+      expect(new Set(p.roomIds).size).toBe(3);
+    }
     // Demo (Stand P2b-22): 0 Hohlstunden in Klassen, kein Fach mehrfach am Tag, alle Raumwünsche erfüllt
     expect(r.breakdown.classGap).toBeLessThanOrEqual(2 * 10);
     expect(r.breakdown.subjectTwice).toBeLessThanOrEqual(2 * 8);
