@@ -12,7 +12,7 @@ import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permis
 import { ValidationError } from "@/modules/verwaltung/users";
 import { isCardCode, personByCard } from "./cards";
 import { dueDate, nextOpenDay } from "./dates";
-import { BORROWER_ROLES, isValidCopyNumber, type MediaType } from "./labels";
+import { BORROWER_ROLES, MATERIAL_PREFIX, isValidCopyNumber, type MediaType } from "./labels";
 import { checkoutReservation, canUse, promoteReservations, reservedByOthers } from "./reservations";
 import { LOAN_DAYS, MAX_RENEWALS } from "./settings";
 
@@ -185,6 +185,8 @@ async function openLoanOfCopy(db: Db, copyId: string) {
 
 function requireCopyNumber(code: string) {
   if (!isValidCopyNumber(code)) throw new ValidationError({ code: `„${code}“ ist keine gültige Exemplarnummer (Prüfziffer)` });
+  // BU-11: Schulbücher (Inventarnummer `L-…`, eigener Nummernkreis) laufen nicht über die Theke, sondern über die Schulbuchausgabe
+  if (code.startsWith(`${MATERIAL_PREFIX}-`)) throw new ValidationError({ code: `${code} ist ein Schulbuch – Ausgabe und Rücknahme unter „Schulbuchausgabe“` });
 }
 
 /**

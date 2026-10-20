@@ -5,7 +5,9 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { toBerlinDate } from "@/core/time";
 import { cancelReservationAction, renewOwnLoanAction } from "@/modules/buecherei/actions";
+import { childrenSchoolbooks, schoolbooksOf, type IssuedBook } from "@/modules/buecherei/ausgabe";
 import { canUse, childrenLibrary, myLibrary, type Library } from "@/modules/buecherei/katalog";
+import { lernmittelEnabled } from "@/modules/buecherei/lernmittel";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
@@ -108,6 +110,39 @@ function LibraryView({ lib, who, own }: { lib: Library; who: string; own: boolea
   );
 }
 
+/** BU-11: Schulbücher des Schuljahres (nur lesend – Rückgabe an der Schulbuchausgabe). */
+function SchoolbookList({ books, who }: { books: IssuedBook[]; who: string }) {
+  return (
+    <Table>
+      <caption className="sr-only">Schulbücher von {who}</caption>
+      <thead>
+        <tr>
+          <th>Schulbuch</th>
+          <th>zurück bis</th>
+        </tr>
+      </thead>
+      <tbody>
+        {books.map((b) => (
+          <tr key={b.issueId}>
+            <td>
+              <span className="font-medium">{b.title}</span>
+              <span className="block font-mono text-xs text-muted">{b.inventoryNumber}</span>
+            </td>
+            <td className="tabular-nums">
+              {day(b.dueOn)}
+              {b.overdue && (
+                <Badge tone="danger" className="ml-2">
+                  {b.dunningLevel > 0 ? `${b.dunningLevel}. Mahnung` : "bitte zurückgeben"}
+                </Badge>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </Table>
+  );
+}
+
 /**
  * „Meine Ausleihen“ (BU-03): eigene offene Ausleihen (selbst verlängern) und Vormerkungen; Eltern sehen die ihrer Kinder nur
  * lesend. Bewusst ohne Verlauf – Zurückgegebenes wird nicht gespeichert.
@@ -118,7 +153,14 @@ export default async function MeinePage() {
   if (!own && perms.role !== "eltern") notFound();
   const db = await getDb();
   const today = toBerlinDate(new Date());
-  const [mine, kids] = await Promise.all([own ? myLibrary(db, perms, today) : null, childrenLibrary(db, perms, today)]);
+  const stage2 = await lernmittelEnabled(db);
+  const [mine, kids, myBooks, kidsBooks] = await Promise.all([
+    own ? myLibrary(db, perms, today) : null,
+    childrenLibrary(db, perms, today),
+    own && stage2 ? schoolbooksOf(db, perms.userId, today) : [],
+    childrenSchoolbooks(db, perms, today),
+  ]);
+  const booksOfKid = new Map(kidsBooks.map((k) => [k.id, k.books]));
 
   return (
     <main className="flex flex-col gap-6">
@@ -134,6 +176,12 @@ export default async function MeinePage() {
           </Link>
         </Card>
       )}
+      {myBooks.length > 0 && (
+        <Card aria-labelledby="schulbuecher">
+          <CardHeader title={<span id="schulbuecher">Meine Schulbücher</span>} />
+          <SchoolbookList books={myBooks} who="mir" />
+        </Card>
+      )}
       {perms.role === "eltern" &&
         (kids.length === 0 ? (
           <EmptyState title="Keine Kinder zugeordnet">Hier erscheinen die Ausleihen Ihrer Kinder, sobald die Schule sie Ihrem Konto zugeordnet hat.</EmptyState>
@@ -142,6 +190,12 @@ export default async function MeinePage() {
             <Card key={k.id} aria-labelledby={`kind-${k.id}`}>
               <CardHeader title={<span id={`kind-${k.id}`}>{k.name}</span>} />
               <LibraryView lib={k} who={k.name} own={false} />
+              {(booksOfKid.get(k.id)?.length ?? 0) > 0 && (
+                <>
+                  <h3 className="text-sm font-semibold">Schulbücher</h3>
+                  <SchoolbookList books={booksOfKid.get(k.id)!} who={k.name} />
+                </>
+              )}
             </Card>
           ))
         ))}

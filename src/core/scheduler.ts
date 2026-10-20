@@ -20,6 +20,7 @@ import { runSprechtagReminders } from "@/modules/sprechtag/erinnerung";
 import { runKurswahlReminders } from "@/modules/kurswahl/erinnerung";
 import { purgeExpiredOfflineDevices } from "@/modules/notenbuch/offline";
 import { runReservations } from "@/modules/buecherei/reservations";
+import { runSchoolbookDunning } from "@/modules/buecherei/ausgabe";
 import { runDunning } from "@/modules/buecherei/mahnungen";
 import { cleanupRuns, executeQueued } from "@/modules/stundenplan/solverlauf";
 
@@ -140,7 +141,7 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
     },
   },
   {
-    // BU-04: Erinnerung vor Fristende, Mahnstufen 1–3 (nur an Schultagen; Eltern Minderjähriger ab Stufe 2; Mail optional)
+    // BU-04: Erinnerung vor Fristende, Mahnstufen 1–3 (nur an Schultagen; Eltern Minderjähriger ab Stufe 2; Mail optional); BU-11: Schulbücher
     name: "buecherei-mahnungen",
     at: "06:45",
     until: "20:00",
@@ -148,7 +149,10 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
     run: async (db, now) => {
       const m = MODULES.find((x) => x.id === "buecherei");
       if (!m || !isEnabled(m, await loadModuleStates(db))) return;
-      return runDunning(db, toBerlinDate(now), { mail: mailAvailable(), school: (await readSchoolSettings(db)).name }, now);
+      const opts = { mail: mailAvailable(), school: (await readSchoolSettings(db)).name };
+      const library = await runDunning(db, toBerlinDate(now), opts, now);
+      // BU-11: nicht zurückgegebene Schulbücher (nur mit eingeschalteter Schulbuchausleihe; Eltern Minderjähriger ab Stufe 1)
+      return { ...library, schoolbooks: await runSchoolbookDunning(db, toBerlinDate(now), opts, now) };
     },
   },
 ];

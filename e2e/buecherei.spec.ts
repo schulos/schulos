@@ -2,7 +2,7 @@
 // CSV-Import in der Vorschau; Lehrkraft ohne Teamrecht bekommt 404. Theke (BU-02): Person suchen, scannen, verlängern,
 // Rückgabe nur scannen, Rückgabe mit Befund; Befunde nur für die Verwaltung. Ausweise (BU-07): drucken, scannen, ersetzen.
 // Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht. Mahnliste und Widget (BU-04). Etiketten und Statistik (BU-05). ISBN-Abfrage (BU-06) ohne Netz: Schalter, Hinweis, Dublette, ungültige ISBN.
-// Stufe 2 (BU-10): Lernmittel mit Inventarnummern anlegen, Etiketten, Bücherliste freigeben, Eltern lesen sie.
+// Stufe 2 (BU-10): Lernmittel mit Inventarnummern anlegen, Etiketten, Bücherliste freigeben, Eltern lesen sie. BU-11: Schulbuchausgabe.
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch } from "./helpers";
 
@@ -449,5 +449,74 @@ test.describe("Bücherei", () => {
     expect((await page.goto("/buecherei/lernmittel"))?.status()).toBe(404);
     expect((await page.goto("/druck/buecherei-etiketten?lernmittel=x"))?.status()).toBe(404);
     await logoutForSwitch(page);
+  });
+
+  test("BU-11: Schulbuchausgabe je Klasse per Scan, Rücknahme mit Zustand – Schülerin und Eltern sehen das Schulbuch", async ({ page }) => {
+    test.setTimeout(120_000);
+    const errors = collectErrors(page);
+    const MAT = "Lesebuch 7 (E2E)";
+    await login(page, "sabine.kowalski");
+    await page.goto("/buecherei/lernmittel");
+    const create = page.getByRole("form", { name: "Lernmittel anlegen" });
+    await create.getByLabel("Titel", { exact: true }).fill(MAT);
+    await create.getByLabel("Jahrgänge").selectOption(["7"]);
+    await create.getByLabel("Exemplare der Schule").fill("1");
+    await create.getByRole("button", { name: "Anlegen" }).click();
+    await expect(page.getByRole("heading", { name: MAT })).toBeVisible();
+    const nr = (await page.getByRole("table", { name: `Exemplare von ${MAT}` }).getByText(/^L-\d{6}-\d$/).first().textContent())!.trim();
+
+    // Klasse wählen → Lea fehlt das Buch; Person wählen, scannen
+    await page.goto("/buecherei/lernmittel");
+    await page.getByRole("navigation", { name: "Bücherei" }).getByRole("link", { name: "Schulbuchausgabe" }).click();
+    await expect(page).toHaveURL("/buecherei/ausgabe");
+    await page.getByRole("list", { name: "Klassen und Kurse" }).getByRole("link", { name: /^Klasse 7b/ }).click();
+    await expect(page.getByRole("heading", { name: "Schulbuchausgabe Klasse 7b" })).toBeVisible();
+    const lea = page.getByRole("table", { name: "Schulbücher je Schüler:in in Klasse 7b" }).getByRole("row").filter({ hasText: "Lea Schäfer" });
+    await expect(lea).toContainText(MAT);
+    await lea.getByRole("link", { name: "Lea Schäfer" }).click();
+    await expect(page.getByRole("heading", { name: "Ausgabe an Lea Schäfer" })).toBeVisible();
+    const scan = page.getByRole("form", { name: "Schulbuch scannen" });
+    await scan.getByLabel("Ausweis oder Schulbuch scannen").fill(nr);
+    await scan.getByLabel("Ausweis oder Schulbuch scannen").press("Enter");
+    await expect(scan.getByRole("status")).toContainText(`Ausgegeben: ${MAT} (${nr})`);
+    await expect(page.getByRole("list", { name: "Schulbücher von Lea Schäfer" })).toContainText(nr);
+
+    // die Theke der Bücherei verbucht keine Schulbücher
+    await page.goto("/buecherei/theke");
+    const desk = page.getByRole("form", { name: "Scannen" });
+    await desk.getByLabel("Ausweis oder Exemplar scannen").fill(nr);
+    await desk.getByLabel("Ausweis oder Exemplar scannen").press("Enter");
+    await expect(desk.getByRole("alert")).toContainText("ist ein Schulbuch");
+    expect(errors).toEqual([]);
+    await logoutForSwitch(page);
+
+    // Schülerin und Eltern sehen das Schulbuch unter „Meine Ausleihen“
+    await login(page, "lea.schaefer");
+    await page.goto("/buecherei/meine");
+    await expect(page.getByRole("table", { name: "Schulbücher von mir" })).toContainText(MAT);
+    await logoutForSwitch(page);
+    await login(page, "daniela.schaefer");
+    await page.goto("/buecherei/meine");
+    await expect(page.getByRole("table", { name: "Schulbücher von Lea Schäfer" })).toContainText(MAT);
+    await logoutForSwitch(page);
+
+    // Büchereiteam ohne `materials`: keine Schulbuchausgabe
+    await login(page, "aylin.demir");
+    expect((await page.goto("/buecherei/ausgabe"))?.status()).toBe(404);
+    await logoutForSwitch(page);
+    errors.length = 0; // die gewollte 404 zählt nicht
+
+    // Rücknahme nur scannen, mit Zustand
+    await login(page, "sabine.kowalski");
+    await page.goto("/buecherei/ausgabe");
+    const back = page.getByRole("form", { name: "Schulbuch scannen" });
+    await back.getByText("Rücknahme: Zustand, Vermerk, Befund").click();
+    await back.getByLabel("Zustand bei Rücknahme").selectOption("gebraucht");
+    await back.getByLabel("Ausweis oder Schulbuch scannen").fill(nr);
+    await back.getByRole("button", { name: "Buchen" }).click();
+    await expect(back.getByRole("status")).toContainText(`Zurückgenommen: ${MAT} (${nr}), Zustand jetzt „gebraucht“`);
+    await page.goto("/buecherei/ausgabe?gruppe=g-7b");
+    await expect(page.getByRole("table", { name: "Schulbücher je Schüler:in in Klasse 7b" }).getByRole("row").filter({ hasText: "Lea Schäfer" })).not.toContainText(nr);
+    expect(errors).toEqual([]);
   });
 });

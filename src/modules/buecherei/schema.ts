@@ -2,7 +2,7 @@
 import { boolean, check, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "../../core/db/schema-auth";
-import { gradeLevels, subjects } from "../../core/db/schema-core";
+import { gradeLevels, schoolYears, subjects } from "../../core/db/schema-core";
 import { COPY_CONDITIONS, MATERIAL_PROVISIONS, MEDIA_TYPES } from "./labels";
 
 export const buechereiMediaTypeEnum = pgEnum("buecherei_media_type", MEDIA_TYPES);
@@ -229,3 +229,45 @@ export const buechereiBooklists = pgTable("buecherei_booklists", {
   published: boolean("published").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Ausgabe eines Schulbuchs (BU-11): Zuordnung Exemplar ↔ Person für ein Schuljahr (`school_year_id`, laufendes Schuljahr bei der
+ * Ausgabe), fällig zum Ende dieses Schuljahres. Löschregel (docs/BUECHEREI.md „Stufe 2 – Festlegungen“ 4): Rücknahme **ohne**
+ * Befund löscht die Zeile sofort (kein Verlauf, der Zustand steht am Exemplar ohne Person); Rücknahme **mit** Befund bleibt bis
+ * zur Erledigung (BU-12), danach LK-SJ-1J. Nicht Zurückgegebenes bleibt über das Schuljahresende nur als offener Posten und geht
+ * spätestens mit dem Konto (Kontolöschung leert die Person). Mahnstufe wie in Stufe 1, lebt nur mit der offenen Ausgabe.
+ */
+export const buechereiMaterialIssues = pgTable(
+  "buecherei_material_issues",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    copyId: text("copy_id")
+      .notNull()
+      .references(() => buechereiMaterialCopies.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Schuljahr der Ausgabe – die Zuordnung gilt nur dafür */
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "restrict" }),
+    issuedOn: date("issued_on").notNull(),
+    /** Rückgabe bis (Ende des Schuljahres der Ausgabe) */
+    dueOn: date("due_on").notNull(),
+    /** nur bei Rücknahme mit Befund gesetzt – ohne Befund wird die Zeile gelöscht */
+    returnedOn: date("returned_on"),
+    /** Befund bei der Rücknahme (Sache, keine Namen), z. B. „Wasserschaden“ – Grundlage einer Ersatzforderung (BU-12) */
+    finding: text("finding"),
+    findingResolvedOn: date("finding_resolved_on"),
+    /** Mahnstufe 0–3 nach Ablauf der Rückgabefrist (Eltern Minderjähriger ab der 1. Stufe, Entscheidung 4) */
+    dunningLevel: integer("dunning_level").notNull().default(0),
+    dunnedOn: date("dunned_on"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // ein Exemplar ist höchstens einmal gleichzeitig ausgegeben
+    uniqueIndex("buecherei_material_issues_open_copy_idx").on(t.copyId).where(sql`${t.returnedOn} is null`),
+    index("buecherei_material_issues_user_idx").on(t.userId),
+    index("buecherei_material_issues_year_idx").on(t.schoolYearId),
+  ],
+);

@@ -148,8 +148,8 @@ describe("Lernmittel – Pflege und Bücherliste", () => {
     expect(listed[0]).toMatchObject({ copies: 5, worn: 1 });
     expect((await listMaterials(h.db, s, { q: numbers[1] })).map((m) => m.id)).toEqual([id]);
 
-    // Stufe 1 kennt die Inventarnummern nicht: die Theke verbucht kein Schulbuch als Büchereiausleihe
-    await fails(scanAtDesk(h.db, s, numbers[1]!, LEA, TODAY), /gibt es nicht/);
+    // Die Theke der Stufe 1 verbucht kein Schulbuch als Büchereiausleihe – BU-11: sie erkennt `L-` und verweist auf die Ausgabe
+    await fails(scanAtDesk(h.db, s, numbers[1]!, LEA, TODAY), /ist ein Schulbuch.*Schulbuchausgabe/);
 
     const { id: tmp } = await createMaterial(h.db, s, { title: "Fehlerfassung", grades: [5], provision: "kauf" });
     await deleteMaterial(h.db, s, tmp);

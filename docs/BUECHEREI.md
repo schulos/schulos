@@ -42,7 +42,8 @@ Leseempfehlungen aus dem Ausleihverhalten (Profilbildung), Kamera-Scan in der PW
 | `buecherei_teaching_materials` | Lernmittel: Titel, ISBN, Verlag, Fach, Jahrgänge, Kurs/Zweig, „leiht die Schule aus“/„selbst kaufen“, Preis, archiviert – ohne Personenbezug | BU-10 |
 | `buecherei_material_copies` | Lernmittel-Exemplar: Inventarnummer `L-…` (eigener Nummernkreis, Prüfziffer), Zustand + Vermerk zur Sache, Anschaffungsjahr, ausgesondert – ohne Personenbezug | BU-10 |
 | `buecherei_booklists` | Bücherliste je Jahrgang: Hinweistext für Eltern, freigegeben ja/nein – ohne Personenbezug | BU-10 |
-| Zuordnung Exemplar ↔ Person (Schuljahr), `buecherei_compensations` | Ausgabe/Rücknahme im laufenden Schuljahr, Ersatzforderungen | BU-11/12 |
+| `buecherei_material_issues` | Schulbuch-Ausgabe: Exemplar ↔ Person mit Schuljahr (`school_year_id`), ausgegeben am, zurück bis (Schuljahresende), Mahnstufe; Rücknahme ohne Befund löscht die Zeile, mit Befund bleibt sie bis zur Erledigung | BU-11 |
+| `buecherei_compensations` | Ersatzforderungen | BU-12 |
 
 ## Rechte
 
@@ -137,4 +138,23 @@ Datensparsam vorbelegt bei der Umsetzung; Abweichungen entscheidet die Projektle
    Konto (`LK-KONTO`, Kontolöschung leert die Person). Querschnittstest dazu in BU-11 (Gegenstück zu `gate-bu1.test.ts`);
    BU-10 prüft in `lernmittel.test.ts`, dass Lernmittel, Exemplare und Bücherlisten keine Personenspalten haben.
 5. **Elternmahnung bei Schulbüchern von Anfang an** (Entscheidung 4) – wie Stufe 1 nur bei Minderjährigen über „handelt für“,
-   ohne Titel; kommt mit BU-11/BU-12.
+   ohne Titel; umgesetzt mit BU-11 (Mahnung nach Ablauf der Rückgabefrist, Stufen 1–3 im Abstand der Bücherei, Mail optional).
+   Der Elternbrief zur Ersatzforderung folgt mit BU-12.
+
+## Stufe 2 – Ausgabe und Rücknahme (BU-11, 2026-10-20)
+
+- **Rückgabefrist** = Ende des Schuljahres der Ausgabe (`school_years.ends_on`, beim Ausgeben in `due_on` festgehalten). Gemahnt
+  wird erst danach und nur an Schultagen – in der Praxis also ab dem ersten Schultag des neuen Schuljahres (offene Frage in
+  DSB-FRAGEN §18: eigener Rückgabetag vor den Sommerferien?).
+- **Ausgabe** unter „Schulbuchausgabe“ (`/buecherei/ausgabe`, nur `buecherei.materials`): Klasse oder Kurs wählen (Klassen,
+  Kurse, Wahlpflicht), die Liste zeigt je Schüler:in ausgegebene Schulbücher und was laut Lernmitteln des Jahrgangs (nur
+  „leiht die Schule aus“, bei Kursen mit Fach nur dieses Fach) noch fehlt. Person per Klick oder Büchereiausweis wählen, dann
+  Inventarnummern scannen. Je Person und Schuljahr höchstens ein Exemplar je Lernmittel (Doppelscan).
+- **Rücknahme** nur scannen (ohne Person zu wählen); vorher optional Zustand, Zustandsvermerk (Sache, keine Namen) oder Befund
+  wählen – Zustand/Vermerk landen am Exemplar, der Befund an der Ausgabe (bis zur Erledigung, Liste „Offene Befunde“).
+- **Offene Posten aus früheren Schuljahren** bleiben an der Person sichtbar („aus dem Vorjahr“) und lassen sich wie immer
+  zurücknehmen; ein Schuljahr mit Ausgaben lässt sich nicht löschen. Den Prüfschritt im Schuljahreswechsel bringt BU-13.
+- **Theke der Stufe 1** erkennt `L-`-Nummern und verweist auf die Schulbuchausgabe; umgekehrt weist die Ausgabe `B-`-Nummern ab.
+- Ausgabe/Rücknahme im Audit-Log nur mit Inventarnummer, ohne Person (Nachweis über den Bestand, kein Verlauf je Person).
+- Nicht umgesetzt (für später notiert): Klassenleitung sieht offene Schulbücher der Klasse (Rollen-Tabelle oben) – braucht
+  eine eigene Freigabe, weil Lehrkräfte bisher keine Bücherei-Daten anderer sehen.
