@@ -1,0 +1,15 @@
+{
+  "minVersion": "0.5.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Eigener Bereich „Stundenplanung“ (/planung) mit Übersicht, Stundenplan, Unterricht, Zeitwünschen, Solver, Vertretungen und Aufsichten; alte Lesezeichen aus der Verwaltung leiten weiter" },
+    { "kind": "neu", "text": "Neue Funktionsgruppe „Stundenplanung“ (Stundenplan planen, Vertretungen planen): bitte die Planenden dort eintragen; die bisherige Freigabe für die Rolle Verwaltung bleibt bestehen, bis die Verwaltung sie entfernt" },
+    { "kind": "sicherheit", "text": "Wer Stundenpläne oder Vertretungen plant, braucht ab sofort die Zwei-Faktor-Anmeldung – Betroffene vor dem Update informieren, sie richten sie beim nächsten Anmelden ein" },
+    { "kind": "neu", "text": "Solver-Läufe: mit eigenen Einstellungen starten, abbrechen, Verlauf ansehen, zwei bis drei Läufe vergleichen, ab einem Stichtag übernehmen und bis dahin zurücknehmen; Gründe, warum eine Stunde nicht gesetzt wurde" },
+    { "kind": "neu", "text": "Vertretung mit abweichendem Fach („Mathematik statt Sport“) – sichtbar in Plänen, Vertretungsplan, Druck, Monitor und Klassenbuch" },
+    { "kind": "neu", "text": "Anrechnungsgrund „Stundenplanung“ im Deputat" },
+    { "kind": "neu", "text": "Modul Schulbücherei (ab Werk aus): Bestand und Katalog, Ausleihe an der Theke per Scan, Mahnungen, Etiketten und Leseausweise, Statistik; Schulbuchausleihe mit Lernmitteln und Bücherliste für Eltern (eigener Schalter)" },
+    { "kind": "verbessert", "text": "Formulare ordnen ihre Felder auf breiten Bildschirmen sauber im Raster an" },
+    { "kind": "behoben", "text": "Der Stichtag der Zwei-Faktor-Pflicht wurde nach UTC statt nach deutscher Zeit berechnet" }
+  ]
+}
