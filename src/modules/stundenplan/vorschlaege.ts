@@ -52,9 +52,13 @@ export interface ScoreInput {
   countToday: Map<string, number>;
 }
 
-/** Rein: bewertet freie Lehrkräfte; höchste Punktzahl zuerst, bei Gleichstand weniger Vertretungen, dann Kürzel. */
+/**
+ * Rein: bewertet freie Lehrkräfte; höchste Punktzahl zuerst, bei Gleichstand weniger Vertretungen, dann Kürzel. Fachtausch
+ * („kann eigenes Fach geben“) nur, wenn keine freie Lehrkraft das ausgefallene Fach unterrichtet (SP-15, Q-SP-9-3).
+ */
 export function scoreCandidates(input: ScoreInput): Candidate[] {
   const { lesson } = input;
+  const sameSubjectFree = input.free.some((t) => input.teachesSubject.get(t.id)?.has(lesson.subjectId));
   return input.free
     .map((t) => {
       const reasons: Reason[] = [];
@@ -62,8 +66,9 @@ export function scoreCandidates(input: ScoreInput): Candidate[] {
       if (input.teachesGroup.get(t.id)?.has(lesson.groupId)) reasons.push({ label: "unterrichtet die Klasse", points: WEIGHTS.knowsGroup });
       const knowsSubject = !!input.teachesSubject.get(t.id)?.has(lesson.subjectId);
       if (knowsSubject) reasons.push({ label: "unterrichtet das Fach", points: WEIGHTS.knowsSubject });
-      // SP-12: kennt die Klasse, aber nicht das ausgefallene Fach → kann das eigene Fach geben
-      const own = input.teachesGroup.get(t.id)?.has(lesson.groupId) && !knowsSubject ? (input.ownSubjectInGroup?.get(t.id) ?? null) : null;
+      // SP-12: kennt die Klasse, aber nicht das ausgefallene Fach → kann das eigene Fach geben – SP-15: nur, wenn keine fachgleiche
+      // Vertretung frei ist (das Fach der Stunde geht vor)
+      const own = !sameSubjectFree && input.teachesGroup.get(t.id)?.has(lesson.groupId) && !knowsSubject ? (input.ownSubjectInGroup?.get(t.id) ?? null) : null;
       if (own) reasons.push({ label: `kann eigenes Fach geben: ${own.name}`, points: WEIGHTS.ownSubject });
       const day = input.dayPeriods.get(t.id) ?? [];
       // freigesetzt: die Lehrkraft ist zu dieser Stunde ohnehin in der Schule – keine Rand-/Frei-Abzüge
