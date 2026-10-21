@@ -237,6 +237,8 @@ export async function saveAssignmentAction(id: string | null, _prev: FormState, 
     roomId: str("roomId") || null,
     note: str("note") || null,
     bandId: str("bandId") || null,
+    validFrom: str("validFrom") || null,
+    validUntil: str("validUntil") || null,
   };
   try {
     if (id) await updateAssignment(db, user.id, id, input);
@@ -677,7 +679,7 @@ export async function startSolverAction(_prev: FormState, form: FormData): Promi
   const today = toBerlinDate(new Date());
   let id: string;
   try {
-    id = await createRun(db, user.id, { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights }, today);
+    id = await createRun(db, user.id, { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights, refYmd: str("refYmd") || null }, today);
   } catch (err) {
     if (err instanceof ValidationError) return { error: firstError(err), fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;

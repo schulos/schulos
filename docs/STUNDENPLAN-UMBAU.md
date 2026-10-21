@@ -509,7 +509,7 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 | **SP2-06** ✅ | CSV-Import der Unterrichtsverteilung (Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch]) mit Vorschau, Zuordnung über Kürzel, Fehlerliste und Trockenlauf; nur Lehraufträge, kein Plan | S | – | GATE SP | Q-SP-14 |
 | **SP2-07** | Vertretung Stufe 2: Verlegung (Stunde auf einen Entfall-Slot vorziehen/tauschen), Zusammenlegung/Mitbetreuung (Gruppe geht zu Gruppe Y), Bereitschaft (Reserve je Slot, oben in den Vorschlägen); Anzeige/Gong/Monitor/Druck mitziehen | M | – | GATE SP | SP-G-08, Q-SP-15 |
 | **SP2-08** | Dauervertretung für den Zeitraum einer Abwesenheit (erzeugt Vertretungen für alle Tage) + Vertretungsbedarf im Wochenblick (nächste 5 Schultage) | S–M | – | SP2-07 | SP-G-09, SP-G-10 |
-| **SP2-09** | Lehrauftrag mit Gültigkeit (`valid_from/until`, Vorgabe Schuljahr; Verteilung und Solver am Stichtag, Übernahme bis `valid_until`) | M | teilw. | SP2-02 | SP-G-07 |
+| **SP2-09** ✅ | Lehrauftrag mit Gültigkeit (`valid_from/until`, Vorgabe Schuljahr; Verteilung und Solver am Stichtag, Übernahme bis `valid_until`) | M | teilw. | SP2-02 | SP-G-07 |
 | **SP2-10** | Drucke/Exporte: Gesamtübersicht alle Klassen/alle Lehrkräfte, Unterrichtsverteilung, Deputate, Aufsichtsplan, Vertretungsstatistik (Druck + CSV) | S–M | – | GATE SP | SP-G-14 |
 | **SP2-12** | **Fachbedarf & Vorsorge** (entschieden durch Projektleitung 19.10.2026): Reiter `/planung/bedarf` (Recht `stundenplan.manage`) + Kachel in der Übersicht `/planung`. Je Fach Bedarf (Wochenstunden aus Lehraufträgen/Stundentafel) gegen Versorgung (Deputatsstunden der Lehrkräfte mit diesem Lehrfach, abzüglich Anrechnungen) mit Ampel; Prognose nächstes Schuljahr (Jahrgänge rücken auf, Klassenzahl anpassbar, bekannte Abgänge/Zugänge – Ruhestand, Elternzeit, Befristung, Abordnung – nur als Datum + Stunden, **ohne Begründung**); Empfehlungstexte („Physik: −6 Std. … Einstellung/Abordnung prüfen“) + Hinweis auf Fächer, die nur eine Lehrkraft abdeckt. Neu: Lehrfächer (Fakultas) je Lehrkraft als Stammdatum; neues Leserecht „Fachbedarf einsehen“ (z. B. `stundenplan.forecast_view`) für die Schulleitung – nur aggregierte Zahlen je Fach, keine Personen/Namen; die Planung sieht Details. Datenschutz: Abgänge sind personenbezogen → Löschklasse/Löschfrist, nur mit `manage` sichtbar | M | – | GATE SP | Projektleitung 2026-10-19 |
 | **SP2-11** | E2E-Szenario „Gesamtschule“ (Band E/G Mathe 7 + WP + Tagesgrenze → Lauf → Übernahme; Verlegung/Bereitschaft; CSV-Import; Fachbedarf) + Review-PR **GATE SP2** | S | – | SP2-01 … SP2-10, SP2-12 | – |
@@ -638,6 +638,29 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
   Stunden; wird angelegt). Ein Lehrauftrag im Band bleibt darin – ohne Band-Spalte müssen die Stunden zum Band passen, ein anderes Band ist ein Fehler.
 - **Übernehmen** plant serverseitig neu und schreibt nur ohne Fehler, alles in einer Transaktion; Audit `stundenplan.assignment.csv_import` mit Anzahlen.
 - Tests: `verteilung-import.test.ts`, `csv.test.ts`, E2E `unterricht-import.spec.ts` mit Beispieldatei `e2e/fixtures/unterrichtsverteilung.csv` (Windows-1252).
+
+**Umgesetzt (SP2-09, Migration 0103, 2026-10-21) – Lehrauftrag mit Gültigkeit (SP-G-07):**
+- **Daten:** `timetable_assignments.valid_from/valid_until` (`date`, `null` = Beginn/Ende des Schuljahrs, Prüfregel ab ≤ bis). Pflege im Lehrauftrag
+  („Gültig ab/bis“, im Schuljahr); „doppelt erfasst“ gilt nur bei sich überschneidender Gültigkeit (`validityOverlaps`), Physik bei derselben
+  Lehrkraft im 1. und im 2. Halbjahr darf getrennt stehen. Ohne Personenbezug über den Lehrauftrag hinaus – keine neue Löschklasse.
+- **Verteilung am Stichtag:** `distribution()` filtert mit `activeOn()` am Stichtag (`referenceDate`) – damit gilt der Stichtag für alles, was darauf
+  aufbaut (Soll/verplant, Bänder, Deputate, Diagnose, Setzhilfe, Solver-Eingabe); was dann nicht gilt, steht in `otherTime` und zählt nirgends. Die
+  Seite hat einen Stichtag-Wähler (`?stichtag=`), die Gruppe zeigt „Zu anderer Zeit gültig“ mit Sprung auf deren Stichtag, die Tabelle einen Hinweis
+  „ab …/bis …“.
+- **Solver-Läufe:** neuer Parameter „Lehraufträge am“ (`RunParams.refYmd`, optional – Läufe ohne rechnen wie bisher am Tag der Berechnung;
+  `StoredResult.refYmd` = Planungsstand); Detailseite und Vergleich zeigen ihn, das Protokoll nennt ihn.
+- **Übernahme:** jede Stunde trägt ihren Lehrauftrag (`ProposedLesson.assignmentId`, je Teil – Band-Mitglieder je eigene Gültigkeit) und gilt
+  bis `min(Schuljahresende, valid_until)`; endet der Lehrauftrag vor dem Stichtag, entfällt die Stunde (`expired`, im Protokoll). Beginnt ein
+  Lehrauftrag des Laufs erst nach dem Stichtag, lehnt die Übernahme ab („frühestens ab …“) – die Stunden beginnen so immer am Stichtag, das
+  Zurücknehmen bleibt unverändert. Ablauf Halbjahr: Lauf mit Stand 1. Hj. übernehmen (Halbjahres-Aufträge enden am 31.01.), Lauf mit
+  „Lehraufträge am 01.02.“ ab dem 01.02. übernehmen (ersetzt ab dann).
+- **Setzhilfe:** Stunden gelten höchstens so lange wie ihr Lehrauftrag (`clipValidity`); weichen Band-Mitglieder ab, bekommt die Kopplung den
+  Zeitraum der Setzhilfe (einfache Vorgabe; der Solver-Weg setzt je Teil).
+- **CSV-Import (SP2-06)** kennt keine Gültigkeit: neue Lehraufträge gelten das ganze Schuljahr, ein vorhandener mit Gültigkeit kann als „ändern“ zugeordnet werden.
+- **Benchmark:** der Solver-Kern ist unverändert – vor und nach der Änderung dieselbe Lösung (9 nicht gesetzt, Bewertung 2 163, 82 Verbesserungen,
+  Hohlstunden 169/13, gesamt 0,75 → 0,69 s; Varianten mit denselben Ergebnissen – geteilter Sport 10, Bänder 0, Oberstufe 0, Tagesgrenzen 9, Lehrkraft-Tagesregeln 1 nicht gesetzt). Ohne Gültigkeitsangaben ist die Solver-Eingabe unabhängig vom Stichtag (Test).
+- Tests: `gueltigkeit.test.ts` (rein + Demo: Pflege, Verteilung, Solver-Eingabe, Übernahme bis `valid_until`, Ablehnung, abgelaufene), E2E
+  `unterricht-gueltigkeit.spec.ts`.
 
 **Übergabe für den Rest des Blocks (nach SP2-05):**
 - **SP2-09 (Lehrauftrag mit Gültigkeit):** `unitsFrom()`/`solverInputFromDb()` filtern Lehraufträge am Stichtag; `gradeOf` bleibt aus

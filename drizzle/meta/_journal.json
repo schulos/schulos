@@ -722,6 +722,13 @@
       "when": 1792553401903,
       "tag": "0102_sp2_04_lehrkraft_tagesregeln",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1792569627483,
+      "tag": "0103_sp2_09_lehrauftrag_gueltigkeit",
+      "breakpoints": true
     }
   ]
 }

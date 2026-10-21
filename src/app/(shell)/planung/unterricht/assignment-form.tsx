@@ -17,6 +17,9 @@ export interface AssignmentFormValues {
   teacher2Id: string;
   roomId: string;
   note: string;
+  /** SP2-09: gültig ab/bis (leer = ganzes Schuljahr) */
+  validFrom: string;
+  validUntil: string;
 }
 
 interface Option {
@@ -30,12 +33,15 @@ export function AssignmentForm({
   initial,
   options,
   back,
+  year,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   deleteAction?: () => Promise<void>;
   initial: AssignmentFormValues;
   options: { groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: Option[]; rooms: Option[]; bands: (Option & { hours: number; doubleLessons: number })[] };
   back: string;
+  /** SP2-09: Grenzen für „gültig ab/bis“ */
+  year: { startsOn: string; endsOn: string };
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const fe = state.fieldErrors ?? {};
@@ -112,7 +118,13 @@ export function AssignmentForm({
         </Select>
       </Field>
       <Field label="Hinweis" error={fe.note}>
-        <Input name="note" maxLength={200} defaultValue={v.note} placeholder="z. B. nur 1. Halbjahr" />
+        <Input name="note" maxLength={200} defaultValue={v.note} placeholder="z. B. Epoche Physik" />
+      </Field>
+      <Field label="Gültig ab" hint="leer = Beginn des Schuljahrs" error={fe.validFrom}>
+        <Input type="date" name="validFrom" min={year.startsOn} max={year.endsOn} defaultValue={v.validFrom} />
+      </Field>
+      <Field label="Gültig bis" hint="leer = Ende des Schuljahrs (z. B. nur 1. Halbjahr)" error={fe.validUntil}>
+        <Input type="date" name="validUntil" min={year.startsOn} max={year.endsOn} defaultValue={v.validUntil} />
       </Field>
       <Field label="Band" hint="Lehraufträge eines Bands liegen zur selben Zeit (z. B. Religion/Philosophie, WP, E-/G-Kurse); Bänder pflegen unter „Bänder“" error={fe.bandId} className="sm:col-span-2">
         <Select name="bandId" value={bandId} onChange={(e) => setBandId(e.target.value)}>

@@ -1,0 +1,3 @@
+ALTER TABLE "timetable_assignments" ADD COLUMN "valid_from" date;--> statement-breakpoint
+ALTER TABLE "timetable_assignments" ADD COLUMN "valid_until" date;--> statement-breakpoint
+ALTER TABLE "timetable_assignments" ADD CONSTRAINT "timetable_assignments_validity" CHECK ("timetable_assignments"."valid_from" is null or "timetable_assignments"."valid_until" is null or "timetable_assignments"."valid_from" <= "timetable_assignments"."valid_until");

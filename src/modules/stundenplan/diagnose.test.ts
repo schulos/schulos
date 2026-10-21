@@ -104,6 +104,8 @@ describe("diagnose", () => {
       teachers: [],
       planned: 2,
       otherTeacher: false,
+      validFrom: null,
+      validUntil: null,
       bandId: null,
     });
     const dist = { assignments: [assignment("D", 1), assignment("M", 0)], unmatched: [], curriculum: new Map() };
@@ -150,6 +152,8 @@ describe("diagnose", () => {
       teachers: [],
       planned: 2,
       otherTeacher: false,
+      validFrom: null,
+      validUntil: null,
     });
     const band = (id: string, name: string, memberIds: string[], planned: number, together: number) => ({ id, name, hours: 2, doubleLessons: 0, memberIds, planned, together, uniform: false });
     const fs = diagnose(
@@ -226,6 +230,8 @@ describe("diagnose", () => {
       teachers,
       planned,
       otherTeacher: false,
+      validFrom: null,
+      validUntil: null,
       bandId: null,
     });
     const fs = diagnose(
