@@ -715,6 +715,13 @@
       "when": 1792546760192,
       "tag": "0101_sp2_03_tagesgrenzen",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1792553401903,
+      "tag": "0102_sp2_04_lehrkraft_tagesregeln",
+      "breakpoints": true
     }
   ]
 }

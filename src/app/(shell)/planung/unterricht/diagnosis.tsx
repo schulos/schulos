@@ -66,7 +66,7 @@ export function DiagnosisView({ report, category, refLabel }: { report: Diagnosi
         </h2>
         <p className="text-sm text-muted">Prüft Stundenplan ({refLabel}), Lehraufträge, Stundentafel und Deputate. Ein Klick auf eine Prüfung filtert die Liste.</p>
       </div>
-      <nav aria-label="Prüfungen" className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+      <nav aria-label="Prüfungen" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {DIAGNOSIS_CATEGORIES.map((c) => {
           const n = report.counts[c];
           const active = category === c;

@@ -24,6 +24,8 @@ const metrics = (
     roomWish: 0,
     noRoom: 0,
     late: 0,
+    teacherDays: 0,
+    subjectSpread: 0,
   },
   unplaced: 0,
   units: 100,
@@ -71,6 +73,8 @@ describe("Vergleich: Zeilen, Delta, bester Wert", () => {
         roomWish: 0,
         noRoom: 0,
         late: 4,
+        teacherDays: 0,
+        subjectSpread: 0,
       },
     });
     const b = metrics({

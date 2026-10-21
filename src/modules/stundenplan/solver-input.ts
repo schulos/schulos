@@ -10,6 +10,7 @@ import { allPrefs } from "./zeitwuensche";
 import { gridLessons, type GridLesson } from "./setzhilfe";
 import { listGradeRules } from "./jahrgangsregeln";
 import { dayRuleFor, type DayRule } from "./tagesgrenzen";
+import { listTeacherRules } from "./deputate";
 
 export interface SolverInputOptions {
   /** Stunden, die bleiben, wo sie sind (fixiert); ihre Lehraufträge werden um diese Stunden gekürzt */
@@ -216,7 +217,7 @@ export async function solverInputFromDb(
   opts: SolverInputOptions = {},
 ): Promise<SolverInput & { check: InputCheck }> {
   const d = await distribution(db, year, todayYmd);
-  const [periodRows, roomRows, subjectRows, groupRows, memberRows, prefs, planned, grid, gradeRules] = await Promise.all([
+  const [periodRows, roomRows, subjectRows, groupRows, memberRows, prefs, planned, grid, gradeRules, teacherRules] = await Promise.all([
     db.select({ nr: periods.nr, startsAt: periods.startsAt, endsAt: periods.endsAt }).from(periods).orderBy(periods.nr),
     db.select({ id: rooms.id, kind: rooms.kind, capacity: rooms.capacity, active: rooms.active }).from(rooms),
     db.select({ id: subjects.id, name: subjects.name, roomKind: subjects.roomKind }).from(subjects),
@@ -231,6 +232,8 @@ export async function solverInputFromDb(
     planLessonsOn(db, d.refYmd),
     gridLessons(db, d.refYmd, d.refYmd),
     listGradeRules(db),
+    // SP2-04: Tagesregeln je Lehrkraft des Schuljahres
+    listTeacherRules(db, year.id),
   ]);
   const sizeOf = new Map<string, number>();
   for (const m of memberRows) sizeOf.set(m.groupId, (sizeOf.get(m.groupId) ?? 0) + 1);
@@ -305,6 +308,7 @@ export async function solverInputFromDb(
     classIds,
     gradeOf,
     dayRules,
+    teacherRules,
     names,
     seed: opts.seed,
     iterations: opts.iterations,

@@ -240,3 +240,42 @@ test("SP2-03: Tagesgrenzen je Jahrgang pflegen – Vorgaben der Demo, Prüfung, 
   await expect(page.getByText("Tagesgrenzen: alles in Ordnung")).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("SP2-04: Tagesregel je Lehrkraft in der Deputats-Karte – speichern, Diagnose-Kategorie, „Mein Deputat“ zeigt sie, leeren", async ({ page, browser }) => {
+  const errors = collectErrors(page);
+  await login(page, "frank.schulte");
+  await page.goto("/planung/unterricht?ansicht=lehrkraefte");
+  await page.getByRole("link", { name: "BRA", exact: true }).click();
+  const form = page.getByRole("form", { name: "Tagesregel" });
+  await expect(form.getByLabel("Höchstens Stunden am Tag")).toHaveValue("");
+  await form.getByLabel("Höchstens Stunden am Tag").fill("6");
+  await form.getByLabel("Höchstens Anwesenheitstage").fill("4");
+  await form.getByRole("button", { name: "Tagesregel speichern" }).click();
+  await expect(form.getByRole("status").filter({ hasText: "Gespeichert." })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("form", { name: "Tagesregel" }).getByLabel("Höchstens Anwesenheitstage")).toHaveValue("4");
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"]).analyze();
+  expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+
+  // Diagnose: eigene Kategorie
+  await page.goto("/planung/unterricht?ansicht=diagnose&kategorie=teacherDay");
+  await expect(page.getByRole("navigation", { name: "Prüfungen" }).getByRole("link", { name: /Tagesregeln Lehrkräfte/ })).toBeVisible();
+
+  // die Lehrkraft sieht ihre eigene Regel
+  const own = await browser.newPage();
+  await login(own, "jana.brandt");
+  await own.goto("/stundenplan/deputat");
+  await expect(own.getByText("Tagesregel für die Stundenplanung")).toBeVisible();
+  await expect(own.getByText("höchstens 6 Std./Tag · höchstens 4 Tage")).toBeVisible();
+  await own.close();
+
+  // leeren = keine Regel (die Demo bleibt für die übrigen Tests unverändert)
+  await page.goto("/planung/unterricht?ansicht=lehrkraefte");
+  await page.getByRole("link", { name: "BRA", exact: true }).click();
+  const again = page.getByRole("form", { name: "Tagesregel" });
+  await again.getByLabel("Höchstens Stunden am Tag").fill("");
+  await again.getByLabel("Höchstens Anwesenheitstage").fill("");
+  await again.getByRole("button", { name: "Tagesregel speichern" }).click();
+  await expect(again.getByRole("status").filter({ hasText: "Gespeichert." })).toBeVisible();
+  expect(errors).toEqual([]);
+});

@@ -1,6 +1,6 @@
 // Diagnose (P2b-13): prüft Plan und Unterrichtsverteilung auf offene Stunden, Hohlstunden, Fach mehrfach am Tag,
 // Stundentafel, ungeeignete Räume, Deputat über/unter Soll, Bänder (SP2-02: zur selben Zeit, gemeinsame Schüler:innen) und
-// Tagesgrenzen/Ganztag je Jahrgang (SP2-03).
+// Tagesgrenzen/Ganztag je Jahrgang (SP2-03) und Tagesregeln je Lehrkraft (SP2-04).
 // Reine Prüflogik + Loader.
 import { and, count, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
@@ -16,8 +16,9 @@ import { bandsWithSharedStudents, conflictsFrom } from "./solver-input";
 import { distribution, planningYear, PLANNED_GROUP_KINDS, type Distribution } from "./verteilung";
 import { loadDayLimits } from "./jahrgangsregeln";
 import { classWeek, dayProblems, isAfternoon, problemText, ruleSummary, weeklyCapacity, type DayLimits } from "./tagesgrenzen";
+import { presenceDays, teacherDayProblems, teacherProblemText, teacherRuleSummary, teacherWeek, teacherWeeklyCapacity } from "./lehrkraftregeln";
 
-export const DIAGNOSIS_CATEGORIES = ["open", "gaps", "subjectDay", "curriculum", "room", "deputy", "band", "day"] as const;
+export const DIAGNOSIS_CATEGORIES = ["open", "gaps", "subjectDay", "curriculum", "room", "deputy", "band", "day", "teacherDay"] as const;
 export type DiagnosisCategory = (typeof DIAGNOSIS_CATEGORIES)[number];
 
 export const DIAGNOSIS_LABELS: Record<DiagnosisCategory, string> = {
@@ -29,6 +30,7 @@ export const DIAGNOSIS_LABELS: Record<DiagnosisCategory, string> = {
   deputy: "Deputat über/unter Soll",
   band: "Bänder",
   day: "Tagesgrenzen",
+  teacherDay: "Tagesregeln Lehrkräfte",
 };
 
 /** error = muss behoben werden · warn = sollte geprüft werden · info = zur Kenntnis */
@@ -68,7 +70,7 @@ export interface DiagnoseInput {
   subjects: { id: string; name: string; roomKind: RoomKind | null }[];
   rooms: { id: string; kind: RoomKind; capacity: number | null; active: boolean }[];
   distribution: Pick<Distribution, "assignments" | "unmatched" | "curriculum"> & Partial<Pick<Distribution, "bands">>;
-  accounts: Pick<DeputyAccount, "id" | "code" | "name" | "target" | "assigned" | "balance">[];
+  accounts: (Pick<DeputyAccount, "id" | "code" | "name" | "target" | "assigned" | "balance"> & Partial<Pick<DeputyAccount, "dayRule">>)[];
   /** Gruppen mit gemeinsamen Schüler:innen (SP2-02: Band-Mitglieder, die parallel liegen, obwohl Schüler:innen in beiden sind) */
   conflicts?: Map<string, Set<string>>;
   /** SP2-03: Tagesgrenzen und Ganztag je Klasse */
@@ -346,6 +348,21 @@ export function diagnose(input: DiagnoseInput): Finding[] {
       if (hours > cap)
         out.push({ category: "day", severity: "warn", target, message: `${hoursLabel(hours)} je Woche verteilt, die Tagesgrenzen erlauben höchstens ${cap} (${ruleSummary(rule)})` });
     }
+  }
+
+  // ---------------------------------------------------------- Tagesregeln je Lehrkraft (SP2-04)
+  for (const a of input.accounts) {
+    const rule = a.dayRule;
+    if (!rule) continue;
+    const target = { kind: "teacher" as const, id: a.id, label: teacherLabel(a) };
+    const week = teacherWeek(a.id, input.lessons);
+    for (const [wd, ps] of [...week].sort((x, y) => x[0] - y[0]))
+      if (teacherDayProblems(rule, ps).length) out.push({ category: "teacherDay", severity: "error", target, message: `${WEEKDAYS[wd]}: ${hoursLabel(ps.size)} – ${teacherProblemText(rule, "max")}` });
+    const days = presenceDays(week);
+    if (rule.maxDays !== null && days > rule.maxDays) out.push({ category: "teacherDay", severity: "error", target, message: `${days} Tage mit Unterricht – ${teacherProblemText(rule, "days")}` });
+    const cap = teacherWeeklyCapacity(rule, input.periods.length);
+    if (a.assigned > cap)
+      out.push({ category: "teacherDay", severity: "warn", target, message: `${hoursLabel(a.assigned)} Lehraufträge, die Tagesregel erlaubt höchstens ${cap} (${teacherRuleSummary(rule)})` });
   }
 
   const rank: Record<Severity, number> = { error: 0, warn: 1, info: 2 };

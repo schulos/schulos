@@ -504,7 +504,7 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 | **SP2-01** ✅ | Bänder – Datenmodell und Unterrichtsverteilung: `timetable_bands` (Schuljahr, Name, Wochenstunden, Doppelstunden) mit n Lehraufträgen als Mitglieder; Lehraufträge bleiben 1 Fach, 1 Gruppe, 1–2 Lehrkräfte; „Gekoppelt mit“ wird zum Band; Pflege-UI, Soll/verplant je Band | M | – | GATE SP | SP-G-01 |
 | **SP2-02** ✅ | Bänder im Solver, in Setzhilfe und Übernahme: Einheit = Band mit `parts[]` (eigene Lehrkraft/Fach/Raum je Teil), `chooseRoom` je Teil, eine `coupling_id` je Band-Stunde, Setzhilfe setzt/verschiebt das Band als Einheit; Kursband zählt für Klassen-Hohlstunden | L | **ja** | SP2-01 | SP-G-01 |
 | **SP2-03** ✅ | Tagesgrenzen und Ganztag je Jahrgangsstufe: `maxPerDay`, `afternoonsPerWeek`, `lunchAfterPeriod` (Mittagspause Pflicht bei Unterricht danach), Vorgaben aus dem Schulform-Katalog; hart im Solver, Diagnose-Kategorie | M | **ja** | GATE SP | SP-G-04b |
-| **SP2-04** | Lehrkraft-Tagesregeln und Fachverteilung: optional `maxPerDay`/`maxDays` je Lehrkraft (Deputats-Seite), weiche Kosten Anwesenheitstage; Kosten `subjectSpread` (nicht an Folgetagen geballt), Gewichte in den Voreinstellungen | S–M | **ja** | SP2-03 | SP-G-05, SP-G-06 |
+| **SP2-04** ✅ | Lehrkraft-Tagesregeln und Fachverteilung: optional `maxPerDay`/`maxDays` je Lehrkraft (Deputats-Seite), weiche Kosten Anwesenheitstage; Kosten `subjectSpread` (nicht an Folgetagen geballt), Gewichte in den Voreinstellungen | S–M | **ja** | SP2-03 | SP-G-05, SP-G-06 |
 | **SP2-05** | Hohlstunden Oberstufe/Kursband im Solver (Jahrgang ohne Klasse) + Diagnose-Kategorie Zeitwünsche (gesperrt belegt = Fehler, −3/−2 = Warnung; Tausch in der Setzhilfe prüft Sperren) | S–M | **ja** | SP2-02 | SP-G-11, SP-G-12 |
 | **SP2-06** | CSV-Import der Unterrichtsverteilung (Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch]) mit Vorschau, Zuordnung über Kürzel, Fehlerliste und Trockenlauf; nur Lehraufträge, kein Plan | S | – | GATE SP | Q-SP-14 |
 | **SP2-07** | Vertretung Stufe 2: Verlegung (Stunde auf einen Entfall-Slot vorziehen/tauschen), Zusammenlegung/Mitbetreuung (Gruppe geht zu Gruppe Y), Bereitschaft (Reserve je Slot, oben in den Vorschlägen); Anzeige/Gong/Monitor/Druck mitziehen | M | – | GATE SP | SP-G-08, Q-SP-15 |
@@ -578,12 +578,31 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
   Schulform übernehmen“; E2E in `unterricht.spec.ts`.
 - **Benchmark:** ohne Regeln dieselbe Lösung; Variante „Tagesgrenzen“ (alle Klassen 7/3) 0,7 s allein, Grenzen eingehalten (LASTTEST.md).
 
-**Übergabe für SP2-04 … SP2-05:**
-- **SP2-04 (Lehrkraft-Tagesregeln, Fachverteilung):** `teacherDay` hält Stunden je Lehrkraft × Tag; `maxPerDay`/`maxDays` hart in
-  `feasible()` – Muster wie SP2-03 (`dayViolation()` ohne Kopien, eigener Zwischenspeicher je Lehrkraft-Tag oder direkt `teacherDay`; `blockersAt()`/`explain()`
-  mit neuem `UnplacedCause.kind`, Setzhilfe über einen Prüfer wie `GridInput.dayLimits`), Anwesenheitstage weich in `teacherDayCost()`/`gapStats()`. `subjectSpread` über die Woche: je Gruppe × Fach die Tage aus
-  `groupDay` (bei Bändern je Teil-Fach – `groupSubjectsOf()`), Kosten in `groupDayCost()` oder einer neuen Wochen-Kostenfunktion; Gewicht in
-  `SolverWeights`/`WEIGHT_PRESETS`/Formular (`start-form.tsx`) und `COST_LABELS`.
+**Umgesetzt (SP2-04, Migration 0102, 2026-10-21) – Lehrkraft-Tagesregeln und Fachverteilung:**
+- **Daten:** `timetable_teacher_day_rules` (Schuljahr × Lehrkraft, `max_per_day` 1–20, `max_days` 1–7, `null` = keine Grenze; ohne Grenze entfällt die Zeile).
+  Personaldaten wie das Deputat: LK-SJ-1J ab Schuljahr, Fremdschlüssel aufs Konto (`deleteAccounts`/Löschlauf löschen mit, kein weicher Verweis), Pflege nur mit
+  `stundenplan.manage` (`saveTeacherDayRuleAction` → `saveTeacherRule` in `deputate.ts`, prüft 1 … Stunden im Raster bzw. 1–5 Tage, Audit
+  `stundenplan.deputy.day_rule`), sichtbar für die Lehrkraft selbst unter „Mein Deputat“. `DeputyAccount.dayRule`; Laden für die Setzhilfe `loadTeacherLimits()`.
+- **Regeln** (rein, `lehrkraftregeln.ts`): `teacherViolationsWith()` (Stunden am Tag – gekoppelte Stunden einer Lehrkraft zählen einmal –, neuer Anwesenheitstag über
+  `maxDays`), `teacherWeeklyCapacity()`, `teacherLimitReasons()`; monoton wie SP2-03.
+- **Solver:** `SolverInput.teacherRules` (aus `solverInputFromDb`, Schuljahr des Laufs); `feasible()` prüft nach den Tagesgrenzen `teacherBlocked()` für die Lehrkräfte
+  der Einheit mit Regel (`meta.ruleTeachers`, bei Bändern jede Teil-Lehrkraft) direkt auf `teacherDay` (kein eigener Zwischenspeicher nötig – Tage sind kurz).
+  `blockersAt()` gibt bei verletzter Regel `null`, `explain()` liefert `kind: "teacherDay"` mit Label „Tagesregel LIN (höchstens 3 Std./Tag · höchstens 2 Tage)“;
+  Vorprüfung: Bedarf der Lehrkraft gegen `teacherWeeklyCapacity()`. Protokoll „Tagesregeln für n Lehrkräfte“.
+- **Weiche Kosten:** `SolverWeights.teacherDays` (je Anwesenheitstag, in `teacherDayCost()`; Posten je Lehrkraft und Woche in `total()`) und `subjectSpread`
+  (`spreadCost(g, s)`: Paare benachbarter Schultage mit demselben Fach je Gruppe minus unvermeidbare `max(0, 2n − D − 1)`; in `localCost()` je berührtem Paar
+  Gruppe × Fach über `groupSubjectsOf()`, also bei Bändern je Teil-Fach). Beide **Vorgabe 0** (`DEFAULT_WEIGHTS`, „ausgewogen“, Demo-Seed) → Pläne ohne Regeln
+  bleiben gleich; „lehrkräfteschonend“ `teacherDays: 4`, „klassenkompakt“ `subjectSpread: 6`; Formularfelder „Anwesenheitstag Lehrkraft“/„Fach an Folgetagen“,
+  `COST_LABELS` „Anwesenheitstage Lehrkräfte“/„Fach an Folgetagen“ (Läufe vor SP2-04 zeigen 0).
+- **Setzhilfe:** `GridInput.teacherLimits` – Slot gesperrt mit „LIN: höchstens 5 Stunden am Tag“ bzw. „… Anwesenheitstage je Woche“, beim Tausch auch für den Partner.
+- **Diagnose:** Kategorie **„Tagesregeln Lehrkräfte“** (`teacherDay`, Ziel Lehrkraft): Tag über `maxPerDay` (Fehler), mehr Tage als `maxDays` (Fehler), Lehraufträge
+  über der Wochenkapazität (Warnung).
+- **Benchmark:** ohne Regeln dieselbe Lösung (Bewertung 2 163, 9 nicht gesetzt, 0,69 s); Variante „Lehrkraft-Tagesregeln“ (24 Lehrkräfte bis 22 Std. höchstens 6 am
+  Tag, 3 bis 20 Std. zusätzlich höchstens 4 Tage, `subjectSpread` 6) 14 nicht gesetzt (Grenzwert 1 %), Regeln eingehalten, 0,8 s allein (LASTTEST.md).
+  Befund: die synthetische Schule ist voll ausgelastet (~22–24 Std. je Lehrkraft) – „höchstens 4 Tage“ für alle Lehrkräfte bis 22 Std. ließ 27–32 Einheiten liegen;
+  ein Konstruktions-Aufschlag für neue Anwesenheitstage machte es schlechter (38) und ist verworfen.
+
+**Übergabe für SP2-05:**
 - **SP2-05 (Hohlstunden Oberstufe/Kursband, Diagnose Zeitwünsche):** `classHoles()` zählt heute nur `classIds`; für Jahrgänge ohne Klasse
   (Kurse) die Stunden je Jahrgang zusammenfassen (Kurse derselben Stufe = ein Band-Tag, wie `diagnose()` es für Klassen mit `bandByGrade`
   tut) – Eingabe braucht `gradeOf: Map<groupId, grade>` in `SolverInput` (aus `groups.gradeLevel`). Diagnose Zeitwünsche: `allPrefs()` +

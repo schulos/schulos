@@ -20,6 +20,7 @@ import {
   saveAssignmentAction,
   saveBandAction,
   saveObligationAction,
+  saveTeacherDayRuleAction,
   saveGradeRulesAction,
   applyGradeRuleDefaultsAction,
 } from "@/modules/stundenplan/actions";
@@ -38,7 +39,7 @@ import { Table } from "@schulos/ui/table";
 import { AssignmentForm, type AssignmentFormValues } from "./assignment-form";
 import { BandForm, BandMemberForm } from "./band-forms";
 import { GradeRulesForm } from "./grade-rules-form";
-import { ObligationForm, ReductionForm } from "./deputy-forms";
+import { ObligationForm, ReductionForm, TeacherDayRuleForm } from "./deputy-forms";
 import { DiagnosisView } from "./diagnosis";
 
 export const metadata: Metadata = { title: "Unterrichtsverteilung" };
@@ -478,6 +479,8 @@ function DeputyCard({ account: a, fallback }: { account: DeputyAccount; fallback
         </p>
       </div>
       <ObligationForm action={saveObligationAction.bind(null, a.id)} value={a.isDefault ? "" : num.format(a.obligation)} fallback={num.format(fallback)} />
+      {/* SP2-04: Tagesregel (hart im Solver und in der Setzhilfe, geprüft in der Diagnose) */}
+      <TeacherDayRuleForm action={saveTeacherDayRuleAction.bind(null, a.id)} maxPerDay={a.dayRule?.maxPerDay?.toString() ?? ""} maxDays={a.dayRule?.maxDays?.toString() ?? ""} />
       {a.reductions.length > 0 && (
         <Table>
           <caption className="sr-only">Ermäßigungen und Anrechnungen</caption>

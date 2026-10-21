@@ -368,6 +368,9 @@ Phase 2 als eigener Block folgen.
   ohne Klassenbuch-Eintrag“ (Q5-06) sieht und bekommt (Freitags-Gong) nur die Lehrkraft selbst – es gibt keine Übersicht
   je Lehrkraft für Schulleitung oder Verwaltung; die Klassenleitung sieht wie bisher fehlende Einträge ihrer Klasse.
   „Mein Deputat“ (Q5-09) zeigt einer Lehrkraft nur ihr eigenes Konto und ihre eigenen Vertretungsstunden, ohne Vergleich.
+  Tagesregeln je Lehrkraft (SP2-04: höchstens Stunden am Tag, höchstens Anwesenheitstage – z. B. Teilzeit, **ohne Grund**) sind
+  Personaldaten wie das Deputat: Pflege nur mit `stundenplan.manage`, die Lehrkraft sieht ihre eigene Regel unter „Mein Deputat“;
+  Tabelle `timetable_teacher_day_rules` (LK-SJ-1J ab Schuljahr, Fremdschlüssel auf das Konto – geht mit der Kontolöschung).
   Das Heute-Widget „Offen für dich“ (Q5-07) zeigt nur Zähler und eigene Vorgänge (eigene Kinder, eigene Briefe, eigene
   Klassen; Planungszahlen nur mit `stundenplan.substitute` (SP-02), Backup nur mit `verwaltung.system`) – keine Auswertung je Lehrkraft.
   Zeitwünsche (Q5-10) trägt eine Lehrkraft im Eingabefenster der Planung selbst ein – nur die eigenen, die Person kommt aus der

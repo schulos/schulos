@@ -12,6 +12,8 @@ import { distribution, planningYear, type Assignment } from "./verteilung";
 import { allPrefs, blockedReasons } from "./zeitwuensche";
 import { dayLimitReasons, type DayLimits } from "./tagesgrenzen";
 import { loadDayLimits } from "./jahrgangsregeln";
+import { teacherLimitReasons, type TeacherLimits } from "./lehrkraftregeln";
+import { loadTeacherLimits } from "./deputate";
 
 type Week = (typeof LESSON_WEEKS)[number];
 
@@ -78,17 +80,35 @@ function blockersAt(rows: UnitRow[], weekday: number, periodNr: number, lessons:
 
 const unique = (xs: string[]) => [...new Set(xs)];
 
-/** SP2-03: Tagesgrenzen der Klassen, die `rows` im Slot verletzten (Stunden aus `exclude` zählen nicht). */
-function limitReasons(input: Pick<GridInput, "dayLimits" | "lessons">, rows: Pick<UnitRow, "groupId">[], exclude: Set<string>, weekday: number, periodNr: number): string[] {
-  if (!input.dayLimits?.rules.size) return [];
+/**
+ * SP2-03: Tagesgrenzen der Klassen, SP2-04: Tagesregeln der Lehrkräfte, die `rows` im Slot verletzten (Stunden aus `exclude` zählen
+ * nicht; bei Bändern zählt jede Teil-Lehrkraft).
+ */
+function limitReasons(input: Pick<GridInput, "dayLimits" | "teacherLimits" | "lessons">, rows: Pick<UnitRow, "groupId" | "teacherId">[], exclude: Set<string>, weekday: number, periodNr: number): string[] {
+  const classes = Boolean(input.dayLimits?.rules.size);
+  const teachers = Boolean(input.teacherLimits?.rules.size);
+  if (!classes && !teachers) return [];
   const others = input.lessons.filter((l) => !exclude.has(l.id));
-  return dayLimitReasons(
-    input.dayLimits,
-    rows.map((r) => r.groupId),
-    others,
-    weekday,
-    [periodNr],
-  );
+  return [
+    ...(classes
+      ? dayLimitReasons(
+          input.dayLimits!,
+          rows.map((r) => r.groupId),
+          others,
+          weekday,
+          [periodNr],
+        )
+      : []),
+    ...(teachers
+      ? teacherLimitReasons(
+          input.teacherLimits!,
+          rows.map((r) => r.teacherId),
+          others,
+          weekday,
+          [periodNr],
+        )
+      : []),
+  ];
 }
 
 /** Ist ein Raum im Slot frei (für alle Zeilen)? */
@@ -112,6 +132,8 @@ export interface GridInput {
   blocked?: (weekday: number, periodNr: number) => string[];
   /** SP2-03: Tagesgrenzen und Ganztag je Klasse (Kurse des Jahrgangs zählen mit) */
   dayLimits?: DayLimits;
+  /** SP2-04: Tagesregeln je Lehrkraft (höchstens Stunden am Tag, höchstens Anwesenheitstage) */
+  teacherLimits?: TeacherLimits;
 }
 
 /** Freiraster: je Slot frei (mit Raum), tauschbar oder belegt mit Gründen. */
@@ -263,6 +285,7 @@ export interface Placement {
   rooms: { id: string; kind: string; active: boolean }[];
   blocked: (weekday: number, periodNr: number) => string[];
   dayLimits: DayLimits;
+  teacherLimits: TeacherLimits;
 }
 
 /** Gesperrte Zeiten aller Beteiligten (Lehrkräfte, Gruppen, Räume, Fach) als Slot-Prüfung. */
@@ -295,7 +318,7 @@ export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssig
   }
   for (const r of rows) target("room", r.roomId, `Raum ${r.roomId}`);
   const blocked = await prefBlocker(db, [...targets.values()]);
-  return { rows, validity, lessons: await gridLessons(db, validity.validFrom, validity.validUntil), rooms: roomList, blocked, dayLimits: await loadDayLimits(db) };
+  return { rows, validity, lessons: await gridLessons(db, validity.validFrom, validity.validUntil), rooms: roomList, blocked, dayLimits: await loadDayLimits(db), teacherLimits: await loadTeacherLimits(db) };
 }
 
 const slotName = (weekday: number, periodNr: number) => `${["Mo", "Di", "Mi", "Do", "Fr"][weekday]} ${periodNr}. Stunde`;
@@ -323,6 +346,7 @@ export interface MoveUnit {
   rooms: { id: string; kind: string; active: boolean }[];
   blocked: (weekday: number, periodNr: number) => string[];
   dayLimits?: DayLimits;
+  teacherLimits?: TeacherLimits;
 }
 
 /** Die Stunde (bzw. ihre Kopplung) und alle Stunden, die sich mit ihrer Gültigkeit überschneiden. */
@@ -340,7 +364,7 @@ export async function movePlacement(db: Db, lessonId: string): Promise<MoveUnit 
     ...unit.map((u) => ({ kind: "room" as const, id: u.roomId, label: `Raum ${u.roomId}` })),
     ...unit.map((u) => ({ kind: "subject" as const, id: u.subjectId, label: u.subjectName })),
   ]);
-  return { lessons, unit, rooms: roomList, blocked, dayLimits: await loadDayLimits(db) };
+  return { lessons, unit, rooms: roomList, blocked, dayLimits: await loadDayLimits(db), teacherLimits: await loadTeacherLimits(db) };
 }
 
 export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number[], periods: number[]): GridInput {
@@ -356,6 +380,7 @@ export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number
     periods,
     blocked: m.blocked,
     dayLimits: m.dayLimits,
+    teacherLimits: m.teacherLimits,
   };
 }
 

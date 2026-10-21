@@ -18,7 +18,7 @@ import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenst
 import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
 import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
 import { deleteSubstitution, publishDay, saveSubstitution, type SubstitutionInput } from "./vertretung";
-import { addReduction, deleteReduction, setObligation } from "./deputate";
+import { addReduction, deleteReduction, saveTeacherRule, setObligation } from "./deputate";
 import { applyGradeRuleDefaults, classGrades, saveGradeRules } from "./jahrgangsregeln";
 import {
   assignmentsFromTimetable,
@@ -333,6 +333,25 @@ export async function saveObligationAction(teacherId: string, _prev: FormState, 
   return { ok: true };
 }
 
+/** SP2-04: Tagesregel der Lehrkraft (höchstens Stunden am Tag / Anwesenheitstage); leer = keine Grenze. */
+export async function saveTeacherDayRuleAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const year = await planningYear(db);
+  const int = (k: string) => {
+    const raw = String(form.get(k) ?? "").trim();
+    return raw ? Number(raw) : null;
+  };
+  try {
+    await saveTeacherRule(db, user.id, year?.id ?? "", teacherId, { maxPerDay: int("maxPerDay"), maxDays: int("maxDays") });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/unterricht");
+  return { ok: true };
+}
+
 export async function addReductionAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
@@ -609,7 +628,7 @@ export async function startSolverAction(_prev: FormState, form: FormData): Promi
   const str = (k: string) => String(form.get(k) ?? "").trim();
   const num = (k: string) => (str(k) === "" ? undefined : Number(str(k)));
   const preset = str("preset") || "ausgewogen";
-  const weightKeys = ["pref", "teacherGap", "classGap", "subjectTwice", "roomWish", "noRoom", "late", "lateFrom"] as const;
+  const weightKeys = ["pref", "teacherGap", "classGap", "subjectTwice", "roomWish", "noRoom", "late", "lateFrom", "teacherDays", "subjectSpread"] as const;
   const weights = preset === "eigene" ? Object.fromEntries(weightKeys.map((k) => [k, num(`w_${k}`)]).filter(([, v]) => v !== undefined)) : undefined;
   const today = toBerlinDate(new Date());
   let id: string;
