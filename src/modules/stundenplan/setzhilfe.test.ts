@@ -110,6 +110,11 @@ describe("placementCell", () => {
     // AAA hat in der 1. Stunde schon 7a → Tausch geht nicht
     const busy = lesson("busy", { groupId: "7a", teacherId: "t1", roomId: "101" });
     expect(placementCell({ ...base, lessons: [own, other, busy] }, 0, 2)).toEqual({ state: "blocked", reasons: ["7b hat Mathematik", "Tausch: AAA unterrichtet 7a"] });
+    // SP2-05: Sperrzeit des Partners am bisherigen Slot (AAA ist Mo 1. gesperrt) → Tausch geht nicht
+    const blockedFor = (ls: { teacherCode: string | null }[], weekday: number, periodNr: number) => (weekday === 0 && periodNr === 1 && ls.some((l) => l.teacherCode === "AAA") ? ["AAA: Zeit gesperrt"] : []);
+    expect(placementCell({ ...base, blockedFor }, 0, 2)).toEqual({ state: "blocked", reasons: ["7b hat Mathematik", "Tausch: AAA: Zeit gesperrt"] });
+    // die eigene Stunde am Ziel-Slot prüft weiter `blocked`
+    expect(placementCell({ ...base, blockedFor: () => [] }, 0, 2)).toEqual({ state: "swap", partnerIds: ["oth"], label: "Mathematik (AAA)" });
   });
 });
 

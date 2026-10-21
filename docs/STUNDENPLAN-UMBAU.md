@@ -505,7 +505,7 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 | **SP2-02** ✅ | Bänder im Solver, in Setzhilfe und Übernahme: Einheit = Band mit `parts[]` (eigene Lehrkraft/Fach/Raum je Teil), `chooseRoom` je Teil, eine `coupling_id` je Band-Stunde, Setzhilfe setzt/verschiebt das Band als Einheit; Kursband zählt für Klassen-Hohlstunden | L | **ja** | SP2-01 | SP-G-01 |
 | **SP2-03** ✅ | Tagesgrenzen und Ganztag je Jahrgangsstufe: `maxPerDay`, `afternoonsPerWeek`, `lunchAfterPeriod` (Mittagspause Pflicht bei Unterricht danach), Vorgaben aus dem Schulform-Katalog; hart im Solver, Diagnose-Kategorie | M | **ja** | GATE SP | SP-G-04b |
 | **SP2-04** ✅ | Lehrkraft-Tagesregeln und Fachverteilung: optional `maxPerDay`/`maxDays` je Lehrkraft (Deputats-Seite), weiche Kosten Anwesenheitstage; Kosten `subjectSpread` (nicht an Folgetagen geballt), Gewichte in den Voreinstellungen | S–M | **ja** | SP2-03 | SP-G-05, SP-G-06 |
-| **SP2-05** | Hohlstunden Oberstufe/Kursband im Solver (Jahrgang ohne Klasse) + Diagnose-Kategorie Zeitwünsche (gesperrt belegt = Fehler, −3/−2 = Warnung; Tausch in der Setzhilfe prüft Sperren) | S–M | **ja** | SP2-02 | SP-G-11, SP-G-12 |
+| **SP2-05** ✅ | Hohlstunden Oberstufe/Kursband im Solver (Jahrgang ohne Klasse) + Diagnose-Kategorie Zeitwünsche (gesperrt belegt = Fehler, −3/−2 = Warnung; Tausch in der Setzhilfe prüft Sperren) | S–M | **ja** | SP2-02 | SP-G-11, SP-G-12 |
 | **SP2-06** | CSV-Import der Unterrichtsverteilung (Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch]) mit Vorschau, Zuordnung über Kürzel, Fehlerliste und Trockenlauf; nur Lehraufträge, kein Plan | S | – | GATE SP | Q-SP-14 |
 | **SP2-07** | Vertretung Stufe 2: Verlegung (Stunde auf einen Entfall-Slot vorziehen/tauschen), Zusammenlegung/Mitbetreuung (Gruppe geht zu Gruppe Y), Bereitschaft (Reserve je Slot, oben in den Vorschlägen); Anzeige/Gong/Monitor/Druck mitziehen | M | – | GATE SP | SP-G-08, Q-SP-15 |
 | **SP2-08** | Dauervertretung für den Zeitraum einer Abwesenheit (erzeugt Vertretungen für alle Tage) + Vertretungsbedarf im Wochenblick (nächste 5 Schultage) | S–M | – | SP2-07 | SP-G-09, SP-G-10 |
@@ -602,12 +602,31 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
   Befund: die synthetische Schule ist voll ausgelastet (~22–24 Std. je Lehrkraft) – „höchstens 4 Tage“ für alle Lehrkräfte bis 22 Std. ließ 27–32 Einheiten liegen;
   ein Konstruktions-Aufschlag für neue Anwesenheitstage machte es schlechter (38) und ist verworfen.
 
-**Übergabe für SP2-05:**
-- **SP2-05 (Hohlstunden Oberstufe/Kursband, Diagnose Zeitwünsche):** `classHoles()` zählt heute nur `classIds`; für Jahrgänge ohne Klasse
-  (Kurse) die Stunden je Jahrgang zusammenfassen (Kurse derselben Stufe = ein Band-Tag, wie `diagnose()` es für Klassen mit `bandByGrade`
-  tut) – Eingabe braucht `gradeOf: Map<groupId, grade>` in `SolverInput` (aus `groups.gradeLevel`). Diagnose Zeitwünsche: `allPrefs()` +
-  Plan am Stichtag → „gesperrt belegt“ = Fehler, −3/−2 = Warnung; Tausch in `placementCell()` prüft `blocked` schon für den Zielslot des
-  eigenen Teils, für den Partner-Slot (`back`) noch nicht – dort `input.blocked` auch für den Partner aufrufen.
+**Umgesetzt (SP2-05, ohne Migration, 2026-10-21) – Hohlstunden Oberstufe/Kursband, Diagnose Zeitwünsche:**
+- **Solver** (`solver.ts`): Jahrgänge, die nur aus Kursen bestehen (`gradeOf` ohne Klasse – Oberstufe), bekommen einen eigenen Kostenschlüssel
+  `@${grade}|${wd}`: Lücken zwischen den Kurs-Stunden des Jahrgangs am Tag (Vereinigung über alle Kurse, `gradeDay`) kosten wie Klassen-Hohlstunden
+  (`classGap`). `touchedDays()` nimmt den Jahrgangs-Tag mit (lokale Suche), `total()` weist den Posten als „Jahrgang 12 Mo: 1 Hohlstunde“ aus,
+  `gapStats()` zählt den Jahrgang wie eine Klasse. Hat der Jahrgang Klassen, zählen wie bisher die Klassen (SP2-02). Ohne `gradeOf` bzw. ohne
+  Kurs-Jahrgänge ändert sich nichts – der Groß-Benchmark liefert dieselbe Lösung (LASTTEST.md). Die Vereinigung ist die untere Schranke je
+  Schüler:in; Hohlstunden einzelner Schüler:innen kennt erst die Blockung aus Kurswahlen (SP-G-24).
+- **Tagesgrenzen für Kurs-Jahrgänge (Q-SP2-10, Vorschlag):** greifen **nicht** – die Vereinigung aller Kurse eines Oberstufen-Jahrgangs ist kein
+  Schülertag (höchstens 8 Stunden über alle Kurse würde zu viel sperren, die Mittagsstunde ebenso); die Pflege listet ohnehin nur Jahrgänge mit
+  Klassen, die Katalog-Vorgaben haben für die Oberstufe keine Werte (Q-SP2-9).
+- **Diagnose:** neue Kategorie **„Zeitwünsche“** (`prefs`): Stunden am Stichtag gegen `allPrefs()` – Lehrkraft (Ziel Lehrkraft), Gruppe, Raum und
+  Fach (Ziel Gruppe); gesperrt belegt = Fehler, −3/−2 = Warnung, −1 nichts; je Wunsch-Ziel und Schwere ein Hinweis mit Slots und Stunden, gekoppelte
+  Stunden und A/B-Wochen einmal je Slot. Auch in den Plan-Hinweisen der Gruppe.
+- **Setzhilfe:** `GridInput.blockedFor`/`MoveUnit.blockedFor` (Wunsch-Ziele beliebiger Stunden, `lessonPrefTargets()`); beim Tausch werden die
+  Sperrzeiten der Partner-Stunden am bisherigen Slot geprüft („Tausch: AAA: Zeit gesperrt“).
+- **Benchmark:** neue Variante „Oberstufe mit Jahrgang“ (Schienen als Bänder, Kurse mit Jahrgang 11–13): Jahrgangs-Hohlstunden 6 → 4, 0 nicht
+  gesetzt. Variante „Lehrkraft-Tagesregeln“ läuft jetzt auf der Schule mit Schienen als Bändern (ohne Bänder lagen schon ohne Regeln 9–12 Kurse
+  wegen Konfliktmengen offen, das Ergebnis schwankte je nach Gewicht zwischen 12 und 19 um die 1-%-Grenze) und ist dabei **strenger**: 17 statt 3
+  Lehrkräfte mit höchstens 4 Tagen – 1 nicht gesetzt (Grenze 12).
+
+**Übergabe für den Rest des Blocks (nach SP2-05):**
+- **SP2-09 (Lehrauftrag mit Gültigkeit):** `unitsFrom()`/`solverInputFromDb()` filtern Lehraufträge am Stichtag; `gradeOf` bleibt aus
+  `groups.gradeLevel` – Kurs-Jahrgänge (Oberstufe) zählen ohne weitere Eingabe.
+- **SP2-11 (E2E „Gesamtschule“):** Diagnose-Kategorie „Zeitwünsche“ per `?ansicht=diagnose&kategorie=prefs` erreichbar; Demo-Plan hält die
+  Demo-Sperren ein (keine Fehler in der Kategorie).
 - Offen/Vorschlag: Q-SP2-7 (fixierte Stunden im Band: `max` je Mitglied) und Q-SP2-8 (Band-Mitglied allein nachsetzen: die Setzhilfe
   setzt immer das ganze Band; ein Mitglied mit mehr fixierten/eigenen Stunden lässt sich nur über die Stundenpflege einzeln ergänzen).
 

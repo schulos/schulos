@@ -130,6 +130,8 @@ export interface GridInput {
   periods: number[];
   /** gesperrte Zeiten aus den Zeitwünschen (P2b-21): Gründe je Slot */
   blocked?: (weekday: number, periodNr: number) => string[];
+  /** SP2-05: gesperrte Zeiten beliebiger Stunden – beim Tausch für die Stunden des Partners am bisherigen Slot */
+  blockedFor?: (lessons: GridLesson[], weekday: number, periodNr: number) => string[];
   /** SP2-03: Tagesgrenzen und Ganztag je Klasse (Kurse des Jahrgangs zählen mit) */
   dayLimits?: DayLimits;
   /** SP2-04: Tagesregeln je Lehrkraft (höchstens Stunden am Tag, höchstens Anwesenheitstage) */
@@ -200,7 +202,10 @@ export function placementCell(input: GridInput, weekday: number, periodNr: numbe
       const both = new Set([...input.unitIds, ...partner.map((l) => l.id)]);
       const there = blockersAt(rows, weekday, periodNr, lessons, both, true);
       const back = blockersAt(partner, current.weekday, current.periodNr, lessons, both, true);
-      const swapLimits = [...limitReasons(input, rows, both, weekday, periodNr), ...limitReasons(input, partner, both, current.weekday, current.periodNr).map((r) => `Tausch: ${r}`)];
+      const swapLimits = [
+        ...limitReasons(input, rows, both, weekday, periodNr),
+        ...[...limitReasons(input, partner, both, current.weekday, current.periodNr), ...(input.blockedFor?.(partner, current.weekday, current.periodNr) ?? [])].map((r) => `Tausch: ${r}`),
+      ];
       if (!there.length && !back.length && !swapLimits.length) {
         const first = partner[0]!;
         return { state: "swap", partnerIds: partner.map((l) => l.id), label: `${first.subjectName}${first.teacherCode ? ` (${first.teacherCode})` : ""}` };
@@ -294,6 +299,16 @@ async function prefBlocker(db: Db, targets: { kind: "teacher" | "group" | "room"
   return (weekday: number, periodNr: number) => blockedReasons(prefs, targets, weekday, periodNr);
 }
 
+/** Wunsch-Ziele von Stunden: Lehrkraft, Gruppe, Raum, Fach je Stunde. */
+export function lessonPrefTargets(ls: GridLesson[]): { kind: "teacher" | "group" | "room" | "subject"; id: string | null; label: string }[] {
+  return [
+    ...ls.map((u) => ({ kind: "teacher" as const, id: u.teacherId, label: u.teacherCode ?? "Lehrkraft" })),
+    ...ls.map((u) => ({ kind: "group" as const, id: u.groupId, label: u.groupName })),
+    ...ls.map((u) => ({ kind: "room" as const, id: u.roomId, label: `Raum ${u.roomId}` })),
+    ...ls.map((u) => ({ kind: "subject" as const, id: u.subjectId, label: u.subjectName })),
+  ];
+}
+
 /** Alles, was das Freiraster zum Setzen eines Lehrauftrags braucht – im Band (SP2-02) für alle Mitglieder, mit Raumvorschlag je Teil. */
 export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssignment, "band">, todayYmd: string, from?: string): Promise<Placement> {
   const members = a.band?.members.length ? a.band.members : [a];
@@ -345,6 +360,8 @@ export interface MoveUnit {
   unit: GridLesson[];
   rooms: { id: string; kind: string; active: boolean }[];
   blocked: (weekday: number, periodNr: number) => string[];
+  /** SP2-05: gesperrte Zeiten anderer Stunden (Tausch-Partner) */
+  blockedFor?: (lessons: GridLesson[], weekday: number, periodNr: number) => string[];
   dayLimits?: DayLimits;
   teacherLimits?: TeacherLimits;
 }
@@ -358,13 +375,11 @@ export async function movePlacement(db: Db, lessonId: string): Promise<MoveUnit 
     db.select({ id: rooms.id, kind: rooms.kind, active: rooms.active }).from(rooms).orderBy(rooms.id),
   ]);
   const unit = lessons.filter((x) => (l.couplingId ? x.couplingId === l.couplingId : x.id === l.id));
-  const blocked = await prefBlocker(db, [
-    ...unit.map((u) => ({ kind: "teacher" as const, id: u.teacherId, label: u.teacherCode ?? "Lehrkraft" })),
-    ...unit.map((u) => ({ kind: "group" as const, id: u.groupId, label: u.groupName })),
-    ...unit.map((u) => ({ kind: "room" as const, id: u.roomId, label: `Raum ${u.roomId}` })),
-    ...unit.map((u) => ({ kind: "subject" as const, id: u.subjectId, label: u.subjectName })),
-  ]);
-  return { lessons, unit, rooms: roomList, blocked, dayLimits: await loadDayLimits(db), teacherLimits: await loadTeacherLimits(db) };
+  const prefs = await allPrefs(db);
+  const targets = lessonPrefTargets(unit);
+  const blocked = (weekday: number, periodNr: number) => blockedReasons(prefs, targets, weekday, periodNr);
+  const blockedFor = (ls: GridLesson[], weekday: number, periodNr: number) => unique(blockedReasons(prefs, lessonPrefTargets(ls), weekday, periodNr));
+  return { lessons, unit, rooms: roomList, blocked, blockedFor, dayLimits: await loadDayLimits(db), teacherLimits: await loadTeacherLimits(db) };
 }
 
 export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number[], periods: number[]): GridInput {
@@ -379,6 +394,7 @@ export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number
     weekdays,
     periods,
     blocked: m.blocked,
+    blockedFor: m.blockedFor,
     dayLimits: m.dayLimits,
     teacherLimits: m.teacherLimits,
   };
