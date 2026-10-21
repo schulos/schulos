@@ -13,6 +13,7 @@
     { "kind": "neu", "text": "Unterrichtsverteilung als CSV-Datei einlesen (UTF-8 oder Windows-1252) – mit Vorschau, übernommen wird nur eine fehlerfreie Datei" },
     { "kind": "verbessert", "text": "Solver: weniger Hohlstunden in der Oberstufe, Fächer gleichmäßiger über die Woche (wählbar), Diagnose meldet belegte gesperrte Zeiten" },
     { "kind": "verbessert", "text": "Übernahme eines Solver-Laufs zurücknehmen stellt entfallene Vertretungen wieder her; Fachtausch wird nur noch vorgeschlagen, wenn keine Lehrkraft mit demselben Fach frei ist" },
+    { "kind": "behoben", "text": "Offline-Notenbuch: Wurde die Seite direkt nach einer Offline-Eingabe verlassen, konnte die Note auf langsamen Geräten verloren gehen. Sie gilt jetzt erst als ausstehend, wenn sie sicher gespeichert ist, und der Browser fragt beim Verlassen nach, solange noch gespeichert wird" },
     { "kind": "sicherheit", "text": "Datenschutz: Die nächtliche Kontolöschung räumt jetzt genauso gründlich auf wie die Löschung von Hand (Zeitwünsche, Protokoll, Lehrkraft-Kürzel in Solver-Läufen)" }
   ]
 }
