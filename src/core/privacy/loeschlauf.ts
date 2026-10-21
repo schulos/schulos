@@ -19,6 +19,7 @@ import "@/core/school/logo";
 import { planAccountDeletion, recordTables } from "./konto";
 import { pseudonymizeAudit } from "./protokoll";
 import { readPeriods } from "./fristen";
+import { scrubSolverRuns } from "@/modules/stundenplan/solverlauf-konto";
 
 /** Spalten, über die eine Zeile einer Person gehört bzw. einer Gruppe – für Löschsperren. */
 const PERSON_COLUMNS = [
@@ -59,6 +60,8 @@ export interface PlanItem {
   clear?: string[];
   /** nur intern: Bedingung für Zählen und Löschen */
   where?: SQL;
+  /** nur intern (Konten): die zu löschenden Konten – für Bereinigungen ohne Fremdschlüssel (SP-14) */
+  userIds?: string[];
 }
 
 type ColumnTypes = Map<string, Map<string, string>>;
@@ -153,6 +156,7 @@ export async function planDeletion(db: Db, todayYmd: string, entries: readonly R
         scope: "Konten nach Abgang",
         status: "due",
         count: ids.length,
+        userIds: ids,
         where: ids.length ? sql`id in (${sql.join(
           ids.map((u) => sql`${u}`),
           sql`, `,
@@ -293,7 +297,11 @@ export async function runDeletion(
         items.push({ table: p.table, scope: p.scope, deleted: rowsOf<unknown>(cleared).length });
         continue;
       }
-      const res = await db.transaction(async (tx) => tx.execute(sql`delete from ${id(p.table)} where ${p.where!} returning 1`));
+      const res = await db.transaction(async (tx) => {
+        // SP-14: Lehrkraft-Kennungen in Solver-Läufen (JSON ohne Fremdschlüssel) vor dem Löschen der Konten ersetzen
+        if (p.userIds?.length) await scrubSolverRuns(tx, p.userIds);
+        return tx.execute(sql`delete from ${id(p.table)} where ${p.where!} returning 1`);
+      });
       items.push({ table: p.table, scope: p.scope, deleted: rowsOf<unknown>(res).length });
     } catch (err) {
       items.push({ table: p.table, scope: p.scope, deleted: 0, error: err instanceof Error ? err.message.slice(0, 200) : String(err) });
