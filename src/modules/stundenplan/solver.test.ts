@@ -360,6 +360,28 @@ describe("solve", () => {
     expect(free.gaps.classTotal).toBe(0);
   });
 
+  it("SP2-05 (SP-G-11): Jahrgang ohne Klasse – Lücken zwischen den Kurs-Stunden des Jahrgangs zählen als Hohlstunden; mit Klasse oder ohne gradeOf nicht", () => {
+    // Q1-Kurse: LK fix Mo 1 und Mo 3, ein GK frei → schließt die Lücke Mo 2 nur mit gradeOf (Jahrgang ohne Klasse)
+    const gk = unit({ groupIds: ["q1-gk"], teacherIds: ["X"], subjectId: "GE" });
+    const fixed = [
+      { groupId: "q1-lk", teacherId: "A", roomId: "101", subjectId: "D", weekday: 0, periodNr: 1 },
+      { groupId: "q1-lk2", teacherId: "B", roomId: "102", subjectId: "M", weekday: 0, periodNr: 3 },
+    ];
+    const opts = { fixed, weekdays: [0], periods: [1, 2, 3, 4] };
+    const graded = solve(base([gk], { ...opts, gradeOf: new Map([["q1-lk", 12], ["q1-lk2", 12], ["q1-gk", 12]]) }));
+    expect(graded.placements[0]).toMatchObject({ weekday: 0, periodNr: 2 });
+    expect(graded.gaps.classTotal).toBe(0);
+    // mit dem GK in der 4. Stunde hätte der Jahrgang eine Hohlstunde – der Posten heißt „Jahrgang 12“
+    const late = new Map<string, number | null>([["0-1", null], ["0-2", null], ["0-3", null]]);
+    const forced = solve(base([gk], { ...opts, prefs: new Map([["group:q1-gk", late]]), gradeOf: new Map([["q1-lk", 12], ["q1-lk2", 12], ["q1-gk", 12]]) }));
+    expect(forced.gaps).toMatchObject({ classTotal: 1, classMax: 1 });
+    expect(forced.breakdown.classGap).toBe(10);
+    expect(forced.items.filter((i) => i.category === "classGap").map((i) => i.text)).toEqual(["Jahrgang 12 Mo: 1 Hohlstunde"]);
+    // ohne gradeOf bzw. wenn der Jahrgang Klassen hat (dann zählt die Klasse): keine Jahrgangs-Hohlstunden
+    expect(solve(base([gk], { ...opts, prefs: new Map([["group:q1-gk", late]]) })).breakdown.classGap).toBe(0);
+    expect(solve(base([gk], { ...opts, prefs: new Map([["group:q1-gk", late]]), gradeOf: new Map([["q1-lk", 12], ["q1-lk2", 12], ["q1-gk", 12], ["7a", 12]]) })).breakdown.classGap).toBe(0);
+  });
+
   it("Teile (Q-SP-13): Einheit mit einem Teil je Lehrauftrag; unitParts ergänzt alte Einheiten ohne Teile", () => {
     const u = unit({ groupIds: ["7a", "7b"], teacherIds: ["RIC", "NEU"], subjectId: "REL", roomKind: "mu" });
     expect(u.parts).toEqual([{ assignmentId: u.assignmentId, groupIds: ["7a", "7b"], teacherIds: ["RIC", "NEU"], subjectId: "REL", roomId: null, roomKind: "mu", homeRoomId: null, size: 25 }]);

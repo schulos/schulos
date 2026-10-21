@@ -191,6 +191,17 @@ Regeln eingehalten, Bewertung 3 283 (davon „Fach an Folgetagen“ 618), Konstr
 Datei. Die synthetische Schule ist voll ausgelastet (~22–24 Std. je Lehrkraft): „höchstens 4 Tage“ für alle 24 ließ 27–32 Einheiten liegen – das ist der
 erwartbare Fall „Regel enger als der Auftrag“ (Vorprüfung und Diagnose warnen bei Lehraufträgen über der Wochenkapazität).
 
+**Nachmessung SP2-05 (2026-10-21, Hohlstunden je Oberstufen-Jahrgang):** ohne Kurs-Jahrgänge (`gradeOf`) ändert sich nichts – vor und nach der Änderung
+**dieselbe Lösung** (9 nicht gesetzt, Bewertung 2 163, 82 Verbesserungen, Hohlstunden 169/13; gesamt 0,71 s; „geteilter Sport“ 10 nicht gesetzt, 0,70 s;
+Bänder 0 nicht gesetzt, Bewertung 2 091, 0,69 s; „Tagesgrenzen“ 9 nicht gesetzt, Bewertung 2 156, 0,70 s). Neue Variante **„Oberstufe mit Jahrgang“** (Schienen
+als Bänder, alle 120 Kurse mit Jahrgang 11–13, kein Jahrgang mit Klassen): Hohlstunden der Jahrgänge (Lücken zwischen den Kurs-Stunden je Jahrgang und Tag)
+**6 → 4**, 0 nicht gesetzt, Bewertung 1 985 (Hohlstunden Klassen + Jahrgänge 12), gesamt 0,69 s. Variante **„Lehrkraft-Tagesregeln“** umgestellt: auf der
+Schule ohne Bänder lagen schon ohne Regeln 9–12 Oberstufenkurse wegen dichter Konfliktmengen offen; je nach Gewicht „Fach an Folgetagen“ (0/3/4/6/8/10) schwankte
+das Ergebnis zwischen 12 und 19 – genau um die 1-%-Grenze (14), gemessen wurde vor allem das Rauschen der Konfliktmengen. Jetzt auf der Schule mit Schienen als
+Bänder (ohne Regeln 0–1 nicht gesetzt) und **strenger**: die 24 Lehrkräfte bis 22 Std. höchstens 6 am Tag, die **17** bis 21 Std. zusätzlich höchstens 4 Tage
+(vorher 3): **1 nicht gesetzt** (Grenze 12), Regeln eingehalten, Bewertung 3 397 (davon „Fach an Folgetagen“ 816), gesamt 0,75 s (Erkundung: mit der alten Regelmenge – 2 Lehrkräfte mit 4 Tagen – und Gewicht 0/4/6/8 je 0 nicht gesetzt). Grenzwert
+unverändert ≤ 1 %, der Test prüft zusätzlich, dass mindestens 20 bzw. 10 Lehrkräfte eine Regel haben.
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:

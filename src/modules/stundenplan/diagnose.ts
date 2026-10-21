@@ -1,6 +1,6 @@
 // Diagnose (P2b-13): prüft Plan und Unterrichtsverteilung auf offene Stunden, Hohlstunden, Fach mehrfach am Tag,
 // Stundentafel, ungeeignete Räume, Deputat über/unter Soll, Bänder (SP2-02: zur selben Zeit, gemeinsame Schüler:innen) und
-// Tagesgrenzen/Ganztag je Jahrgang (SP2-03) und Tagesregeln je Lehrkraft (SP2-04).
+// Tagesgrenzen/Ganztag je Jahrgang (SP2-03), Tagesregeln je Lehrkraft (SP2-04) und Zeitwünsche (SP2-05: gesperrt belegt, −3/−2).
 // Reine Prüflogik + Loader.
 import { and, count, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
@@ -17,8 +17,9 @@ import { distribution, planningYear, PLANNED_GROUP_KINDS, type Distribution } fr
 import { loadDayLimits } from "./jahrgangsregeln";
 import { classWeek, dayProblems, isAfternoon, problemText, ruleSummary, weeklyCapacity, type DayLimits } from "./tagesgrenzen";
 import { presenceDays, teacherDayProblems, teacherProblemText, teacherRuleSummary, teacherWeek, teacherWeeklyCapacity } from "./lehrkraftregeln";
+import { allPrefs, prefKey, prefLabel, type PrefGrid } from "./zeitwuensche";
 
-export const DIAGNOSIS_CATEGORIES = ["open", "gaps", "subjectDay", "curriculum", "room", "deputy", "band", "day", "teacherDay"] as const;
+export const DIAGNOSIS_CATEGORIES = ["open", "gaps", "subjectDay", "curriculum", "room", "deputy", "band", "day", "teacherDay", "prefs"] as const;
 export type DiagnosisCategory = (typeof DIAGNOSIS_CATEGORIES)[number];
 
 export const DIAGNOSIS_LABELS: Record<DiagnosisCategory, string> = {
@@ -31,6 +32,7 @@ export const DIAGNOSIS_LABELS: Record<DiagnosisCategory, string> = {
   band: "Bänder",
   day: "Tagesgrenzen",
   teacherDay: "Tagesregeln Lehrkräfte",
+  prefs: "Zeitwünsche",
 };
 
 /** error = muss behoben werden · warn = sollte geprüft werden · info = zur Kenntnis */
@@ -75,6 +77,8 @@ export interface DiagnoseInput {
   conflicts?: Map<string, Set<string>>;
   /** SP2-03: Tagesgrenzen und Ganztag je Klasse */
   dayLimits?: DayLimits;
+  /** SP2-05: Zeitwünsche des Planungsjahres (`${kind}:${id}` → Raster, wie `allPrefs`) */
+  prefs?: Map<string, PrefGrid>;
 }
 
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
@@ -365,6 +369,50 @@ export function diagnose(input: DiagnoseInput): Finding[] {
       out.push({ category: "teacherDay", severity: "warn", target, message: `${hoursLabel(a.assigned)} Lehraufträge, die Tagesregel erlaubt höchstens ${cap} (${teacherRuleSummary(rule)})` });
   }
 
+  // ---------------------------------------------------------- Zeitwünsche (SP2-05): gesperrt belegt = Fehler, −3/−2 = Warnung
+  if (input.prefs?.size) {
+    const prefs = input.prefs;
+    // je Wunsch-Ziel (Lehrkraft, Gruppe, Raum, Fach) und Hinweis-Ziel: Slots einmal (Kopplungen, A/B-Wochen), mit dem, was dort liegt
+    const hits = new Map<string, { target: Finding["target"]; severity: Severity; what: string; slots: Map<string, { wd: number; nr: number; v: number | null; lessons: Set<string> }> }>();
+    const hit = (prefTarget: string, target: Finding["target"], what: string, l: DiagLesson, lessonText: string) => {
+      const grid = prefs.get(prefTarget);
+      if (!grid) return;
+      const key = prefKey(l.weekday, l.periodNr);
+      if (!grid.has(key)) return;
+      const v = grid.get(key)!;
+      if (v !== null && v > -2) return;
+      const severity: Severity = v === null ? "error" : "warn";
+      const k = `${prefTarget}|${target.kind}:${target.id}|${severity}`;
+      const e = hits.get(k) ?? { target, severity, what, slots: new Map() };
+      const slot = e.slots.get(key) ?? { wd: l.weekday, nr: l.periodNr, v, lessons: new Set<string>() };
+      slot.lessons.add(lessonText);
+      e.slots.set(key, slot);
+      hits.set(k, e);
+    };
+    const roomIds = new Set(input.rooms.map((r) => r.id));
+    for (const l of input.lessons) {
+      const group = groupOf.get(l.groupId);
+      if (!group) continue;
+      const t = l.teacherId ? teacherById.get(l.teacherId) : undefined;
+      const tCode = t ? teacherLabel(t) : null;
+      const inGroup = `${subjectName(l.subjectId)}${tCode ? ` (${tCode})` : ""}`;
+      if (l.teacherId) hit(`teacher:${l.teacherId}`, { kind: "teacher", id: l.teacherId, label: tCode ?? l.teacherId }, "Zeitwunsch der Lehrkraft", l, `${subjectName(l.subjectId)} ${group.name}`);
+      hit(`group:${l.groupId}`, groupTarget(l.groupId), "Zeitwunsch der Gruppe", l, inGroup);
+      if (l.roomId && roomIds.has(l.roomId)) hit(`room:${l.roomId}`, groupTarget(l.groupId), `Zeitwunsch Raum ${l.roomId}`, l, inGroup);
+      hit(`subject:${l.subjectId}`, groupTarget(l.groupId), `Zeitwunsch Fach ${subjectName(l.subjectId)}`, l, inGroup);
+    }
+    for (const e of hits.values()) {
+      const slots = [...e.slots.values()].sort((a, b) => a.wd - b.wd || a.nr - b.nr);
+      const list = slots.map((x) => `${WEEKDAYS[x.wd]} ${x.nr}.${e.severity === "warn" ? ` (${prefLabel(x.v)})` : ""}: ${[...x.lessons].sort().join(", ")}`).join(" · ");
+      out.push({
+        category: "prefs",
+        severity: e.severity,
+        target: e.target,
+        message: e.severity === "error" ? `${e.what}: gesperrte Zeit belegt – ${list}` : `${e.what}: ungünstige Zeit belegt – ${list}`,
+      });
+    }
+  }
+
   const rank: Record<Severity, number> = { error: 0, warn: 1, info: 2 };
   const catRank = new Map(DIAGNOSIS_CATEGORIES.map((c, i) => [c, i]));
   return out
@@ -389,7 +437,7 @@ export function countFindings(findings: Finding[]): DiagnosisReport["counts"] {
 export async function diagnoseYear(db: Db, year: { id: string; startsOn: string; endsOn: string }, todayYmd: string, fallbackObligation: number, pre?: Distribution): Promise<DiagnosisReport> {
   const d = pre ?? (await distribution(db, year, todayYmd));
   const ref = d.refYmd;
-  const [lessonRows, periodRows, subjectRows, roomRows, sizes, accounts, dayLimits] = await Promise.all([
+  const [lessonRows, periodRows, subjectRows, roomRows, sizes, accounts, dayLimits, prefs] = await Promise.all([
     db
       .select({
         id: timetableLessons.id,
@@ -410,6 +458,7 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
     db.select({ groupId: groupMembers.groupId, n: count() }).from(groupMembers).where(eq(groupMembers.role, "member")).groupBy(groupMembers.groupId),
     deputyAccounts(db, year.id, d.teachers, fallbackObligation),
     loadDayLimits(db),
+    allPrefs(db),
   ]);
   // Schüler:innen der Band-Gruppen (SP2-02): gemeinsame Mitglieder in zwei Mitgliedern eines Bands
   const assignmentOf = new Map(d.assignments.map((a) => [a.id, a]));
@@ -435,6 +484,7 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
     accounts,
     conflicts: conflictsFrom(students),
     dayLimits,
+    prefs,
   });
   return { refYmd: ref, findings, counts: countFindings(findings) };
 }
@@ -445,6 +495,6 @@ export async function groupPlanFindings(db: Db, groupId: string, todayYmd: strin
   if (!year) return [];
   const school = await readSchoolSettings(db);
   const { findings } = await diagnoseYear(db, year, todayYmd, defaultObligation(school.profile.form));
-  const plan = new Set<DiagnosisCategory>(["gaps", "subjectDay", "room", "day"]);
+  const plan = new Set<DiagnosisCategory>(["gaps", "subjectDay", "room", "day", "prefs"]);
   return findings.filter((f) => f.target.kind === "group" && f.target.id === groupId && plan.has(f.category));
 }

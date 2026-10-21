@@ -301,6 +301,11 @@ class State {
   private readonly gradeDay = new Map<string, number[]>();
   /** Klassen je Jahrgang (für die berührten Tage einer Kurs-Einheit) */
   private readonly classesByGrade = new Map<number, string[]>();
+  /**
+   * SP2-05 (SP-G-11): Jahrgänge nur aus Kursen (Oberstufe, keine Klasse) – ihre Kurs-Stunden je Tag zählen zusammen wie eine Klasse
+   * (Kostenschlüssel `@${grade}|${wd}`): Lücken im Kursband sind Hohlstunden des Jahrgangs.
+   */
+  private readonly courseOnlyGrades = new Set<number>();
   readonly unitById: Map<string, SolverUnit>;
   /** je Einheit: Fächer und Paare Gruppe × Fach über alle Teile (einmal berechnet – `feasible` ist die heiße Schleife) */
   private readonly meta = new Map<string, { subjects: string[]; gs: { g: string; s: string }[]; dayClasses: string[]; ruleTeachers: string[] }>();
@@ -320,6 +325,7 @@ class State {
     this.dayRules = input.dayRules ?? new Map();
     this.teacherRules = input.teacherRules ?? new Map();
     for (const [g, grade] of input.gradeOf ?? []) if (input.classIds.has(g)) this.classesByGrade.set(grade, [...(this.classesByGrade.get(grade) ?? []), g]);
+    for (const [g, grade] of input.gradeOf ?? []) if (!input.classIds.has(g) && !this.classesByGrade.has(grade)) this.courseOnlyGrades.add(grade);
     for (const u of input.units) this.meta.set(u.id, { subjects: unitSubjects(u), gs: unitGroupSubjects(u), dayClasses: this.dayClassesOf(u), ruleTeachers: u.teacherIds.filter((t) => this.teacherRules.has(t)) });
     this.periodSet = new Set(input.periods);
     this.noDoubleAfter = new Set(input.breakAfter ?? []);
@@ -760,8 +766,12 @@ class State {
     return extra * w;
   }
 
-  /** Hohlstunden einer Klasse an einem Tag; Kurs-Stunden des Jahrgangs (Kursband) zählen als belegt, wenn die Klasse an dem Tag Unterricht hat. */
+  /**
+   * Hohlstunden einer Klasse an einem Tag; Kurs-Stunden des Jahrgangs (Kursband) zählen als belegt, wenn die Klasse an dem Tag Unterricht hat.
+   * SP2-05: Schlüssel `@${grade}|${wd}` = Jahrgang ohne Klasse – Lücken zwischen den Kurs-Stunden des Jahrgangs.
+   */
   classHoles(key: string): number {
+    if (key.startsWith("@")) return holes(this.gradeDay.get(key.slice(1)) ?? [], this.input.periods).length;
     const [g, wd] = key.split("|");
     if (!this.input.classIds.has(g!)) return 0;
     const own = (this.groupDay.get(key) ?? []).map((x) => x.nr);
@@ -800,7 +810,9 @@ class State {
       for (const x of u.groupIds) {
         g.push(`${x}|${wd}`);
         const grade = this.courseGrade(x);
-        if (grade !== undefined) for (const c of this.classesByGrade.get(grade) ?? []) g.push(`${c}|${wd}`);
+        if (grade === undefined) continue;
+        for (const c of this.classesByGrade.get(grade) ?? []) g.push(`${c}|${wd}`);
+        if (this.courseOnlyGrades.has(grade)) g.push(`@${grade}|${wd}`);
       }
     }
     return { t, g };
@@ -849,6 +861,11 @@ class State {
       const [id, wd] = k.split("|");
       c += this.groupDayCost(k, items, labels?.("g", id!, Number(wd)));
     }
+    // SP2-05: Hohlstunden der Jahrgänge ohne Klasse (Oberstufe) über die Kurs-Stunden des Jahrgangs
+    for (const k of this.gradeDay.keys()) {
+      const [grade, wd] = k.split("|");
+      if (this.courseOnlyGrades.has(Number(grade))) c += this.groupDayCost(`@${k}`, items, labels?.("g", `Jahrgang ${grade}`, Number(wd)));
+    }
     // SP2-04: Anwesenheitstage – der Betrag steckt schon in teacherDayCost(), hier nur die Einzelposten je Lehrkraft und Woche
     if (items && this.w.teacherDays) {
       const perTeacher = new Map<string, number>();
@@ -882,6 +899,11 @@ class State {
       const id = k.split("|")[0]!;
       if (!this.input.classIds.has(id)) continue;
       perClass.set(id, (perClass.get(id) ?? 0) + this.classHoles(k));
+    }
+    // SP2-05: Jahrgänge ohne Klasse zählen wie eine Klasse
+    for (const k of this.gradeDay.keys()) {
+      const grade = k.split("|")[0]!;
+      if (this.courseOnlyGrades.has(Number(grade))) perClass.set(`@${grade}`, (perClass.get(`@${grade}`) ?? 0) + this.classHoles(`@${k}`));
     }
     const sum = (m: Map<string, number>) => [...m.values()].reduce((s, x) => s + x, 0);
     const max = (m: Map<string, number>) => Math.max(0, ...m.values());
