@@ -20,6 +20,8 @@ export interface FormState {
   credentials?: { username: string; password: string };
   /** Eingaben nach einem Fehler – React setzt Formulare nach einer Action zurück */
   values?: Record<string, string>;
+  /** Erfolgsmeldung mit Einzelheiten (statt des Standardtexts) */
+  message?: string;
 }
 
 function readUserInput(form: FormData): UserInput {

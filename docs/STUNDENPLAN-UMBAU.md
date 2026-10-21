@@ -686,6 +686,15 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
 - **Zähler:** Verlegung zählt weder als Vertretung noch als Entfall; Zusammenlegung zählt als „vertreten“ der Gruppe und „abgegeben“ der Lehrkraft.
 - Solver nicht betroffen. Tests: `vertretung-stufe2.test.ts`, E2E `vertretung-stufe2.spec.ts` (Planungs-Login, A11Y hell/dunkel/360 px).
 
+**Umgesetzt (SP2-08, ohne Migration, 2026-10-21) – Dauervertretung und Wochenblick (SP-G-09, SP-G-10):**
+- **Dauervertretung** (`dauervertretung.ts`, `savePermanentSubstitution`): Option im Vertretungsformular, sobald die Lehrkraft der Stunde eine Abwesenheit
+  über den Tag hinaus hat. Legt für jeden Tag der Abwesenheit ab dem gewählten, an dem die Stunde stattfindet (Ferien/Feiertage, A/B-Woche, Gültigkeit,
+  stundenweise Abwesenheit beachtet), eine gewöhnliche Vertretung über `saveSubstitution` an – mit allen Prüfungen (frei, nicht abwesend, Tagesregel,
+  Raum) und je Tag dem Gong. Schon geregelte Tage bleiben unverändert; Tage, an denen es nicht geht, nennt die Rückmeldung („nicht am 07.10. (…)“).
+  Kein eigener Datensatz: einzeln überschreiben/aufheben wie jede Vertretung (einfache Vorgabe, Q-SP2-16).
+- **Wochenblick** (`weekNeeds`): oben auf `/planung/vertretungen` die nächsten fünf Schultage mit „n offen“/„m geregelt“, Link auf den Tag.
+- Tests: `dauervertretung.test.ts`, E2E `vertretung-dauer.spec.ts` (Planungs-Login, A11Y, dunkel/360 px).
+
 **Übergabe für den Rest des Blocks (nach SP2-05):**
 - **SP2-09 (Lehrauftrag mit Gültigkeit):** `unitsFrom()`/`solverInputFromDb()` filtern Lehraufträge am Stichtag; `gradeOf` bleibt aus
   `groups.gradeLevel` – Kurs-Jahrgänge (Oberstufe) zählen ohne weitere Eingabe.

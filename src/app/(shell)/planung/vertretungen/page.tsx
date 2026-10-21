@@ -21,6 +21,7 @@ import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import Link from "next/link";
 import { suggestSubstitutes } from "@/modules/stundenplan/vorschlaege";
+import { weekNeeds } from "@/modules/stundenplan/dauervertretung";
 import { KIND_LABEL as EXAM_KIND } from "@/modules/klausurplan/service";
 import { materialsFor } from "@/modules/stundenplan/selbstmeldung";
 import { AbsenceForm } from "./absence-form";
@@ -40,7 +41,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   const today = toBerlinDate(new Date());
   const shown = planDays(today, cal);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.datum ?? "") ? sp.datum! : shown[0];
-  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts] = await Promise.all([
+  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week] = await Promise.all([
     teacherOptions(db),
     plannableGroups(db),
     timetableMasterData(db),
@@ -50,6 +51,8 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     openDrafts(db, today),
     substitutionsOn(db, shown, { drafts: true }),
     draftDays(db, shown),
+    // SP2-08 (SP-G-10): Vertretungsbedarf der nächsten fünf Schultage
+    weekNeeds(db, today),
   ]);
   const notified = /^\d+$/.test(sp.veroeffentlicht ?? "") ? Number(sp.veroeffentlicht) : null;
 
@@ -64,6 +67,11 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     examSubjectsOn(db, [...new Set(lessons.map((l) => l.groupId))], date),
     Promise.all(lessons.map((l) => mergeOptions(db, l.lessonId, date))),
   ]);
+  // SP2-08: mehrtägige Abwesenheit der Lehrkraft einer Stunde → Dauervertretung anbieten
+  const permanentFor = (teacherId: string | null) => {
+    const a = teacherId ? needs.absences.find((x) => x.teacherId === teacherId && x.endsOn > date) : undefined;
+    return a ? { absenceId: a.id, until: `${a.endsOn.slice(8)}.${a.endsOn.slice(5, 7)}.` } : undefined;
+  };
   const periodOptions = master.periods.map((p) => ({ nr: p.nr, label: `${p.nr}. Stunde (${p.startsAt.slice(0, 5)})` }));
   const subjectOptions = master.subjects.map((x) => ({ id: x.id, label: x.name }));
   const here = `/planung/vertretungen?datum=${date}${sp.lehrkraft ? `&lehrkraft=${sp.lehrkraft}` : ""}${sp.gruppe ? `&gruppe=${sp.gruppe}` : ""}`;
@@ -143,6 +151,26 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           </p>
         )
       )}
+      <section aria-labelledby="week-title" className="flex flex-col gap-2">
+        <h2 id="week-title" className="text-base font-semibold">
+          Vertretungsbedarf der nächsten Schultage
+        </h2>
+        <ul aria-label="Wochenblick" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {week.map((w) => (
+            <li key={w.date}>
+              <Link
+                href={`/planung/vertretungen?datum=${w.date}`}
+                aria-current={w.date === date ? "date" : undefined}
+                className="flex flex-col gap-1 rounded-xl border border-border bg-surface px-3 py-2 text-sm hover:border-border-strong aria-[current=date]:border-accent"
+              >
+                <span className="font-medium">{shortDay.format(fromBerlinLocal(w.date))}</span>
+                {w.open > 0 ? <Badge tone="warn">{w.open} offen</Badge> : <span className="text-muted">{w.absences === 0 ? "keine Abwesenheit" : "nichts offen"}</span>}
+                {w.settled > 0 && <span className="text-muted">{w.settled} geregelt</span>}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
       <Card aria-labelledby="absence-title" className="gap-3">
         <h2 id="absence-title" className="text-base font-semibold">
           Abwesenheit eintragen
@@ -373,6 +401,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                     periods={periodOptions}
                     ownPeriod={l.periodNr}
                     mergeOptions={merges[i]!}
+                    permanent={permanentFor(l.teacherId)}
                     regularSubjectId={regularSubjectId}
                     subjects={subjectOptions}
                     exams={(examsByGroup.get(l.groupId) ?? []).map((e) => ({ subjectId: e.subjectId, label: `${EXAM_KIND[e.kind]} in ${e.subjectName}` }))}

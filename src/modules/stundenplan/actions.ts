@@ -36,6 +36,7 @@ import {
 import { executeAssignmentImport, MAX_ASSIGNMENT_CSV_BYTES, planAssignmentImport, type ImportOutcome, type ImportPreview } from "./verteilung-import";
 import { decodeCsvBytes, type CsvEncoding } from "@/core/csv";
 import { addStandby, removeStandby } from "./bereitschaft";
+import { permanentMessage, savePermanentSubstitution } from "./dauervertretung";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
 
@@ -189,14 +190,19 @@ export async function saveSubstitutionAction(_prev: FormState, form: FormData): 
     swap: str("swap") === "1",
     mergeLessonId: str("mergeLessonId") || null,
   };
+  let message: string | undefined;
   try {
-    await saveSubstitution(await getDb(), user.id, input);
+    // SP2-08: Dauervertretung – dieselbe Vertretung an allen Tagen der Abwesenheit
+    if (input.kind === "substitute" && str("permanent")) {
+      const r = await savePermanentSubstitution(await getDb(), user.id, { ...input, from: input.date, absenceId: str("permanent"), substituteId: input.substituteId ?? "" });
+      message = permanentMessage(r);
+    } else await saveSubstitution(await getDb(), user.id, input);
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
   revalidatePath("/", "layout");
-  return { ok: true };
+  return { ok: true, message };
 }
 
 export async function deleteSubstitutionAction(id: string): Promise<void> {

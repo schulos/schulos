@@ -26,6 +26,7 @@ export function SubstitutionForm({
   periods,
   ownPeriod,
   mergeOptions,
+  permanent,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   removeAction?: () => Promise<void>;
@@ -46,6 +47,8 @@ export function SubstitutionForm({
   ownPeriod: number;
   /** SP2-07 Zusammenlegung: Stunden zur selben Zeit */
   mergeOptions: { lessonId: string; label: string }[];
+  /** SP2-08 Dauervertretung: mehrtägige Abwesenheit der Lehrkraft – „bis“ als Anzeige (TT.MM.) */
+  permanent?: { absenceId: string; until: string };
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const v = { ...initial, ...state.values };
@@ -122,6 +125,12 @@ export function SubstitutionForm({
           </Button>
         )}
       </div>
+      {kind === "substitute" && permanent && (
+        <label className="flex items-center gap-2 text-sm sm:col-span-full">
+          <input type="checkbox" name="permanent" value={permanent.absenceId} className="size-4 accent-[var(--accent)]" />
+          Dauervertretung: für alle Tage der Abwesenheit (bis {permanent.until}) – einzelne Tage lassen sich danach ändern
+        </label>
+      )}
       {kind === "move" && (
         <div className="flex flex-wrap items-end gap-3 sm:col-span-full">
           <Field label="Verlegen in" error={fe.targetPeriod}>
@@ -166,7 +175,7 @@ export function SubstitutionForm({
       )}
       {state.ok && (
         <p role="status" className="text-sm text-success sm:col-span-full">
-          Gespeichert – Betroffene sind benachrichtigt.
+          {state.message ?? "Gespeichert – Betroffene sind benachrichtigt."}
         </p>
       )}
     </form>
