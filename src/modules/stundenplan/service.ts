@@ -4,12 +4,14 @@ import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/core/db/client";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { groupMembers, groups, parentChild, periods, rooms, subjects, timetableLessons, timetableSubstitutions, users } from "@/core/db/schema";
+import { mergeHosts } from "./vertretung-ziel";
 import { hasPermission, type PermissionSet } from "@/core/permissions";
 import { isStaffRole } from "@/core/roles";
 import { addDays, isoWeek, weekdayMon0 } from "@/core/time";
 import { parentInformedSql } from "@/core/school/majority";
 import { de } from "@/core/db/sort";
 import { draftDaysBetween } from "./freigabe";
+import type { SubstitutionKind } from "./schema";
 
 import { PLAN_MANAGE, PLAN_SUBSTITUTE } from "./rechte";
 
@@ -20,7 +22,7 @@ export type PlanTarget =
   | { kind: "room"; id: string };
 
 export interface SlotChange {
-  kind: "cancel" | "substitute" | "room";
+  kind: SubstitutionKind;
   substituteId: string | null;
   substituteName: string | null;
   substituteCode: string | null;
@@ -37,6 +39,11 @@ export interface SlotChange {
   /** SP-12: abweichendes Fach der Vertretung (unabhängig von der Sicht), sonst null */
   subjectId?: string | null;
   subjectName?: string | null;
+  /** SP2-07 Verlegung: Stunde, in die die Stunde an diesem Tag rückt */
+  targetPeriod?: number | null;
+  /** SP2-07 Zusammenlegung: Gruppe, Lehrkraft (Kürzel) und Raum der Stunde, zu der die Gruppe geht */
+  mergeWith?: { groupName: string; teacherCode: string | null; roomId: string | null } | null;
+  mergeLessonId?: string | null;
 }
 
 export interface LessonSlot {
@@ -67,6 +74,14 @@ export interface LessonSlot {
    * „away“ = die Stunde findet für ihn/sie nicht statt (vertreten durch jemand anderen, in einen anderen Raum verlegt)
    */
   perspective?: "covering" | "away";
+  /**
+   * SP2-07 Verlegung: „from“ = bisherige Stunde (findet hier nicht statt), „to“ = neue Stunde (`periodNr`/Zeiten sind die neuen,
+   * `change.targetPeriod` ebenso, `movedFrom` die bisherige)
+   */
+  moved?: "from" | "to";
+  movedFrom?: number;
+  /** SP2-07: Gruppen, die an diesem Tag zu dieser Stunde zusammengelegt sind (Mitbetreuung) */
+  joined?: string[];
 }
 
 /** A-Woche = ungerade ISO-Kalenderwoche */
@@ -171,6 +186,30 @@ export async function listSlots(
         )
     : [];
   const subOf = new Map(subs.filter((x) => !hidden.has(x.s.date)).map((x) => [`${x.s.lessonId}:${x.s.date}`, x]));
+  // SP2-07: Zusammenlegung – wohin die Gruppe geht, und wer zu den eigenen Stunden dazukommt
+  const visibleSubs = subs.filter((x) => !hidden.has(x.s.date));
+  const hosts = await mergeHosts(
+    db,
+    visibleSubs.filter((x) => x.s.kind === "merge" && x.s.mergeLessonId).map((x) => ({ lessonId: x.s.mergeLessonId!, date: x.s.date })),
+  );
+  const joinedRows = all.length
+    ? await db
+        .select({ host: timetableSubstitutions.mergeLessonId, date: timetableSubstitutions.date, groupName: groups.name })
+        .from(timetableSubstitutions)
+        .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
+        .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
+        .where(
+          and(
+            inArray(timetableSubstitutions.mergeLessonId, all.map((r) => r.l.id)),
+            gte(timetableSubstitutions.date, fromYmd),
+            lte(timetableSubstitutions.date, lastDay),
+          ),
+        )
+    : [];
+  const joinedOf = new Map<string, string[]>();
+  for (const j of joinedRows) if (!hidden.has(j.date)) joinedOf.set(`${j.host}:${j.date}`, [...(joinedOf.get(`${j.host}:${j.date}`) ?? []), j.groupName]);
+  const periodRows = subs.some((x) => x.s.kind === "move") ? await db.select().from(periods) : [];
+  const periodOf = new Map(periodRows.map((p) => [p.nr, p]));
 
   const cal = await loadSchoolCalendar(db);
   const slots: LessonSlot[] = [];
@@ -192,6 +231,9 @@ export async function listSlots(
         perspective = "away";
       } else if (sub && teacherId && sub.s.substituteId === teacherId && sub.s.kind === "substitute") {
         perspective = "covering";
+      } else if (sub?.s.kind === "merge" && (teacherId || roomId)) {
+        // SP2-07: zusammengelegt – Lehrkraft und Raum der Stunde sind frei, die Gruppe ist bei der anderen Stunde
+        perspective = "away";
       }
       // SP-12: Vertretung mit anderem Fach – der Slot zeigt das tatsächliche Fach; wer die Stunde abgegeben hat, sieht weiter das eigene
       const alt = sub?.s.kind === "substitute" && sub.s.subjectId && sub.altName && perspective !== "away" ? { id: sub.s.subjectId, name: sub.altName, color: sub.altColor! } : null;
@@ -225,10 +267,27 @@ export async function listSlots(
               insteadOfId: alt ? r.l.subjectId : null,
               subjectId: sub.s.kind === "substitute" ? sub.s.subjectId : null,
               subjectName: sub.s.kind === "substitute" ? sub.altName : null,
+              targetPeriod: sub.s.kind === "move" ? sub.s.targetPeriod : null,
+              mergeWith: sub.s.kind === "merge" && sub.s.mergeLessonId ? (hosts.get(`${sub.s.mergeLessonId}:${d}`) ?? null) : null,
+              mergeLessonId: sub.s.mergeLessonId,
             }
           : undefined,
         perspective,
+        ...(joinedOf.has(`${r.l.id}:${d}`) ? { joined: joinedOf.get(`${r.l.id}:${d}`) } : {}),
       });
+      // SP2-07 Verlegung: die Stunde steht in der bisherigen Stunde als „verlegt“ und zusätzlich in der neuen
+      const target = sub?.s.kind === "move" ? sub.s.targetPeriod : null;
+      const p = target !== null ? periodOf.get(target) : undefined;
+      if (p) {
+        const fromIdx = slots.length - 1;
+        const from = slots[fromIdx]!;
+        // Raumplan: die neue Stunde nur im Raum, in dem sie stattfindet; die bisherige nur im eigenen Raum
+        if (!roomId || (sub!.s.roomId ?? r.l.roomId) === roomId)
+          slots.push({ ...from, periodNr: p.nr, startsAt: p.startsAt, endsAt: p.endsAt, perspective: undefined, moved: "to", movedFrom: r.l.periodNr, joined: undefined });
+        from.moved = "from";
+        from.perspective = "away";
+        if (!baseIds.has(r.l.id)) slots.splice(fromIdx, 1);
+      }
     }
   }
   return slots.sort((a, b) => a.date.localeCompare(b.date) || a.periodNr - b.periodNr || a.groupName.localeCompare(b.groupName, "de"));

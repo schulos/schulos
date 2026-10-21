@@ -3,11 +3,14 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
-import { bookingResources, bookings, exams, groupMembers, groups, rooms, subjects, timetableLessons, timetableSubstitutionDays, timetableSubstitutions, users } from "@/core/db/schema";
+import { bookingResources, bookings, exams, groupMembers, groups, periods, rooms, subjects, timetableLessons, timetableSubstitutionDays, timetableSubstitutions, users } from "@/core/db/schema";
 import { OPEN_CALENDAR, dayOffLabel, dayOffOn, type SchoolCalendar } from "@/core/school/calendar";
 import { addDays, weekdayMon0 } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { SUBSTITUTION_KINDS, type TimetableLesson } from "./schema";
+import { SUBSTITUTION_KINDS, type SubstitutionKind, type TimetableLesson, type TimetableSubstitution } from "./schema";
+import { groupPeriod, ownTeacherPeriod, roomUse, takesPlaceAsUsual } from "./belegung";
+import { dayRuleBlocks } from "./vertretung-regeln";
+import { mergeHosts, type MergeTarget } from "./vertretung-ziel";
 import { absencesBetween, absentGroups, absentTeachers } from "./abwesenheit";
 import { blockLabel, roomBlockAt } from "./raumsperren";
 import { lessonActiveOn } from "./service";
@@ -27,49 +30,52 @@ export interface SubstitutionInput {
   note: string | null;
   /** SP-12 (Fachtausch): abweichendes Fach, nur bei `substitute`; leer bzw. gleiches Fach wie die Stunde = reguläres Fach */
   subjectId?: string | null;
+  /** SP2-07 (Verlegung): Stunde desselben Tages, in die verlegt wird */
+  targetPeriod?: number | null;
+  /** SP2-07 (Verlegung): Unterricht der Gruppe aus der Zielstunde rückt in diese Stunde (Tausch) */
+  swap?: boolean;
+  /** SP2-07 (Zusammenlegung): Stunde zur selben Zeit, zu der die Gruppe geht */
+  mergeLessonId?: string | null;
 }
 
-/** Wer ist zu dieser Stunde wirklich beschäftigt? Eigene Stunden (sofern nicht entfallen/abgegeben) + übernommene Vertretungen. */
-async function busyTeachers(db: Db, date: string, weekday: number, periodNr: number, except: string[] = []): Promise<Set<string>> {
-  const own = await db.select().from(timetableLessons).where(and(eq(timetableLessons.weekday, weekday), eq(timetableLessons.periodNr, periodNr)));
-  const active = own.filter((l) => lessonActiveOn(l, date));
-  const subs = active.length
+/** Stunden des Wochentags, die an `date` gelten, mit ihrer Änderung an dem Tag (SP2-07: auch verlegte in andere Stunden). */
+async function dayLessons(db: Db, date: string, weekday: number): Promise<{ l: TimetableLesson; s: TimetableSubstitution | undefined }[]> {
+  const own = (await db.select().from(timetableLessons).where(eq(timetableLessons.weekday, weekday))).filter((l) => lessonActiveOn(l, date));
+  const subs = own.length
     ? await db
         .select()
         .from(timetableSubstitutions)
-        .where(and(eq(timetableSubstitutions.date, date), inArray(timetableSubstitutions.lessonId, active.map((l) => l.id))))
+        .where(and(eq(timetableSubstitutions.date, date), inArray(timetableSubstitutions.lessonId, own.map((l) => l.id))))
     : [];
   const subOf = new Map(subs.map((s) => [s.lessonId, s]));
+  return own.map((l) => ({ l, s: subOf.get(l.id) }));
+}
+
+/**
+ * Wer ist zu dieser Stunde wirklich beschäftigt? Eigene Stunden (sofern nicht entfallen/abgegeben/zusammengelegt, verlegte in
+ * ihrer neuen Stunde) + übernommene Vertretungen. Stunden in `except` zählen nicht.
+ */
+async function busyTeachers(db: Db, date: string, weekday: number, periodNr: number, except: string[] = []): Promise<Set<string>> {
+  const day = await dayLessons(db, date, weekday);
   // Abwesenheiten (P2b-18): abwesende Lehrkräfte stehen nicht zur Verfügung; fehlt die Gruppe, ist ihre Lehrkraft frei
   const absences = await absencesBetween(db, date, date);
   const goneGroups = absentGroups(absences, date, periodNr);
   const busy = absentTeachers(absences, date, periodNr);
-  for (const l of active) {
-    const s = subOf.get(l.id);
+  for (const { l, s } of day) {
     if (except.includes(l.id)) continue;
-    if (l.teacherId && !goneGroups.has(l.groupId) && !(s && (s.kind === "cancel" || s.kind === "substitute"))) busy.add(l.teacherId);
-    if (s?.kind === "substitute" && s.substituteId) busy.add(s.substituteId);
+    if (l.teacherId && ownTeacherPeriod(l, s) === periodNr && !goneGroups.has(l.groupId)) busy.add(l.teacherId);
+    if (s?.kind === "substitute" && s.substituteId && l.periodNr === periodNr) busy.add(s.substituteId);
   }
   return busy;
 }
 
-/** Ist der Raum zu dieser Stunde belegt (reguläre Stunden, die dort bleiben, und hierher verlegte)? */
+/** Ist der Raum zu dieser Stunde belegt (reguläre Stunden, die dort bleiben, hierher verlegte und gebuchte)? */
 async function busyRooms(db: Db, date: string, weekday: number, periodNr: number, except: string[]): Promise<Set<string>> {
-  const own = await db.select().from(timetableLessons).where(and(eq(timetableLessons.weekday, weekday), eq(timetableLessons.periodNr, periodNr)));
-  const active = own.filter((l) => lessonActiveOn(l, date) && !except.includes(l.id));
-  const subs = active.length
-    ? await db
-        .select()
-        .from(timetableSubstitutions)
-        .where(and(eq(timetableSubstitutions.date, date), inArray(timetableSubstitutions.lessonId, active.map((l) => l.id))))
-    : [];
-  const subOf = new Map(subs.map((s) => [s.lessonId, s]));
   const busy = new Set<string>();
-  for (const l of active) {
-    const s = subOf.get(l.id);
-    if (s?.kind === "cancel") continue;
-    const room = s?.roomId ?? l.roomId;
-    if (room) busy.add(room);
+  for (const { l, s } of await dayLessons(db, date, weekday)) {
+    if (except.includes(l.id)) continue;
+    const use = roomUse(l, s);
+    if (use?.periodNr === periodNr) busy.add(use.roomId);
   }
   // gebuchte Räume (Modul Buchungen) sind ebenfalls belegt
   const booked = await db
@@ -81,28 +87,29 @@ async function busyRooms(db: Db, date: string, weekday: number, periodNr: number
   return busy;
 }
 
+/** SP2-07: Gruppen, die zu dieser Stunde Unterricht haben (verlegte in ihrer neuen Stunde, zusammengelegte bei der anderen Stunde). */
+async function busyGroups(db: Db, date: string, weekday: number, periodNr: number, except: string[]): Promise<Set<string>> {
+  const busy = new Set<string>();
+  for (const { l, s } of await dayLessons(db, date, weekday)) if (!except.includes(l.id) && groupPeriod(l, s) === periodNr) busy.add(l.groupId);
+  return busy;
+}
+
 /** Welcher Unterricht belegt diesen Raum zu dieser Stunde (Vertretungen/Verlegungen berücksichtigt)? Für Buchungen. */
 export async function roomLessonAt(db: Db, roomId: string, date: string, periodNr: number): Promise<{ groupName: string; subjectName: string } | null> {
   const weekday = weekdayMon0(date);
   if (weekday > 4 || (await dayOffOn(db, date))) return null;
-  const rows = await db
-    .select({ l: timetableLessons, groupName: groups.name, subjectName: subjects.name })
-    .from(timetableLessons)
-    .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
-    .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
-    .where(and(eq(timetableLessons.weekday, weekday), eq(timetableLessons.periodNr, periodNr)));
-  const active = rows.filter((r) => lessonActiveOn(r.l, date));
-  if (active.length === 0) return null;
-  const subs = await db
-    .select()
-    .from(timetableSubstitutions)
-    .where(and(eq(timetableSubstitutions.date, date), inArray(timetableSubstitutions.lessonId, active.map((r) => r.l.id))));
-  const subOf = new Map(subs.map((x) => [x.lessonId, x]));
-  const hit = active.find((r) => {
-    const x = subOf.get(r.l.id);
-    return x?.kind !== "cancel" && (x?.roomId ?? r.l.roomId) === roomId;
+  // SP2-07: auch eine hierher verlegte Stunde belegt den Raum; zusammengelegte Gruppen sitzen im Raum der anderen Stunde
+  const hit = (await dayLessons(db, date, weekday)).find(({ l, s }) => {
+    const use = roomUse(l, s);
+    return use?.periodNr === periodNr && use.roomId === roomId;
   });
-  return hit ? { groupName: hit.groupName, subjectName: hit.subjectName } : null;
+  if (!hit) return null;
+  const [r] = await db
+    .select({ groupName: groups.name, subjectName: subjects.name })
+    .from(groups)
+    .innerJoin(subjects, eq(subjects.id, hit.l.subjectId))
+    .where(eq(groups.id, hit.l.groupId));
+  return r ?? null;
 }
 
 /**
@@ -127,6 +134,91 @@ export async function teacherAvailability(db: Db, lessonId: string, date: string
   return all.filter((t) => t.id !== l.teacherId).map((t) => ({ ...t, free: !busy.has(t.id) }));
 }
 
+/**
+ * SP2-07: alle Teile derselben Kopplung, die an `date` stattfinden – auch mit anderer Lehrkraft (Band-Stunde, SP2-02: eine
+ * `coupling_id` je Band-Stunde). Eine Verlegung bewegt immer die ganze Kopplung.
+ */
+export async function couplingParts(db: Db, l: TimetableLesson, date: string): Promise<TimetableLesson[]> {
+  if (!l.couplingId) return [];
+  const rows = await db.select().from(timetableLessons).where(eq(timetableLessons.couplingId, l.couplingId));
+  return rows.filter((r) => r.id !== l.id && lessonActiveOn(r, date));
+}
+
+/** Kürzel bzw. Name einer Lehrkraft für Meldungen. */
+async function teacherLabel(db: Db, id: string): Promise<string> {
+  const [t] = await db.select({ code: users.shortCode, name: users.name }).from(users).where(eq(users.id, id));
+  return t?.code ?? t?.name ?? "Lehrkraft";
+}
+
+/** Gruppen-Namen für Meldungen. */
+async function groupNames(db: Db, ids: readonly string[]): Promise<string> {
+  if (ids.length === 0) return "";
+  const rows = await db.select({ name: groups.name }).from(groups).where(inArray(groups.id, [...ids]));
+  return rows.map((r) => r.name).join(", ");
+}
+
+/** SP2-07: Stunden, die an `date` in Stunde `periodNr` zu einer der Gruppen verlegt sind (außer `except`). */
+async function movedInto(db: Db, date: string, weekday: number, periodNr: number, groupIds: readonly string[], except: readonly string[]): Promise<TimetableLesson[]> {
+  return (await dayLessons(db, date, weekday))
+    .filter(({ l, s }) => s?.kind === "move" && s.targetPeriod === periodNr && groupIds.includes(l.groupId) && !except.includes(l.id))
+    .map(({ l }) => l);
+}
+
+/**
+ * SP2-07: Kann der Block `unit` (Stunden einer Kopplung) an `date` in Stunde `periodNr` liegen? Gruppen, Lehrkräfte und Räume
+ * müssen dort frei sein (Stunden in `except` zählen nicht – beim Tausch die getauschten). Gibt den ersten Grund zurück.
+ */
+async function slotProblems(db: Db, date: string, unit: TimetableLesson[], periodNr: number, roomOverride: string | null, except: string[]): Promise<string | null> {
+  const weekday = unit[0]!.weekday;
+  const groupsBusy = await busyGroups(db, date, weekday, periodNr, except);
+  const clash = [...new Set(unit.map((u) => u.groupId))].filter((g) => groupsBusy.has(g));
+  if (clash.length) return `${await groupNames(db, clash)} hat in der ${periodNr}. Stunde Unterricht`;
+  const teachersBusy = await busyTeachers(db, date, weekday, periodNr, except);
+  for (const t of new Set(unit.map((u) => u.teacherId).filter((x): x is string => !!x)))
+    if (teachersBusy.has(t)) return `${await teacherLabel(db, t)} ist in der ${periodNr}. Stunde nicht frei`;
+  const roomsBusy = await busyRooms(db, date, weekday, periodNr, except);
+  for (const room of new Set(unit.map((u) => roomOverride ?? u.roomId).filter((x): x is string => !!x))) {
+    if (roomsBusy.has(room)) return `Raum ${room} ist in der ${periodNr}. Stunde belegt`;
+    const blk = await roomBlockAt(db, room, date, periodNr);
+    if (blk) return `Raum ${room}: ${blockLabel(blk)}`;
+  }
+  return null;
+}
+
+/**
+ * SP2-07: Stunden zur selben Zeit, zu denen die Gruppe zusammengelegt werden kann (andere Gruppe, findet wie geplant statt,
+ * hat eine Lehrkraft, die nicht abwesend ist) – für die Auswahl „Zusammenlegen mit“.
+ */
+export async function mergeOptions(db: Db, lessonId: string, date: string): Promise<{ lessonId: string; label: string }[]> {
+  const [l] = await db.select().from(timetableLessons).where(eq(timetableLessons.id, lessonId));
+  if (!l || !lessonActiveOn(l, date)) return [];
+  const unit = [l, ...(await couplingSiblings(db, l, date))];
+  const unitGroups = new Set(unit.map((x) => x.groupId));
+  const absent = absentTeachers(await absencesBetween(db, date, date), date, l.periodNr);
+  const candidates = (await dayLessons(db, date, l.weekday)).filter(
+    ({ l: x, s }) => x.periodNr === l.periodNr && !unitGroups.has(x.groupId) && takesPlaceAsUsual(s) && !!(s?.kind === "substitute" ? s.substituteId : x.teacherId),
+  );
+  if (candidates.length === 0) return [];
+  const teacher = alias(users, "teacher");
+  const info = await db
+    .select({ id: timetableLessons.id, groupName: groups.name, subjectName: subjects.name, teacherCode: teacher.shortCode })
+    .from(timetableLessons)
+    .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
+    .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
+    .leftJoin(teacher, eq(teacher.id, timetableLessons.teacherId))
+    .where(inArray(timetableLessons.id, candidates.map((c) => c.l.id)));
+  const codes = new Map((await db.select({ id: users.id, code: users.shortCode }).from(users).where(eq(users.role, "lehrkraft"))).map((u) => [u.id, u.code]));
+  return candidates
+    .flatMap(({ l: x, s }) => {
+      const who = s?.kind === "substitute" ? s.substituteId! : x.teacherId!;
+      if (absent.has(who)) return [];
+      const i = info.find((r) => r.id === x.id)!;
+      const room = s?.roomId ?? x.roomId;
+      return [{ lessonId: x.id, label: [i.groupName, i.subjectName, codes.get(who) ?? i.teacherCode, room && `R ${room}`].filter(Boolean).join(" · ") }];
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, "de", { numeric: true }));
+}
+
 export async function saveSubstitution(db: Db, actorId: string, input: SubstitutionInput): Promise<string> {
   const fe: Record<string, string> = {};
   if (!YMD.test(input.date)) fe.date = "Datum angeben";
@@ -145,11 +237,19 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
   }
   if (Object.keys(fe).length) throw new ValidationError(fe);
   const l = lesson!.l;
-  const siblings = await couplingSiblings(db, l, input.date);
+  // SP2-07: eine Verlegung bewegt die ganze Kopplung (Band-Stunde mit allen Lehrkräften), alles andere gilt für die Teile derselben Lehrkraft
+  const siblings = input.kind === "move" ? await couplingParts(db, l, input.date) : await couplingSiblings(db, l, input.date);
   const all = [l, ...siblings];
   const except = all.map((x) => x.id);
+  const unitGroups = [...new Set(all.map((x) => x.groupId))];
 
-  const sub = { ...input, note: input.note?.trim() || null, subjectId: input.subjectId || null };
+  const sub = {
+    ...input,
+    note: input.note?.trim() || null,
+    subjectId: input.subjectId || null,
+    targetPeriod: input.kind === "move" ? (input.targetPeriod ?? null) : null,
+    mergeLessonId: input.kind === "merge" ? input.mergeLessonId || null : null,
+  };
   // SP-12: ein anderes Fach gibt es nur bei einer Vertretung; das reguläre Fach wird nicht gespeichert
   if (sub.kind !== "substitute" || sub.subjectId === l.subjectId) sub.subjectId = null;
   let subjectName: string | null = null;
@@ -158,11 +258,12 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
     if (!subj) fe.subjectId = "Fach gibt es nicht";
     else subjectName = subj.name;
   }
-  if (sub.kind === "cancel") {
+  if (sub.kind === "cancel" || sub.kind === "merge") {
     sub.substituteId = null;
     sub.roomId = null;
   }
-  if (sub.kind === "room") sub.substituteId = null;
+  if (sub.kind === "room" || sub.kind === "move") sub.substituteId = null;
+  const weekday = l.weekday;
   if (sub.kind === "substitute") {
     if (!sub.substituteId) fe.substituteId = "Vertretungslehrkraft wählen";
     else {
@@ -170,45 +271,124 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
       if (t?.role !== "lehrkraft") fe.substituteId = "Vertretungslehrkraft wählen";
       else if (sub.substituteId === l.teacherId) fe.substituteId = "Das ist die eigene Lehrkraft der Stunde";
       else if (absentTeachers(await absencesBetween(db, sub.date, sub.date), sub.date, l.periodNr).has(sub.substituteId)) fe.substituteId = "Die Lehrkraft ist zu dieser Zeit abwesend";
-      else if ((await busyTeachers(db, sub.date, l.weekday, l.periodNr, except)).has(sub.substituteId)) fe.substituteId = "Die Lehrkraft unterrichtet zu dieser Zeit selbst";
+      else if ((await busyTeachers(db, sub.date, weekday, l.periodNr, except)).has(sub.substituteId)) fe.substituteId = "Die Lehrkraft unterrichtet zu dieser Zeit selbst";
+      else {
+        // SP2-07: Tagesregel der Vertretung (SP2-04) – gezählt die Stunden, die sie an dem Tag tatsächlich hält
+        const substituteId = sub.substituteId;
+        const held = (await dayLessons(db, sub.date, weekday))
+          .filter(({ l: x }) => !except.includes(x.id))
+          .flatMap(({ l: x, s }) => [x.teacherId === substituteId ? ownTeacherPeriod(x, s) : null, s?.kind === "substitute" && s.substituteId === substituteId ? x.periodNr : null])
+          .filter((p): p is number => p !== null);
+        const rule = (await dayRuleBlocks(db, sub.date, l.periodNr, [substituteId], new Map([[substituteId, held]]))).get(substituteId);
+        if (rule) fe.substituteId = `Die Lehrkraft hat eine ${rule}`;
+      }
+    }
+  }
+  // SP2-07 Verlegung: Stunde desselben Tages; beim Tausch rückt der Unterricht der Gruppe aus der Zielstunde in diese Stunde
+  let swapped: TimetableLesson[] = [];
+  if (sub.kind === "move") {
+    const target = sub.targetPeriod;
+    const [p] = target !== null && Number.isInteger(target) ? await db.select({ nr: periods.nr }).from(periods).where(eq(periods.nr, target)) : [];
+    if (!p || target === null) fe.targetPeriod = "Stunde wählen, in die verlegt wird";
+    else if (target === l.periodNr) fe.targetPeriod = "Das ist die eigene Stunde";
+    else {
+      if (input.swap) {
+        swapped = (await dayLessons(db, sub.date, weekday))
+          .filter(({ l: x, s }) => x.periodNr === target && unitGroups.includes(x.groupId) && !except.includes(x.id) && (takesPlaceAsUsual(s) || s?.kind === "cancel"))
+          .map(({ l: x }) => x);
+        // auch deren Kopplungsteile wandern mit
+        for (const x of [...swapped]) for (const y of await couplingParts(db, x, sub.date)) if (!swapped.some((z) => z.id === y.id)) swapped.push(y);
+        if (swapped.length === 0) fe.targetPeriod = `In der ${target}. Stunde hat die Gruppe keinen Unterricht zum Tauschen`;
+      }
+      if (!fe.targetPeriod) {
+        const ignore = [...except, ...swapped.map((x) => x.id)];
+        const problem = await slotProblems(db, sub.date, all, target, sub.roomId, ignore);
+        if (problem) fe.targetPeriod = problem;
+        else if (swapped.length) {
+          const back = await slotProblems(db, sub.date, swapped, l.periodNr, null, ignore);
+          if (back) fe.targetPeriod = `Tausch: ${back}`;
+        }
+      }
+    }
+  }
+  // SP2-07 Zusammenlegung: die Gruppe geht zu einer anderen Stunde derselben Zeit, deren Lehrkraft mitbetreut
+  let hostTeacher: string | null = null;
+  if (sub.kind === "merge") {
+    const [h] = sub.mergeLessonId ? await db.select().from(timetableLessons).where(eq(timetableLessons.id, sub.mergeLessonId)) : [];
+    if (!h || !lessonActiveOn(h, sub.date) || h.periodNr !== l.periodNr || except.includes(h.id)) fe.mergeLessonId = "Stunde zur selben Zeit wählen";
+    else if (unitGroups.includes(h.groupId)) fe.mergeLessonId = "Das ist dieselbe Gruppe";
+    else {
+      const [hs] = await db
+        .select()
+        .from(timetableSubstitutions)
+        .where(and(eq(timetableSubstitutions.lessonId, h.id), eq(timetableSubstitutions.date, sub.date)));
+      if (!takesPlaceAsUsual(hs)) fe.mergeLessonId = "Diese Stunde findet an dem Tag nicht wie geplant statt";
+      else {
+        const teacherId = hs?.kind === "substitute" ? hs.substituteId : h.teacherId;
+        if (!teacherId) fe.mergeLessonId = "Die Stunde hat keine Lehrkraft, die mitbetreuen kann";
+        else if (absentTeachers(await absencesBetween(db, sub.date, sub.date), sub.date, l.periodNr).has(teacherId)) fe.mergeLessonId = "Die Lehrkraft dieser Stunde ist abwesend";
+        else hostTeacher = teacherId;
+      }
     }
   }
   if (sub.kind === "room" && !sub.roomId) fe.roomId = "Neuen Raum wählen";
-  if (sub.roomId && sub.kind !== "cancel") {
+  if (sub.roomId && sub.kind !== "cancel" && sub.kind !== "merge") {
     const [r] = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, sub.roomId));
     if (!r) fe.roomId = "Raum gibt es nicht";
-    else if (sub.roomId === l.roomId) sub.roomId = null;
-    else if ((await busyRooms(db, sub.date, l.weekday, l.periodNr, except)).has(sub.roomId)) fe.roomId = `Raum ${sub.roomId} ist zu dieser Zeit belegt`;
+    else if (sub.kind === "move") {
+      // Verlegung: Raum geprüft in der Zielstunde (oben)
+    } else if (sub.roomId === l.roomId) sub.roomId = null;
+    else if ((await busyRooms(db, sub.date, weekday, l.periodNr, except)).has(sub.roomId)) fe.roomId = `Raum ${sub.roomId} ist zu dieser Zeit belegt`;
     else {
       const blk = await roomBlockAt(db, sub.roomId, sub.date, l.periodNr);
       if (blk) fe.roomId = `Raum ${sub.roomId}: ${blockLabel(blk)}`;
     }
   }
   if (sub.kind === "room" && !sub.roomId && !fe.roomId) fe.roomId = "Der Raum ist derselbe wie sonst";
+  // SP2-07: findet die Stunde zu ihrer Zeit statt, darf dort keine andere Stunde der Gruppe hinverlegt sein …
+  if (takesPlaceAsUsual(sub) && !fe.kind) {
+    const moved = await movedInto(db, sub.date, weekday, l.periodNr, unitGroups, except);
+    if (moved.length) fe.kind = "In diese Stunde ist schon eine andere Stunde der Gruppe verlegt – erst die Verlegung aufheben";
+  }
+  // … und findet sie nicht statt, dürfen keine Gruppen zu ihr zusammengelegt sein
+  if (!takesPlaceAsUsual(sub) && !fe.kind) {
+    const merged = await db
+      .select({ groupId: timetableLessons.groupId })
+      .from(timetableSubstitutions)
+      .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
+      .where(and(eq(timetableSubstitutions.date, sub.date), inArray(timetableSubstitutions.mergeLessonId, except)));
+    if (merged.length) fe.kind = `${await groupNames(db, merged.map((m) => m.groupId))} ist zu dieser Stunde zusammengelegt – erst die Zusammenlegung aufheben`;
+  }
   if (Object.keys(fe).length) throw new ValidationError(fe);
 
-  // bisherige Änderung (Vertretung wechselt → die bisherige Vertretung erfährt es auch)
+  // bisherige Änderung (Vertretung wechselt → die bisherige Vertretung erfährt es auch; Mitbetreuung ebenso)
+  const touched = [...except, ...swapped.map((x) => x.id)];
   const previous = await db
-    .select({ substituteId: timetableSubstitutions.substituteId })
+    .select({ substituteId: timetableSubstitutions.substituteId, mergeLessonId: timetableSubstitutions.mergeLessonId })
     .from(timetableSubstitutions)
-    .where(and(eq(timetableSubstitutions.date, sub.date), inArray(timetableSubstitutions.lessonId, except)));
-  // gekoppelte Teile derselben Lehrkraft bekommen dieselbe Änderung
+    .where(and(eq(timetableSubstitutions.date, sub.date), inArray(timetableSubstitutions.lessonId, touched)));
+  const previousHosts = await hostTeachers(db, sub.date, previous.map((p) => p.mergeLessonId).filter((x): x is string => !!x));
+  // gekoppelte Teile derselben Lehrkraft (bei Verlegung alle Teile) bekommen dieselbe Änderung
   const ids: string[] = [];
+  const row = { kind: sub.kind, substituteId: sub.substituteId, roomId: sub.roomId, note: sub.note, subjectId: sub.subjectId, targetPeriod: sub.targetPeriod, mergeLessonId: sub.mergeLessonId };
   await db.transaction(async (tx) => {
     // Q5-11: im Modus „Freigabe“ wird ein neuer Tag zum Entwurf (dann gibt es unten keinen Gong) – in derselben Transaktion
     // wie die Änderung, damit ein gescheitertes Speichern keinen leeren Entwurf hinterlässt (GATE-4f C-11)
     await startDraftIfNeeded(tx as unknown as Db, actorId, sub.date);
-    for (const x of all) {
-      const [row] = await tx
+    const write = async (lessonId: string, values: typeof row) => {
+      const [r] = await tx
         .insert(timetableSubstitutions)
-        .values({ ...sub, lessonId: x.id, createdBy: actorId })
+        .values({ ...values, lessonId, date: sub.date, createdBy: actorId })
         .onConflictDoUpdate({
           target: [timetableSubstitutions.lessonId, timetableSubstitutions.date],
-          set: { kind: sub.kind, substituteId: sub.substituteId, roomId: sub.roomId, note: sub.note, subjectId: sub.subjectId, createdBy: actorId, createdAt: new Date() },
+          set: { ...values, createdBy: actorId, createdAt: new Date() },
         })
         .returning({ id: timetableSubstitutions.id });
-      ids.push(row!.id);
-    }
+      return r!.id;
+    };
+    for (const x of all) ids.push(await write(x.id, row));
+    // SP2-07 Tausch: der Unterricht aus der Zielstunde rückt in diese Stunde (Raum wie sonst)
+    for (const x of swapped) await write(x.id, { kind: "move", substituteId: null, roomId: null, note: sub.note, subjectId: null, targetPeriod: l.periodNr, mergeLessonId: null });
   });
   await audit(db, actorId, "stundenplan.substitution.save", l.groupId, {
     lesson: l.id,
@@ -216,23 +396,50 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
     kind: sub.kind,
     coupled: siblings.length || undefined,
     subject: subjectName ? `${subjectName} statt ${lesson!.subjectName}` : undefined,
+    target: sub.targetPeriod ?? undefined,
+    swapped: swapped.length || undefined,
+    merge: sub.mergeLessonId ?? undefined,
   });
 
   // Gong an alle Betroffenen (Q5-03): eine Nachricht je Person und Tag – Schüler:innen, Lehrkraft, Vertretung (auch die
-  // bisherige, wenn sie wechselt), Eltern nach Moduleinstellung
+  // bisherige, wenn sie wechselt), mitbetreuende Lehrkraft, Eltern nach Moduleinstellung
   await notifySubstitutionDay(db, actorId, sub.date, {
-    students: await studentsOf(db, all.map((x) => x.groupId)),
-    teachers: [l.teacherId, sub.substituteId, ...previous.map((p) => p.substituteId)].filter((x): x is string => !!x),
+    students: await studentsOf(db, [...all, ...swapped].map((x) => x.groupId)),
+    teachers: [...all, ...swapped]
+      .map((x) => x.teacherId)
+      .concat([sub.substituteId, hostTeacher, ...previous.map((p) => p.substituteId), ...previousHosts])
+      .filter((x): x is string => !!x),
   });
   return ids[0]!;
 }
 
-/** Löscht die Änderung – bei Kopplungen auch die der anderen Teile derselben Lehrkraft am selben Tag. */
+/** SP2-07: wer betreut in diesen Stunden an `date` (eigene Lehrkraft bzw. Vertretung)? */
+async function hostTeachers(db: Db, date: string, lessonIds: readonly string[]): Promise<string[]> {
+  if (lessonIds.length === 0) return [];
+  const rows = await db
+    .select({ teacherId: timetableLessons.teacherId, kind: timetableSubstitutions.kind, substituteId: timetableSubstitutions.substituteId })
+    .from(timetableLessons)
+    .leftJoin(timetableSubstitutions, and(eq(timetableSubstitutions.lessonId, timetableLessons.id), eq(timetableSubstitutions.date, date)))
+    .where(inArray(timetableLessons.id, [...lessonIds]));
+  return rows.map((r) => (r.kind === "substitute" ? r.substituteId : r.teacherId)).filter((x): x is string => !!x);
+}
+
+/** Löscht die Änderung – bei Kopplungen auch die der anderen Teile derselben Lehrkraft (Verlegung: aller Teile) am selben Tag. */
 export async function deleteSubstitution(db: Db, actorId: string, id: string): Promise<void> {
-  const [old] = await db.delete(timetableSubstitutions).where(eq(timetableSubstitutions.id, id)).returning();
+  const [old] = await db.select().from(timetableSubstitutions).where(eq(timetableSubstitutions.id, id));
   if (!old) return;
   const [l] = await db.select().from(timetableLessons).where(eq(timetableLessons.id, old.lessonId));
-  const siblings = l ? await couplingSiblings(db, l, old.date) : [];
+  const siblings = l ? (old.kind === "move" ? await couplingParts(db, l, old.date) : await couplingSiblings(db, l, old.date)) : [];
+  // SP2-07: kehrt die Stunde an ihren Platz zurück, darf dort keine andere Stunde der Gruppe hinverlegt sein – außer dem Tauschpartner
+  // aus der Zielstunde, der mit zurückgenommen wird
+  if (l && !takesPlaceAsUsual(old)) {
+    const unit = [l, ...siblings];
+    const moved = await movedInto(db, old.date, l.weekday, l.periodNr, [...new Set(unit.map((x) => x.groupId))], unit.map((x) => x.id));
+    const partners = old.kind === "move" ? moved.filter((x) => x.periodNr === old.targetPeriod) : [];
+    if (moved.length > partners.length) throw new ValidationError({ kind: "In diese Stunde ist eine andere Stunde der Gruppe verlegt – erst die Verlegung aufheben" });
+    siblings.push(...partners);
+  }
+  await db.delete(timetableSubstitutions).where(eq(timetableSubstitutions.id, id));
   if (siblings.length)
     await db
       .delete(timetableSubstitutions)
@@ -242,7 +449,9 @@ export async function deleteSubstitution(db: Db, actorId: string, id: string): P
   if (l)
     await notifySubstitutionDay(db, actorId, old.date, {
       students: await studentsOf(db, [l, ...siblings].map((x) => x.groupId)),
-      teachers: [l.teacherId, old.substituteId].filter((x): x is string => !!x),
+      teachers: [l.teacherId, old.substituteId, ...siblings.map((x) => x.teacherId), ...(await hostTeachers(db, old.date, old.mergeLessonId ? [old.mergeLessonId] : []))].filter(
+        (x): x is string => !!x,
+      ),
     });
 }
 
@@ -296,7 +505,13 @@ export interface DaySubstitution {
   id: string;
   lessonId: string;
   date: string;
-  kind: "cancel" | "substitute" | "room";
+  kind: SubstitutionKind;
+  /** SP2-07 Verlegung: Eintrag in der neuen Stunde (`periodNr`) – aus welcher Stunde; sonst null */
+  movedFrom: number | null;
+  /** SP2-07 Verlegung: Eintrag in der bisherigen Stunde – in welche Stunde; sonst null */
+  movedTo: number | null;
+  /** SP2-07 Zusammenlegung: Gruppe, Lehrkraft (Kürzel) und Raum der Stunde, zu der die Gruppe geht */
+  mergeWith: MergeTarget | null;
   periodNr: number;
   groupId: string;
   groupName: string;
@@ -350,27 +565,43 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
     .leftJoin(substitute, eq(substitute.id, timetableSubstitutions.substituteId))
     .leftJoin(alt, eq(alt.id, timetableSubstitutions.subjectId))
     .where(inArray(timetableSubstitutions.date, visible));
+  const hosts = await mergeHosts(
+    db,
+    rows.filter((r) => r.s.kind === "merge" && r.s.mergeLessonId).map((r) => ({ lessonId: r.s.mergeLessonId!, date: r.s.date })),
+  );
   return rows
-    .map((r) => ({
-      id: r.s.id,
-      lessonId: r.l.id,
-      date: r.s.date,
-      kind: r.s.kind,
-      periodNr: r.l.periodNr,
-      groupId: r.l.groupId,
-      groupName: r.groupName,
-      gradeLevel: r.gradeLevel,
-      subjectName: r.altName ?? r.subjectName,
-      color: r.altColor ?? r.color,
-      insteadOf: r.altName ? r.subjectName : null,
-      teacherCode: r.teacherCode,
-      substituteCode: r.substituteCode,
-      substituteName: r.substituteName,
-      roomId: r.l.roomId,
-      newRoomId: r.s.roomId,
-      note: r.s.note,
-      draft: drafts.has(r.s.date),
-    }))
+    .flatMap((r) => {
+      const e: DaySubstitution = {
+        id: r.s.id,
+        lessonId: r.l.id,
+        date: r.s.date,
+        kind: r.s.kind,
+        periodNr: r.l.periodNr,
+        movedFrom: null,
+        movedTo: null,
+        mergeWith: r.s.kind === "merge" && r.s.mergeLessonId ? (hosts.get(`${r.s.mergeLessonId}:${r.s.date}`) ?? null) : null,
+        groupId: r.l.groupId,
+        groupName: r.groupName,
+        gradeLevel: r.gradeLevel,
+        subjectName: r.altName ?? r.subjectName,
+        color: r.altColor ?? r.color,
+        insteadOf: r.altName ? r.subjectName : null,
+        teacherCode: r.teacherCode,
+        substituteCode: r.substituteCode,
+        substituteName: r.substituteName,
+        roomId: r.l.roomId,
+        newRoomId: r.s.roomId,
+        note: r.s.note,
+        draft: drafts.has(r.s.date),
+      };
+      // SP2-07: eine Verlegung steht zweimal im Plan – in der neuen Stunde und als „verlegt“ in der bisherigen
+      if (r.s.kind === "move" && r.s.targetPeriod !== null)
+        return [
+          { ...e, movedTo: r.s.targetPeriod },
+          { ...e, periodNr: r.s.targetPeriod, movedFrom: r.l.periodNr },
+        ];
+      return [e];
+    })
     .sort((a, b) => a.date.localeCompare(b.date) || (a.gradeLevel ?? 99) - (b.gradeLevel ?? 99) || a.groupName.localeCompare(b.groupName, "de", { numeric: true }) || a.periodNr - b.periodNr);
 }
 

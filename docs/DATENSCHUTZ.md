@@ -371,6 +371,10 @@ Phase 2 als eigener Block folgen.
   Tagesregeln je Lehrkraft (SP2-04: höchstens Stunden am Tag, höchstens Anwesenheitstage – z. B. Teilzeit, **ohne Grund**) sind
   Personaldaten wie das Deputat: Pflege nur mit `stundenplan.manage`, die Lehrkraft sieht ihre eigene Regel unter „Mein Deputat“;
   Tabelle `timetable_teacher_day_rules` (LK-SJ-1J ab Schuljahr, Fremdschlüssel auf das Konto – geht mit der Kontolöschung).
+  Bereitschaften (SP2-07: Lehrkraft steht zu einer Stunde der Woche als Vertretungsreserve bereit) sind Personaldienst wie der
+  Aufsichtsplan: Pflege und Einsicht nur mit `stundenplan.substitute`, keine Anzeige im Vertretungsplan, auf Monitoren oder im Gong;
+  Tabelle `timetable_standby` (LK-SJ-1J ab Schuljahr, Fremdschlüssel auf das Konto – geht mit der Kontolöschung). Verlegung und
+  Zusammenlegung speichern nur Stunde bzw. Ziel-Stunde an der Vertretung (`timetable_substitutions.target_period/merge_lesson_id`, Löschung wie die Vertretung).
   Das Heute-Widget „Offen für dich“ (Q5-07) zeigt nur Zähler und eigene Vorgänge (eigene Kinder, eigene Briefe, eigene
   Klassen; Planungszahlen nur mit `stundenplan.substitute` (SP-02), Backup nur mit `verwaltung.system`) – keine Auswertung je Lehrkraft.
   Zeitwünsche (Q5-10) trägt eine Lehrkraft im Eingabefenster der Planung selbst ein – nur die eigenen, die Person kommt aus der

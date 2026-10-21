@@ -17,6 +17,7 @@ import { TZ, fromBerlinLocal } from "@/core/time";
 import { coupledGroupLabel, subjectLabel } from "./display";
 import { isDraftDay } from "./freigabe";
 import { PARENTS_SUBSTITUTION } from "./settings";
+import type { SubstitutionKind } from "./schema";
 
 const shortDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", timeZone: TZ });
 
@@ -29,7 +30,11 @@ export interface DayChange {
   subjectName: string;
   /** SP-12: reguläres Fach, wenn die Vertretung ein anderes gibt („Mathe statt Sport“) */
   insteadOf?: string | null;
-  kind: "cancel" | "substitute" | "room";
+  kind: SubstitutionKind;
+  /** SP2-07 Verlegung: neue Stunde */
+  targetPeriod?: number | null;
+  /** SP2-07 Zusammenlegung: Gruppe der Stunde, zu der die Gruppe geht (die Lehrkraft dort steht in `substituteId`/`substituteName`) */
+  mergeGroup?: string | null;
   teacherId: string | null;
   substituteId: string | null;
   substituteName: string | null;
@@ -44,7 +49,7 @@ const bundleKey = (date: string) => `stundenplan:${date}`;
 function merge(changes: readonly DayChange[]): (DayChange & { groupNames: string[] })[] {
   const out = new Map<string, DayChange & { groupNames: string[] }>();
   for (const c of [...changes].sort((a, b) => a.periodNr - b.periodNr || a.groupName.localeCompare(b.groupName, "de", { numeric: true }))) {
-    const key = [c.periodNr, c.subjectName, c.insteadOf, c.kind, c.substituteId, c.roomId, c.note].join("|");
+    const key = [c.periodNr, c.subjectName, c.insteadOf, c.kind, c.substituteId, c.roomId, c.note, c.targetPeriod, c.mergeGroup].join("|");
     const prev = out.get(key);
     if (prev) {
       if (!prev.groupNames.includes(c.groupName)) prev.groupNames.push(c.groupName);
@@ -53,7 +58,7 @@ function merge(changes: readonly DayChange[]): (DayChange & { groupNames: string
   return [...out.values()];
 }
 
-const KIND_WORD = { cancel: "Entfall", substitute: "Vertretung", room: "Raumänderung" } as const;
+const KIND_WORD = { cancel: "Entfall", substitute: "Vertretung", room: "Raumänderung", move: "Verlegung", merge: "Zusammenlegung" } as const;
 
 /**
  * Tagesnachricht für eine Person. Rein. Eine Änderung: wie bisher („Entfall Di, 13.10., 3. Std: Mathe (7b)“, Einzelheiten im
@@ -65,7 +70,15 @@ export function dayMessage(date: string, changes: readonly DayChange[]): { title
   if (lines.length === 0) return { title: `Vertretungsplan ${day}: keine Änderungen mehr`, body: "Die Änderungen für diesen Tag sind zurückgenommen – es gilt der reguläre Stundenplan." };
   const what = (c: (typeof lines)[number]) => `${subjectLabel(c.subjectName, c.insteadOf)} (${coupledGroupLabel(c.groupNames)})`;
   const detail = (c: DayChange, sep: string) =>
-    [c.kind === "substitute" && c.substituteName ? `bei ${c.substituteName}` : null, c.roomId ? `Raum ${c.roomId}` : null, c.note].filter(Boolean).join(sep);
+    [
+      c.kind === "move" && c.targetPeriod ? `in der ${c.targetPeriod}. Std` : null,
+      c.kind === "merge" && c.mergeGroup ? `mit ${coupledGroupLabel([c.mergeGroup])}` : null,
+      (c.kind === "substitute" || c.kind === "merge") && c.substituteName ? `bei ${c.substituteName}` : null,
+      c.roomId ? `Raum ${c.roomId}` : null,
+      c.note,
+    ]
+      .filter(Boolean)
+      .join(sep);
   if (lines.length === 1) {
     const c = lines[0]!;
     return { title: `${KIND_WORD[c.kind]} ${day}, ${c.periodNr}. Std: ${what(c)}`, body: detail(c, " · ") || null };
@@ -100,6 +113,8 @@ export async function dayChanges(db: Db, date: string): Promise<DayChange[]> {
       substituteName: substitute.name,
       roomId: timetableSubstitutions.roomId,
       note: timetableSubstitutions.note,
+      targetPeriod: timetableSubstitutions.targetPeriod,
+      mergeLessonId: timetableSubstitutions.mergeLessonId,
       altName: altSubject.name,
     })
     .from(timetableSubstitutions)
@@ -109,7 +124,42 @@ export async function dayChanges(db: Db, date: string): Promise<DayChange[]> {
     .leftJoin(substitute, eq(substitute.id, timetableSubstitutions.substituteId))
     .leftJoin(altSubject, eq(altSubject.id, timetableSubstitutions.subjectId))
     .where(eq(timetableSubstitutions.date, date));
-  return rows.map(({ altName, ...r }) => (altName ? { ...r, subjectName: altName, insteadOf: r.subjectName } : r));
+  // SP2-07 Zusammenlegung: die Lehrkraft der anderen Stunde (bzw. deren Vertretung) betreut mit – sie steht als „Vertretung“ in der Zeile
+  const hostIds = rows.filter((r) => r.kind === "merge" && r.mergeLessonId).map((r) => r.mergeLessonId!);
+  const hostTeacher = alias(users, "host_teacher");
+  const hosts = hostIds.length
+    ? await db
+        .select({
+          id: timetableLessons.id,
+          groupName: groups.name,
+          roomId: timetableLessons.roomId,
+          teacherId: timetableLessons.teacherId,
+          teacherName: hostTeacher.name,
+          kind: timetableSubstitutions.kind,
+          substituteId: timetableSubstitutions.substituteId,
+          substituteName: substitute.name,
+          newRoomId: timetableSubstitutions.roomId,
+        })
+        .from(timetableLessons)
+        .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
+        .leftJoin(hostTeacher, eq(hostTeacher.id, timetableLessons.teacherId))
+        .leftJoin(timetableSubstitutions, and(eq(timetableSubstitutions.lessonId, timetableLessons.id), eq(timetableSubstitutions.date, date)))
+        .leftJoin(substitute, eq(substitute.id, timetableSubstitutions.substituteId))
+        .where(inArray(timetableLessons.id, hostIds))
+    : [];
+  return rows.map(({ altName, mergeLessonId, ...r }) => {
+    const out: DayChange = altName ? { ...r, subjectName: altName, insteadOf: r.subjectName } : r;
+    const h = r.kind === "merge" ? hosts.find((x) => x.id === mergeLessonId) : undefined;
+    if (!h) return out;
+    const covered = h.kind === "substitute";
+    return {
+      ...out,
+      mergeGroup: h.groupName,
+      substituteId: covered ? h.substituteId : h.teacherId,
+      substituteName: covered ? h.substituteName : h.teacherName,
+      roomId: h.newRoomId ?? h.roomId,
+    };
+  });
 }
 
 /** Eltern, die über diese Schüler:innen informiert werden (Moduleinstellung), mit allen ihren berechtigten Kindern. */

@@ -35,6 +35,7 @@ import {
 } from "./verteilung";
 import { executeAssignmentImport, MAX_ASSIGNMENT_CSV_BYTES, planAssignmentImport, type ImportOutcome, type ImportPreview } from "./verteilung-import";
 import { decodeCsvBytes, type CsvEncoding } from "@/core/csv";
+import { addStandby, removeStandby } from "./bereitschaft";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
 
@@ -183,6 +184,10 @@ export async function saveSubstitutionAction(_prev: FormState, form: FormData): 
     roomId: str("roomId") || null,
     note: str("note") || null,
     subjectId: str("subjectId") || null,
+    // SP2-07: Verlegung (Stunde, Tausch) und Zusammenlegung
+    targetPeriod: str("targetPeriod") ? Number(str("targetPeriod")) : null,
+    swap: str("swap") === "1",
+    mergeLessonId: str("mergeLessonId") || null,
   };
   try {
     await saveSubstitution(await getDb(), user.id, input);
@@ -196,8 +201,39 @@ export async function saveSubstitutionAction(_prev: FormState, form: FormData): 
 
 export async function deleteSubstitutionAction(id: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.substitute");
-  await deleteSubstitution(await getDb(), user.id, id);
+  try {
+    await deleteSubstitution(await getDb(), user.id, id);
+  } catch (err) {
+    // SP2-07: Aufheben geht nicht, solange eine andere Stunde der Gruppe in diese Stunde verlegt ist
+    if (err instanceof ValidationError) redirect(`/planung/vertretungen?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
   revalidatePath("/", "layout");
+}
+
+// ---------------------------------------------------------------- Bereitschaft (SP2-07)
+
+export async function addStandbyAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  try {
+    await addStandby(await getDb(), user.id, {
+      schoolYearId: String(form.get("schoolYearId") ?? ""),
+      teacherId: String(form.get("teacherId") ?? ""),
+      weekday: Number(form.get("weekday")),
+      periodNr: Number(form.get("periodNr")),
+    });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/vertretungen/bereitschaft");
+  return { ok: true };
+}
+
+export async function removeStandbyAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  await removeStandby(await getDb(), user.id, id);
+  revalidatePath("/planung/vertretungen/bereitschaft");
 }
 
 /** Q5-11: Entwurf eines Tages veröffentlichen (Gong je betroffener Person). */

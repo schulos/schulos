@@ -14,6 +14,7 @@ import { ownBookLinks, type OwnBookLink } from "@/modules/notenbuch/links";
 import sitzplanModule from "@/modules/sitzplan/manifest";
 import { canUseGroup, plansByGroup } from "@/modules/sitzplan/service";
 import { courseHub, type CourseHub } from "@/modules/kurse/service";
+import { CHANGE_KIND_LABEL, slotDisplay } from "@/modules/stundenplan/display";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader, SubjectBar } from "@schulos/ui/misc";
@@ -25,7 +26,6 @@ export const metadata: Metadata = { title: "Kursraum" };
 
 const dayFmt = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", timeZone: TZ });
 const timeFmt = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
-const CHANGE_LABEL = { cancel: "Entfall", substitute: "Vertretung", room: "Raumänderung" } as const;
 
 function MembersOnly() {
   return <p className="text-sm text-muted">Nur für Mitglieder der Gruppe sichtbar.</p>;
@@ -42,19 +42,19 @@ function Lessons({ hub }: { hub: CourseHub }) {
       ) : (
         <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((s) => (
-            <li key={`${s.lessonId}-${s.date}`} className="flex items-stretch gap-3 rounded-xl border border-border px-3 py-2">
+            <li key={`${s.lessonId}-${s.date}-${s.periodNr}`} className="flex items-stretch gap-3 rounded-xl border border-border px-3 py-2">
               <SubjectBar color={s.color} className="h-auto w-1 shrink-0" />
               <span className="flex min-w-0 flex-1 flex-col leading-tight">
                 <span className="text-sm font-semibold">
                   {s.date === today ? "Heute" : dayFmt.format(fromBerlinLocal(s.date))} · {s.periodNr}. Std
                 </span>
-                <span className={s.change?.kind === "cancel" ? "text-sm text-muted line-through" : "text-sm text-muted"}>
+                <span className={s.change?.kind === "cancel" || s.moved === "from" ? "text-sm text-muted line-through" : "text-sm text-muted"}>
                   {s.subjectName} · {s.startsAt}–{s.endsAt}
                   {s.teacherCode && ` · ${s.change?.kind === "substitute" && s.change.substituteCode ? s.change.substituteCode : s.teacherCode}`}
                   {(s.change?.roomId ?? s.roomId) && ` · ${s.change?.roomId ?? s.roomId}`}
                 </span>
               </span>
-              {s.change && <Badge tone={s.change.kind === "cancel" ? "danger" : "warn"}>{CHANGE_LABEL[s.change.kind]}</Badge>}
+              {s.change && <Badge tone={s.change.kind === "cancel" || s.moved === "from" ? "danger" : "warn"}>{slotDisplay(s, "group").tag ?? CHANGE_KIND_LABEL[s.change.kind]}</Badge>}
             </li>
           ))}
         </ul>

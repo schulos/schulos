@@ -9,10 +9,10 @@ import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { applySuggestionAction, cancelReleasedAction, createAbsenceAction, deleteAbsenceAction, deleteSubstitutionAction, publishDayAction, saveSubstitutionAction } from "@/modules/stundenplan/actions";
 import { dayRelease, draftDays, openDrafts } from "@/modules/stundenplan/freigabe";
 import { ABSENCE_LABELS, GROUP_REASONS, needsOn, TEACHER_REASONS } from "@/modules/stundenplan/abwesenheit";
-import { slotDisplay, subjectLabel } from "@/modules/stundenplan/display";
+import { CHANGE_KIND_LABEL, changeLabel, changeOff, changeRoom, changeTeacher, slotDisplay, subjectLabel } from "@/modules/stundenplan/display";
 import { plannableGroups, teacherOptions } from "@/modules/stundenplan/manage";
 import { listSlots, timetableMasterData, type PlanTarget } from "@/modules/stundenplan/service";
-import { examSubjectsOn, planDays, substitutionsOn, teacherAvailability } from "@/modules/stundenplan/vertretung";
+import { examSubjectsOn, mergeOptions, planDays, substitutionsOn, teacherAvailability } from "@/modules/stundenplan/vertretung";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -30,7 +30,6 @@ export const metadata: Metadata = { title: "Vertretungen" };
 
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 const shortDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", timeZone: TZ });
-const KIND_LABEL = { cancel: "Entfall", substitute: "Vertretung", room: "Raumänderung" } as const;
 
 export default async function VertretungenPage({ searchParams }: { searchParams: Promise<{ datum?: string; lehrkraft?: string; gruppe?: string; fehler?: string; veroeffentlicht?: string }> }) {
   const { perms } = await requireUser();
@@ -56,13 +55,16 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
 
   const target: PlanTarget | null = sp.lehrkraft ? { kind: "teacher", id: sp.lehrkraft } : sp.gruppe ? { kind: "group", id: sp.gruppe } : null;
   // nur eigene Stunden der Lehrkraft/Gruppe – übernommene Vertretungen werden bei der Original-Stunde gepflegt
-  const lessons = target ? (await listSlots(db, target, date, addDays(date, 1), { drafts: true })).filter((s) => s.perspective !== "covering") : [];
-  const [availability, suggestions, examsByGroup] = await Promise.all([
+  // SP2-07: eine verlegte Stunde wird bei ihrer bisherigen Stunde gepflegt (nicht zusätzlich in der neuen)
+  const lessons = target ? (await listSlots(db, target, date, addDays(date, 1), { drafts: true })).filter((s) => s.perspective !== "covering" && s.moved !== "to") : [];
+  const [availability, suggestions, examsByGroup, merges] = await Promise.all([
     Promise.all(lessons.map((l) => teacherAvailability(db, l.lessonId, date))),
-    Promise.all(lessons.map((l) => (l.change?.kind === "substitute" || l.change?.kind === "cancel" ? Promise.resolve([]) : suggestSubstitutes(db, l.lessonId, date)))),
+    Promise.all(lessons.map((l) => (l.change && l.change.kind !== "room" ? Promise.resolve([]) : suggestSubstitutes(db, l.lessonId, date)))),
     // SP-12: Klausur-Hinweis im Formular, wenn das gewählte Fach an dem Tag eine Arbeit hat
     examSubjectsOn(db, [...new Set(lessons.map((l) => l.groupId))], date),
+    Promise.all(lessons.map((l) => mergeOptions(db, l.lessonId, date))),
   ]);
+  const periodOptions = master.periods.map((p) => ({ nr: p.nr, label: `${p.nr}. Stunde (${p.startsAt.slice(0, 5)})` }));
   const subjectOptions = master.subjects.map((x) => ({ id: x.id, label: x.name }));
   const here = `/planung/vertretungen?datum=${date}${sp.lehrkraft ? `&lehrkraft=${sp.lehrkraft}` : ""}${sp.gruppe ? `&gruppe=${sp.gruppe}` : ""}`;
   const openCount = needs.open.filter((o) => o.status === "open").length;
@@ -76,9 +78,14 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
         eyebrow="Stundenplanung"
         title="Vertretungen"
         actions={
-          <Button asChild>
-            <Link href="/planung/vertretungen/statistik">Statistik</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href="/planung/vertretungen/bereitschaft">Bereitschaften</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/planung/vertretungen/statistik">Statistik</Link>
+            </Button>
+          </div>
         }
       />
       {sp.fehler && (
@@ -231,7 +238,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                       <td>{o.subjectName}</td>
                       <td>{o.teacherCode}</td>
                       <td>
-                        <Badge tone={o.status === "open" ? "warn" : "success"}>{o.status === "open" ? "offen" : KIND_LABEL[o.status]}</Badge>
+                        <Badge tone={o.status === "open" ? "warn" : "success"}>{o.status === "open" ? "offen" : CHANGE_KIND_LABEL[o.status]}</Badge>
                         {o.substituteAbsent && <span className="ml-2 text-xs text-muted">Vertretung durch {o.substituteAbsent} fällt aus</span>}
                         {materials.has(`${o.lessonId}:${date}`) && (
                           <Link href={`/stundenplan/material/${materials.get(`${o.lessonId}:${date}`)!.id}`} className="ml-2 text-xs font-medium text-accent-ink hover:underline">
@@ -340,6 +347,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                                 </Button>
                               </form>
                             )}
+                            {c.standby && <Badge tone="soft">Bereitschaft</Badge>}
                             <Badge tone={c.score > 0 ? "success" : "neutral"}>{c.score > 0 ? `+${c.score}` : c.score} Punkte</Badge>
                             <span className="text-muted">{c.reasons.map((r) => `${r.label} (${r.points > 0 ? "+" : ""}${r.points})`).join(" · ")}</span>
                           </li>
@@ -359,7 +367,12 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                       roomId: l.change?.roomId ?? "",
                       note: l.change?.note ?? "",
                       subjectId: l.change?.subjectId ?? regularSubjectId,
+                      targetPeriod: l.change?.targetPeriod ? String(l.change.targetPeriod) : "",
+                      mergeLessonId: l.change?.mergeLessonId ?? "",
                     }}
+                    periods={periodOptions}
+                    ownPeriod={l.periodNr}
+                    mergeOptions={merges[i]!}
                     regularSubjectId={regularSubjectId}
                     subjects={subjectOptions}
                     exams={(examsByGroup.get(l.groupId) ?? []).map((e) => ({ subjectId: e.subjectId, label: `${EXAM_KIND[e.kind]} in ${e.subjectName}` }))}
@@ -396,16 +409,16 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
             </thead>
             <tbody>
               {changes.map((c) => (
-                <tr key={c.id}>
+                <tr key={`${c.id}-${c.periodNr}`}>
                   <td className="font-medium whitespace-nowrap">{c.groupName}</td>
                   <td className="tabular-nums">{c.periodNr}.</td>
                   <td className="whitespace-nowrap">
                     {subjectLabel(c.subjectName, c.insteadOf)} <span className="text-muted">({c.teacherCode})</span>
                   </td>
                   <td>
-                    <Badge tone={c.kind === "cancel" ? "neutral" : "warn"}>{KIND_LABEL[c.kind]}</Badge>
+                    <Badge tone={changeOff(c) ? "neutral" : "warn"}>{changeLabel(c)}</Badge>
                   </td>
-                  <td className="whitespace-nowrap">{[c.substituteCode, c.newRoomId && `R ${c.newRoomId}`].filter(Boolean).join(" · ") || "–"}</td>
+                  <td className="whitespace-nowrap">{[changeTeacher(c), changeRoom(c) && changeRoom(c) !== c.roomId && `R ${changeRoom(c)}`].filter(Boolean).join(" · ") || "–"}</td>
                   <td className="text-muted">{c.note}</td>
                   <td className="text-right">
                     <form action={deleteSubstitutionAction.bind(null, c.id)}>

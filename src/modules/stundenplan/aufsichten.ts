@@ -10,6 +10,7 @@ import { ValidationError } from "@/modules/verwaltung/users";
 import { absencesBetween, absenceCovers, type Absence } from "./abwesenheit";
 import { lessonActiveOn } from "./service";
 import { planningYear } from "./verteilung";
+import { ownTeacherPeriod } from "./belegung";
 
 export interface BreakSlot {
   /** Pause nach dieser Stunde */
@@ -207,11 +208,12 @@ export async function dutyCandidates(db: Db, dutyId: string, date: string): Prom
     : [];
   const subOf = new Map(subs.map((s) => [s.lessonId, s]));
   const inHouse = new Set<string>();
+  const near = (p: number | null) => p === duty.afterPeriod || p === duty.afterPeriod + 1;
   for (const l of active) {
-    if (l.periodNr !== duty.afterPeriod && l.periodNr !== duty.afterPeriod + 1) continue;
     const s = subOf.get(l.id);
-    if (l.teacherId && !(s && (s.kind === "cancel" || s.kind === "substitute"))) inHouse.add(l.teacherId);
-    if (s?.kind === "substitute" && s.substituteId) inHouse.add(s.substituteId);
+    // SP2-07: verlegte Stunden zählen in ihrer neuen Stunde, zusammengelegte gar nicht
+    if (l.teacherId && near(ownTeacherPeriod(l, s))) inHouse.add(l.teacherId);
+    if (s?.kind === "substitute" && s.substituteId && near(l.periodNr)) inHouse.add(s.substituteId);
   }
   const busy = new Set(day.filter((d) => d.afterPeriod === duty.afterPeriod).flatMap((d) => [d.status === "covered" ? d.change!.substituteId! : d.teacherId]));
   const load = new Map<string, number>();

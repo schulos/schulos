@@ -4,9 +4,14 @@ import type { Db } from "@/core/db/client";
 import { groups, schoolYears, subjects, timetableLessons, timetableSubstitutions, users } from "@/core/db/schema";
 import { absencesBetween, absentGroups, absentTeachers } from "./abwesenheit";
 import { lessonActiveOn } from "./service";
+import { ownTeacherPeriod } from "./belegung";
+import { standbyAt } from "./bereitschaft";
+import { dayRuleBlocks } from "./vertretung-regeln";
 
 /** Gewichte – bewusst einfach und erklärbar. */
 export const WEIGHTS = {
+  /** SP2-07: Bereitschaft zu dieser Stunde – steht immer oben */
+  standby: 40,
   released: 30,
   knowsGroup: 20,
   knowsSubject: 15,
@@ -32,6 +37,8 @@ export interface Candidate {
   reasons: Reason[];
   /** SP-12 (Fachtausch): Fach, das die Lehrkraft regulär in der Gruppe gibt – Vorschlag „→ Mathe“ statt des ausgefallenen Fachs */
   suggestedSubject: { id: string; name: string } | null;
+  /** SP2-07: hat zu dieser Stunde Bereitschaft */
+  standby: boolean;
 }
 
 export interface ScoreInput {
@@ -50,6 +57,8 @@ export interface ScoreInput {
   /** Vertretungen bisher im Schuljahr bzw. heute */
   countYear: Map<string, number>;
   countToday: Map<string, number>;
+  /** SP2-07: Lehrkräfte mit Bereitschaft zu dieser Stunde */
+  standby?: Set<string>;
 }
 
 /**
@@ -62,6 +71,8 @@ export function scoreCandidates(input: ScoreInput): Candidate[] {
   return input.free
     .map((t) => {
       const reasons: Reason[] = [];
+      const standby = !!input.standby?.has(t.id);
+      if (standby) reasons.push({ label: "Bereitschaft", points: WEIGHTS.standby });
       if (input.released.has(t.id)) reasons.push({ label: "frei durch Freisetzung", points: WEIGHTS.released });
       if (input.teachesGroup.get(t.id)?.has(lesson.groupId)) reasons.push({ label: "unterrichtet die Klasse", points: WEIGHTS.knowsGroup });
       const knowsSubject = !!input.teachesSubject.get(t.id)?.has(lesson.subjectId);
@@ -71,8 +82,8 @@ export function scoreCandidates(input: ScoreInput): Candidate[] {
       const own = !sameSubjectFree && input.teachesGroup.get(t.id)?.has(lesson.groupId) && !knowsSubject ? (input.ownSubjectInGroup?.get(t.id) ?? null) : null;
       if (own) reasons.push({ label: `kann eigenes Fach geben: ${own.name}`, points: WEIGHTS.ownSubject });
       const day = input.dayPeriods.get(t.id) ?? [];
-      // freigesetzt: die Lehrkraft ist zu dieser Stunde ohnehin in der Schule – keine Rand-/Frei-Abzüge
-      if (!input.released.has(t.id)) {
+      // freigesetzt bzw. in Bereitschaft: die Lehrkraft ist zu dieser Stunde ohnehin in der Schule – keine Rand-/Frei-Abzüge
+      if (!input.released.has(t.id) && !standby) {
         if (!day.length) reasons.push({ label: "hat sonst frei", points: WEIGHTS.dayOff });
         else if (day.some((p) => p < lesson.periodNr) && day.some((p) => p > lesson.periodNr)) reasons.push({ label: "Hohlstunde", points: WEIGHTS.gap });
         else reasons.push({ label: "Randstunde", points: WEIGHTS.edge });
@@ -81,10 +92,11 @@ export function scoreCandidates(input: ScoreInput): Candidate[] {
       if (year > 0) reasons.push({ label: `${year} Vertretung${year === 1 ? "" : "en"} im Schuljahr`, points: WEIGHTS.perSubstitution * year });
       const today = input.countToday.get(t.id) ?? 0;
       if (today >= 2) reasons.push({ label: `heute schon ${today}× vertreten`, points: WEIGHTS.twiceToday });
-      return { ...t, reasons, score: reasons.reduce((s, r) => s + r.points, 0), suggestedSubject: own };
+      return { ...t, reasons, score: reasons.reduce((s, r) => s + r.points, 0), suggestedSubject: own, standby };
     })
     .sort(
       (a, b) =>
+        Number(b.standby) - Number(a.standby) ||
         b.score - a.score || (input.countYear.get(a.id) ?? 0) - (input.countYear.get(b.id) ?? 0) || (a.code ?? a.name).localeCompare(b.code ?? b.name, "de"),
     );
 }
@@ -141,9 +153,11 @@ export async function suggestSubstitutes(db: Db, lessonId: string, date: string)
   for (const x of today) {
     const s = subOf.get(x.id);
     const groupGone = absentGroups(absences, date, x.periodNr).has(x.groupId);
-    if (x.teacherId && !groupGone && !(s && (s.kind === "cancel" || s.kind === "substitute")) && !absentTeachers(absences, date, x.periodNr).has(x.teacherId)) {
-      push(x.teacherId, x.periodNr);
-      if (x.periodNr === l.periodNr && !unit.has(x.id)) busy.add(x.teacherId);
+    // SP2-07: verlegte Stunden zählen in ihrer neuen Stunde, zusammengelegte nicht
+    const held = ownTeacherPeriod(x, s);
+    if (x.teacherId && held !== null && !groupGone && !absentTeachers(absences, date, held).has(x.teacherId)) {
+      push(x.teacherId, held);
+      if (held === l.periodNr && !unit.has(x.id)) busy.add(x.teacherId);
     }
     if (s?.kind === "substitute" && s.substituteId) {
       push(s.substituteId, x.periodNr);
@@ -182,9 +196,13 @@ export async function suggestSubstitutes(db: Db, lessonId: string, date: string)
     countYear.set(s.substituteId, (countYear.get(s.substituteId) ?? 0) + 1);
     if (s.date === date) countToday.set(s.substituteId, (countToday.get(s.substituteId) ?? 0) + 1);
   }
+  const freeTeachers = teachers.filter((t) => t.id !== l.teacherId && !busy.has(t.id));
+  // SP2-07: Tagesregeln (SP2-04) – wer mit der Vertretung darüber käme, wird nicht vorgeschlagen
+  const ruleBlocked = await dayRuleBlocks(db, date, l.periodNr, freeTeachers.map((t) => t.id), dayPeriods);
   return scoreCandidates({
     lesson: { groupId: l.groupId, subjectId: l.subjectId, periodNr: l.periodNr },
-    free: teachers.filter((t) => t.id !== l.teacherId && !busy.has(t.id)),
+    free: freeTeachers.filter((t) => !ruleBlocked.has(t.id)),
+    standby: await standbyAt(db, date, l.periodNr),
     dayPeriods,
     released,
     teachesGroup,
@@ -229,7 +247,8 @@ export async function substitutionStats(db: Db, from: string, to: string): Promi
   const g = new Map<string, { id: string; name: string; substituted: number; ownSubject: number; cancelled: number }>();
   const groupName = new Map(groupRows.map((x) => [x.id, x.name]));
   for (const r of rows) {
-    if (r.kind === "room") continue;
+    // SP2-07: Verlegung ist weder Vertretung noch Entfall; Zusammenlegung zählt als vertreten (ohne Vertretungslehrkraft)
+    if (r.kind === "room" || r.kind === "move") continue;
     if (!g.has(r.groupId)) g.set(r.groupId, { id: r.groupId, name: groupName.get(r.groupId) ?? r.groupId, substituted: 0, ownSubject: 0, cancelled: 0 });
     const gs = g.get(r.groupId)!;
     if (r.kind === "cancel") {

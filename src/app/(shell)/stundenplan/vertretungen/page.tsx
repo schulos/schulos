@@ -8,7 +8,7 @@ import { loadSchoolCalendar } from "@/core/school/calendar";
 import { groupMembers } from "@/core/db/schema";
 import { childrenOf } from "@/core/school/majority";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { subjectLabel } from "@/modules/stundenplan/display";
+import { changeLabel, changeOff, changeRoom, changeTeacher, subjectLabel } from "@/modules/stundenplan/display";
 import { planDays, substitutionsOn, type DaySubstitution } from "@/modules/stundenplan/vertretung";
 import { draftDays } from "@/modules/stundenplan/freigabe";
 import { hasPermission } from "@/core/permissions";
@@ -21,7 +21,6 @@ import { EmptyState, PageHeader } from "@schulos/ui/misc";
 export const metadata: Metadata = { title: "Vertretungsplan" };
 
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
-const KIND_LABEL = { cancel: "Entfall", substitute: "Vertretung", room: "Raumänderung" } as const;
 
 /** Gruppen des Betrachters (Eltern: die ihrer Kinder) – werden oben und markiert gezeigt. */
 async function myGroups(userId: string, role: string): Promise<Set<string>> {
@@ -56,17 +55,17 @@ function DayPlan({ date, today, entries, mine }: { date: string; today: string; 
                 </header>
                 <ul className="flex flex-col gap-2">
                   {rows.map((e) => (
-                    <li key={e.id} className="flex gap-3">
+                    <li key={`${e.id}-${e.periodNr}`} className="flex gap-3">
                       <span className="w-6 shrink-0 text-right font-semibold tabular-nums">{e.periodNr}.</span>
                       <span aria-hidden className="w-1 shrink-0 self-stretch rounded-full" style={{ background: e.color }} />
                       <span className="flex min-w-0 flex-col">
-                        <span className={cn("font-medium", e.kind === "cancel" && "text-muted line-through")}>
+                        <span className={cn("font-medium", changeOff(e) && "text-muted line-through")}>
                           {subjectLabel(e.subjectName, e.insteadOf)} <span className="font-normal text-muted">({e.teacherCode})</span>
                         </span>
-                        <span className={cn("text-sm font-semibold", e.kind === "cancel" ? "text-muted" : "text-warn")}>
-                          {KIND_LABEL[e.kind]}
-                          {e.kind === "substitute" && e.substituteName && ` · ${e.substituteName}`}
-                          {e.newRoomId && ` · Raum ${e.newRoomId}`}
+                        <span className={cn("text-sm font-semibold", changeOff(e) ? "text-muted" : "text-warn")}>
+                          {changeLabel(e)}
+                          {changeTeacher(e, true) && ` · ${changeTeacher(e, true)}`}
+                          {!changeOff(e) && changeRoom(e) !== e.roomId && changeRoom(e) && ` · Raum ${changeRoom(e)}`}
                         </span>
                         {e.note && <span className="text-sm text-muted">{e.note}</span>}
                       </span>
