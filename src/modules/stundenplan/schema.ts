@@ -171,11 +171,15 @@ export const timetableAssignments = pgTable(
     note: text("note"),
     /** SP2-01: Band, in dem der Lehrauftrag liegt (Wochen-/Doppelstunden kommen dann vom Band); leer = eigenständig */
     bandId: text("band_id").references(() => timetableBands.id, { onDelete: "set null" }),
+    /** SP2-09 (SP-G-07): gültig ab/bis (Halbjahr, Epoche); leer = Beginn bzw. Ende des Schuljahrs */
+    validFrom: date("valid_from"),
+    validUntil: date("valid_until"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check("timetable_assignments_hours", sql`${t.hours} between 1 and 12`),
     check("timetable_assignments_double", sql`${t.doubleLessons} >= 0 and ${t.doubleLessons} * 2 <= ${t.hours}`),
+    check("timetable_assignments_validity", sql`${t.validFrom} is null or ${t.validUntil} is null or ${t.validFrom} <= ${t.validUntil}`),
     index("timetable_assignments_year_idx").on(t.schoolYearId),
     index("timetable_assignments_band_idx").on(t.bandId),
   ],

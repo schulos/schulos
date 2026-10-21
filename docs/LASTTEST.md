@@ -202,6 +202,11 @@ Bänder (ohne Regeln 0–1 nicht gesetzt) und **strenger**: die 24 Lehrkräfte b
 (vorher 3): **1 nicht gesetzt** (Grenze 12), Regeln eingehalten, Bewertung 3 397 (davon „Fach an Folgetagen“ 816), gesamt 0,75 s (Erkundung: mit der alten Regelmenge – 2 Lehrkräfte mit 4 Tagen – und Gewicht 0/4/6/8 je 0 nicht gesetzt). Grenzwert
 unverändert ≤ 1 %, der Test prüft zusätzlich, dass mindestens 20 bzw. 10 Lehrkräfte eine Regel haben.
 
+**Nachmessung SP2-09 (2026-10-21, Lehrauftrag mit Gültigkeit):** die Gültigkeit filtert nur die Eingabe (Lehraufträge am Stichtag) und begrenzt die
+Übernahme; der Solver-Kern ist unverändert – vor und nach der Änderung **dieselbe Lösung** (9 nicht gesetzt, Bewertung 2 163; gesamt 0,75 → 0,69 s;
+„geteilter Sport“ 10/2 395, Bänder 0/2 091, „Oberstufe mit Jahrgang“ 0/1 985, „Tagesgrenzen“ 9/2 156, „Lehrkraft-Tagesregeln“ 1/3 397 – je
+nicht gesetzt/Bewertung, Laufzeiten 0,67–0,79 s).
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:

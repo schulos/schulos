@@ -36,6 +36,9 @@ export interface AssignmentInput {
   note: string | null;
   /** SP2-01: Band (leer = eigenständig); fehlt das Feld, bleibt das bisherige Band */
   bandId?: string | null;
+  /** SP2-09: gültig ab/bis (YYYY-MM-DD, im Schuljahr); leer = ganzes Schuljahr */
+  validFrom?: string | null;
+  validUntil?: string | null;
 }
 
 export interface Assignment {
@@ -52,6 +55,19 @@ export interface Assignment {
   /** genau eine Gruppe (vor SP2-01: Kopplung mit mehreren) */
   groups: { id: string; name: string }[];
   teachers: { id: string; code: string | null; name: string }[];
+  /** SP2-09: gültig ab/bis; `null` = Beginn bzw. Ende des Schuljahrs */
+  validFrom: string | null;
+  validUntil: string | null;
+}
+
+/** SP2-09: gilt der Lehrauftrag am Tag `ymd`? (ohne Angaben: das ganze Schuljahr) */
+export function activeOn(a: Pick<Assignment, "validFrom" | "validUntil">, ymd: string): boolean {
+  return (a.validFrom === null || a.validFrom <= ymd) && (a.validUntil === null || a.validUntil >= ymd);
+}
+
+/** SP2-09: überschneiden sich die Gültigkeiten zweier Lehraufträge? */
+export function validityOverlaps(a: Pick<Assignment, "validFrom" | "validUntil">, b: Pick<Assignment, "validFrom" | "validUntil">): boolean {
+  return (a.validFrom === null || b.validUntil === null || a.validFrom <= b.validUntil) && (b.validFrom === null || a.validUntil === null || b.validFrom <= a.validUntil);
 }
 
 /** SP2-01: Band mit Soll/verplant. */
@@ -120,6 +136,8 @@ export async function listAssignments(db: Db, schoolYearId: string): Promise<Ass
     roomId: a.roomId,
     note: a.note,
     bandId: a.bandId,
+    validFrom: a.validFrom,
+    validUntil: a.validUntil,
     groups: gs.filter((g) => g.aid === a.id).map(({ id, name }) => ({ id, name })),
     teachers: ts.filter((t) => t.aid === a.id).map(({ id, code, name }) => ({ id, code, name })),
   }));
@@ -280,6 +298,8 @@ export interface TeacherTotals {
 export interface Distribution {
   refYmd: string;
   assignments: (Assignment & AssignmentStatus)[];
+  /** SP2-09: Lehraufträge des Schuljahrs, die am Stichtag nicht gelten (zählen nirgends mit) */
+  otherTime: Assignment[];
   /** SP2-01: Bänder mit Soll/verplant */
   bands: BandStatus[];
   groups: GroupTotals[];
@@ -318,7 +338,7 @@ export function teacherPlanned(lessons: PlanLesson[], teacherId: string): number
 /** Komplette Unterrichtsverteilung eines Schuljahres mit Soll/verplant je Auftrag, Gruppe und Lehrkraft. */
 export async function distribution(db: Db, year: { id: string; startsOn: string; endsOn: string }, todayYmd: string): Promise<Distribution> {
   const refYmd = referenceDate(year, todayYmd);
-  const [list, lessons, groupRows, teacherRows, tafel, subjectRows] = await Promise.all([
+  const [all, lessons, groupRows, teacherRows, tafel, subjectRows] = await Promise.all([
     listAssignments(db, year.id),
     planLessonsOn(db, refYmd),
     db
@@ -330,6 +350,8 @@ export async function distribution(db: Db, year: { id: string; startsOn: string;
     db.select().from(curriculumHours),
     db.select({ id: subjects.id, name: subjects.name }).from(subjects),
   ]);
+  // SP2-09: Verteilung am Stichtag – Lehraufträge, die dann nicht gelten, stehen gesondert (`otherTime`)
+  const list = all.filter((a) => activeOn(a, refYmd));
   const { byAssignment, unmatched, assignmentOf } = matchLessons(
     list.map((a) => ({ id: a.id, subjectId: a.subjectId, hours: a.hours, groupIds: a.groups.map((g) => g.id), teacherIds: a.teachers.map((t) => t.id) })),
     lessons,
@@ -366,6 +388,7 @@ export async function distribution(db: Db, year: { id: string; startsOn: string;
   return {
     refYmd,
     assignments: withStatus,
+    otherTime: all.filter((a) => !activeOn(a, refYmd)),
     bands,
     groups: groupsOut,
     teachers: teachersOut,
@@ -405,15 +428,26 @@ async function validate(db: Db, input: AssignmentInput, excludeId?: string): Pro
   else if (!Number.isInteger(input.doubleLessons) || input.doubleLessons < 0 || input.doubleLessons * 2 > input.hours)
     fe.doubleLessons = `höchstens ${Math.floor(input.hours / 2)} Doppelstunden bei ${input.hours} Wochenstunden`;
   if (input.note && input.note.length > 200) fe.note = "höchstens 200 Zeichen";
+  const validFrom = input.validFrom || null;
+  const validUntil = input.validUntil || null;
+  const isDate = (v: string | null) => v === null || /^\d{4}-\d{2}-\d{2}$/.test(v);
+  if (!isDate(validFrom)) fe.validFrom = "Datum angeben";
+  if (!isDate(validUntil)) fe.validUntil = "Datum angeben";
+  if (!fe.validFrom && !fe.validUntil && validFrom && validUntil && validFrom > validUntil) fe.validUntil = "„gültig bis“ liegt vor „gültig ab“";
   if (teacherIds.length > 2) fe.teacherIds = "höchstens zwei Lehrkräfte (Teamteaching) – weitere Gruppen über ein Band";
   const [[y], [s], gs, ts, r] = await Promise.all([
-    db.select({ id: schoolYears.id }).from(schoolYears).where(eq(schoolYears.id, input.schoolYearId)),
+    db.select({ id: schoolYears.id, startsOn: schoolYears.startsOn, endsOn: schoolYears.endsOn }).from(schoolYears).where(eq(schoolYears.id, input.schoolYearId)),
     db.select({ id: subjects.id }).from(subjects).where(eq(subjects.id, input.subjectId)),
     input.groupId ? db.select({ id: groups.id, kind: groups.kind }).from(groups).where(eq(groups.id, input.groupId)) : Promise.resolve([]),
     teacherIds.length ? db.select({ id: users.id, role: users.role }).from(users).where(inArray(users.id, teacherIds)) : Promise.resolve([]),
     input.roomId ? db.select({ id: rooms.id, active: rooms.active }).from(rooms).where(eq(rooms.id, input.roomId)) : Promise.resolve([{ id: "", active: true }]),
   ]);
   if (!y) fe.schoolYearId = "Schuljahr gibt es nicht";
+  else {
+    const inYear = (v: string | null) => v === null || (v >= y.startsOn && v <= y.endsOn);
+    if (!fe.validFrom && !inYear(validFrom)) fe.validFrom = "muss im Schuljahr liegen";
+    if (!fe.validUntil && !inYear(validUntil)) fe.validUntil = "muss im Schuljahr liegen";
+  }
   if (!s) fe.subjectId = "Fach wählen";
   if (!input.groupId) fe.groupId = "Eine Klasse oder einen Kurs wählen";
   else if (!gs[0] || !(PLANNED_GROUP_KINDS as readonly string[]).includes(gs[0].kind)) fe.groupId = "Gruppe ist keine Klasse und kein Kurs";
@@ -421,8 +455,11 @@ async function validate(db: Db, input: AssignmentInput, excludeId?: string): Pro
   if (!r[0]?.active) fe.roomId = "Raum gibt es nicht oder ist inaktiv";
   if (Object.keys(fe).length) throw new ValidationError(fe);
 
-  // Doppelt erfasst? Gleiches Fach in derselben Gruppe bei einer der Lehrkräfte (bzw. beide ohne Lehrkraft)
-  const others = (await listAssignments(db, input.schoolYearId)).filter((a) => a.id !== excludeId && a.subjectId === input.subjectId);
+  // Doppelt erfasst? Gleiches Fach in derselben Gruppe bei einer der Lehrkräfte (bzw. beide ohne Lehrkraft) – SP2-09: nur bei sich
+  // überschneidender Gültigkeit (Physik im 1., Physik bei derselben Lehrkraft im 2. Halbjahr darf getrennt stehen)
+  const others = (await listAssignments(db, input.schoolYearId)).filter(
+    (a) => a.id !== excludeId && a.subjectId === input.subjectId && validityOverlaps(a, { validFrom, validUntil }),
+  );
   for (const o of others) {
     const sharedGroup = o.groups.find((g) => g.id === input.groupId);
     if (!sharedGroup) continue;
@@ -451,6 +488,8 @@ const values = (i: EffectiveInput) => ({
   roomId: i.roomId,
   note: i.note?.trim() || null,
   bandId: i.bandId,
+  validFrom: i.validFrom || null,
+  validUntil: i.validUntil || null,
 });
 
 export async function createAssignment(db: Db, actorId: string, raw: AssignmentInput): Promise<string> {

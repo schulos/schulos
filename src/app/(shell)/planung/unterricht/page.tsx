@@ -30,10 +30,11 @@ import { dayRuleFor, LUNCH_MIN_MINUTES, ruleSummary } from "@/modules/stundenpla
 import { DIAGNOSIS_CATEGORIES, diagnoseYear, type DiagnosisCategory } from "@/modules/stundenplan/diagnose";
 import { defaultObligation, deputyAccounts, REDUCTION_LABELS, reductionKind, type DeputyAccount } from "@/modules/stundenplan/deputate";
 import { timetableMasterData } from "@/modules/stundenplan/service";
-import { distribution, planningYear, PLANNED_GROUP_KINDS, type Distribution } from "@/modules/stundenplan/verteilung";
+import { distribution, planningYear, PLANNED_GROUP_KINDS, type Assignment, type Distribution } from "@/modules/stundenplan/verteilung";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
+import { Input } from "@schulos/ui/field";
 import { EmptyState, PageHeader, SubjectBar } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { AssignmentForm, type AssignmentFormValues } from "./assignment-form";
@@ -44,7 +45,7 @@ import { DiagnosisView } from "./diagnosis";
 
 export const metadata: Metadata = { title: "Unterrichtsverteilung" };
 
-type Search = { ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string };
+type Search = { ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string; stichtag?: string };
 
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "UTC" });
@@ -82,22 +83,24 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
     );
   }
   const today = toBerlinDate(new Date());
-  const [d, master, school] = await Promise.all([distribution(db, year, today), timetableMasterData(db), readSchoolSettings(db)]);
+  // SP2-09: Verteilung an einem wählbaren Stichtag (Lehraufträge mit Gültigkeit, z. B. 2. Halbjahr)
+  const stichtag = sp.stichtag && /^\d{4}-\d{2}-\d{2}$/.test(sp.stichtag) ? sp.stichtag : undefined;
+  const [d, master, school] = await Promise.all([distribution(db, year, stichtag ?? today), timetableMasterData(db), readSchoolSettings(db)]);
   const fallback = defaultObligation(school.profile.form);
   const accounts = await deputyAccounts(db, year.id, d.teachers, fallback);
   const teachersView = sp.ansicht === "lehrkraefte";
   const diagnoseView = sp.ansicht === "diagnose";
   const bandsView = sp.ansicht === "baender";
   const limitsView = sp.ansicht === "tagesgrenzen";
-  const report = diagnoseView ? await diagnoseYear(db, year, today, fallback, d) : null;
+  const report = diagnoseView ? await diagnoseYear(db, year, stichtag ?? today, fallback, d) : null;
   const category = DIAGNOSIS_CATEGORIES.find((c): c is DiagnosisCategory => c === sp.kategorie);
   const group = d.groups.find((g) => g.id === sp.gruppe);
   const teacher = teachersView ? d.teachers.find((t) => t.id === sp.lehrkraft) : undefined;
-  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : bandsView ? "baender" : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id };
+  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : bandsView ? "baender" : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id, stichtag };
   const back = href(current);
 
   // ------------------------------------------------------------ Formular
-  const editing = sp.auftrag ? d.assignments.find((a) => a.id === sp.auftrag) : undefined;
+  const editing = sp.auftrag ? [...d.assignments, ...d.otherTime].find((a) => a.id === sp.auftrag) : undefined;
   let form: React.ReactNode = null;
   if (editing || sp.neu !== undefined) {
     const initial: AssignmentFormValues = {
@@ -110,6 +113,8 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
       teacher2Id: editing?.teachers[1]?.id ?? "",
       roomId: editing?.roomId ?? "",
       note: editing?.note ?? "",
+      validFrom: editing?.validFrom ?? "",
+      validUntil: editing?.validUntil ?? "",
     };
     form = (
       <Card aria-labelledby="assignment-form-title">
@@ -122,6 +127,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
           deleteAction={editing ? deleteAssignmentAction.bind(null, editing.id, back) : undefined}
           initial={initial}
           back={back}
+          year={year}
           options={{
             groups: PLANNED_GROUP_KINDS.map((k) => ({
               label: GROUP_KIND_LABELS[k],
@@ -166,8 +172,28 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         }
       />
       <p className="-mt-3 text-sm text-muted">
-        Schuljahr {year.name} · „verplant“ zählt die Stunden im Stundenplan am {dateFmt.format(new Date(`${d.refYmd}T00:00:00Z`))} (A-/B-Wochen halb).
+        Schuljahr {year.name} · Lehraufträge und „verplant“ (Stunden im Stundenplan, A-/B-Wochen halb) am {dateFmt.format(new Date(`${d.refYmd}T00:00:00Z`))}
+        {d.otherTime.length > 0 && ` · ${d.otherTime.length} ${d.otherTime.length === 1 ? "Lehrauftrag gilt" : "Lehraufträge gelten"} an diesem Tag nicht`}
       </p>
+      <form method="get" aria-label="Stichtag wählen" className="-mt-3 flex flex-wrap items-end gap-2">
+        {Object.entries(current)
+          .filter((e): e is [string, string] => Boolean(e[1]) && e[0] !== "stichtag")
+          .map(([k, v]) => (
+            <input key={k} type="hidden" name={k} value={v} />
+          ))}
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Stichtag</span>
+          <Input type="date" name="stichtag" min={year.startsOn} max={year.endsOn} defaultValue={d.refYmd} />
+        </label>
+        <Button type="submit" size="sm">
+          Anzeigen
+        </Button>
+        {stichtag && (
+          <Button asChild size="sm" variant="ghost">
+            <Link href={href({ ...current, stichtag: undefined })}>Heute</Link>
+          </Button>
+        )}
+      </form>
       {sp.uebernommen !== undefined && (
         <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
           {sp.uebernommen === "0" ? "Alle Stunden des Stundenplans haben schon einen Lehrauftrag." : `${sp.uebernommen} Lehraufträge aus dem Stundenplan übernommen.`}
@@ -175,27 +201,27 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
       )}
       <nav aria-label="Ansicht" className="flex flex-wrap gap-2">
         <Button asChild size="sm" variant={teachersView || diagnoseView || bandsView || limitsView ? "ghost" : "secondary"}>
-          <Link href={href({})} aria-current={teachersView || diagnoseView || bandsView || limitsView ? undefined : "page"}>
+          <Link href={href({ stichtag })} aria-current={teachersView || diagnoseView || bandsView || limitsView ? undefined : "page"}>
             Klassen & Kurse
           </Link>
         </Button>
         <Button asChild size="sm" variant={teachersView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "lehrkraefte" })} aria-current={teachersView ? "page" : undefined}>
+          <Link href={href({ ansicht: "lehrkraefte", stichtag })} aria-current={teachersView ? "page" : undefined}>
             Lehrkräfte
           </Link>
         </Button>
         <Button asChild size="sm" variant={bandsView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "baender" })} aria-current={bandsView ? "page" : undefined}>
+          <Link href={href({ ansicht: "baender", stichtag })} aria-current={bandsView ? "page" : undefined}>
             Bänder
           </Link>
         </Button>
         <Button asChild size="sm" variant={limitsView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "tagesgrenzen" })} aria-current={limitsView ? "page" : undefined}>
+          <Link href={href({ ansicht: "tagesgrenzen", stichtag })} aria-current={limitsView ? "page" : undefined}>
             Tagesgrenzen
           </Link>
         </Button>
         <Button asChild size="sm" variant={diagnoseView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "diagnose" })} aria-current={diagnoseView ? "page" : undefined}>
+          <Link href={href({ ansicht: "diagnose", stichtag })} aria-current={diagnoseView ? "page" : undefined}>
             Diagnose
           </Link>
         </Button>
@@ -217,7 +243,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
       ) : teachersView ? (
         <TeacherOverview accounts={accounts} />
       ) : (
-        <GroupOverview d={d} art={sp.art} />
+        <GroupOverview d={d} art={sp.art} stichtag={stichtag} />
       )}
     </main>
   );
@@ -225,7 +251,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
 
 type Current = Record<string, string | undefined>;
 
-function GroupOverview({ d, art }: { d: Distribution; art?: string }) {
+function GroupOverview({ d, art, stichtag }: { d: Distribution; art?: string; stichtag?: string }) {
   const kinds = PLANNED_GROUP_KINDS.filter((k) => d.groups.some((g) => g.kind === k));
   const kind = kinds.find((k) => k === art) ?? "klasse";
   const list = d.groups.filter((g) => g.kind === kind);
@@ -238,7 +264,7 @@ function GroupOverview({ d, art }: { d: Distribution; art?: string }) {
         <div className="flex flex-wrap gap-1">
           {kinds.map((k) => (
             <Button key={k} asChild size="sm" variant={k === kind ? "secondary" : "ghost"}>
-              <Link href={href({ art: k })} aria-current={k === kind ? "page" : undefined}>
+              <Link href={href({ art: k, stichtag })} aria-current={k === kind ? "page" : undefined}>
                 {GROUP_KIND_LABELS[k]}
               </Link>
             </Button>
@@ -258,7 +284,7 @@ function GroupOverview({ d, art }: { d: Distribution; art?: string }) {
           {list.map((g) => (
             <tr key={g.id}>
               <td>
-                <Link href={href({ art: kind === "klasse" ? undefined : kind, gruppe: g.id })} className="font-medium hover:underline">
+                <Link href={href({ art: kind === "klasse" ? undefined : kind, gruppe: g.id, stichtag })} className="font-medium hover:underline">
                   {g.name}
                 </Link>
               </td>
@@ -372,6 +398,7 @@ function AssignmentTable({ rows, bands, current, caption, show }: { rows: Distri
                   </Link>
                 )}
                 {show === "groups" && a.teachers.length > 1 && <Badge>Team: {a.teachers.map((t) => t.code).join(" + ")}</Badge>}
+                {(a.validFrom || a.validUntil) && <Badge tone="soft">{validityLabel(a)}</Badge>}
                 {a.doubleLessons > 0 && <Badge>{a.doubleLessons}× Doppelstunde</Badge>}
                 {a.roomId && <Badge>Raum {a.roomId}</Badge>}
                 {a.otherTeacher && <Badge tone="warn">andere Lehrkraft im Plan</Badge>}
@@ -385,6 +412,43 @@ function AssignmentTable({ rows, bands, current, caption, show }: { rows: Distri
         ))}
       </tbody>
     </Table>
+  );
+}
+
+const shortDate = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+const fmtYmd = (ymd: string) => shortDate.format(new Date(`${ymd}T00:00:00Z`));
+
+/** SP2-09: „ab 01.02.2027“, „bis 31.01.2027“ bzw. „01.02.2027–30.04.2027“ */
+function validityLabel(a: Pick<Assignment, "validFrom" | "validUntil">): string {
+  if (a.validFrom && a.validUntil) return `${fmtYmd(a.validFrom)}–${fmtYmd(a.validUntil)}`;
+  return a.validFrom ? `ab ${fmtYmd(a.validFrom)}` : `bis ${fmtYmd(a.validUntil!)}`;
+}
+
+/** SP2-09: Lehraufträge der Gruppe, die am Stichtag nicht gelten – zählen dort nirgends mit. */
+function OtherTime({ rows, current }: { rows: Assignment[]; current: Current }) {
+  if (!rows.length) return null;
+  return (
+    <section aria-labelledby="ot" className="flex flex-col gap-2">
+      <h3 id="ot" className="font-semibold">
+        Zu anderer Zeit gültig
+      </h3>
+      <ul className="flex flex-col gap-1 text-sm">
+        {rows.map((a) => (
+          <li key={a.id} className="flex flex-wrap items-center gap-2">
+            <Link href={href({ ...current, auftrag: a.id })} className="font-medium hover:underline">
+              {a.subjectName}
+            </Link>
+            <span className="text-muted">
+              {a.teachers.map((t) => t.code ?? t.name).join(" + ") || "offen"} · {a.hours} Std.
+            </span>
+            <Badge tone="soft">{validityLabel(a)}</Badge>
+            <Link href={href({ ...current, stichtag: a.validFrom ?? a.validUntil ?? undefined })} className="text-accent-ink hover:underline">
+              am {fmtYmd(a.validFrom ?? a.validUntil!)} ansehen
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -435,7 +499,7 @@ function GroupDetail({ d, groupId, current }: { d: Distribution; groupId: string
     : [];
   return (
     <section aria-labelledby="gd" className="flex flex-col gap-4">
-      <BackLink to={href({ art: current.art })} label="Alle Gruppen" />
+      <BackLink to={href({ art: current.art, stichtag: current.stichtag })} label="Alle Gruppen" />
       <div className="flex flex-wrap items-center gap-3">
         <h2 id="gd" className="font-display text-xl font-bold">
           {g.name}
@@ -446,6 +510,7 @@ function GroupDetail({ d, groupId, current }: { d: Distribution; groupId: string
         <Coverage planned={g.planned} target={g.assigned} />
       </div>
       <AssignmentTable rows={rows} bands={d.bands} current={current} caption={`Lehraufträge ${g.name}`} show="teachers" />
+      <OtherTime rows={d.otherTime.filter((a) => a.groups.some((x) => x.id === groupId))} current={current} />
       {tafel && (
         <section aria-labelledby="st" className="flex flex-col gap-2">
           <h3 id="st" className="font-semibold">

@@ -250,6 +250,8 @@ export default async function SolverRunPage({
                   <dd className="tabular-nums">{run.params.seed}</dd>
                   <dt className="text-muted">Gewichtung</dt>
                   <dd>{PRESET_LABELS[run.params.preset]}</dd>
+                  <dt className="text-muted">Lehraufträge am</dt>
+                  <dd>{run.params.refYmd ? new Date(`${run.params.refYmd}T00:00:00Z`).toLocaleDateString("de-DE", { timeZone: "UTC" }) : "Tag der Berechnung"}</dd>
                 </dl>
                 <Table>
                   <caption className="sr-only">Gewichte des Laufs</caption>

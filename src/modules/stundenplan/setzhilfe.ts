@@ -310,6 +310,16 @@ export function lessonPrefTargets(ls: GridLesson[]): { kind: "teacher" | "group"
 }
 
 /** Alles, was das Freiraster zum Setzen eines Lehrauftrags braucht – im Band (SP2-02) für alle Mitglieder, mit Raumvorschlag je Teil. */
+/** SP2-09 (rein): Zeitraum der Stunde ∩ Gültigkeit des Lehrauftrags. */
+export function clipValidity(
+  v: { validFrom: string; validUntil: string | null },
+  a: { validFrom?: string | null; validUntil?: string | null },
+): { validFrom: string; validUntil: string | null } {
+  const validFrom = a.validFrom && a.validFrom > v.validFrom ? a.validFrom : v.validFrom;
+  const validUntil = a.validUntil && (v.validUntil === null || a.validUntil < v.validUntil) ? a.validUntil : v.validUntil;
+  return { validFrom, validUntil };
+}
+
 export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssignment, "band">, todayYmd: string, from?: string): Promise<Placement> {
   const members = a.band?.members.length ? a.band.members : [a];
   const groupIds = unique(members.flatMap((m) => m.groups.map((g) => g.id)));
@@ -321,7 +331,8 @@ export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssig
   ]);
   const roomFor = (m: Assignment) =>
     m.roomId ?? suggestRoom(subjectRows.find((s) => s.id === m.subjectId), groupRows.find((g) => g.id === m.groups[0]?.id)?.homeRoomId ?? null, roomList);
-  const rows = members.flatMap((m) => assignmentRows(m, roomFor(m), validity));
+  // SP2-09: jede Stunde gilt höchstens so lange wie ihr Lehrauftrag (Band-Mitglieder je eigene Gültigkeit)
+  const rows = members.flatMap((m) => assignmentRows(m, roomFor(m), clipValidity(validity, m)));
   const targets = new Map<string, { kind: "teacher" | "group" | "room" | "subject"; id: string | null; label: string }>();
   const target = (kind: "teacher" | "group" | "room" | "subject", id: string | null, label: string) => {
     if (id) targets.set(`${kind}:${id}`, { kind, id, label });
@@ -345,7 +356,10 @@ export async function placeAssignment(db: Db, actorId: string, assignmentId: str
   const pl = await assignmentPlacement(db, a, todayYmd, from);
   const cell = placementCell({ ...pl, unitIds: [], weekdays: [weekday], periods: [periodNr] }, weekday, periodNr);
   if (cell.state !== "free") throw new ValidationError({ slot: `${slotName(weekday, periodNr)}: ${cell.state === "blocked" ? cell.reasons.join(", ") : "belegt"}` });
-  const slot = { weekday, periodNr, week: "all" as const, ...pl.validity };
+  // SP2-09: Gültigkeit des Lehrauftrags; Kopplungen haben eine gemeinsame – weichen Band-Mitglieder ab, gilt der Zeitraum der Setzhilfe
+  const r0 = pl.rows[0]!;
+  const same = pl.rows.every((r) => r.validFrom === r0.validFrom && r.validUntil === r0.validUntil);
+  const slot = { weekday, periodNr, week: "all" as const, ...(same ? { validFrom: r0.validFrom, validUntil: r0.validUntil } : pl.validity) };
   if (pl.rows.length === 1) {
     const r = pl.rows[0]!;
     await createLesson(db, actorId, { ...slot, groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[0]! });

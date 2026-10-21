@@ -17,6 +17,7 @@ import {
   rooms,
   subjects,
   timetableAbsenceMaterials,
+  timetableAssignments,
   timetableLessons,
   timetableSolverRuns,
   timetableSubstitutions,
@@ -60,6 +61,8 @@ export interface RunParams {
   seed: number;
   weights: SolverWeights;
   preset: WeightPreset;
+  /** SP2-09: Lehraufträge, die an diesem Tag gelten (fehlt = Tag der Berechnung, wie vor SP2-09) */
+  refYmd?: string;
 }
 
 export interface RunLogEntry {
@@ -324,6 +327,8 @@ export interface CreateRunOptions {
   preset?: string;
   /** eigene Gewichte (nur bei `preset: "eigene"`, sonst ignoriert); fehlende Felder aus der Vorgabe */
   weights?: Partial<Record<keyof SolverWeights, number>>;
+  /** SP2-09: Planungsstand – Lehraufträge, die an diesem Tag gelten (leer = heute) */
+  refYmd?: string | null;
 }
 
 /** Rein: Parameter aus der Eingabe (Formular/Test) – ungültige Werte werden gemeldet, nicht still ersetzt. */
@@ -345,8 +350,10 @@ export function parseParams(opts: CreateRunOptions): RunParams {
       else weights[k] = v;
     }
   }
+  const refYmd = opts.refYmd || undefined;
+  if (refYmd && !/^\d{4}-\d{2}-\d{2}$/.test(refYmd)) errors.refYmd = "Datum angeben";
   if (Object.keys(errors).length) throw new ValidationError(errors);
-  return { effort, seed, weights, preset };
+  return { effort, seed, weights, preset, ...(refYmd ? { refYmd } : {}) };
 }
 
 const dayFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: TZ });
@@ -367,8 +374,9 @@ export async function createRun(db: Db, actorId: string, opts: CreateRunOptions,
   const year = await planningYear(db);
   if (!year) throw new ValidationError({ year: "Zuerst ein Schuljahr anlegen" });
   const params = parseParams(opts);
+  if (params.refYmd && (params.refYmd < year.startsOn || params.refYmd > year.endsOn)) throw new ValidationError({ refYmd: "Der Planungsstand muss im Schuljahr liegen" });
   const label = opts.label?.trim() ? opts.label.trim().slice(0, 120) : null;
-  const input = await solverInputFromDb(db, year, todayYmd ?? toBerlinDate(new Date()), { seed: params.seed });
+  const input = await solverInputFromDb(db, year, params.refYmd ?? todayYmd ?? toBerlinDate(new Date()), { seed: params.seed });
   if (Object.keys(input.check.errors).length) throw new ValidationError(input.check.errors);
   const now = new Date();
   const log: RunLogEntry[] = [logEntry("queued", "Lauf angelegt, wartet auf die Berechnung", undefined, now), ...input.check.warnings.map((w) => logEntry("warning", w, undefined, now))];
@@ -529,11 +537,16 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
     if (!year || year.id !== run.schoolYearId) throw new Error("Das Schuljahr des Laufs ist nicht mehr das Planungsjahr");
     log = run.log;
     const params: RunParams = run.params ?? { effort: "normal", seed: run.seed, weights: { ...DEFAULT_WEIGHTS }, preset: "ausgewogen" };
-    note("start", `Berechnung gestartet (${EFFORT_LABELS[params.effort]}, Startwert ${params.seed}, Gewichtung ${PRESET_LABELS[params.preset]})`);
+    // SP2-09: Lehraufträge am gewählten Planungsstand (sonst am Tag der Berechnung)
+    const refYmd = params.refYmd ?? todayYmd;
+    note(
+      "start",
+      `Berechnung gestartet (${EFFORT_LABELS[params.effort]}, Startwert ${params.seed}, Gewichtung ${PRESET_LABELS[params.preset]}${params.refYmd ? `, Lehraufträge am ${dayFmt.format(fromBerlinLocal(params.refYmd))}` : ""})`,
+    );
     await set({ status: "running", progress: 1, heartbeatAt: new Date(), log });
 
     // Eingabe und Vorprüfung (zwischen den Abschnitten die Ereignisschleife freigeben – mit PGlite rechnet die Datenbank im selben Thread)
-    const input = await solverInputFromDb(db, year, todayYmd, { seed: params.seed });
+    const input = await solverInputFromDb(db, year, refYmd, { seed: params.seed });
     await tick();
     input.weights = params.weights;
     const blockedSlots = [...input.prefs.values()].reduce((s, m) => s + [...m.values()].filter((v) => v === null).length, 0);
@@ -644,7 +657,7 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
       result,
       units: input.units.map((u) => ({ id: u.id, label: u.label, groupIds: u.groupIds, teacherIds: u.teacherIds, subjectId: u.subjectId, length: u.length, parts: u.parts })),
       keptLessonIds: input.keptLessonIds ?? [],
-      refYmd: todayYmd,
+      refYmd,
     };
     await tick();
     const diag = await proposalDiagnosis(db, stored);
@@ -731,6 +744,8 @@ export interface ProposedLesson {
   weekday: number;
   periodNr: number;
   coupled: boolean;
+  /** SP2-09: Lehrauftrag des Teils (fehlt bei Läufen vor SP-06) – für seine Gültigkeit bei der Übernahme */
+  assignmentId?: string;
 }
 
 /** Rein: Platzierungen → Stunden-Zeilen (je Teil Gruppen × Lehrkräfte mit dem Raum des Teils, Doppelstunde = zwei Zeilen je Teil). */
@@ -758,6 +773,7 @@ export function proposedLessons(stored: StoredResult): ProposedLesson[] {
               weekday: p.weekday,
               periodNr: p.periodNr + k,
               coupled,
+              ...(part.assignmentId ? { assignmentId: part.assignmentId } : {}),
             });
       });
   }
@@ -856,6 +872,19 @@ async function roomClashes(db: Db, lessons: LessonSlot[], fromYmd: string): Prom
   };
 }
 
+/** SP2-09: Gültigkeit der Lehraufträge der vorgeschlagenen Stunden (gelöschte fehlen – ihre Stunden gelten bis Schuljahresende). */
+async function assignmentValidity(db: Db, proposal: ProposedLesson[]): Promise<Map<string, { validFrom: string | null; validUntil: string | null }>> {
+  const ids = [...new Set(proposal.map((l) => l.assignmentId).filter((id): id is string => !!id))];
+  const out = new Map<string, { validFrom: string | null; validUntil: string | null }>();
+  for (const part of chunks(ids))
+    for (const a of await db
+      .select({ id: timetableAssignments.id, validFrom: timetableAssignments.validFrom, validUntil: timetableAssignments.validUntil })
+      .from(timetableAssignments)
+      .where(inArray(timetableAssignments.id, part)))
+      out.set(a.id, { validFrom: a.validFrom, validUntil: a.validUntil });
+  return out;
+}
+
 /** Stunden, die die Übernahme ab `fromYmd` ersetzen würde: gültig ab dem Stichtag, nicht fixiert, nicht „bleibt“ (ohne Lehrauftrag). */
 async function replaceableLessons(db: Db, year: { endsOn: string }, fromYmd: string, kept: Set<string>): Promise<TimetableLesson[]> {
   return (
@@ -910,7 +939,7 @@ export async function applyRun(
   runId: string,
   fromYmd: string,
   todayYmd: string,
-): Promise<{ created: number; ended: number; deleted: number; removedSubstitutions: number }> {
+): Promise<{ created: number; ended: number; deleted: number; removedSubstitutions: number; expired?: number }> {
   const run = await getRun(db, runId);
   if (!run || run.status !== "done") throw new ValidationError({ run: "Nur ein fertiger, noch nicht übernommener Lauf lässt sich übernehmen" });
   if (!run.stored) throw new ValidationError({ run: "Das Ergebnis dieses Laufs wurde beim Aufräumen entfernt – einen neuen Lauf starten" });
@@ -929,6 +958,19 @@ export async function applyRun(
   const kept = new Set(run.stored.keptLessonIds);
   const proposal = proposedLessons(run.stored);
   const dayBefore = addDays(fromYmd, -1);
+  // SP2-09: Gültigkeit der Lehraufträge (aktueller Stand) – eine Stunde endet mit ihrem Lehrauftrag; Lehraufträge, die erst nach dem
+  // Stichtag beginnen, würden zu früh gesetzt → Übernahme erst ab ihrem Beginn. Ohne Gültigkeit (oder Lehrauftrag gelöscht): bis Schuljahresende.
+  const validity = await assignmentValidity(db, proposal);
+  const startsLater = [...validity.values()].map((v) => v.validFrom).filter((v): v is string => v !== null && v > fromYmd).sort();
+  if (startsLater.length)
+    throw new ValidationError({
+      from: `Lehraufträge dieses Laufs gelten erst ab ${dayFmt.format(fromBerlinLocal(startsLater.at(-1)!))} – Übernahme frühestens ab diesem Tag (oder den Lauf mit einem anderen Planungsstand rechnen)`,
+    });
+  const untilOf = (l: ProposedLesson) => {
+    const v = l.assignmentId ? validity.get(l.assignmentId)?.validUntil : null;
+    return v && v < year.endsOn ? v : year.endsOn;
+  };
+  const expired = proposal.filter((l) => untilOf(l) < fromYmd).length;
 
   const out = await db.transaction(async (tx) => {
     const current = await replaceableLessons(tx, year, fromYmd, kept);
@@ -964,7 +1006,7 @@ export async function applyRun(
     };
     // SP-14: Lehrkräfte, deren Konto seit dem Lauf gelöscht wurde („gelöschte Lehrkraft“), werden leer – die Stunde bleibt offen
     const knownUsers = new Set((await tx.select({ id: users.id }).from(users)).map((u) => u.id));
-    const rows = withCouplingIds(proposal).map((l) => ({
+    const rows = withCouplingIds(proposal.filter((l) => untilOf(l) >= fromYmd)).map((l) => ({
       groupId: l.groupId,
       subjectId: l.subjectId,
       teacherId: l.teacherId && knownUsers.has(l.teacherId) ? l.teacherId : null,
@@ -973,17 +1015,17 @@ export async function applyRun(
       periodNr: l.periodNr,
       week: "all" as const,
       validFrom: fromYmd,
-      validUntil: year.endsOn,
+      validUntil: untilOf(l),
       couplingId: l.couplingId,
       solverRunId: runId,
     }));
     for (const part of chunks(rows)) await tx.insert(timetableLessons).values(part);
-    const result = { created: rows.length, ended: running.length, deleted: later.length, removedSubstitutions };
+    const result = { created: rows.length, ended: running.length, deleted: later.length, removedSubstitutions, ...(expired ? { expired } : {}) };
     const log = [
       ...run.log,
       logEntry(
         "apply",
-        `Übernommen ab ${dayFmt.format(fromBerlinLocal(fromYmd))}: ${result.created} Stunden gesetzt, ${result.ended} bestehende enden am Vortag, ${result.deleted} später beginnende entfallen, ${removedSubstitutions} Vertretungen ab dem Stichtag entfallen`,
+        `Übernommen ab ${dayFmt.format(fromBerlinLocal(fromYmd))}: ${result.created} Stunden gesetzt, ${result.ended} bestehende enden am Vortag, ${result.deleted} später beginnende entfallen, ${removedSubstitutions} Vertretungen ab dem Stichtag entfallen${expired ? `, ${expired} Stunden nicht gesetzt (Lehrauftrag endet vor dem Stichtag)` : ""}`,
         { from: fromYmd, ...result },
       ),
     ].slice(-LOG_LIMIT);
