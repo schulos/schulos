@@ -26,6 +26,33 @@ const SETTING = "Offline-Eingabe auf Dienstgeräten";
 /** Konsolenfehler ohne die erwarteten Netzfehler während der Offline-Phasen. */
 const realErrors = () => errors.filter((e) => !/fetch|network|ERR_INTERNET_DISCONNECTED|Failed to load resource/i.test(e));
 
+/**
+ * Langsamen Zwischenspeicher nachstellen (wie ein stark belastetes Gerät bzw. der CI-Runner): `indexedDB.open` im aktuellen
+ * Dokument erst nach `ms` ausführen. Gilt bis zur nächsten Navigation.
+ */
+async function slowIndexedDb(p: Page, ms: number) {
+  await p.evaluate((delay) => {
+    type Handlers = Record<"onsuccess" | "onerror" | "onupgradeneeded" | "onblocked", unknown>;
+    const factory = indexedDB;
+    const orig = factory.open.bind(factory);
+    factory.open = (name: string, version?: number) => {
+      let target: Record<string | symbol, unknown> = { onsuccess: null, onerror: null, onupgradeneeded: null, onblocked: null };
+      setTimeout(() => {
+        const real = orig(name, version) as unknown as Record<string | symbol, unknown>;
+        for (const k of ["onsuccess", "onerror", "onupgradeneeded", "onblocked"] as (keyof Handlers)[]) real[k] = target[k];
+        target = real;
+      }, delay);
+      return new Proxy({} as IDBOpenDBRequest, {
+        get: (_t, prop) => target[prop],
+        set: (_t, prop, value) => {
+          target[prop] = value;
+          return true;
+        },
+      });
+    };
+  }, ms);
+}
+
 async function setOfflineMode(browser: Browser, value: "zertifikat" | "schulnetz") {
   const admin = await (await browser.newContext()).newPage();
   await login(admin, "admin");
@@ -207,6 +234,27 @@ test("GATE-5a (G5A-C01): Offline-Eingaben überstehen die 15-Minuten-Sperre – 
   await expect(status(page)).not.toContainText("ausstehend");
   await page.goto(bookPath);
   await expect(cell(page, s3, "Vokabeltest")).toHaveValue("6");
+  expect(realErrors()).toEqual([]);
+});
+
+test("P5-20: langsamer Zwischenspeicher – „ausstehend“ erst nach dem Speichern, die Eingabe übersteht das Verlassen der Seite", async () => {
+  // Release-PR #71: „1 Änderung ausstehend“ stand schon da, während noch verschlüsselt geschrieben wurde – wer in dieser Lücke
+  // die Seite verließ, verlor die Eingabe ohne Hinweis
+  await page.goto(bookPath);
+  await expect(status(page)).toContainText("aktiv auf diesem Gerät");
+  await slowIndexedDb(page, 1500);
+  await ctx.setOffline(true);
+  await cell(page, s2, "Vokabeltest").click();
+  await page.keyboard.type("2");
+  await page.keyboard.press("Enter");
+  await expect(status(page)).toContainText("1 Änderung ausstehend");
+  await page.goto("about:blank");
+  await ctx.setOffline(false);
+  await page.goto(bookPath);
+  await expect(status(page)).toContainText("aktiv auf diesem Gerät");
+  await expect(status(page)).not.toContainText("ausstehend");
+  await page.goto(bookPath);
+  await expect(cell(page, s2, "Vokabeltest")).toHaveValue("2");
   expect(realErrors()).toEqual([]);
 });
 
