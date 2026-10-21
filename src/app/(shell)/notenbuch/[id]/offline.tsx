@@ -105,14 +105,45 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
 
   const idle: OfflineStatus = decision.mode === "aus" ? "aus" : decision.allowed ? "bereit" : "nicht-verfuegbar";
 
+  /** Laufende Schreibvorgänge in den Zwischenspeicher – solange > 0, warnt die Seite beim Verlassen. */
+  const writes = useRef(0);
+
+  /**
+   * Warteschlange übernehmen: erst verschlüsselt speichern, dann als „ausstehend“ anzeigen. Vorher stand „ausstehend“ schon da,
+   * während das Schreiben noch lief – wer die Seite in dieser Lücke verließ, verlor die Eingabe still (Release-PR #71). Liefert
+   * `false`, wenn das Speichern scheiterte (dann mit Hinweis, im Arbeitsspeicher bleibt die Warteschlange bis zum Verlassen).
+   */
   const setQueue = useCallback(
-    async (ops: OfflineOp[]) => {
+    async (ops: OfflineOp[]): Promise<boolean> => {
       queue.current = ops;
+      let saved = true;
+      if (key.current) {
+        writes.current++;
+        try {
+          await writeQueue(userId, key.current.cacheKey, key.current.deviceId, bookId, ops);
+        } catch {
+          saved = false;
+          setError("Die Offline-Eingabe ließ sich auf diesem Gerät nicht speichern – bitte die Seite nicht schließen und erneut eintragen.");
+        } finally {
+          writes.current--;
+        }
+      }
       setPending(new Map(ops.map((o) => [cellKey(o.columnId, o.studentId), o])));
-      if (key.current) await writeQueue(userId, key.current.cacheKey, key.current.deviceId, bookId, ops).catch(() => undefined);
+      return saved;
     },
     [bookId, userId],
   );
+
+  // Seite verlassen, solange noch geschrieben wird: der Browser fragt nach (sonst bricht er das Schreiben ab)
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (writes.current === 0) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
 
   /** Alles dieses Kontos auf diesem Gerät löschen (andere Konten bleiben, G5A-S05). */
   const wipe = useCallback(async () => {
@@ -233,7 +264,11 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
       try {
         const cacheKey = await deriveCacheKey(dev.deviceShare, r.share, dev.deviceId);
         key.current = { deviceId: dev.deviceId, cacheKey };
-        const ops = await readQueue(userId, cacheKey, dev.deviceId, bookId).catch(() => [] as OfflineOp[]);
+        // nicht lesbar: nicht still als leer behandeln, sondern sagen, dass Eingaben fehlen können
+        const ops = await readQueue(userId, cacheKey, dev.deviceId, bookId).catch(() => {
+          setError("Der Offline-Zwischenspeicher dieses Buchs ließ sich nicht lesen – nicht übertragene Offline-Eingaben fehlen möglicherweise.");
+          return [] as OfflineOp[];
+        });
         queue.current = ops;
         setPending(new Map(ops.map((o) => [cellKey(o.columnId, o.studentId), o])));
         setOtherBooks((await queuedBooks(userId, dev.deviceId).catch(() => [] as string[])).filter((b) => b !== bookId).length);
@@ -262,7 +297,11 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
   const enqueue = useCallback<OfflineApi["enqueue"]>(
     async (op) => {
       if (status !== "aktiv" || !key.current || locked || expiringRef.current) return false;
-      await setQueue(mergeOp(queue.current, { ...op, opId: crypto.randomUUID(), at: new Date().toISOString() }));
+      const before = queue.current;
+      if (!(await setQueue(mergeOp(before, { ...op, opId: crypto.randomUUID(), at: new Date().toISOString() })))) {
+        await setQueue(before);
+        return false;
+      }
       if (navigator.onLine) window.setTimeout(() => void sync(), 300);
       return true;
     },
