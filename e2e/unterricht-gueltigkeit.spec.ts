@@ -27,7 +27,7 @@ test.describe("Stundenplanung · Lehrauftrag mit Gültigkeit (SP2-09)", () => {
     // am Stichtag 01.02.2027: in der Verteilung mit Gültigkeits-Hinweis
     await other.getByRole("link", { name: "am 01.02.2027 ansehen" }).click();
     await expect(page).toHaveURL(/stichtag=2027-02-01/);
-    await expect(page.getByLabel("Stichtag")).toHaveValue("2027-02-01");
+    await expect(page.getByRole("textbox", { name: "Stichtag" })).toHaveValue("2027-02-01");
     const row = page.getByRole("row").filter({ hasText: "Französisch" }).filter({ has: page.getByRole("cell", { name: "BRA" }) });
     await expect(row.getByText("ab 01.02.2027")).toBeVisible();
 
