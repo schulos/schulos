@@ -57,7 +57,9 @@ export const timetableLessons = pgTable(
 export type TimetableLesson = typeof timetableLessons.$inferSelect;
 
 /** cancel = Entfall · substitute = Vertretung (andere Lehrkraft, ggf. anderer Raum) · room = nur Raumänderung */
-export const SUBSTITUTION_KINDS = ["cancel", "substitute", "room"] as const;
+/** SP2-07: `move` = Verlegung auf eine andere Stunde desselben Tages, `merge` = Zusammenlegung/Mitbetreuung bei einer anderen Stunde. Neue Arten nur hinten anfügen. */
+export const SUBSTITUTION_KINDS = ["cancel", "substitute", "room", "move", "merge"] as const;
+export type SubstitutionKind = (typeof SUBSTITUTION_KINDS)[number];
 export const substitutionKindEnum = pgEnum("substitution_kind", SUBSTITUTION_KINDS);
 
 /** Abweichung von einer regulären Stunde an einem bestimmten Tag. */
@@ -79,10 +81,15 @@ export const timetableSubstitutions = pgTable(
     note: text("note"),
     /** SP-12 (Fachtausch): abweichendes Fach der Vertretung („Mathe statt Sport“); leer = Fach der regulären Stunde. Nur bei `substitute`. */
     subjectId: text("subject_id").references(() => subjects.id, { onDelete: "set null", onUpdate: "cascade" }),
+    /** SP2-07 (Verlegung): Stunde desselben Tages, in der die Stunde stattdessen liegt; nur bei `move` */
+    targetPeriod: integer("target_period"),
+    /** SP2-07 (Zusammenlegung): Stunde zur selben Zeit, zu der die Gruppe geht (deren Lehrkraft betreut mit); nur bei `merge` */
+    mergeLessonId: text("merge_lesson_id").references((): AnyPgColumn => timetableLessons.id, { onDelete: "cascade" }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index("timetable_substitutions_merge_idx").on(t.mergeLessonId),
     uniqueIndex("timetable_substitutions_lesson_date_uq").on(t.lessonId, t.date),
     check("timetable_substitutions_subject", sql`${t.subjectId} is null or ${t.kind} = 'substitute'`),
     index("timetable_substitutions_date_idx").on(t.date),
@@ -454,6 +461,35 @@ export const timetableDuties = pgTable(
     check("timetable_duties_weekday", sql`${t.weekday} between 0 and 4`),
     uniqueIndex("timetable_duties_uq").on(t.schoolYearId, t.areaId, t.weekday, t.afterPeriod, t.teacherId),
     index("timetable_duties_teacher_idx").on(t.teacherId, t.weekday),
+  ],
+);
+
+/**
+ * SP2-07: Bereitschaft (Vertretungsreserve) – Lehrkraft steht am Wochentag in Stunde `period_nr` für Vertretungen bereit.
+ * Personaldienst wie der Aufsichtsplan: sichtbar nur für die Vertretungsplanung (`stundenplan.substitute`).
+ */
+export const timetableStandby = pgTable(
+  "timetable_standby",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "cascade" }),
+    /** 0 = Montag … 4 = Freitag */
+    weekday: integer("weekday").notNull(),
+    periodNr: integer("period_nr").notNull(),
+    teacherId: text("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("timetable_standby_weekday", sql`${t.weekday} between 0 and 4`),
+    uniqueIndex("timetable_standby_uq").on(t.schoolYearId, t.weekday, t.periodNr, t.teacherId),
+    index("timetable_standby_teacher_idx").on(t.teacherId),
   ],
 );
 

@@ -194,7 +194,8 @@ export async function affectedLessons(db: Db, fromYmd: string, days = 14): Promi
     for (const r of active) {
       if (!r.l.roomId || !blockedRooms.includes(r.l.roomId)) continue;
       const sub = subOf.get(r.l.id);
-      if (sub?.kind === "cancel") continue;
+      // SP2-07: verlegte und zusammengelegte Stunden liegen nicht im gesperrten Raum zu dieser Zeit
+      if (sub && sub.kind !== "substitute" && sub.kind !== "room") continue;
       const block = dayBlocks.find((b) => b.roomId === r.l.roomId && blockCovers(b, d, r.l.periodNr));
       if (!block) continue;
       const movedTo = sub?.roomId && sub.roomId !== r.l.roomId ? sub.roomId : null;

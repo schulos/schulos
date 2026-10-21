@@ -7,6 +7,7 @@ import { dayOffLabel, loadSchoolCalendar } from "@/core/school/calendar";
 import { addDays } from "@/core/time";
 import { coupledGroupLabel } from "./display";
 import { lessonActiveOn } from "./service";
+import { roomUse } from "./belegung";
 
 export type Occupancy =
   | { kind: "lesson"; label: string; moved?: boolean }
@@ -72,8 +73,10 @@ interface OccLesson {
 }
 interface OccChange {
   lessonId: string;
-  kind: "cancel" | "substitute" | "room";
+  kind: "cancel" | "substitute" | "room" | "move" | "merge";
   roomId: string | null;
+  /** SP2-07 Verlegung: neue Stunde */
+  targetPeriod?: number | null;
 }
 interface OccBooking {
   roomId: string;
@@ -101,10 +104,10 @@ export function occupancyFrom(lessons: OccLesson[], changes: OccChange[], booked
   const changeOf = new Map(changes.map((c) => [c.lessonId, c]));
   for (const l of lessons) {
     const c = changeOf.get(l.id);
-    if (c?.kind === "cancel") continue;
-    const roomId = c?.roomId ?? l.roomId;
-    if (!roomId) continue;
-    set(roomId, l.periodNr, { kind: "lesson", label: `${l.subjectName} · ${l.groupName}`, moved: Boolean(c?.roomId && c.roomId !== l.roomId) });
+    // SP2-07: Entfall und Zusammenlegung geben den Raum frei, eine Verlegung belegt ihn in der neuen Stunde
+    const use = roomUse(l, c && { kind: c.kind, substituteId: null, roomId: c.roomId, targetPeriod: c.targetPeriod ?? null });
+    if (!use) continue;
+    set(use.roomId, use.periodNr, { kind: "lesson", label: `${l.subjectName} · ${l.groupName}`, moved: Boolean((c?.roomId && c.roomId !== l.roomId) || c?.kind === "move") });
   }
   for (const b of booked) set(b.roomId, b.periodNr, { kind: "booking", label: b.label });
   // Sperrung geht vor: der Raum ist nicht nutzbar, auch wenn dort laut Plan Unterricht wäre
@@ -150,7 +153,7 @@ export async function occupancyOn(db: Db, date: string): Promise<{ occupancy: Da
   const active = lessonRows.filter((r) => lessonActiveOn(r.l, date));
   const changes = active.length
     ? await db
-        .select({ lessonId: timetableSubstitutions.lessonId, kind: timetableSubstitutions.kind, roomId: timetableSubstitutions.roomId })
+        .select({ lessonId: timetableSubstitutions.lessonId, kind: timetableSubstitutions.kind, roomId: timetableSubstitutions.roomId, targetPeriod: timetableSubstitutions.targetPeriod })
         .from(timetableSubstitutions)
         .where(and(eq(timetableSubstitutions.date, date), inArray(timetableSubstitutions.lessonId, active.map((r) => r.l.id))))
     : [];

@@ -23,6 +23,9 @@ export function SubstitutionForm({
   subjects,
   regularSubjectId,
   exams,
+  periods,
+  ownPeriod,
+  mergeOptions,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   removeAction?: () => Promise<void>;
@@ -30,7 +33,7 @@ export function SubstitutionForm({
   date: string;
   /** z. B. „3. Std · Mathematik · Klasse 7b“ – für eindeutige Feldnamen */
   label: string;
-  initial: { kind: string; substituteId: string; roomId: string; note: string; subjectId: string };
+  initial: { kind: string; substituteId: string; roomId: string; note: string; subjectId: string; targetPeriod: string; mergeLessonId: string };
   teachers: Teacher[];
   rooms: { id: string; label: string }[];
   /** SP-12 (Fachtausch): alle Fächer; Vorgabe ist das reguläre Fach der Stunde */
@@ -38,6 +41,11 @@ export function SubstitutionForm({
   regularSubjectId: string;
   /** Arbeiten der Gruppe an dem Tag – Hinweis, wenn das gewählte Fach eine hat */
   exams: { subjectId: string; label: string }[];
+  /** SP2-07 Verlegung: Stunden des Zeitrasters; die eigene ist nicht wählbar */
+  periods: { nr: number; label: string }[];
+  ownPeriod: number;
+  /** SP2-07 Zusammenlegung: Stunden zur selben Zeit */
+  mergeOptions: { lessonId: string; label: string }[];
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const v = { ...initial, ...state.values };
@@ -55,6 +63,8 @@ export function SubstitutionForm({
           <option value="substitute">Vertretung</option>
           <option value="cancel">Entfall</option>
           <option value="room">Raumänderung</option>
+          <option value="move">Verlegung</option>
+          <option value="merge">Zusammenlegung</option>
         </Select>
       </Field>
       <Field label="Vertretung durch" error={fe.substituteId}>
@@ -90,7 +100,7 @@ export function SubstitutionForm({
         </Select>
       </Field>
       <Field label="Raum" error={fe.roomId}>
-        <Select name="roomId" defaultValue={v.roomId} disabled={kind === "cancel"}>
+        <Select name="roomId" defaultValue={v.roomId} disabled={kind === "cancel" || kind === "merge"}>
           <option value="">wie sonst</option>
           {rooms.map((r) => (
             <option key={r.id} value={r.id}>
@@ -112,6 +122,38 @@ export function SubstitutionForm({
           </Button>
         )}
       </div>
+      {kind === "move" && (
+        <div className="flex flex-wrap items-end gap-3 sm:col-span-full">
+          <Field label="Verlegen in" error={fe.targetPeriod}>
+            <Select name="targetPeriod" defaultValue={v.targetPeriod}>
+              <option value="">Stunde wählen</option>
+              {periods
+                .filter((p) => p.nr !== ownPeriod)
+                .map((p) => (
+                  <option key={p.nr} value={p.nr}>
+                    {p.label}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          <label className="flex items-center gap-2 pb-2 text-sm">
+            <input type="checkbox" name="swap" value="1" className="size-4 accent-[var(--accent)]" />
+            Tauschen: Unterricht der Gruppe aus der Zielstunde rückt hierher
+          </label>
+        </div>
+      )}
+      {kind === "merge" && (
+        <Field label="Zusammenlegen mit" error={fe.mergeLessonId} className="sm:col-span-full">
+          <Select name="mergeLessonId" defaultValue={v.mergeLessonId}>
+            <option value="">Stunde zur selben Zeit wählen</option>
+            {mergeOptions.map((o) => (
+              <option key={o.lessonId} value={o.lessonId}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       {exam && (
         <p role="note" className="text-sm font-medium text-warn sm:col-span-full">
           Achtung: An diesem Tag steht für die Gruppe eine {exam.label} an.

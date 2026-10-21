@@ -662,6 +662,30 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
 - Tests: `gueltigkeit.test.ts` (rein + Demo: Pflege, Verteilung, Solver-Eingabe, Übernahme bis `valid_until`, Ablehnung, abgelaufene), E2E
   `unterricht-gueltigkeit.spec.ts`.
 
+**Umgesetzt (SP2-07, Migration 0104, 2026-10-21) – Vertretung Stufe 2 (SP-G-08, Q-SP-15):**
+- **Daten:** `substitution_kind` + `move`/`merge`; `timetable_substitutions.target_period` (Verlegung: Stunde desselben Tages) und
+  `merge_lesson_id` (Zusammenlegung: aufnehmende Stunde, Fremdschlüssel mit `cascade`); neue Tabelle `timetable_standby` (Schuljahr × Wochentag ×
+  Stunde × Lehrkraft, LK-SJ-1J ab Schuljahr, Fremdschlüssel aufs Konto – `deleteAccounts` braucht nichts Eigenes).
+- **Belegung** (rein, `belegung.ts`): `ownTeacherPeriod`/`groupPeriod`/`roomUse` – Verlegung zählt in der neuen Stunde, Zusammenlegung gibt
+  Lehrkraft und Raum frei (die Gruppe ist bei der anderen Stunde beschäftigt). Genutzt von Vertretung (`busyTeachers/busyRooms/busyGroups`,
+  `roomLessonAt`), Vorschlägen, Raumbelegung, Raumsperren und Aufsichtsvertretung.
+- **Verlegung** (`saveSubstitution`, Art `move`): ganze Kopplung (bei Band-Stunden alle Teile, `couplingParts`), Zielstunde ≠ eigene; Gruppe,
+  Lehrkräfte, Räume (optional anderer Raum) frei, Raumsperre. „Tauschen“ (`swap`) legt den Unterricht der Gruppe aus der Zielstunde (mit seinen
+  Kopplungsteilen) in die bisherige Stunde – geprüft in beide Richtungen; Aufheben nimmt den Tauschpartner mit. Solange etwas in eine Stunde
+  verlegt ist, kann die dortige Stunde weder stattfinden (Vertretung/Raumänderung) noch ihr Entfall aufgehoben werden.
+- **Zusammenlegung** (Art `merge`): aufnehmende Stunde zur selben Zeit, andere Gruppe, findet wie geplant statt, Lehrkraft (bzw. deren Vertretung)
+  nicht abwesend; Auswahl `mergeOptions()`. Die aufnehmende Stunde kann nicht entfallen/verlegt/zusammengelegt werden, solange Gruppen dort sind.
+- **Bereitschaft** (`bereitschaft.ts`, Seite `/planung/vertretungen/bereitschaft`, Recht `stundenplan.substitute`): nicht zur eigenen Unterrichtszeit,
+  Audit `stundenplan.standby.*`; `suggestSubstitutes()` setzt Lehrkräfte mit Bereitschaft immer oben (Grund „Bereitschaft“ +40, keine Rand-/Frei-Abzüge).
+- **Tagesregeln (SP2-04) bei Vertretungen** (`vertretung-regeln.ts`): wer mit der zusätzlichen Stunde über „höchstens n Stunden am Tag“ bzw. einen
+  weiteren Anwesenheitstag käme, wird nicht vorgeschlagen; Speichern lehnt ab („Tagesregel: …“). Verlegung/Zusammenlegung ändern die Tageslast nicht.
+- **Anzeige:** `listSlots()` liefert die verlegte Stunde zweimal (`moved: "from"` in der bisherigen Stunde, „away“; `moved: "to"` mit neuen Zeiten),
+  `change.mergeWith` bzw. `joined` (Mitbetreuung bei der aufnehmenden Stunde); `substitutionsOn()` zwei Einträge je Verlegung (`movedFrom/movedTo`)
+  und `mergeWith`; Texte über `changeLabel/changeTeacher/changeRoom` in `display.ts` (Vertretungsplan, Planung, Druck, Monitor, Kursseite). Gong:
+  „Verlegung … – in der 1. Std“, „Zusammenlegung … – mit 7a · bei …“; die mitbetreuende Lehrkraft bekommt die Tagesnachricht.
+- **Zähler:** Verlegung zählt weder als Vertretung noch als Entfall; Zusammenlegung zählt als „vertreten“ der Gruppe und „abgegeben“ der Lehrkraft.
+- Solver nicht betroffen. Tests: `vertretung-stufe2.test.ts`, E2E `vertretung-stufe2.spec.ts` (Planungs-Login, A11Y hell/dunkel/360 px).
+
 **Übergabe für den Rest des Blocks (nach SP2-05):**
 - **SP2-09 (Lehrauftrag mit Gültigkeit):** `unitsFrom()`/`solverInputFromDb()` filtern Lehraufträge am Stichtag; `gradeOf` bleibt aus
   `groups.gradeLevel` – Kurs-Jahrgänge (Oberstufe) zählen ohne weitere Eingabe.

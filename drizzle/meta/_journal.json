@@ -729,6 +729,13 @@
       "when": 1792569627483,
       "tag": "0103_sp2_09_lehrauftrag_gueltigkeit",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1792588233616,
+      "tag": "0104_sp2_07_vertretung_stufe2",
+      "breakpoints": true
     }
   ]
 }

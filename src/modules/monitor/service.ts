@@ -12,6 +12,7 @@ import { timeRange } from "@/modules/kalender/format";
 import { schoolOccurrences } from "@/modules/kalender/service";
 import { weekOf } from "@/modules/stundenplan/service";
 import { planDays, substitutionsOn } from "@/modules/stundenplan/vertretung";
+import { changeLabel, changeOff, changeRoom, changeTeacher } from "@/modules/stundenplan/display";
 import { dutiesOn } from "@/modules/stundenplan/aufsichten";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { boardForMonitor, monitorBoards } from "@/modules/pinnwaende/service";
@@ -93,7 +94,11 @@ export interface MonitorEntry {
   group: string;
   period: number;
   subject: string;
-  kind: "cancel" | "substitute" | "room";
+  kind: "cancel" | "substitute" | "room" | "move" | "merge";
+  /** SP2-07: Art mit Einzelheiten („Verlegung aus der 3. Std.“, „Zusammenlegung mit 7b“) */
+  label: string;
+  /** Stunde fällt hier aus (Entfall, verlegt) */
+  off: boolean;
   room: string | null;
   note: string | null;
   /** vertretende Lehrkraft (Kürzel) */
@@ -177,9 +182,11 @@ export async function monitorData(db: Db, screen: Pick<MonitorScreen, "profile">
           // SP-12: Fachtausch „Mathe (statt Sport)“
           subject: s.insteadOf ? `${s.subjectName} (statt ${s.insteadOf})` : s.subjectName,
           kind: s.kind,
-          room: s.newRoomId ?? s.roomId,
+          label: changeLabel(s),
+          off: changeOff(s),
+          room: changeRoom(s),
           note: s.note,
-          substitute: s.kind === "substitute" ? s.substituteCode : null,
+          substitute: changeTeacher(s),
           ...(staffRoom ? { absent: s.teacherCode, substituteName: s.kind === "substitute" ? s.substituteName : null } : {}),
         })),
     })),
