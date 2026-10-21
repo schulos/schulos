@@ -708,6 +708,13 @@
       "when": 1792509751516,
       "tag": "0100_sp2_01_baender",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1792546760192,
+      "tag": "0101_sp2_03_tagesgrenzen",
+      "breakpoints": true
     }
   ]
 }

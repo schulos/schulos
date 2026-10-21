@@ -121,6 +121,29 @@ export const timetableBands = pgTable(
   ],
 );
 
+/**
+ * SP2-03 (SP-G-04b): Tagesgrenzen und Ganztag je Jahrgangsstufe – gelten für die Klassen des Jahrgangs (Kurse des Jahrgangs zählen mit),
+ * hart im Solver und in der Setzhilfe, geprüft in der Diagnose. `null` = keine Grenze. Ohne Personenbezug, gilt über Schuljahre hinweg.
+ */
+export const timetableGradeRules = pgTable(
+  "timetable_grade_rules",
+  {
+    gradeLevel: integer("grade_level").primaryKey(),
+    /** höchstens so viele belegte Stunden am Tag */
+    maxPerDay: integer("max_per_day"),
+    /** höchstens so viele Tage mit Unterricht nach der Mittagspause */
+    afternoonsPerWeek: integer("afternoons_per_week"),
+    /** Mittag nach dieser Stunde: ohne lange Pause im Zeitraster bleibt die nächste Stunde frei, wenn danach Unterricht liegt */
+    lunchAfterPeriod: integer("lunch_after_period"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("timetable_grade_rules_max", sql`${t.maxPerDay} is null or ${t.maxPerDay} between 1 and 20`),
+    check("timetable_grade_rules_pm", sql`${t.afternoonsPerWeek} is null or ${t.afternoonsPerWeek} between 0 and 7`),
+    check("timetable_grade_rules_lunch", sql`${t.lunchAfterPeriod} is null or ${t.lunchAfterPeriod} between 1 and 20`),
+  ],
+);
+
 export type TimetableBand = typeof timetableBands.$inferSelect;
 
 /**

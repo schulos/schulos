@@ -176,6 +176,13 @@ Kursen mit je eigenem Fach/Lehrkraft/Raumart als eine Einheit je Stunde → 60 B
 **0 nicht gesetzt** (die Schienen nehmen den Konfliktmengen die Enge), alle 60 Band-Stunden mit je Teil verschiedenen Räumen, Bewertung 2 091,
 Hohlstunden Lehrkräfte 151 (max. 8), Klassen 4, gesamt **0,69 s**. Grenzwerte unverändert.
 
+**Nachmessung SP2-03 (2026-10-21, Tagesgrenzen und Ganztag je Klasse):** ohne Regeln ändert sich nichts – vor und nach der Änderung **dieselbe
+Lösung** (9 nicht gesetzt, Bewertung 2 163, Hohlstunden 169/13; gesamt 0,68 → 0,68–0,70 s; „geteilter Sport“ 0,71 → 0,70 s; Bänder 0,67 → 0,68–0,75 s).
+Neue Variante **„Tagesgrenzen“** (alle 42 Sek-I-Klassen höchstens 7 Stunden am Tag und höchstens 3 Nachmittage ab der 7. Stunde): 9 nicht gesetzt
+(dieselben Oberstufenkurse), Grenzen eingehalten (höchstens 7 Stunden, 3 Nachmittage), Bewertung 2 156, Hohlstunden 164/11, Konstruktion 0,26 s,
+gesamt **0,71–0,72 s** allein bzw. bis 2,7 s als vierter Großlauf in derselben Datei (Speicherbereinigung nach drei Großläufen). Die Klassentage sind im
+Solver zwischengespeichert und werden nur beim Setzen/Entfernen einer Stunde der Klasse bzw. eines Kurses ihres Jahrgangs verworfen.
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:

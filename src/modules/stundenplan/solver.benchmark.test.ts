@@ -264,4 +264,37 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(ms).toBeLessThan(120_000);
   }, 300_000);
+
+  it("SP2-03: dieselbe Schule mit Tagesgrenzen (höchstens 7 Stunden am Tag, höchstens 3 Nachmittage ab der 7. Stunde) – gültig, Grenzen eingehalten", () => {
+    const input = syntheticSchool({ zuege: 7, coursesPerGrade: 40, studentsPerGrade: 130 });
+    const rule = { maxPerDay: 7, afternoonsPerWeek: 3, lunchPeriod: null, afternoonFrom: 7 };
+    input.dayRules = new Map([...input.classIds].map((c) => [c, rule]));
+    const t0 = performance.now();
+    const solver = createSolver(input);
+    solver.construct();
+    const constructMs = performance.now() - t0;
+    solver.improve(Number.POSITIVE_INFINITY);
+    const r = solver.result();
+    const ms = performance.now() - t0;
+    expect(validate(input, r.placements)).toEqual([]);
+    const byId = new Map(input.units.map((u) => [u.id, u]));
+    const day = new Map<string, Set<number>>();
+    for (const p of r.placements)
+      for (const g of byId.get(p.unitId)!.groupIds) {
+        if (!input.classIds.has(g)) continue;
+        const k = `${g}|${p.weekday}`;
+        if (!day.has(k)) day.set(k, new Set());
+        for (let i = 0; i < byId.get(p.unitId)!.length; i++) day.get(k)!.add(p.periodNr + i);
+      }
+    const maxDay = Math.max(...[...day.values()].map((s) => s.size));
+    const afternoons = new Map<string, number>();
+    for (const [k, s] of day) if ([...s].some((x) => x >= 7)) afternoons.set(k.split("|")[0]!, (afternoons.get(k.split("|")[0]!) ?? 0) + 1);
+    const maxAfternoons = Math.max(0, ...afternoons.values());
+    console.log(`[benchmark] tagesgrenzen ${JSON.stringify({ units: input.units.length, constructMs: Math.round(constructMs), totalMs: Math.round(ms), unplaced: r.unplaced.length, score: r.score, maxDay, maxAfternoons, breakdown: r.breakdown, gaps: r.gaps })}`);
+    for (const u of r.unplaced) console.log(`[benchmark] nicht gesetzt: ${u.label} – ${u.reason}`);
+    expect(maxDay).toBeLessThanOrEqual(7);
+    expect(maxAfternoons).toBeLessThanOrEqual(3);
+    expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
+    expect(ms).toBeLessThan(120_000);
+  }, 300_000);
 });

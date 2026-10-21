@@ -4,6 +4,7 @@
 // der fixierten Stunden; je Raumart der Bedarf gegen Räume × Slots. Was sicher nicht passt, ist ein Fehler (der Lauf
 // wird trotzdem gerechnet – die Einheiten landen dann mit konkretem Grund unter „nicht gesetzt“), was knapp ist, eine Warnung.
 import type { SolverInput } from "./solver";
+import { ruleSummary, weeklyCapacity, type DayRule } from "./tagesgrenzen";
 
 export interface PrecheckFinding {
   severity: "error" | "warn";
@@ -90,6 +91,11 @@ export function precheck(input: SolverInput): PrecheckFinding[] {
     const detail = fixed || blocked ? ` (${[fixed ? `${fixed} fixiert` : null, blocked ? `${blocked} gesperrt` : null].filter(Boolean).join(", ")})` : "";
     if (kind === "t") judge("teacher", id, `Lehrkraft ${name(id)}`, need, free, detail);
     else judge("group", id, `${input.classIds.has(id) ? "Klasse" : "Gruppe"} ${name(id)}`, need, free, detail);
+  }
+  // SP2-03: Tagesgrenzen – passen die Stunden einer Klasse überhaupt in die erlaubten Stunden der Woche?
+  for (const [id, rule] of [...(input.dayRules ?? new Map<string, DayRule>())].sort(([a], [b]) => a.localeCompare(b))) {
+    const need = demand.get(`g:${id}`) ?? 0;
+    judge("group", id, `Klasse ${name(id)}`, need, weeklyCapacity(rule, input.periods, input.weekdays.length), ` (Tagesgrenzen: ${ruleSummary(rule)})`);
   }
 
   // Raumarten: Bedarf der Teile mit Fachraum (SP-G-02: je Teil ein Raum) gegen Räume dieser Art × Slots (Raum ist im Solver weich → Warnung)

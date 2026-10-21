@@ -503,7 +503,7 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 |---|---|---|---|---|---|
 | **SP2-01** ✅ | Bänder – Datenmodell und Unterrichtsverteilung: `timetable_bands` (Schuljahr, Name, Wochenstunden, Doppelstunden) mit n Lehraufträgen als Mitglieder; Lehraufträge bleiben 1 Fach, 1 Gruppe, 1–2 Lehrkräfte; „Gekoppelt mit“ wird zum Band; Pflege-UI, Soll/verplant je Band | M | – | GATE SP | SP-G-01 |
 | **SP2-02** ✅ | Bänder im Solver, in Setzhilfe und Übernahme: Einheit = Band mit `parts[]` (eigene Lehrkraft/Fach/Raum je Teil), `chooseRoom` je Teil, eine `coupling_id` je Band-Stunde, Setzhilfe setzt/verschiebt das Band als Einheit; Kursband zählt für Klassen-Hohlstunden | L | **ja** | SP2-01 | SP-G-01 |
-| **SP2-03** | Tagesgrenzen und Ganztag je Jahrgangsstufe: `maxPerDay`, `afternoonsPerWeek`, `lunchAfterPeriod` (Mittagspause Pflicht bei Unterricht danach), Vorgaben aus dem Schulform-Katalog; hart im Solver, Diagnose-Kategorie | M | **ja** | GATE SP | SP-G-04b |
+| **SP2-03** ✅ | Tagesgrenzen und Ganztag je Jahrgangsstufe: `maxPerDay`, `afternoonsPerWeek`, `lunchAfterPeriod` (Mittagspause Pflicht bei Unterricht danach), Vorgaben aus dem Schulform-Katalog; hart im Solver, Diagnose-Kategorie | M | **ja** | GATE SP | SP-G-04b |
 | **SP2-04** | Lehrkraft-Tagesregeln und Fachverteilung: optional `maxPerDay`/`maxDays` je Lehrkraft (Deputats-Seite), weiche Kosten Anwesenheitstage; Kosten `subjectSpread` (nicht an Folgetagen geballt), Gewichte in den Voreinstellungen | S–M | **ja** | SP2-03 | SP-G-05, SP-G-06 |
 | **SP2-05** | Hohlstunden Oberstufe/Kursband im Solver (Jahrgang ohne Klasse) + Diagnose-Kategorie Zeitwünsche (gesperrt belegt = Fehler, −3/−2 = Warnung; Tausch in der Setzhilfe prüft Sperren) | S–M | **ja** | SP2-02 | SP-G-11, SP-G-12 |
 | **SP2-06** | CSV-Import der Unterrichtsverteilung (Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch]) mit Vorschau, Zuordnung über Kürzel, Fehlerliste und Trockenlauf; nur Lehraufträge, kein Plan | S | – | GATE SP | Q-SP-14 |
@@ -555,14 +555,33 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
   Anlagezeitpunkt). Der Demo-Plan hat sich dadurch geändert (Band gemeinsam, Kopplungen) – E2E-Tests nachgezogen (`seed.test`,
   `klausurplan/service.test` prüft Überschneidung jetzt gegen den Mathe-LK, `unterricht.spec`, `zx-gate-sp.spec` mit Band-Schritt).
 
-**Übergabe für SP2-03 … SP2-05:**
-- **SP2-03 (Tagesgrenzen/Ganztag je Jahrgangsstufe):** harte Regel in `State.feasible()` je Gruppe der Einheit (bei Bändern alle
-  Gruppen aller Teile – `u.groupIds`); Zähler je Gruppe × Tag liegen in `groupDay` (inkl. fixierter Stunden). `maxPerDay` als Zählung über
-  `groupDay.get(`${g}|${wd}`)`, `lunchAfterPeriod` als Sperre der Mittagsstunde, sobald eine Stunde danach liegt (oder umgekehrt) – beides
-  auch in `blockersAt()` (Reparatur) und `explain()` (neuer `UnplacedCause.kind`). Vorgaben je Jahrgang kommen aus dem Schulform-Katalog
-  (`core/school/templates.ts`); Diagnose-Kategorie neu anlegen wie `band` (DIAGNOSIS_CATEGORIES + Labels + Raster `lg:grid-cols-…`).
+**Umgesetzt (SP2-03, Migration 0101, 2026-10-21) – Tagesgrenzen und Ganztag je Jahrgangsstufe:**
+- **Daten:** `timetable_grade_rules` (Jahrgang als Schlüssel, `max_per_day`, `afternoons_per_week`, `lunch_after_period`; `null` = keine Grenze; gilt über
+  Schuljahre hinweg, ohne Personenbezug → `NO_PERSONAL_DATA`). Pflege und Laden in `jahrgangsregeln.ts` (`saveGradeRules` prüft gegen das Zeitraster,
+  Nachmittage brauchen „Mittag nach …“; `applyGradeRuleDefaults` aus `gradeRulesTemplate()` in `core/school/templates.ts`: Sek I 5/6 höchstens 7, sonst 8
+  Stunden, Mittag nach der 6. bei mehr als 6 Stunden im Raster, Nachmittage 3 an Gesamt-/Sekundarschulen, sonst 2; Oberstufe ohne Vorgabe – Q-SP2-9).
+  Audit `stundenplan.tagesgrenzen.save`. Demo: Katalog-Vorgaben der Gesamtschule; die Demo-Sperren im Seed halten sie ohnehin ein – Demo-Plan unverändert.
+- **Regeln** (rein, `tagesgrenzen.ts`): `dayRuleFor()` macht aus „Mittag nach N“ die wirksame Regel – liegt zwischen N und N+1 im Zeitraster schon eine Pause
+  ≥ 30 min (`LUNCH_MIN_MINUTES`), ist dort Mittag (keine Mittagsstunde, Nachmittag ab N+1); sonst ist N+1 die Mittagsstunde, die frei bleibt, sobald danach
+  Unterricht liegt (Nachmittag ab N+2). Gilt für die **Klassen** des Jahrgangs; Stunden der Kurse/Wahlpflicht-/Förderkurse desselben Jahrgangs zählen für die
+  Klasse mit (gleiche Sicht wie Hohlstunden, SP2-02). Alle Regeln sind monoton (wegnehmen verletzt nie) – Tauschen/Verschieben bleiben einfach.
+- **Solver:** `SolverInput.dayRules` (Klasse → Regel, aus `solverInputFromDb`); `feasible()` prüft zuletzt `dayBlocked()` für die betroffenen Klassen der Einheit
+  (`meta.dayClasses`: eigene Klassen + Klassen des Kurs-Jahrgangs, bei Bändern über alle Teile); Klassentage sind zwischengespeichert (`dayCache`, verworfen in
+  `addGroupDay`/`removeGroupDay`). `blockersAt()` gibt bei verletzter Tagesgrenze `null` (Verdrängen im selben Slot hilft nicht), `explain()` liefert je Klasse die
+  Ursache `kind: "day"` mit Label „Tagesgrenzen 7a (höchstens 7 Std./Tag · höchstens 3 Nachmittage …)“ – steht so im Grund „nicht gesetzt“. Vorprüfung:
+  Wochenstunden der Klasse gegen `weeklyCapacity()`. Das Protokoll nennt „Tagesgrenzen für n Klassen“.
+- **Setzhilfe:** `GridInput.dayLimits` (aus `loadDayLimits`) – ein Slot über einer Grenze ist gesperrt mit Grund „7a: höchstens 7 Stunden am Tag“; beim Tausch
+  wird auch der Partner-Tag geprüft („Tausch: …“).
+- **Diagnose:** neue Kategorie **„Tagesgrenzen“** (`day`): je Klasse und Tag zu viele Stunden bzw. Unterricht in der Mittagsstunde und danach (Fehler), zu viele
+  Nachmittage (Fehler), Wochenstunden laut Verteilung über dem Erlaubten (Warnung; ein Band zählt einmal). Auch in den Plan-Hinweisen der Klasse.
+- **Pflege-UI:** `/planung/unterricht?ansicht=tagesgrenzen` (Recht `stundenplan.manage`): Tabelle je Jahrgang mit Klassen, Wirkung im Zeitraster, „Vorgaben der
+  Schulform übernehmen“; E2E in `unterricht.spec.ts`.
+- **Benchmark:** ohne Regeln dieselbe Lösung; Variante „Tagesgrenzen“ (alle Klassen 7/3) 0,7 s allein, Grenzen eingehalten (LASTTEST.md).
+
+**Übergabe für SP2-04 … SP2-05:**
 - **SP2-04 (Lehrkraft-Tagesregeln, Fachverteilung):** `teacherDay` hält Stunden je Lehrkraft × Tag; `maxPerDay`/`maxDays` hart in
-  `feasible()`, Anwesenheitstage weich in `teacherDayCost()`/`gapStats()`. `subjectSpread` über die Woche: je Gruppe × Fach die Tage aus
+  `feasible()` – Muster wie SP2-03 (`dayViolation()` ohne Kopien, eigener Zwischenspeicher je Lehrkraft-Tag oder direkt `teacherDay`; `blockersAt()`/`explain()`
+  mit neuem `UnplacedCause.kind`, Setzhilfe über einen Prüfer wie `GridInput.dayLimits`), Anwesenheitstage weich in `teacherDayCost()`/`gapStats()`. `subjectSpread` über die Woche: je Gruppe × Fach die Tage aus
   `groupDay` (bei Bändern je Teil-Fach – `groupSubjectsOf()`), Kosten in `groupDayCost()` oder einer neuen Wochen-Kostenfunktion; Gewicht in
   `SolverWeights`/`WEIGHT_PRESETS`/Formular (`start-form.tsx`) und `COST_LABELS`.
 - **SP2-05 (Hohlstunden Oberstufe/Kursband, Diagnose Zeitwünsche):** `classHoles()` zählt heute nur `classIds`; für Jahrgänge ohne Klasse

@@ -7,7 +7,7 @@ import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
 import { hasPermission } from "@/core/permissions";
 import { toBerlinDate } from "@/core/time";
-import { REDUCTION_REASONS } from "@/core/db/schema";
+import { periods, REDUCTION_REASONS } from "@/core/db/schema";
 import { readSchoolSettings } from "@/core/settings";
 import {
   addBandMemberAction,
@@ -20,7 +20,12 @@ import {
   saveAssignmentAction,
   saveBandAction,
   saveObligationAction,
+  saveGradeRulesAction,
+  applyGradeRuleDefaultsAction,
 } from "@/modules/stundenplan/actions";
+import { formName } from "@/core/school/catalog";
+import { classGrades, listGradeRules } from "@/modules/stundenplan/jahrgangsregeln";
+import { dayRuleFor, LUNCH_MIN_MINUTES, ruleSummary } from "@/modules/stundenplan/tagesgrenzen";
 import { DIAGNOSIS_CATEGORIES, diagnoseYear, type DiagnosisCategory } from "@/modules/stundenplan/diagnose";
 import { defaultObligation, deputyAccounts, REDUCTION_LABELS, reductionKind, type DeputyAccount } from "@/modules/stundenplan/deputate";
 import { timetableMasterData } from "@/modules/stundenplan/service";
@@ -32,12 +37,13 @@ import { EmptyState, PageHeader, SubjectBar } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { AssignmentForm, type AssignmentFormValues } from "./assignment-form";
 import { BandForm, BandMemberForm } from "./band-forms";
+import { GradeRulesForm } from "./grade-rules-form";
 import { ObligationForm, ReductionForm } from "./deputy-forms";
 import { DiagnosisView } from "./diagnosis";
 
 export const metadata: Metadata = { title: "Unterrichtsverteilung" };
 
-type Search = { ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string };
+type Search = { ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string };
 
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "UTC" });
@@ -81,6 +87,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   const teachersView = sp.ansicht === "lehrkraefte";
   const diagnoseView = sp.ansicht === "diagnose";
   const bandsView = sp.ansicht === "baender";
+  const limitsView = sp.ansicht === "tagesgrenzen";
   const report = diagnoseView ? await diagnoseYear(db, year, today, fallback, d) : null;
   const category = DIAGNOSIS_CATEGORIES.find((c): c is DiagnosisCategory => c === sp.kategorie);
   const group = d.groups.find((g) => g.id === sp.gruppe);
@@ -161,8 +168,8 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         </p>
       )}
       <nav aria-label="Ansicht" className="flex flex-wrap gap-2">
-        <Button asChild size="sm" variant={teachersView || diagnoseView || bandsView ? "ghost" : "secondary"}>
-          <Link href={href({})} aria-current={teachersView || diagnoseView || bandsView ? undefined : "page"}>
+        <Button asChild size="sm" variant={teachersView || diagnoseView || bandsView || limitsView ? "ghost" : "secondary"}>
+          <Link href={href({})} aria-current={teachersView || diagnoseView || bandsView || limitsView ? undefined : "page"}>
             Klassen & Kurse
           </Link>
         </Button>
@@ -176,6 +183,11 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
             Bänder
           </Link>
         </Button>
+        <Button asChild size="sm" variant={limitsView ? "secondary" : "ghost"}>
+          <Link href={href({ ansicht: "tagesgrenzen" })} aria-current={limitsView ? "page" : undefined}>
+            Tagesgrenzen
+          </Link>
+        </Button>
         <Button asChild size="sm" variant={diagnoseView ? "secondary" : "ghost"}>
           <Link href={href({ ansicht: "diagnose" })} aria-current={diagnoseView ? "page" : undefined}>
             Diagnose
@@ -186,7 +198,9 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         </Button>
       </nav>
       {form}
-      {bandsView ? (
+      {limitsView ? (
+        <LimitsView saved={sp.gespeichert} />
+      ) : bandsView ? (
         <BandsView d={d} bandParam={sp.band} />
       ) : report ? (
         <DiagnosisView report={report} category={category} refLabel={`Stand ${dateFmt.format(new Date(`${d.refYmd}T00:00:00Z`))}`} />
@@ -660,6 +674,59 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
             ))}
           </tbody>
         </Table>
+      )}
+    </section>
+  );
+}
+
+/**
+ * SP2-03: Tagesgrenzen und Ganztag je Jahrgang – höchstens n Stunden am Tag, Mittag nach der n-ten Stunde, höchstens n Nachmittage.
+ * Gilt für die Klassen des Jahrgangs (Kurse des Jahrgangs zählen mit); hart in Solver und Setzhilfe, geprüft in der Diagnose.
+ */
+async function LimitsView({ saved }: { saved?: string }) {
+  const db = await getDb();
+  const [grades, rules, periodRows, school] = await Promise.all([
+    classGrades(db),
+    listGradeRules(db),
+    db.select({ nr: periods.nr, startsAt: periods.startsAt, endsAt: periods.endsAt }).from(periods).orderBy(periods.nr),
+    readSchoolSettings(db),
+  ]);
+  const byGrade = new Map(rules.map((r) => [r.grade, r]));
+  const str = (n: number | null | undefined) => (n === null || n === undefined ? "" : String(n));
+  const rows = grades.map((grade) => {
+    const r = byGrade.get(grade);
+    const eff = r ? dayRuleFor(r, periodRows) : null;
+    const inGrid = r?.lunchAfterPeriod != null && eff?.lunchPeriod === null ? `Mittagspause im Zeitraster nach der ${r.lunchAfterPeriod}. Stunde` : null;
+    const effect = eff ? [ruleSummary(eff), inGrid].filter(Boolean).join(" · ") : "keine Grenzen";
+    return { grade, maxPerDay: str(r?.maxPerDay), afternoonsPerWeek: str(r?.afternoonsPerWeek), lunchAfterPeriod: str(r?.lunchAfterPeriod), effect };
+  });
+  return (
+    <section aria-labelledby="limits" className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="limits" className="font-display text-xl font-bold">
+          Tagesgrenzen und Ganztag
+        </h2>
+        <form action={applyGradeRuleDefaultsAction}>
+          <Button type="submit" variant="secondary">
+            Vorgaben der Schulform übernehmen
+          </Button>
+        </form>
+      </div>
+      <p className="-mt-2 text-sm text-muted">
+        Je Jahrgang für alle Klassen; Stunden der Kurse, Wahlpflicht- und Förderkurse des Jahrgangs zählen mit. Ist zwischen der Mittagsstunde und der nächsten Stunde
+        schon eine Pause von mindestens {LUNCH_MIN_MINUTES} Minuten im Zeitraster, liegt die Mittagspause dort; sonst bleibt die Stunde danach frei, sobald noch
+        Unterricht folgt. Nachmittag ist alles nach der Mittagspause. Leeres Feld = keine Grenze. Die automatische Planung und die Setzhilfe halten die Grenzen ein, die
+        Diagnose zeigt Verstöße im Plan. Vorgaben der Schulform ({formName(school.profile.form, school.profile.state)}) überschreiben die Werte aller Jahrgänge.
+      </p>
+      {saved && (
+        <p role="status" className="text-sm text-success">
+          {saved === "vorgaben" ? "Vorgaben der Schulform übernommen." : "Tagesgrenzen gespeichert."}
+        </p>
+      )}
+      {grades.length === 0 ? (
+        <EmptyState title="Noch keine Klassen mit Jahrgang">Tagesgrenzen gelten je Jahrgang – lege zuerst Klassen mit Jahrgangsstufe an.</EmptyState>
+      ) : (
+        <GradeRulesForm action={saveGradeRulesAction} rows={rows} periodCount={periodRows.length} />
       )}
     </section>
   );

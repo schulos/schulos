@@ -15,6 +15,7 @@ import {
   timetableDeputies,
   timetableDuties,
   timetableDutyAreas,
+  timetableGradeRules,
   timetableLessons,
   timetableReductions,
   timetableSubstitutions,
@@ -30,6 +31,8 @@ import { solve, validate } from "./solver";
 import { solverInputFromDb } from "./solver-input";
 import { proposedLessons, withCouplingIds } from "./solverlauf";
 import { planningYear } from "./verteilung";
+import { classGrades } from "./jahrgangsregeln";
+import { gradeRulesTemplate } from "@/core/school/templates";
 
 /** Doppelstunden in der Demo: Sport und Kunst (ab 2 Std.), Leistungskurse */
 const DOUBLE_SUBJECTS = new Set(["SP", "KU"]);
@@ -119,6 +122,13 @@ export async function seedStundenplan(db: Db, now = new Date()) {
   );
   await db.insert(timetableAssignmentGroups).values(rows.map((r) => ({ assignmentId: r.id, groupId: r.groupId })));
   await db.insert(timetableAssignmentTeachers).values(rows.map((r) => ({ assignmentId: r.id, teacherId: r.teacherId })));
+
+  // SP2-03: Tagesgrenzen/Ganztag aus dem Schulform-Katalog (Gesamtschule: 5/6 höchstens 7, sonst 8 Stunden, Mittag nach der 6.,
+  // höchstens 3 Nachmittage). Die Demo-Sperren unten (8. Stunde nie, 7. nur Mo/Di/Do) halten das ohnehin ein – der Plan bleibt gleich.
+  const periodCount = (await db.select({ nr: periods.nr }).from(periods)).length;
+  const gradeRules = gradeRulesTemplate("gesamtschule", await classGrades(db), periodCount);
+  if (gradeRules.length)
+    await db.insert(timetableGradeRules).values(gradeRules.map((r) => ({ gradeLevel: r.grade, maxPerDay: r.maxPerDay, afternoonsPerWeek: r.afternoonsPerWeek, lunchAfterPeriod: r.lunchAfterPeriod })));
 
   // Der Solver erzeugt den Plan
   const input = await solverInputFromDb(db, year, toBerlinDate(now), { seed: 1 });

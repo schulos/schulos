@@ -10,6 +10,8 @@ import { createLesson, defaultValidity, saveCoupling, slotsOverlap, suggestRoom,
 import type { LESSON_WEEKS } from "./schema";
 import { distribution, planningYear, type Assignment } from "./verteilung";
 import { allPrefs, blockedReasons } from "./zeitwuensche";
+import { dayLimitReasons, type DayLimits } from "./tagesgrenzen";
+import { loadDayLimits } from "./jahrgangsregeln";
 
 type Week = (typeof LESSON_WEEKS)[number];
 
@@ -76,6 +78,19 @@ function blockersAt(rows: UnitRow[], weekday: number, periodNr: number, lessons:
 
 const unique = (xs: string[]) => [...new Set(xs)];
 
+/** SP2-03: Tagesgrenzen der Klassen, die `rows` im Slot verletzten (Stunden aus `exclude` zählen nicht). */
+function limitReasons(input: Pick<GridInput, "dayLimits" | "lessons">, rows: Pick<UnitRow, "groupId">[], exclude: Set<string>, weekday: number, periodNr: number): string[] {
+  if (!input.dayLimits?.rules.size) return [];
+  const others = input.lessons.filter((l) => !exclude.has(l.id));
+  return dayLimitReasons(
+    input.dayLimits,
+    rows.map((r) => r.groupId),
+    others,
+    weekday,
+    [periodNr],
+  );
+}
+
 /** Ist ein Raum im Slot frei (für alle Zeilen)? */
 function roomFree(roomId: string, rows: UnitRow[], weekday: number, periodNr: number, lessons: GridLesson[], exclude: Set<string>) {
   return rows.every((row) => !lessons.some((l) => !exclude.has(l.id) && l.roomId === roomId && slotsOverlap(l, { ...row, weekday, periodNr })));
@@ -95,6 +110,8 @@ export interface GridInput {
   periods: number[];
   /** gesperrte Zeiten aus den Zeitwünschen (P2b-21): Gründe je Slot */
   blocked?: (weekday: number, periodNr: number) => string[];
+  /** SP2-03: Tagesgrenzen und Ganztag je Klasse (Kurse des Jahrgangs zählen mit) */
+  dayLimits?: DayLimits;
 }
 
 /** Freiraster: je Slot frei (mit Raum), tauschbar oder belegt mit Gründen. */
@@ -111,6 +128,8 @@ export function placementCell(input: GridInput, weekday: number, periodNr: numbe
   const hard = blockersAt(rows, weekday, periodNr, lessons, exclude, false);
   const prefBlocks = input.blocked?.(weekday, periodNr) ?? [];
   if (prefBlocks.length) return { state: "blocked", reasons: unique([...hard.map((b) => b.message), ...prefBlocks]) };
+  const limits = limitReasons(input, rows, exclude, weekday, periodNr);
+  if (limits.length) return { state: "blocked", reasons: unique([...hard.map((b) => b.message), ...limits]) };
   if (!hard.length) {
     // Räume je Teil: Wunschraum, sonst ein freier aktiver Raum derselben Art, sonst ohne Raum. Teile mit derselben Lehrkraft teilen
     // sich den Raum (eine Lehrkraft, mehrere Gruppen), ebenso Teile derselben Gruppe mit demselben Fach und Wunschraum (Teamteaching im
@@ -159,11 +178,12 @@ export function placementCell(input: GridInput, weekday: number, periodNr: numbe
       const both = new Set([...input.unitIds, ...partner.map((l) => l.id)]);
       const there = blockersAt(rows, weekday, periodNr, lessons, both, true);
       const back = blockersAt(partner, current.weekday, current.periodNr, lessons, both, true);
-      if (!there.length && !back.length) {
+      const swapLimits = [...limitReasons(input, rows, both, weekday, periodNr), ...limitReasons(input, partner, both, current.weekday, current.periodNr).map((r) => `Tausch: ${r}`)];
+      if (!there.length && !back.length && !swapLimits.length) {
         const first = partner[0]!;
         return { state: "swap", partnerIds: partner.map((l) => l.id), label: `${first.subjectName}${first.teacherCode ? ` (${first.teacherCode})` : ""}` };
       }
-      return { state: "blocked", reasons: [...unique([...hard, ...there].map((b) => b.message)), ...unique(back.map((b) => `Tausch: ${b.message}`))] };
+      return { state: "blocked", reasons: [...unique([...hard, ...there].map((b) => b.message)), ...unique(back.map((b) => `Tausch: ${b.message}`)), ...unique(swapLimits)] };
     }
   }
   return { state: "blocked", reasons };
@@ -242,6 +262,7 @@ export interface Placement {
   lessons: GridLesson[];
   rooms: { id: string; kind: string; active: boolean }[];
   blocked: (weekday: number, periodNr: number) => string[];
+  dayLimits: DayLimits;
 }
 
 /** Gesperrte Zeiten aller Beteiligten (Lehrkräfte, Gruppen, Räume, Fach) als Slot-Prüfung. */
@@ -274,7 +295,7 @@ export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssig
   }
   for (const r of rows) target("room", r.roomId, `Raum ${r.roomId}`);
   const blocked = await prefBlocker(db, [...targets.values()]);
-  return { rows, validity, lessons: await gridLessons(db, validity.validFrom, validity.validUntil), rooms: roomList, blocked };
+  return { rows, validity, lessons: await gridLessons(db, validity.validFrom, validity.validUntil), rooms: roomList, blocked, dayLimits: await loadDayLimits(db) };
 }
 
 const slotName = (weekday: number, periodNr: number) => `${["Mo", "Di", "Mi", "Do", "Fr"][weekday]} ${periodNr}. Stunde`;
@@ -301,6 +322,7 @@ export interface MoveUnit {
   unit: GridLesson[];
   rooms: { id: string; kind: string; active: boolean }[];
   blocked: (weekday: number, periodNr: number) => string[];
+  dayLimits?: DayLimits;
 }
 
 /** Die Stunde (bzw. ihre Kopplung) und alle Stunden, die sich mit ihrer Gültigkeit überschneiden. */
@@ -318,7 +340,7 @@ export async function movePlacement(db: Db, lessonId: string): Promise<MoveUnit 
     ...unit.map((u) => ({ kind: "room" as const, id: u.roomId, label: `Raum ${u.roomId}` })),
     ...unit.map((u) => ({ kind: "subject" as const, id: u.subjectId, label: u.subjectName })),
   ]);
-  return { lessons, unit, rooms: roomList, blocked };
+  return { lessons, unit, rooms: roomList, blocked, dayLimits: await loadDayLimits(db) };
 }
 
 export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number[], periods: number[]): GridInput {
@@ -333,6 +355,7 @@ export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number
     weekdays,
     periods,
     blocked: m.blocked,
+    dayLimits: m.dayLimits,
   };
 }
 

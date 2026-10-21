@@ -8,6 +8,8 @@ import { longBreaksAfter } from "./solver-check";
 import { distribution, planLessonsOn, type Distribution } from "./verteilung";
 import { allPrefs } from "./zeitwuensche";
 import { gridLessons, type GridLesson } from "./setzhilfe";
+import { listGradeRules } from "./jahrgangsregeln";
+import { dayRuleFor, type DayRule } from "./tagesgrenzen";
 
 export interface SolverInputOptions {
   /** Stunden, die bleiben, wo sie sind (fixiert); ihre Lehraufträge werden um diese Stunden gekürzt */
@@ -214,7 +216,7 @@ export async function solverInputFromDb(
   opts: SolverInputOptions = {},
 ): Promise<SolverInput & { check: InputCheck }> {
   const d = await distribution(db, year, todayYmd);
-  const [periodRows, roomRows, subjectRows, groupRows, memberRows, prefs, planned, grid] = await Promise.all([
+  const [periodRows, roomRows, subjectRows, groupRows, memberRows, prefs, planned, grid, gradeRules] = await Promise.all([
     db.select({ nr: periods.nr, startsAt: periods.startsAt, endsAt: periods.endsAt }).from(periods).orderBy(periods.nr),
     db.select({ id: rooms.id, kind: rooms.kind, capacity: rooms.capacity, active: rooms.active }).from(rooms),
     db.select({ id: subjects.id, name: subjects.name, roomKind: subjects.roomKind }).from(subjects),
@@ -228,12 +230,20 @@ export async function solverInputFromDb(
     allPrefs(db),
     planLessonsOn(db, d.refYmd),
     gridLessons(db, d.refYmd, d.refYmd),
+    listGradeRules(db),
   ]);
   const sizeOf = new Map<string, number>();
   for (const m of memberRows) sizeOf.set(m.groupId, (sizeOf.get(m.groupId) ?? 0) + 1);
   const classIds = new Set(groupRows.filter((g) => g.kind === "klasse").map((g) => g.id));
   // Jahrgang je Klasse und Kurs (SP2-02): Kurs-Stunden eines Jahrgangs zählen für dessen Klassen als belegt (wie in der Diagnose)
   const gradeOf = new Map(groupRows.filter((g) => g.gradeLevel !== null && BAND_KINDS.has(g.kind)).map((g) => [g.id, g.gradeLevel!]));
+  // SP2-03: Tagesgrenzen je Klasse aus der Regel ihres Jahrgangs, wirksam im Zeitraster (Mittagspause im Raster oder Mittagsstunde)
+  const ruleByGrade = new Map(gradeRules.map((r) => [r.grade, dayRuleFor(r, periodRows)] as const));
+  const dayRules = new Map<string, DayRule>();
+  for (const g of groupRows) {
+    const rule = g.kind === "klasse" && g.gradeLevel !== null ? ruleByGrade.get(g.gradeLevel) : undefined;
+    if (rule) dayRules.set(g.id, rule);
+  }
 
   // fixiert: ausdrücklich gewählte Stunden und (standardmäßig) Stunden ohne Lehrauftrag
   const fixedIds = new Set([...(opts.fixedLessonIds ?? []), ...grid.filter((l) => l.fixed).map((l) => l.id)]);
@@ -294,6 +304,7 @@ export async function solverInputFromDb(
     conflicts,
     classIds,
     gradeOf,
+    dayRules,
     names,
     seed: opts.seed,
     iterations: opts.iterations,

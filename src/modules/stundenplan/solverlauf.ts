@@ -536,8 +536,9 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
     await tick();
     input.weights = params.weights;
     const blockedSlots = [...input.prefs.values()].reduce((s, m) => s + [...m.values()].filter((v) => v === null).length, 0);
-    note("input", `Eingabe: ${input.units.length} Einheiten (${input.units.filter((u) => u.length === 2).length} Doppelstunden), ${input.fixed.length} fixierte Stunden, ${input.rooms.length} Räume, ${blockedSlots} gesperrte Zeiten, ${input.weekdays.length * input.periods.length} Slots${input.breakAfter?.length ? `, große Pause nach der ${input.breakAfter.map((p) => `${p}.`).join("/")} Stunde` : ""}`, {
+    note("input", `Eingabe: ${input.units.length} Einheiten (${input.units.filter((u) => u.length === 2).length} Doppelstunden), ${input.fixed.length} fixierte Stunden, ${input.rooms.length} Räume, ${blockedSlots} gesperrte Zeiten, ${input.weekdays.length * input.periods.length} Slots${input.breakAfter?.length ? `, große Pause nach der ${input.breakAfter.map((p) => `${p}.`).join("/")} Stunde` : ""}${input.dayRules?.size ? `, Tagesgrenzen für ${input.dayRules.size} ${input.dayRules.size === 1 ? "Klasse" : "Klassen"}` : ""}`, {
       units: input.units.length,
+      dayRules: input.dayRules?.size ?? 0,
       doubles: input.units.filter((u) => u.length === 2).length,
       fixed: input.fixed.length,
       rooms: input.rooms.length,

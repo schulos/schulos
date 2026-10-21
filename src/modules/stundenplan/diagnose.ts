@@ -1,5 +1,6 @@
 // Diagnose (P2b-13): prüft Plan und Unterrichtsverteilung auf offene Stunden, Hohlstunden, Fach mehrfach am Tag,
-// Stundentafel, ungeeignete Räume, Deputat über/unter Soll und Bänder (SP2-02: zur selben Zeit, gemeinsame Schüler:innen).
+// Stundentafel, ungeeignete Räume, Deputat über/unter Soll, Bänder (SP2-02: zur selben Zeit, gemeinsame Schüler:innen) und
+// Tagesgrenzen/Ganztag je Jahrgang (SP2-03).
 // Reine Prüflogik + Loader.
 import { and, count, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
@@ -13,8 +14,10 @@ import type { LESSON_WEEKS } from "./schema";
 import { longBreaksAfter } from "./solver-check";
 import { bandsWithSharedStudents, conflictsFrom } from "./solver-input";
 import { distribution, planningYear, PLANNED_GROUP_KINDS, type Distribution } from "./verteilung";
+import { loadDayLimits } from "./jahrgangsregeln";
+import { classWeek, dayProblems, isAfternoon, problemText, ruleSummary, weeklyCapacity, type DayLimits } from "./tagesgrenzen";
 
-export const DIAGNOSIS_CATEGORIES = ["open", "gaps", "subjectDay", "curriculum", "room", "deputy", "band"] as const;
+export const DIAGNOSIS_CATEGORIES = ["open", "gaps", "subjectDay", "curriculum", "room", "deputy", "band", "day"] as const;
 export type DiagnosisCategory = (typeof DIAGNOSIS_CATEGORIES)[number];
 
 export const DIAGNOSIS_LABELS: Record<DiagnosisCategory, string> = {
@@ -25,6 +28,7 @@ export const DIAGNOSIS_LABELS: Record<DiagnosisCategory, string> = {
   room: "Raum ungeeignet",
   deputy: "Deputat über/unter Soll",
   band: "Bänder",
+  day: "Tagesgrenzen",
 };
 
 /** error = muss behoben werden · warn = sollte geprüft werden · info = zur Kenntnis */
@@ -67,6 +71,8 @@ export interface DiagnoseInput {
   accounts: Pick<DeputyAccount, "id" | "code" | "name" | "target" | "assigned" | "balance">[];
   /** Gruppen mit gemeinsamen Schüler:innen (SP2-02: Band-Mitglieder, die parallel liegen, obwohl Schüler:innen in beiden sind) */
   conflicts?: Map<string, Set<string>>;
+  /** SP2-03: Tagesgrenzen und Ganztag je Klasse */
+  dayLimits?: DayLimits;
 }
 
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
@@ -306,6 +312,42 @@ export function diagnose(input: DiagnoseInput): Finding[] {
       });
   }
 
+  // ---------------------------------------------------------- Tagesgrenzen und Ganztag (SP2-03)
+  const lim = input.dayLimits;
+  if (lim?.rules.size) {
+    const classes = [...lim.rules.keys()].filter((c) => groupOf.has(c)).sort((a, b) => groupOf.get(a)!.name.localeCompare(groupOf.get(b)!.name, "de", { numeric: true }));
+    for (const c of classes) {
+      const rule = lim.rules.get(c)!;
+      const target = groupTarget(c);
+      const week = classWeek(lim, c, input.lessons);
+      for (const [wd, ps] of [...week].sort((a, b) => a[0] - b[0]))
+        for (const p of dayProblems(rule, ps))
+          out.push({
+            category: "day",
+            severity: "error",
+            target,
+            message: p === "max" ? `${WEEKDAYS[wd]}: ${hoursLabel(ps.size)} – ${problemText(rule, "max")}` : `${WEEKDAYS[wd]}: Unterricht in der Mittagsstunde und danach – ${problemText(rule, "lunch")}`,
+          });
+      const afternoons = [...week.values()].filter((ps) => isAfternoon(rule, ps)).length;
+      if (rule.afternoonsPerWeek !== null && afternoons > rule.afternoonsPerWeek)
+        out.push({ category: "day", severity: "error", target, message: `${afternoons} Tage mit Nachmittagsunterricht – ${problemText(rule, "afternoons")}` });
+      // Wochenstunden laut Verteilung (ein Band zählt einmal) gegen das, was die Grenzen erlauben
+      const bandsSeen = new Set<string>();
+      let hours = 0;
+      for (const a of input.distribution.assignments) {
+        if (!a.groups.some((g) => g.id === c)) continue;
+        if (a.bandId) {
+          if (bandsSeen.has(a.bandId)) continue;
+          bandsSeen.add(a.bandId);
+        }
+        hours += a.hours;
+      }
+      const cap = weeklyCapacity(rule, input.periods);
+      if (hours > cap)
+        out.push({ category: "day", severity: "warn", target, message: `${hoursLabel(hours)} je Woche verteilt, die Tagesgrenzen erlauben höchstens ${cap} (${ruleSummary(rule)})` });
+    }
+  }
+
   const rank: Record<Severity, number> = { error: 0, warn: 1, info: 2 };
   const catRank = new Map(DIAGNOSIS_CATEGORIES.map((c, i) => [c, i]));
   return out
@@ -330,7 +372,7 @@ export function countFindings(findings: Finding[]): DiagnosisReport["counts"] {
 export async function diagnoseYear(db: Db, year: { id: string; startsOn: string; endsOn: string }, todayYmd: string, fallbackObligation: number, pre?: Distribution): Promise<DiagnosisReport> {
   const d = pre ?? (await distribution(db, year, todayYmd));
   const ref = d.refYmd;
-  const [lessonRows, periodRows, subjectRows, roomRows, sizes, accounts] = await Promise.all([
+  const [lessonRows, periodRows, subjectRows, roomRows, sizes, accounts, dayLimits] = await Promise.all([
     db
       .select({
         id: timetableLessons.id,
@@ -350,6 +392,7 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
     db.select({ id: rooms.id, kind: rooms.kind, capacity: rooms.capacity, active: rooms.active }).from(rooms),
     db.select({ groupId: groupMembers.groupId, n: count() }).from(groupMembers).where(eq(groupMembers.role, "member")).groupBy(groupMembers.groupId),
     deputyAccounts(db, year.id, d.teachers, fallbackObligation),
+    loadDayLimits(db),
   ]);
   // Schüler:innen der Band-Gruppen (SP2-02): gemeinsame Mitglieder in zwei Mitgliedern eines Bands
   const assignmentOf = new Map(d.assignments.map((a) => [a.id, a]));
@@ -374,6 +417,7 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
     distribution: d,
     accounts,
     conflicts: conflictsFrom(students),
+    dayLimits,
   });
   return { refYmd: ref, findings, counts: countFindings(findings) };
 }
@@ -384,6 +428,6 @@ export async function groupPlanFindings(db: Db, groupId: string, todayYmd: strin
   if (!year) return [];
   const school = await readSchoolSettings(db);
   const { findings } = await diagnoseYear(db, year, todayYmd, defaultObligation(school.profile.form));
-  const plan = new Set<DiagnosisCategory>(["gaps", "subjectDay", "room"]);
+  const plan = new Set<DiagnosisCategory>(["gaps", "subjectDay", "room", "day"]);
   return findings.filter((f) => f.target.kind === "group" && f.target.id === groupId && plan.has(f.category));
 }
