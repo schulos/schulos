@@ -28,6 +28,36 @@ export function ObligationForm({ action, value, fallback }: { action: Action; va
   );
 }
 
+/** SP2-04: Tagesregel der Lehrkraft – beide Felder optional, leer = keine Grenze. */
+export function TeacherDayRuleForm({ action, maxPerDay, maxDays }: { action: Action; maxPerDay: string; maxDays: string }) {
+  const [state, formAction, pending] = useActionState(action, {});
+  const fe = state.fieldErrors ?? {};
+  const v = state.values ?? {};
+  return (
+    <form key={`${maxPerDay}|${maxDays}|${JSON.stringify(state.values ?? null)}`} action={formAction} aria-label="Tagesregel" className="flex flex-wrap items-end gap-3">
+      <Field label="Höchstens Stunden am Tag" hint="leer = keine Grenze" error={fe.maxPerDay} className="w-56">
+        <Input name="maxPerDay" type="number" min={1} max={20} step={1} defaultValue={v.maxPerDay ?? maxPerDay} />
+      </Field>
+      <Field label="Höchstens Anwesenheitstage" hint="je Woche, z. B. Teilzeit; leer = keine Grenze" error={fe.maxDays} className="w-64">
+        <Input name="maxDays" type="number" min={1} max={5} step={1} defaultValue={v.maxDays ?? maxDays} />
+      </Field>
+      <Button type="submit" disabled={pending}>
+        Tagesregel speichern
+      </Button>
+      {state.ok && (
+        <p role="status" className="text-sm text-success">
+          Gespeichert.
+        </p>
+      )}
+      {state.error && !Object.keys(fe).length && (
+        <p role="alert" className="text-sm text-danger">
+          {state.error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 export function ReductionForm({ action, reasons }: { action: Action; reasons: { value: string; label: string }[] }) {
   const [state, formAction, pending] = useActionState(action, {});
   const fe = state.fieldErrors ?? {};

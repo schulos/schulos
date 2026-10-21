@@ -91,6 +91,14 @@ export default defineModule({
       start: "school_year_id",
     },
     {
+      // SP2-04: Tagesregeln je Lehrkraft (Teilzeit) – Personaldaten wie das Deputat, ohne Grund
+      table: "timetable_teacher_day_rules",
+      purpose: "Deputat planen (Tagesregeln: Stunden je Tag, Anwesenheitstage)",
+      categories: ["Lehrkraft", "höchstens Stunden am Tag", "höchstens Anwesenheitstage"],
+      class: "LK-SJ-1J",
+      start: "school_year_id",
+    },
+    {
       table: "timetable_room_blocks",
       purpose: "Räume sperren (Renovierung, Prüfung) und Ausweichräume planen",
       categories: ["Raum", "Zeitraum", "Grund", "Ergänzung", "Eingetragen von"],

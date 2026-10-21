@@ -9,12 +9,15 @@
 // Zeitwünsche des Fachs und „Fach mehrfach am Tag“ gelten je Teil. Gruppen eines Bands mit gemeinsamen Schüler:innen dürfen parallel
 // liegen (Q-SP2-6 – die Diagnose warnt). Tagesgrenzen und Ganztag je Klasse (SP2-03): höchstens n Stunden am Tag, höchstens n
 // Nachmittage, Mittagsstunde frei bei Unterricht danach – Kurse des Jahrgangs zählen für die Klasse mit (`tagesgrenzen.ts`).
+// Tagesregeln je Lehrkraft (SP2-04): höchstens n Stunden am Tag, höchstens n Anwesenheitstage (hart, `lehrkraftregeln.ts`); weich
+// kosten Anwesenheitstage (`teacherDays`) und ein Fach an Folgetagen (`subjectSpread`) – beide mit Gewicht 0 in der Vorgabe.
 //
 // Verfahren: gierige Konstruktion (schwierigste Einheiten zuerst, je Einheit der günstigste zulässige Slot), danach
 // lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand). Beides läuft in Schritten, damit ein
 // Hintergrundlauf (solverlauf.ts) zwischendurch die Ereignisschleife freigibt.
 
 import { ruleSummary, type DayRule } from "./tagesgrenzen";
+import { teacherRuleSummary, type TeacherDayRule } from "./lehrkraftregeln";
 
 export interface SolverWeights {
   /** je Wunschpunkt (Zeitwunsch +3 spart 3 × pref, −3 kostet 3 × pref) */
@@ -29,9 +32,14 @@ export interface SolverWeights {
   /** je Stunde nach der `lateFrom`-ten */
   late: number;
   lateFrom: number;
+  /** SP2-04: je Anwesenheitstag einer Lehrkraft (weniger Tage mit Unterricht) */
+  teacherDays: number;
+  /** SP2-04 (SP-G-06): je vermeidbarem Folgetag, an dem eine Gruppe dasselbe Fach wieder hat (nicht an Folgetagen geballt) */
+  subjectSpread: number;
 }
 
-export const DEFAULT_WEIGHTS: SolverWeights = { pref: 2, teacherGap: 3, classGap: 10, subjectTwice: 8, roomWish: 4, noRoom: 20, late: 2, lateFrom: 6 };
+/** Vorgabe; `teacherDays`/`subjectSpread` = 0, damit Pläne ohne diese Wünsche gleich bleiben (SP2-04, Voreinstellungen in solverlauf.ts). */
+export const DEFAULT_WEIGHTS: SolverWeights = { pref: 2, teacherGap: 3, classGap: 10, subjectTwice: 8, roomWish: 4, noRoom: 20, late: 2, lateFrom: 6, teacherDays: 0, subjectSpread: 0 };
 
 export interface SolverRoom {
   id: string;
@@ -138,6 +146,8 @@ export interface SolverInput {
    * Klasse mit. Fehlt die Angabe, gibt es keine Tagesgrenzen.
    */
   dayRules?: Map<string, DayRule>;
+  /** SP2-04: Tagesregeln je Lehrkraft (höchstens Stunden am Tag, höchstens Anwesenheitstage). Fehlt die Angabe, gibt es keine. */
+  teacherRules?: Map<string, TeacherDayRule>;
   /** Anzeigenamen für Lehrkräfte, Gruppen und Fächer (Erklärungen); sonst die id */
   names?: Map<string, string>;
   /** Stunden, die bleiben (fixiert bzw. ohne Lehrauftrag) – nur für die Übernahme, der Solver selbst nutzt `fixed` */
@@ -184,7 +194,7 @@ function unitGroupSubjects(u: SolverUnit): { g: string; s: string }[] {
 }
 
 export interface CostItem {
-  category: "pref" | "teacherGap" | "classGap" | "subjectTwice" | "roomWish" | "noRoom" | "late";
+  category: "pref" | "teacherGap" | "classGap" | "subjectTwice" | "roomWish" | "noRoom" | "late" | "teacherDays" | "subjectSpread";
   cost: number;
   text: string;
 }
@@ -197,11 +207,13 @@ export const COST_LABELS: Record<CostItem["category"], string> = {
   roomWish: "Raumwunsch",
   noRoom: "ohne Raum",
   late: "späte Stunden",
+  teacherDays: "Anwesenheitstage Lehrkräfte",
+  subjectSpread: "Fach an Folgetagen",
 };
 
 /** Woran es bei einer nicht gesetzten Einheit hängt (SP-G-03): je Beteiligtem die Zahl der Slots, die für ihn allein frei wären. */
 export interface UnplacedCause {
-  kind: "teacher" | "group" | "conflict" | "subject" | "double" | "day";
+  kind: "teacher" | "group" | "conflict" | "subject" | "double" | "day" | "teacherDay";
   id: string | null;
   label: string;
   /** Slots, in denen dieser Beteiligte allein nichts im Weg hätte */
@@ -291,7 +303,9 @@ class State {
   private readonly classesByGrade = new Map<number, string[]>();
   readonly unitById: Map<string, SolverUnit>;
   /** je Einheit: Fächer und Paare Gruppe × Fach über alle Teile (einmal berechnet – `feasible` ist die heiße Schleife) */
-  private readonly meta = new Map<string, { subjects: string[]; gs: { g: string; s: string }[]; dayClasses: string[] }>();
+  private readonly meta = new Map<string, { subjects: string[]; gs: { g: string; s: string }[]; dayClasses: string[]; ruleTeachers: string[] }>();
+  /** SP2-04: Tagesregeln je Lehrkraft (leer = keine) */
+  private readonly teacherRules: Map<string, TeacherDayRule>;
   /** SP2-03: Tagesgrenzen je Klasse (leer = keine) */
   private readonly dayRules: Map<string, DayRule>;
   /** SP2-03: belegte Stunden je Klasse × Tag (inkl. Kurse des Jahrgangs) mit letzter Stunde – zwischengespeichert, beim Ändern verworfen */
@@ -304,8 +318,9 @@ class State {
     this.w = { ...DEFAULT_WEIGHTS, ...input.weights };
     this.unitById = new Map(input.units.map((u) => [u.id, u]));
     this.dayRules = input.dayRules ?? new Map();
+    this.teacherRules = input.teacherRules ?? new Map();
     for (const [g, grade] of input.gradeOf ?? []) if (input.classIds.has(g)) this.classesByGrade.set(grade, [...(this.classesByGrade.get(grade) ?? []), g]);
-    for (const u of input.units) this.meta.set(u.id, { subjects: unitSubjects(u), gs: unitGroupSubjects(u), dayClasses: this.dayClassesOf(u) });
+    for (const u of input.units) this.meta.set(u.id, { subjects: unitSubjects(u), gs: unitGroupSubjects(u), dayClasses: this.dayClassesOf(u), ruleTeachers: u.teacherIds.filter((t) => this.teacherRules.has(t)) });
     this.periodSet = new Set(input.periods);
     this.noDoubleAfter = new Set(input.breakAfter ?? []);
     for (const f of input.fixed) {
@@ -390,7 +405,35 @@ class State {
       }
       for (const s of subjects) if (this.blocked("subject", s, wd, p)) return false;
     }
-    return !this.dayBlocked(u, wd, span);
+    return !this.dayBlocked(u, wd, span) && !this.teacherBlocked(u, wd, span);
+  }
+
+  /**
+   * SP2-04: Welche Tagesregel der Lehrkraft verletzt `span` am Tag `wd` (mit allem, was schon liegt)? `null` = passt. Dieselben Regeln
+   * wie `teacherViolationsWith` (lehrkraftregeln.ts); monoton wie die Tagesgrenzen der Klassen.
+   */
+  teacherViolation(t: string, wd: number, span: readonly number[]): "max" | "days" | null {
+    const rule = this.teacherRules.get(t);
+    if (!rule) return null;
+    const day = this.teacherDay.get(`${t}|${wd}`) ?? [];
+    if (rule.maxPerDay !== null) {
+      // gekoppelte Stunden (mehrere Gruppen, eine Lehrkraft) stehen mehrfach im Tag – zählen einmal
+      const set = new Set(day);
+      for (const p of span) set.add(p);
+      if (set.size > rule.maxPerDay) return "max";
+    }
+    if (rule.maxDays !== null && !day.length) {
+      let n = 1;
+      for (const d of this.input.weekdays) if (d !== wd && (this.teacherDay.get(`${t}|${d}`)?.length ?? 0) > 0) n++;
+      if (n > rule.maxDays) return "days";
+    }
+    return null;
+  }
+
+  /** SP2-04: verletzt die Einheit im Slot die Tagesregel einer beteiligten Lehrkraft (bei Bändern: jeder Teil-Lehrkraft)? */
+  teacherBlocked(u: SolverUnit, wd: number, span: readonly number[]): boolean {
+    for (const t of this.meta.get(u.id)?.ruleTeachers ?? []) if (this.teacherViolation(t, wd, span)) return true;
+    return false;
   }
 
   /** SP2-03: Klassen mit Tagesgrenzen, die eine Einheit betrifft – die Klasse selbst bzw. bei Kursen die Klassen ihres Jahrgangs. */
@@ -522,6 +565,11 @@ class State {
     for (const c of this.meta.get(u.id)?.dayClasses ?? []) {
       const blocked = possible.filter((s) => this.dayViolation(c, s.wd, s.span!)).length;
       causes.push({ kind: "day", id: c, label: `Tagesgrenzen ${name(c)} (${ruleSummary(this.dayRules.get(c)!)})`, free: possible.length - blocked, of: possible.length, busy: 0, blocked });
+    }
+    // SP2-04: Tagesregeln je Lehrkraft – Slots, in denen die Lehrkraft (mit allem, was schon liegt) über ihre Regel käme
+    for (const t of this.meta.get(u.id)?.ruleTeachers ?? []) {
+      const blocked = possible.filter((s) => this.teacherViolation(t, s.wd, s.span!)).length;
+      causes.push({ kind: "teacherDay", id: t, label: `Tagesregel ${name(t)} (${teacherRuleSummary(this.teacherRules.get(t)!)})`, free: possible.length - blocked, of: possible.length, busy: 0, blocked });
     }
     return causes.sort((a, b) => a.free - b.free || a.label.localeCompare(b.label, "de"));
   }
@@ -681,7 +729,35 @@ class State {
   teacherDayCost(key: string, items?: CostItem[], label?: string): number {
     const h = this.teacherHoles(key);
     if (h && items) items.push({ category: "teacherGap", cost: h * this.w.teacherGap, text: `${label}: ${h} Hohlstunde${h > 1 ? "n" : ""}` });
-    return h * this.w.teacherGap;
+    // SP2-04: Anwesenheitstag (weich) – die Einzelposten stehen je Lehrkraft und Woche in total()
+    const present = this.w.teacherDays && (this.teacherDay.get(key)?.length ?? 0) > 0 ? this.w.teacherDays : 0;
+    return h * this.w.teacherGap + present;
+  }
+
+  /**
+   * SP2-04 (SP-G-06): Fach an Folgetagen – je Gruppe × Fach die Paare benachbarter Schultage, an denen beide das Fach haben, abzüglich
+   * der unvermeidbaren (n Tage mit dem Fach in D Schultagen: mindestens max(0, 2n − D − 1) Paare). Mit Gewicht 0 nicht gerechnet.
+   */
+  spreadCost(g: string, s: string, items?: CostItem[]): number {
+    const w = this.w.subjectSpread;
+    if (!w) return 0;
+    const days = this.input.weekdays;
+    let n = 0;
+    let pairs = 0;
+    let prev: number | null = null;
+    for (const wd of days) {
+      const has = (this.groupDay.get(`${g}|${wd}`) ?? []).some((x) => x.subjectId === s);
+      if (has) {
+        n++;
+        if (prev !== null && wd === prev + 1) pairs++;
+        prev = wd;
+      } else prev = null;
+    }
+    const extra = pairs - Math.max(0, 2 * n - days.length - 1);
+    if (extra <= 0) return 0;
+    const name = (id: string) => this.input.names?.get(id) ?? id;
+    items?.push({ category: "subjectSpread", cost: extra * w, text: `${name(g)}: ${name(s)} an ${extra} vermeidbaren Folgetag${extra > 1 ? "en" : ""}` });
+    return extra * w;
   }
 
   /** Hohlstunden einer Klasse an einem Tag; Kurs-Stunden des Jahrgangs (Kursband) zählen als belegt, wenn die Klasse an dem Tag Unterricht hat. */
@@ -745,6 +821,17 @@ class State {
       const p = this.place.get(u.id);
       if (p) c += this.unitCost(u, p);
     }
+    if (this.w.subjectSpread) {
+      // Fach an Folgetagen ist eine Wochen-Kostenart: je berührtem Paar Gruppe × Fach einmal (bei Bändern je Teil-Fach)
+      const seen = new Set<string>();
+      for (const u of units)
+        for (const x of this.groupSubjectsOf(u)) {
+          const k = `${x.g}|${x.s}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          c += this.spreadCost(x.g, x.s);
+        }
+    }
     return c;
   }
 
@@ -761,6 +848,24 @@ class State {
     for (const k of this.groupDay.keys()) {
       const [id, wd] = k.split("|");
       c += this.groupDayCost(k, items, labels?.("g", id!, Number(wd)));
+    }
+    // SP2-04: Anwesenheitstage – der Betrag steckt schon in teacherDayCost(), hier nur die Einzelposten je Lehrkraft und Woche
+    if (items && this.w.teacherDays) {
+      const perTeacher = new Map<string, number>();
+      for (const [k, ps] of this.teacherDay) {
+        const id = k.split("|")[0]!;
+        if (ps.length) perTeacher.set(id, (perTeacher.get(id) ?? 0) + 1);
+      }
+      for (const [id, n] of perTeacher)
+        items.push({ category: "teacherDays", cost: n * this.w.teacherDays, text: `${this.input.names?.get(id) ?? id}: ${n} Anwesenheitstag${n > 1 ? "e" : ""}` });
+    }
+    if (this.w.subjectSpread) {
+      const pairs = new Set<string>();
+      for (const [k, xs] of this.groupDay) for (const x of xs) pairs.add(`${k.split("|")[0]!}|${x.subjectId}`);
+      for (const k of pairs) {
+        const [g, s] = k.split("|");
+        c += this.spreadCost(g!, s!, items);
+      }
     }
     return c;
   }
@@ -854,8 +959,9 @@ export function createSolver(input: SolverInput) {
       )
         return null;
     }
-    // Tagesgrenzen (SP2-03): Verdrängen im selben Slot ändert die belegten Stunden des Tages nicht – hier hilft keine Reparatur
-    if (s.dayBlocked(u, wd, span)) return null;
+    // Tagesgrenzen (SP2-03) und Tagesregeln der Lehrkräfte (SP2-04): Verdrängen im selben Slot ändert die belegten Stunden des Tages
+    // nicht – hier hilft keine Reparatur
+    if (s.dayBlocked(u, wd, span) || s.teacherBlocked(u, wd, span)) return null;
     const related = (g: string) => [g, ...(input.conflicts.get(g) ?? [])];
     const groupsHit = new Set(u.groupIds.flatMap(related));
     const out: SolverUnit[] = [];

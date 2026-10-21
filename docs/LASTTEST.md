@@ -183,6 +183,14 @@ Neue Variante **„Tagesgrenzen“** (alle 42 Sek-I-Klassen höchstens 7 Stunden
 gesamt **0,71–0,72 s** allein bzw. bis 2,7 s als vierter Großlauf in derselben Datei (Speicherbereinigung nach drei Großläufen). Die Klassentage sind im
 Solver zwischengespeichert und werden nur beim Setzen/Entfernen einer Stunde der Klasse bzw. eines Kurses ihres Jahrgangs verworfen.
 
+**Nachmessung SP2-04 (2026-10-21, Tagesregeln je Lehrkraft, Fachverteilung):** ohne Regeln und mit den neuen Gewichten 0 ändert sich nichts – vor und
+nach der Änderung **dieselbe Lösung** (9 nicht gesetzt, Bewertung 2 163, 82 Verbesserungen in 40 000 Schritten, Hohlstunden 169/13; gesamt 0,70 → 0,69 s).
+Neue Variante **„Lehrkraft-Tagesregeln“** (die 24 Lehrkräfte mit höchstens 22 Wochenstunden höchstens 6 Stunden am Tag, die 3 mit höchstens 20 zusätzlich
+höchstens 4 Anwesenheitstage; Gewicht „Fach an Folgetagen“ 6): **14 nicht gesetzt** (= Grenzwert 1 %; Ursache je Einheit „Tagesregel …“ bzw. Kurskonflikte),
+Regeln eingehalten, Bewertung 3 283 (davon „Fach an Folgetagen“ 618), Konstruktion 0,28 s, gesamt **0,76 s** allein bzw. 2,2 s als fünfter Großlauf derselben
+Datei. Die synthetische Schule ist voll ausgelastet (~22–24 Std. je Lehrkraft): „höchstens 4 Tage“ für alle 24 ließ 27–32 Einheiten liegen – das ist der
+erwartbare Fall „Regel enger als der Auftrag“ (Vorprüfung und Diagnose warnen bei Lehraufträgen über der Wochenkapazität).
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:

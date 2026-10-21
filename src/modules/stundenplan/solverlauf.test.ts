@@ -479,7 +479,7 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     await h.db.delete(timetableSolverRuns);
     const year = (await planningYear(h.db))!;
     const now = new Date("2026-10-19T03:00:00Z");
-    const stored: StoredResult = { result: { placements: [], unplaced: [], score: 1, breakdown: { pref: 0, teacherGap: 0, classGap: 0, subjectTwice: 0, roomWish: 0, noRoom: 0, late: 0 }, items: [], stats: { units: 0, iterations: 0, improved: 0 }, gaps: { teacherTotal: 0, teacherMax: 0, classTotal: 0, classMax: 0 } }, units: [], keptLessonIds: [], refYmd: today };
+    const stored: StoredResult = { result: { placements: [], unplaced: [], score: 1, breakdown: { pref: 0, teacherGap: 0, classGap: 0, subjectTwice: 0, roomWish: 0, noRoom: 0, late: 0, teacherDays: 0, subjectSpread: 0 }, items: [], stats: { units: 0, iterations: 0, improved: 0 }, gaps: { teacherTotal: 0, teacherMax: 0, classTotal: 0, classMax: 0 } }, units: [], keptLessonIds: [], refYmd: today };
     const days = (n: number) => new Date(now.getTime() - n * 86_400_000);
     await h.db.insert(timetableSolverRuns).values([
       { id: "old-failed", schoolYearId: year.id, status: "failed", createdAt: days(8) },

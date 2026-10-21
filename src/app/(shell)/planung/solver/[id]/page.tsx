@@ -400,7 +400,8 @@ export default async function SolverRunPage({
               {categories.map((k) => (
                 <div key={k} className="flex items-center justify-between gap-2 rounded-card border border-border bg-surface px-4 py-3 text-sm">
                   <span>{COST_LABELS[k]}</span>
-                  <Badge tone={stored.result.breakdown[k] > 0 ? "warn" : stored.result.breakdown[k] < 0 ? "success" : "neutral"}>{stored.result.breakdown[k]}</Badge>
+                  {/* Läufe vor SP2-04 kennen „Anwesenheitstage“/„Fach an Folgetagen“ noch nicht */}
+                  <Badge tone={(stored.result.breakdown[k] ?? 0) > 0 ? "warn" : (stored.result.breakdown[k] ?? 0) < 0 ? "success" : "neutral"}>{stored.result.breakdown[k] ?? 0}</Badge>
                 </div>
               ))}
             </div>

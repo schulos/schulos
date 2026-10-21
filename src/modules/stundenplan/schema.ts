@@ -225,6 +225,30 @@ export const timetableDeputies = pgTable(
 );
 
 /**
+ * SP2-04 (SP-G-05): Tagesregeln je Lehrkraft und Schuljahr – höchstens n Stunden am Tag, höchstens n Anwesenheitstage in der Woche
+ * (Teilzeit). Hart im Solver und in der Setzhilfe, geprüft in der Diagnose. `null` = keine Grenze; ohne Grenze entfällt die Zeile.
+ * Personaldaten wie das Deputat (sieht/pflegt die Planung, die Lehrkraft sieht ihre eigene Regel).
+ */
+export const timetableTeacherDayRules = pgTable(
+  "timetable_teacher_day_rules",
+  {
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "cascade" }),
+    teacherId: text("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    maxPerDay: integer("max_per_day"),
+    maxDays: integer("max_days"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.schoolYearId, t.teacherId] }),
+    check("timetable_teacher_day_rules_max", sql`${t.maxPerDay} is null or ${t.maxPerDay} between 1 and 20`),
+    check("timetable_teacher_day_rules_days", sql`${t.maxDays} is null or ${t.maxDays} between 1 and 7`),
+  ],
+);
+
+/**
  * Gründe für Ermäßigungen/Anrechnungen – bewusst ohne Gesundheitsbezug (keine Schwerbehinderung o. Ä. als Grund,
  * dafür „sonstige Ermäßigung“). Neue Gründe nur hinten anfügen.
  */
