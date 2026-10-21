@@ -506,7 +506,7 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 | **SP2-03** ✅ | Tagesgrenzen und Ganztag je Jahrgangsstufe: `maxPerDay`, `afternoonsPerWeek`, `lunchAfterPeriod` (Mittagspause Pflicht bei Unterricht danach), Vorgaben aus dem Schulform-Katalog; hart im Solver, Diagnose-Kategorie | M | **ja** | GATE SP | SP-G-04b |
 | **SP2-04** ✅ | Lehrkraft-Tagesregeln und Fachverteilung: optional `maxPerDay`/`maxDays` je Lehrkraft (Deputats-Seite), weiche Kosten Anwesenheitstage; Kosten `subjectSpread` (nicht an Folgetagen geballt), Gewichte in den Voreinstellungen | S–M | **ja** | SP2-03 | SP-G-05, SP-G-06 |
 | **SP2-05** ✅ | Hohlstunden Oberstufe/Kursband im Solver (Jahrgang ohne Klasse) + Diagnose-Kategorie Zeitwünsche (gesperrt belegt = Fehler, −3/−2 = Warnung; Tausch in der Setzhilfe prüft Sperren) | S–M | **ja** | SP2-02 | SP-G-11, SP-G-12 |
-| **SP2-06** | CSV-Import der Unterrichtsverteilung (Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch]) mit Vorschau, Zuordnung über Kürzel, Fehlerliste und Trockenlauf; nur Lehraufträge, kein Plan | S | – | GATE SP | Q-SP-14 |
+| **SP2-06** ✅ | CSV-Import der Unterrichtsverteilung (Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch]) mit Vorschau, Zuordnung über Kürzel, Fehlerliste und Trockenlauf; nur Lehraufträge, kein Plan | S | – | GATE SP | Q-SP-14 |
 | **SP2-07** | Vertretung Stufe 2: Verlegung (Stunde auf einen Entfall-Slot vorziehen/tauschen), Zusammenlegung/Mitbetreuung (Gruppe geht zu Gruppe Y), Bereitschaft (Reserve je Slot, oben in den Vorschlägen); Anzeige/Gong/Monitor/Druck mitziehen | M | – | GATE SP | SP-G-08, Q-SP-15 |
 | **SP2-08** | Dauervertretung für den Zeitraum einer Abwesenheit (erzeugt Vertretungen für alle Tage) + Vertretungsbedarf im Wochenblick (nächste 5 Schultage) | S–M | – | SP2-07 | SP-G-09, SP-G-10 |
 | **SP2-09** | Lehrauftrag mit Gültigkeit (`valid_from/until`, Vorgabe Schuljahr; Verteilung und Solver am Stichtag, Übernahme bis `valid_until`) | M | teilw. | SP2-02 | SP-G-07 |
@@ -621,6 +621,23 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
   gesetzt. Variante „Lehrkraft-Tagesregeln“ läuft jetzt auf der Schule mit Schienen als Bändern (ohne Bänder lagen schon ohne Regeln 9–12 Kurse
   wegen Konfliktmengen offen, das Ergebnis schwankte je nach Gewicht zwischen 12 und 19 um die 1-%-Grenze) und ist dabei **strenger**: 17 statt 3
   Lehrkräfte mit höchstens 4 Tagen – 1 nicht gesetzt (Grenze 12).
+
+**Umgesetzt (SP2-06, ohne Migration, 2026-10-21) – CSV-Import der Unterrichtsverteilung (Q-SP-14):**
+- **Seite** `/planung/unterricht/import` (Knopf „CSV-Import“ in der Unterrichtsverteilung, Recht `stundenplan.manage`), Vorlage unter
+  `/api/stundenplan/verteilung-vorlage` (Kopfzeile + zwei Beispielzeilen mit Kürzeln der Schule, ohne Personennamen).
+- **Format** (`verteilung-import.ts`, `parseAssignmentCsv`): Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch; Band] – Kopfzeile
+  optional (Spaltennamen in beliebiger Reihenfolge, ohne Kopfzeile die Reihenfolge der Vorlage), Semikolon oder Komma, höchstens 512 KB/5 000 Zeilen.
+  Kodierung: gültiges UTF-8 (mit/ohne BOM), sonst Windows-1252 – neuer Helfer `decodeCsvBytes()` in `core/csv.ts` (die anderen Importe lesen bisher nur
+  UTF-8 und können ihn übernehmen).
+- **Zuordnung** (`planAssignmentImport`): Gruppe über Name/Slug (Klassen/Kurse/AG/WP/Förderkurse des Schuljahrs, nicht archiviert), Fach über Kürzel/Name,
+  Lehrkraft über Kürzel/Namen (aktive Lehrkräfte, zwei mit „/“ oder „+“), Raum über Kürzel/Name (aktiv); mehrdeutige Namen sind ein Fehler.
+  Gleiche Prüfregeln wie beim Anlegen von Hand (1–12 Std., Doppelstunden ≤ Hälfte, ≤ 2 Lehrkräfte); doppelte Zeilen in der Datei sind ein Fehler.
+- **Vorhandene Lehraufträge**: passt Gruppe + Fach + eine Lehrkraft (bzw. beide ohne), wird der Auftrag geändert (Stunden, Lehrkräfte; Doppelstunden/Raum
+  nur, wenn die Spalte gefüllt ist) – Vorschau zeigt „ändern“ mit den Änderungen bzw. „unverändert“. Nichts wird gelöscht.
+- **Bänder**: Spalte „Band“ = Name eines vorhandenen Bands (Stunden/Doppelstunden müssen zum Band passen) oder eines neuen (alle Zeilen mit denselben
+  Stunden; wird angelegt). Ein Lehrauftrag im Band bleibt darin – ohne Band-Spalte müssen die Stunden zum Band passen, ein anderes Band ist ein Fehler.
+- **Übernehmen** plant serverseitig neu und schreibt nur ohne Fehler, alles in einer Transaktion; Audit `stundenplan.assignment.csv_import` mit Anzahlen.
+- Tests: `verteilung-import.test.ts`, `csv.test.ts`, E2E `unterricht-import.spec.ts` mit Beispieldatei `e2e/fixtures/unterrichtsverteilung.csv` (Windows-1252).
 
 **Übergabe für den Rest des Blocks (nach SP2-05):**
 - **SP2-09 (Lehrauftrag mit Gültigkeit):** `unitsFrom()`/`solverInputFromDb()` filtern Lehraufträge am Stichtag; `gradeOf` bleibt aus

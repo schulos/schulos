@@ -66,6 +66,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "stundenplan.lesson.create": "Stunde angelegt",
   "stundenplan.lesson.update": "Stunde geändert",
   "stundenplan.lesson.delete": "Stunde gelöscht",
+  "stundenplan.assignment.csv_import": "Unterrichtsverteilung aus CSV importiert",
   "stundenplan.band.create": "Band angelegt",
   "stundenplan.band.update": "Band geändert",
   "stundenplan.band.delete": "Band gelöscht",

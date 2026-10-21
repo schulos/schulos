@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Plus, Wand2 } from "lucide-react";
+import { ArrowLeft, Plus, Upload, Wand2 } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
@@ -152,6 +152,11 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
                 </Button>
               </form>
             )}
+            <Button asChild>
+              <Link href="/planung/unterricht/import">
+                <Upload aria-hidden /> CSV-Import
+              </Link>
+            </Button>
             <Button asChild variant="primary">
               <Link href={href({ ...current, neu: "1" })}>
                 <Plus aria-hidden /> Lehrauftrag anlegen

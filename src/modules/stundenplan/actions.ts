@@ -33,6 +33,8 @@ import {
   type AssignmentInput,
   type BandInput,
 } from "./verteilung";
+import { executeAssignmentImport, MAX_ASSIGNMENT_CSV_BYTES, planAssignmentImport, type ImportOutcome, type ImportPreview } from "./verteilung-import";
+import { decodeCsvBytes, type CsvEncoding } from "@/core/csv";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
 
@@ -311,6 +313,48 @@ export async function importAssignmentsAction(): Promise<void> {
   const n = year ? await assignmentsFromTimetable(db, user.id, year, toBerlinDate(new Date())) : 0;
   revalidatePath("/planung/unterricht");
   redirect(`/planung/unterricht?uebernommen=${n}`);
+}
+
+// ---------------------------------------------------------------- CSV-Import der Unterrichtsverteilung (SP2-06)
+
+export interface AssignmentImportState {
+  preview?: ImportPreview;
+  /** gelesener Dateiinhalt – geht mit „Übernehmen“ zurück und wird dort neu geprüft */
+  text?: string;
+  encoding?: CsvEncoding;
+  error?: string;
+  done?: ImportOutcome;
+}
+
+/** Schritt 1: Datei lesen (UTF-8 oder Windows-1252) und prüfen – nichts wird gespeichert. */
+export async function previewAssignmentCsvAction(_prev: AssignmentImportState, form: FormData): Promise<AssignmentImportState> {
+  await requirePermission("stundenplan.manage");
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Bitte eine CSV-Datei wählen" };
+  if (file.size > MAX_ASSIGNMENT_CSV_BYTES) return { error: "Datei zu groß (höchstens 512 KB)" };
+  const db = await getDb();
+  const year = await planningYear(db);
+  if (!year) return { error: "Kein Schuljahr angelegt" };
+  const { text, encoding } = decodeCsvBytes(new Uint8Array(await file.arrayBuffer()));
+  const plan = await planAssignmentImport(db, year, text);
+  return { preview: plan.preview, text, encoding };
+}
+
+/** Schritt 2: plant serverseitig NEU (der Vorschau aus dem Browser wird nicht vertraut) und übernimmt nur ohne Fehler – ganz oder gar nicht. */
+export async function runAssignmentCsvAction(_prev: AssignmentImportState, form: FormData): Promise<AssignmentImportState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const text = String(form.get("text") ?? "");
+  const encoding = form.get("encoding") === "cp1252" ? "cp1252" : "utf8";
+  if (!text || text.length > MAX_ASSIGNMENT_CSV_BYTES) return { error: "Datei fehlt oder ist zu groß – bitte neu wählen" };
+  const db = await getDb();
+  const year = await planningYear(db);
+  if (!year) return { error: "Kein Schuljahr angelegt" };
+  const plan = await planAssignmentImport(db, year, text);
+  if (!plan.preview.ok) return { preview: plan.preview, text, encoding, error: "Die Datei hat Fehler bzw. nichts zu übernehmen – nichts übernommen" };
+  const done = await executeAssignmentImport(db, user.id, year, plan);
+  revalidatePath("/planung/unterricht");
+  revalidatePath("/planung");
+  return { done };
 }
 
 // ---------------------------------------------------------------- Deputate
