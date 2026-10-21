@@ -210,3 +210,33 @@ test("Zeitwünsche: Raster für eine Lehrkraft speichern, gesperrt bleibt erhalt
   await expect(page.getByRole("link", { name: /WAG – Sophie Wagner.*2 gesperrt.*4 Felder/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("SP2-03: Tagesgrenzen je Jahrgang pflegen – Vorgaben der Demo, Prüfung, speichern; Diagnose mit eigener Kategorie", async ({ page }) => {
+  const errors = collectErrors(page);
+  await login(page, "frank.schulte");
+  await page.goto("/planung/unterricht?ansicht=tagesgrenzen");
+  await expect(page.getByRole("heading", { name: "Tagesgrenzen und Ganztag", level: 2 })).toBeVisible();
+  // Demo: Vorgaben der Gesamtschule, Mittagspause liegt im Zeitraster
+  await expect(page.getByLabel("Jahrgang 7: Stunden je Tag höchstens")).toHaveValue("8");
+  await expect(page.getByLabel("Jahrgang 5: Stunden je Tag höchstens")).toHaveValue("7");
+  await expect(page.getByLabel("Jahrgang 7: Mittag nach der … Stunde")).toHaveValue("6");
+  await expect(page.getByLabel("Jahrgang 7: Nachmittage je Woche höchstens")).toHaveValue("3");
+  await expect(page.getByRole("row").filter({ has: page.getByRole("rowheader", { name: "7", exact: true }) })).toContainText("Mittagspause im Zeitraster nach der 6. Stunde");
+  const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"]).analyze();
+  expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+
+  // Nachmittage ohne Mittagsangabe → Fehler, Eingaben bleiben
+  await page.getByLabel("Jahrgang 7: Mittag nach der … Stunde").fill("");
+  await page.getByRole("button", { name: "Tagesgrenzen speichern" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Jahrgang 7: Nachmittage brauchen" })).toBeVisible();
+  await expect(page.getByLabel("Jahrgang 7: Nachmittage je Woche höchstens")).toHaveValue("3");
+  await page.getByLabel("Jahrgang 7: Mittag nach der … Stunde").fill("6");
+  await page.getByRole("button", { name: "Tagesgrenzen speichern" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Tagesgrenzen gespeichert." })).toBeVisible();
+  await expect(page.getByLabel("Jahrgang 7: Mittag nach der … Stunde")).toHaveValue("6");
+
+  // Diagnose: eigene Kategorie, Demo-Plan ohne Verstoß
+  await page.goto("/planung/unterricht?ansicht=diagnose&kategorie=day");
+  await expect(page.getByText("Tagesgrenzen: alles in Ordnung")).toBeVisible();
+  expect(errors).toEqual([]);
+});

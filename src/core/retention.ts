@@ -252,6 +252,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   grants: "Rechte an Rollen oder Gruppen, nie an Personen",
   booking_resources: "Buchbare Räume und Geräte",
   timetable_duty_areas: "Aufsichtsbereiche (Name, Reihenfolge)",
+  timetable_grade_rules: "Tagesgrenzen und Ganztag je Jahrgangsstufe (SP2-03: Stunden je Tag, Nachmittage, Mittag) – keine Personen",
   system_jobs: "Hintergrundjobs: Name, Sperre, Zeitpunkt und Ergebnis des letzten Laufs",
   pinnwaende_columns: "Spalten einer Pinnwand (Titel, Reihenfolge) – gelöscht mit der Pinnwand",
   anmeldung_slots: "Gesprächstermine eines Anmeldeverfahrens (Zeit, Raum, Plätze) – keine Personen; Buchungen stehen am Antrag",

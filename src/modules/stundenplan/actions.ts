@@ -19,6 +19,7 @@ import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
 import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
 import { deleteSubstitution, publishDay, saveSubstitution, type SubstitutionInput } from "./vertretung";
 import { addReduction, deleteReduction, setObligation } from "./deputate";
+import { applyGradeRuleDefaults, classGrades, saveGradeRules } from "./jahrgangsregeln";
 import {
   assignmentsFromTimetable,
   createAssignment,
@@ -687,4 +688,35 @@ export async function toggleFixedAction(lessonId: string, groupId: string, fixed
   await setFixed(await getDb(), user.id, lessonId, fixed);
   revalidatePath("/planung/stundenplan");
   redirect(pageOf(groupId, stand));
+}
+
+// ---------------------------------------------------------------- Tagesgrenzen und Ganztag (SP2-03)
+
+const limitsPage = (saved?: string) => `/planung/unterricht?ansicht=tagesgrenzen${saved ? `&gespeichert=${saved}` : ""}`;
+
+/** Speichert die Tagesgrenzen aller Jahrgänge mit Klassen (leeres Feld = keine Grenze). */
+export async function saveGradeRulesAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const optInt = (k: string) => {
+    const v = String(form.get(k) ?? "").trim();
+    return v === "" ? null : Number(v);
+  };
+  const rules = (await classGrades(db)).map((grade) => ({ grade, maxPerDay: optInt(`max_${grade}`), afternoonsPerWeek: optInt(`pm_${grade}`), lunchAfterPeriod: optInt(`lunch_${grade}`) }));
+  try {
+    await saveGradeRules(db, user.id, rules);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/unterricht");
+  redirect(limitsPage("1"));
+}
+
+/** Übernimmt die Vorgaben der Schulform (Katalog) für alle Jahrgänge mit Klassen. */
+export async function applyGradeRuleDefaultsAction(): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await applyGradeRuleDefaults(await getDb(), user.id);
+  revalidatePath("/planung/unterricht");
+  redirect(limitsPage("vorgaben"));
 }

@@ -7,11 +7,14 @@
 // Räume werden je Teil einer Einheit vergeben (SP-G-02): eine geteilte Klasse mit zwei Lehrkräften bekommt zwei Räume.
 // Bänder (SP2-02): eine Einheit mit einem Teil je Mitglied – eigenes Fach, eigene Lehrkraft, eigener Raum je Teil; Fachsperren,
 // Zeitwünsche des Fachs und „Fach mehrfach am Tag“ gelten je Teil. Gruppen eines Bands mit gemeinsamen Schüler:innen dürfen parallel
-// liegen (Q-SP2-6 – die Diagnose warnt).
+// liegen (Q-SP2-6 – die Diagnose warnt). Tagesgrenzen und Ganztag je Klasse (SP2-03): höchstens n Stunden am Tag, höchstens n
+// Nachmittage, Mittagsstunde frei bei Unterricht danach – Kurse des Jahrgangs zählen für die Klasse mit (`tagesgrenzen.ts`).
 //
 // Verfahren: gierige Konstruktion (schwierigste Einheiten zuerst, je Einheit der günstigste zulässige Slot), danach
 // lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand). Beides läuft in Schritten, damit ein
 // Hintergrundlauf (solverlauf.ts) zwischendurch die Ereignisschleife freigibt.
+
+import { ruleSummary, type DayRule } from "./tagesgrenzen";
 
 export interface SolverWeights {
   /** je Wunschpunkt (Zeitwunsch +3 spart 3 × pref, −3 kostet 3 × pref) */
@@ -130,6 +133,11 @@ export interface SolverInput {
   weights?: Partial<SolverWeights>;
   seed?: number;
   iterations?: number;
+  /**
+   * SP2-03: Tagesgrenzen je Klasse (aus der Regel ihres Jahrgangs). Stunden der Kurse desselben Jahrgangs (`gradeOf`) zählen für die
+   * Klasse mit. Fehlt die Angabe, gibt es keine Tagesgrenzen.
+   */
+  dayRules?: Map<string, DayRule>;
   /** Anzeigenamen für Lehrkräfte, Gruppen und Fächer (Erklärungen); sonst die id */
   names?: Map<string, string>;
   /** Stunden, die bleiben (fixiert bzw. ohne Lehrauftrag) – nur für die Übernahme, der Solver selbst nutzt `fixed` */
@@ -193,7 +201,7 @@ export const COST_LABELS: Record<CostItem["category"], string> = {
 
 /** Woran es bei einer nicht gesetzten Einheit hängt (SP-G-03): je Beteiligtem die Zahl der Slots, die für ihn allein frei wären. */
 export interface UnplacedCause {
-  kind: "teacher" | "group" | "conflict" | "subject" | "double";
+  kind: "teacher" | "group" | "conflict" | "subject" | "double" | "day";
   id: string | null;
   label: string;
   /** Slots, in denen dieser Beteiligte allein nichts im Weg hätte */
@@ -283,7 +291,11 @@ class State {
   private readonly classesByGrade = new Map<number, string[]>();
   readonly unitById: Map<string, SolverUnit>;
   /** je Einheit: Fächer und Paare Gruppe × Fach über alle Teile (einmal berechnet – `feasible` ist die heiße Schleife) */
-  private readonly meta = new Map<string, { subjects: string[]; gs: { g: string; s: string }[] }>();
+  private readonly meta = new Map<string, { subjects: string[]; gs: { g: string; s: string }[]; dayClasses: string[] }>();
+  /** SP2-03: Tagesgrenzen je Klasse (leer = keine) */
+  private readonly dayRules: Map<string, DayRule>;
+  /** SP2-03: belegte Stunden je Klasse × Tag (inkl. Kurse des Jahrgangs) mit letzter Stunde – zwischengespeichert, beim Ändern verworfen */
+  private readonly dayCache = new Map<string, { set: Set<number>; max: number }>();
   readonly periodSet: Set<number>;
   /** nach diesen Stunden beginnt keine Doppelstunde (große Pause) */
   readonly noDoubleAfter: Set<number>;
@@ -291,8 +303,9 @@ class State {
   constructor(readonly input: SolverInput) {
     this.w = { ...DEFAULT_WEIGHTS, ...input.weights };
     this.unitById = new Map(input.units.map((u) => [u.id, u]));
-    for (const u of input.units) this.meta.set(u.id, { subjects: unitSubjects(u), gs: unitGroupSubjects(u) });
+    this.dayRules = input.dayRules ?? new Map();
     for (const [g, grade] of input.gradeOf ?? []) if (input.classIds.has(g)) this.classesByGrade.set(grade, [...(this.classesByGrade.get(grade) ?? []), g]);
+    for (const u of input.units) this.meta.set(u.id, { subjects: unitSubjects(u), gs: unitGroupSubjects(u), dayClasses: this.dayClassesOf(u) });
     this.periodSet = new Set(input.periods);
     this.noDoubleAfter = new Set(input.breakAfter ?? []);
     for (const f of input.fixed) {
@@ -325,13 +338,22 @@ class State {
   private courseGrade(g: string): number | undefined {
     return this.input.classIds.has(g) ? undefined : this.input.gradeOf?.get(g);
   }
+  /** verwirft zwischengespeicherte Klassentage, die eine Stunde der Gruppe berührt (die Klasse bzw. die Klassen des Kurs-Jahrgangs) */
+  private dropDays(g: string, wd: number) {
+    if (!this.dayRules.size) return;
+    this.dayCache.delete(`${g}|${wd}`);
+    const grade = this.courseGrade(g);
+    if (grade !== undefined) for (const c of this.classesByGrade.get(grade) ?? []) this.dayCache.delete(`${c}|${wd}`);
+  }
   private addGroupDay(g: string, wd: number, nr: number, subjectId: string) {
+    this.dropDays(g, wd);
     const k = `${g}|${wd}`;
     this.groupDay.set(k, [...(this.groupDay.get(k) ?? []), { nr, subjectId }]);
     const grade = this.courseGrade(g);
     if (grade !== undefined) this.addDay(this.gradeDay, `${grade}|${wd}`, nr);
   }
   private removeGroupDay(g: string, wd: number, nr: number, subjectId: string) {
+    this.dropDays(g, wd);
     const arr = this.groupDay.get(`${g}|${wd}`) ?? [];
     const i = arr.findIndex((x) => x.nr === nr && x.subjectId === subjectId);
     if (i >= 0) arr.splice(i, 1);
@@ -354,7 +376,7 @@ class State {
 
   /**
    * Harte Regeln ohne Raum: Lehrkräfte/Gruppen frei, keine Konfliktgruppe parallel, nichts gesperrt (Fächer je Teil). Gruppen
-   * derselben Einheit (Band) zählen nicht als Konflikt untereinander (Q-SP2-6).
+   * derselben Einheit (Band) zählen nicht als Konflikt untereinander (Q-SP2-6). Tagesgrenzen der betroffenen Klassen (SP2-03) zuletzt.
    */
   feasible(u: SolverUnit, wd: number, nr: number): boolean {
     const span = this.span(u, nr);
@@ -368,7 +390,71 @@ class State {
       }
       for (const s of subjects) if (this.blocked("subject", s, wd, p)) return false;
     }
-    return true;
+    return !this.dayBlocked(u, wd, span);
+  }
+
+  /** SP2-03: Klassen mit Tagesgrenzen, die eine Einheit betrifft – die Klasse selbst bzw. bei Kursen die Klassen ihres Jahrgangs. */
+  private dayClassesOf(u: SolverUnit): string[] {
+    if (!this.dayRules.size) return [];
+    const out = new Set<string>();
+    for (const g of u.groupIds) {
+      if (this.dayRules.has(g)) out.add(g);
+      const grade = this.courseGrade(g);
+      if (grade !== undefined) for (const c of this.classesByGrade.get(grade) ?? []) if (this.dayRules.has(c)) out.add(c);
+    }
+    return [...out];
+  }
+
+  /** Belegte Stunden einer Klasse am Tag: eigene und die der Kurse ihres Jahrgangs (SP2-02) – nicht verändern (Zwischenspeicher). */
+  private classDay(classId: string, wd: number): { set: Set<number>; max: number } {
+    const k = `${classId}|${wd}`;
+    let v = this.dayCache.get(k);
+    if (!v) {
+      const set = new Set<number>();
+      for (const x of this.groupDay.get(k) ?? []) set.add(x.nr);
+      const grade = this.input.gradeOf?.get(classId);
+      if (grade !== undefined) for (const nr of this.gradeDay.get(`${grade}|${wd}`) ?? []) set.add(nr);
+      let max = 0;
+      for (const p of set) if (p > max) max = p;
+      v = { set, max };
+      this.dayCache.set(k, v);
+    }
+    return v;
+  }
+
+  /**
+   * SP2-03: Welche Tagesgrenze der Klasse verletzt `span` am Tag `wd` (mit allem, was schon liegt)? `null` = passt. Alle Regeln sind
+   * monoton – wegnehmen verletzt nie etwas, deshalb genügt die Prüfung beim Hinzufügen.
+   */
+  dayViolation(classId: string, wd: number, span: readonly number[]): "max" | "lunch" | "afternoons" | null {
+    const rule = this.dayRules.get(classId);
+    if (!rule) return null;
+    // dieselben Regeln wie `dayProblems`/`violationsWith` (tagesgrenzen.ts), ohne Kopien – `feasible` ist die heiße Schleife
+    const day = this.classDay(classId, wd);
+    const lunch = rule.lunchPeriod;
+    let size = day.set.size;
+    let max = day.max;
+    let hasLunch = lunch !== null && day.set.has(lunch);
+    for (const p of span) {
+      if (!day.set.has(p)) size++;
+      if (p > max) max = p;
+      if (p === lunch) hasLunch = true;
+    }
+    if (rule.maxPerDay !== null && size > rule.maxPerDay) return "max";
+    if (hasLunch && max > lunch!) return "lunch";
+    const from = rule.afternoonFrom;
+    if (rule.afternoonsPerWeek !== null && from !== null && day.max < from && max >= from) {
+      let n = 1;
+      for (const d of this.input.weekdays) if (d !== wd && this.classDay(classId, d).max >= from) n++;
+      if (n > rule.afternoonsPerWeek) return "afternoons";
+    }
+    return null;
+  }
+
+  /** SP2-03: verletzt die Einheit im Slot eine Tagesgrenze einer betroffenen Klasse? */
+  dayBlocked(u: SolverUnit, wd: number, span: readonly number[]): boolean {
+    for (const c of this.meta.get(u.id)?.dayClasses ?? []) if (this.dayViolation(c, wd, span)) return true;
+    return false;
   }
 
   blocked(kind: string, id: string, wd: number, nr: number) {
@@ -432,6 +518,11 @@ class State {
           () => false,
           (wd, p) => this.blocked("subject", s, wd, p),
         );
+    // SP2-03: Tagesgrenzen je betroffener Klasse – Slots, in denen die Klasse (mit allem, was schon liegt) eine Grenze überschritte
+    for (const c of this.meta.get(u.id)?.dayClasses ?? []) {
+      const blocked = possible.filter((s) => this.dayViolation(c, s.wd, s.span!)).length;
+      causes.push({ kind: "day", id: c, label: `Tagesgrenzen ${name(c)} (${ruleSummary(this.dayRules.get(c)!)})`, free: possible.length - blocked, of: possible.length, busy: 0, blocked });
+    }
     return causes.sort((a, b) => a.free - b.free || a.label.localeCompare(b.label, "de"));
   }
 
@@ -763,6 +854,8 @@ export function createSolver(input: SolverInput) {
       )
         return null;
     }
+    // Tagesgrenzen (SP2-03): Verdrängen im selben Slot ändert die belegten Stunden des Tages nicht – hier hilft keine Reparatur
+    if (s.dayBlocked(u, wd, span)) return null;
     const related = (g: string) => [g, ...(input.conflicts.get(g) ?? [])];
     const groupsHit = new Set(u.groupIds.flatMap(related));
     const out: SolverUnit[] = [];
