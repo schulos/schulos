@@ -54,11 +54,20 @@ export function SubstitutionForm({
   const v = { ...initial, ...state.values };
   const [kind, setKind] = useState(v.kind || "substitute");
   const [subjectId, setSubjectId] = useState(v.subjectId || regularSubjectId);
+  // key: nach dem Speichern liefert der Server neue Werte → Formular neu aufbauen (React setzt es sonst auf alte Vorgaben zurück).
+  // Art und Fach sind Zustand dieser Komponente, nicht des Formulars – die setzt der key nicht zurück; z. B. stand nach
+  // „Lehrkraft mit eigenem Fach übernehmen“ weiter das reguläre Fach im Feld, und Speichern hätte den Fachtausch aufgehoben
+  const formKey = JSON.stringify([initial, state.values ?? null]);
+  const [seenKey, setSeenKey] = useState(formKey);
+  if (seenKey !== formKey) {
+    setSeenKey(formKey);
+    setKind(v.kind || "substitute");
+    setSubjectId(v.subjectId || regularSubjectId);
+  }
   const exam = kind === "substitute" ? exams.find((e) => e.subjectId === subjectId) : undefined;
   const fe = state.fieldErrors ?? {};
-  // key: nach dem Speichern liefert der Server neue Werte → Formular neu aufbauen (React setzt es sonst auf alte Vorgaben zurück)
   return (
-    <form key={JSON.stringify([initial, state.values ?? null])} action={formAction} aria-label={label} className="grid gap-3 sm:grid-cols-[10rem_1fr_11rem_9rem] lg:grid-cols-[10rem_1fr_11rem_9rem_1fr_auto] lg:items-end">
+    <form key={formKey} action={formAction} aria-label={label} className="grid gap-3 sm:grid-cols-[10rem_1fr_11rem_9rem] lg:grid-cols-[10rem_1fr_11rem_9rem_1fr_auto] lg:items-end">
       <input type="hidden" name="lessonId" value={lessonId} />
       <input type="hidden" name="date" value={date} />
       <Field label="Art" error={fe.kind}>
