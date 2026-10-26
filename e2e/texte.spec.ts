@@ -124,3 +124,44 @@ test("P3-11: Modul ausgeschaltet → Seite, Druckansicht und API antworten mit 4
   }
   expect((await page.goto("/texte"))?.status()).toBe(200);
 });
+
+// TD-06: Tab schließen mit noch nicht bestätigten Änderungen fragt nach; mit bestätigtem Stand nicht.
+test("TD-06: Texte-Editor warnt beim Schließen nur bei unbestätigten Änderungen", async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  const dialogs: string[] = [];
+  page.on("dialog", (d) => {
+    dialogs.push(d.type());
+    void d.dismiss();
+  });
+  try {
+    await login(page, "jana.brandt");
+    await page.goto("/texte/text-7b-regeln");
+    const box = page.getByRole("textbox", { name: "Textinhalt" });
+    await expect(box).toContainText("Unsere Klassenregeln");
+    await expect(page.getByRole("status").filter({ hasText: "Gespeichert" })).toBeVisible();
+
+    // Updates sperren (auch den keepalive-Versand beim Schließen), dann tippen
+    await ctx.route("**/api/texte/*/update", (r) => r.abort());
+    await caretToEnd(page, box, "Regel für den Pausenhof");
+    await page.keyboard.type("nur lokal");
+    await expect(page.getByRole("status").filter({ hasText: "Keine Verbindung" })).toBeVisible();
+    await Promise.all([page.waitForEvent("dialog", { timeout: 5000 }), page.close({ runBeforeUnload: true })]);
+    expect(dialogs).toEqual(["beforeunload"]);
+    expect(page.isClosed()).toBe(false); // Rückfrage abgelehnt → Tab bleibt offen
+
+    // Ohne Änderung kein Dialog
+    dialogs.length = 0;
+    const clean = await ctx.newPage();
+    clean.on("dialog", (d) => {
+      dialogs.push(d.type());
+      void d.dismiss();
+    });
+    await clean.goto("/texte/text-7b-regeln");
+    await expect(clean.getByRole("status").filter({ hasText: "Gespeichert" })).toBeVisible();
+    await clean.close({ runBeforeUnload: true });
+    expect(dialogs).toEqual([]);
+  } finally {
+    await ctx.close();
+  }
+});
