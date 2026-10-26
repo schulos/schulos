@@ -17,6 +17,8 @@ export default defineModule({
     "stundenplan.substitute": "Vertretungen planen (Vertretungen, Abwesenheiten, Veröffentlichen, Raumsperren, Aufsichtsvertretung)",
     // I-26: Fortbildung/dienstliche Abwesenheit, die eine Lehrkraft selbst meldet, genehmigt die Schulleitung
     "stundenplan.absence_approve": "Selbst gemeldete Abwesenheiten von Lehrkräften genehmigen (Fortbildung, dienstlich – Schulleitung)",
+    // SP2-12: Fachbedarf und Prognose lesen – nur Zahlen je Fach, keine Namen (Schulleitung); Details und Pflege bleiben bei `manage`
+    "stundenplan.forecast_view": "Fachbedarf einsehen (Bedarf, Versorgung und Prognose je Fach – nur Summen, keine Namen)",
   },
   // SP-02 (Q-SP-3): keine Rollen-Vorgabe mehr – geplant wird über die Funktionsgruppe „Stundenplanung“ (Migration 0088 legt sie an).
   // Bestehende Installationen behalten ihren Grant `verwaltung → stundenplan.manage` (grants.synced merkt sich das Paar).
@@ -32,7 +34,7 @@ export default defineModule({
     // Q5-10: eigene Zeitwünsche, im Eingabefenster der Planung selbst eintragen
     { href: "/stundenplan/zeitwuensche", label: "Zeitwünsche", icon: "CalendarCheck", roles: ["lehrkraft"] },
     // SP-03: eigener Bereich für die Planung (Jahresplanung und Tagesgeschäft) – nicht mehr unter Verwaltung
-    { href: "/planung", label: "Stundenplanung", icon: "CalendarCog", requires: ["stundenplan.manage", "stundenplan.substitute"] },
+    { href: "/planung", label: "Stundenplanung", icon: "CalendarCog", requires: ["stundenplan.manage", "stundenplan.substitute", "stundenplan.forecast_view"] },
   ],
   settings: STUNDENPLAN_SETTINGS,
   retention: [
@@ -48,7 +50,7 @@ export default defineModule({
     {
       table: "timetable_substitutions",
       purpose: "Vertretungen und Ausfälle bekanntgeben",
-      categories: ["Stunde", "Datum", "Vertretungslehrkraft", "Raum", "Hinweis", "Eingetragen von"],
+      categories: ["Stunde", "Datum", "Vertretungslehrkraft", "Raum", "Hinweis", "Verlegt in Stunde", "Zusammengelegt mit Stunde", "Eingetragen von"],
       class: "LK-SJ-1J",
       start: "date",
     },
@@ -63,6 +65,14 @@ export default defineModule({
       table: "timetable_assignments",
       purpose: "Unterricht verteilen (Lehraufträge)",
       categories: ["Fach", "Wochenstunden", "Raumwunsch", "Hinweis"],
+      class: "LK-SJ-1J",
+      start: "school_year_id",
+    },
+    {
+      // SP2-01: Bänder bündeln Lehraufträge zur selben Zeit; ohne Personenbezug (Name wie „Religion/Philosophie 7“), Löschung wie die Lehraufträge
+      table: "timetable_bands",
+      purpose: "Unterricht verteilen (Bänder: Lehraufträge zur selben Zeit)",
+      categories: ["Name des Bands", "Wochenstunden"],
       class: "LK-SJ-1J",
       start: "school_year_id",
     },
@@ -81,6 +91,32 @@ export default defineModule({
       categories: ["Lehrkraft", "Grund (feste Liste, ohne Gesundheitsbezug)", "Stunden", "Ergänzung"],
       class: "LK-SJ-1J",
       start: "school_year_id",
+    },
+    {
+      // SP2-04: Tagesregeln je Lehrkraft (Teilzeit) – Personaldaten wie das Deputat, ohne Grund
+      table: "timetable_teacher_day_rules",
+      purpose: "Deputat planen (Tagesregeln: Stunden je Tag, Anwesenheitstage)",
+      categories: ["Lehrkraft", "höchstens Stunden am Tag", "höchstens Anwesenheitstage"],
+      class: "LK-SJ-1J",
+      start: "school_year_id",
+    },
+    {
+      // SP2-12: Lehrfächer (Fakultas) – Stammdatum der Lehrkraft ohne Schuljahr, geht mit dem Konto
+      table: "timetable_teacher_subjects",
+      purpose: "Unterricht verteilen und Fachbedarf planen (Lehrfächer je Lehrkraft)",
+      categories: ["Lehrkraft", "Lehrfach"],
+      class: "LK-KONTO",
+      start: "teacher_id",
+      note: "sieht die Planung (Verteilung, Fachbedarf, Vorschläge bei der Zuweisung und für Vertretungen); die Schulleitung mit „Fachbedarf einsehen“ nur die Zahl der Lehrkräfte je Fach",
+    },
+    {
+      // SP2-12: Prognose – Abgang (Lehrkraft, Datum, Stunden) bzw. Zugang (Fächer, Datum, Stunden), ohne Begründung
+      table: "timetable_staff_changes",
+      purpose: "Fachbedarf des nächsten Schuljahres prognostizieren (bekannte Abgänge und Zugänge)",
+      categories: ["Lehrkraft (nur Abgang)", "ab Datum", "Stunden", "Fächer (nur Zugang)", "Eingetragen von"],
+      class: "LK-ENDE-1J",
+      start: "effective_on",
+      note: "ohne Begründung (kein Ruhestand, keine Elternzeit o. Ä.); Abgänge sieht nur die Planung (`stundenplan.manage`), die Schulleitung nur Summen je Fach; ein Jahr nach dem Datum gelöscht, mit dem Konto sofort",
     },
     {
       table: "timetable_room_blocks",
@@ -112,6 +148,14 @@ export default defineModule({
       start: "school_year_id",
     },
     {
+      // SP2-07: Bereitschaft (Vertretungsreserve) – Personaldienst wie der Aufsichtsplan, nur für die Vertretungsplanung sichtbar
+      table: "timetable_standby",
+      purpose: "Vertretungen planen (Bereitschaften je Stunde)",
+      categories: ["Lehrkraft", "Wochentag", "Stunde", "Eingetragen von"],
+      class: "LK-SJ-1J",
+      start: "school_year_id",
+    },
+    {
       table: "timetable_time_prefs",
       purpose: "Stundenplan nach Zeitwünschen planen (Lehrkraft, Klasse, Raum, Fach)",
       categories: ["Lehrkraft/Gruppe/Raum/Fach", "Wochentag", "Stunde", "Wunsch −3 … +3 oder gesperrt"],
@@ -136,11 +180,11 @@ export default defineModule({
         "Protokoll (Kürzel, Gruppen)",
         "Gestartet von",
         "Übernommen von",
-        "Rücknahme-Daten (beendete und entfernte Stunden mit Lehrkraft, nur bis zum Stichtag)",
+        "Rücknahme-Daten (beendete und entfernte Stunden mit Lehrkraft, entfallene Vertretungen, nur bis zum Stichtag)",
       ],
       class: "LK-90",
       start: "created_at",
-      note: "SP-06: Nachtjob löscht fehlgeschlagene/abgebrochene Läufe ohne Ergebnis nach 7 Tagen und entfernt bei älteren fertigen Läufen (je Schuljahr ab dem 21.) den Vorschlag; die Herkunft `solver_run_id` an Stunden wird mit dem Lauf leer, die Stunden bleiben. SP-09: Rücknahme-Daten einer Übernahme (`undo`) bleiben nur bis zum Stichtag – der Nachtjob leert sie ab dem Stichtag, „Übernahme zurücknehmen“ sofort",
+      note: "SP-06: Nachtjob löscht fehlgeschlagene/abgebrochene Läufe ohne Ergebnis nach 7 Tagen und entfernt bei älteren fertigen Läufen (je Schuljahr ab dem 21.) den Vorschlag; die Herkunft `solver_run_id` an Stunden wird mit dem Lauf leer, die Stunden bleiben. SP-09/SP-13: Rücknahme-Daten einer Übernahme (`undo`, inkl. der dabei entfernten Vertretungen) bleiben nur bis zum Stichtag – der Nachtjob leert sie ab dem Stichtag, „Übernahme zurücknehmen“ sofort",
     },
     {
       table: "timetable_duty_changes",
@@ -159,6 +203,6 @@ export default defineModule({
       "Stundenplanung und Schulleitung (Deputate, Zeitwünsche, Abwesenheiten)",
       "die jeweilige Lehrkraft selbst (eigenes Deputat, eigene Vertretungsstunden und Aufsichten)",
     ],
-    note: "Automatische Stundenplanung (Solver-Läufe): Planvorschläge, Parameter, Kennzahlen und Protokoll sieht nur die Stundenplanung (`stundenplan.manage`), sie sind Entwürfe ohne Außenwirkung (90 Tage, ältere Vorschläge und gescheiterte Läufe räumt ein Nachtjob früher ab); erst die Übernahme ab einem Stichtag schreibt Stunden in den Plan, die Rücknahme-Daten dazu bleiben nur bis zu diesem Stichtag. Eine Vertretung kann ein abweichendes Fach nennen („Mathe statt Sport“, nur die Bezeichnung des Fachs, kein weiterer Personenbezug). Abwesenheiten von Lehrkräften werden ohne Grund gespeichert; Deputate und Zeitwünsche sieht nur die Planung – und die Lehrkraft ihre eigenen Zahlen und Wünsche (ohne Vergleich mit anderen); Zeitwünsche tragen Lehrkräfte im Eingabefenster der Planung selbst ein, die Planung sieht, wer abgegeben hat. Vertretungen von Pausenaufsichten melden einen Gong an die vertretende und die eingeteilte Lehrkraft. Im Modus „erst nach Freigabe“ sehen nur die Planung Änderungen eines Tages im Entwurf; alle anderen sehen den veröffentlichten Stand. Vertretungen und Entfall melden (sofort bzw. beim Veröffentlichen) einen Gong je Person und Tag an Schüler:innen, Lehrkräfte und – nach Moduleinstellung bis Jahrgang, nie in der Oberstufe – an Eltern (mit Name der Vertretungslehrkraft, ohne Grund für die Abwesenheit einer Lehrkraft und ohne die Notiz der Planung – die sehen nur Schüler:innen und Lehrkräfte).",
+    note: "Automatische Stundenplanung (Solver-Läufe): Planvorschläge, Parameter, Kennzahlen und Protokoll sieht nur die Stundenplanung (`stundenplan.manage`), sie sind Entwürfe ohne Außenwirkung (90 Tage, ältere Vorschläge und gescheiterte Läufe räumt ein Nachtjob früher ab); erst die Übernahme ab einem Stichtag schreibt Stunden in den Plan, die Rücknahme-Daten dazu bleiben nur bis zu diesem Stichtag. Eine Vertretung kann ein abweichendes Fach nennen („Mathe statt Sport“, nur die Bezeichnung des Fachs, kein weiterer Personenbezug). Abwesenheiten von Lehrkräften werden ohne Grund gespeichert; Deputate und Zeitwünsche sieht nur die Planung – und die Lehrkraft ihre eigenen Zahlen und Wünsche (ohne Vergleich mit anderen); Zeitwünsche tragen Lehrkräfte im Eingabefenster der Planung selbst ein, die Planung sieht, wer abgegeben hat. Bereitschaften (Vertretungsreserve je Stunde) sind Personaldienst und nur für die Vertretungsplanung sichtbar; Verlegung (Stunde rückt am selben Tag auf eine andere Stunde) und Zusammenlegung (Gruppe geht zu einer anderen Stunde, deren Lehrkraft mitbetreut) erscheinen wie Vertretungen im Vertretungsplan, die mitbetreuende Lehrkraft bekommt den Gong. Vertretungen von Pausenaufsichten melden einen Gong an die vertretende und die eingeteilte Lehrkraft. Im Modus „erst nach Freigabe“ sehen nur die Planung Änderungen eines Tages im Entwurf; alle anderen sehen den veröffentlichten Stand. Vertretungen und Entfall melden (sofort bzw. beim Veröffentlichen) einen Gong je Person und Tag an Schüler:innen, Lehrkräfte und – nach Moduleinstellung bis Jahrgang, nie in der Oberstufe – an Eltern (mit Name der Vertretungslehrkraft, ohne Grund für die Abwesenheit einer Lehrkraft und ohne die Notiz der Planung – die sehen nur Schüler:innen und Lehrkräfte).",
   },
 });

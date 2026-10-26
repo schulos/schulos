@@ -13,6 +13,8 @@ interface SchoolSpec {
   studentsPerGrade: number;
   /** SP-G-02: Sport in der Sek I als geteilte Klasse mit zwei Lehrkräften (zwei Teile, zwei Räume je Stunde) */
   splitSport?: boolean;
+  /** SP2-02: Oberstufenkurse je Schiene als Band – eine Einheit je Stunde mit einem Teil je Kurs (eigenes Fach, Lehrkraft, Raum) */
+  bands?: boolean;
 }
 
 /** Stundentafel Sek I (vereinfacht, 31 Stunden): Fach → [Stunden, Doppelstunden, Raumart] */
@@ -80,15 +82,38 @@ export function syntheticSchool(spec: SchoolSpec, seed = 11): SolverInput {
   addRooms("musik", 2, 30);
   addRooms("technik", 2, 20);
   let a = 0;
-  const push = (group: string[], subject: string, hours: number, doubles: number, roomKind: string | null, homeRoom: string | null, size: number) => {
-    const assignmentId = `a${++a}`;
+  const pushUnits = (idPrefix: string, hours: number, doubles: number, common: Omit<SolverUnit, "id" | "length">) => {
+    const d = Math.min(doubles, Math.floor(hours / 2));
+    for (let i = 0; i < d; i++) units.push({ ...common, id: `${idPrefix}#d${i}`, length: 2 });
+    for (let i = 0; i < hours - 2 * d; i++) units.push({ ...common, id: `${idPrefix}#e${i}`, length: 1 });
+  };
+  const partsFor = (assignmentId: string, group: string[], subject: string, hours: number, roomKind: string | null, homeRoom: string | null, size: number) => {
     const teacherIds = spec.splitSport && subject === "SP" && homeRoom ? [teacherFor(subject, hours), teacherFor(subject, hours)] : [teacherFor(subject, hours)];
     const need = { assignmentId, groupIds: group, subjectId: subject, roomId: null, roomKind, homeRoomId: homeRoom };
     const parts: UnitPart[] = teacherIds.length > 1 ? teacherIds.map((t) => ({ ...need, teacherIds: [t], size: Math.ceil(size / teacherIds.length) })) : [{ ...need, teacherIds, size }];
-    const common = { ...need, teacherIds, size, label: `${group.join("+")} ${subject}`, parts };
-    const d = Math.min(doubles, Math.floor(hours / 2));
-    for (let i = 0; i < d; i++) units.push({ ...common, id: `${assignmentId}#d${i}`, length: 2 });
-    for (let i = 0; i < hours - 2 * d; i++) units.push({ ...common, id: `${assignmentId}#e${i}`, length: 1 });
+    return { need, teacherIds, parts };
+  };
+  const push = (group: string[], subject: string, hours: number, doubles: number, roomKind: string | null, homeRoom: string | null, size: number) => {
+    const assignmentId = `a${++a}`;
+    const { need, teacherIds, parts } = partsFor(assignmentId, group, subject, hours, roomKind, homeRoom, size);
+    pushUnits(assignmentId, hours, doubles, { ...need, teacherIds, size, label: `${group.join("+")} ${subject}`, parts });
+  };
+  /** SP2-02: ein Band aus mehreren Kursen (gleiche Stundenzahl) – ein Teil je Kurs */
+  const pushBand = (bandId: string, members: { group: string; subject: string; roomKind: string | null }[], hours: number, doubles: number, size: number) => {
+    const parts = members.flatMap((m) => partsFor(`a${++a}`, [m.group], m.subject, hours, m.roomKind, null, size).parts);
+    const first = parts[0]!;
+    pushUnits(bandId, hours, doubles, {
+      assignmentId: first.assignmentId,
+      label: `${bandId}: ${members.map((m) => `${m.group} ${m.subject}`).join(" + ")}`,
+      groupIds: parts.flatMap((p) => p.groupIds),
+      teacherIds: [...new Set(parts.flatMap((p) => p.teacherIds))],
+      subjectId: first.subjectId,
+      roomId: null,
+      roomKind: parts.find((p) => p.roomKind)?.roomKind ?? null,
+      homeRoomId: null,
+      size: size * members.length,
+      parts,
+    });
   };
   // Sek I: Klassen mit Stammraum, Jahrgänge 5–8 nur bis zur 7. Stunde (Sperrzeiten), 9–10 bis zur 8.
   const prefs: SolverInput["prefs"] = new Map();
@@ -114,14 +139,21 @@ export function syntheticSchool(spec: SchoolSpec, seed = 11): SolverInput {
   const perBand = 4;
   for (const grade of ["EF", "Q1", "Q2"]) {
     const bands: string[][] = [];
+    const pending: { group: string; subject: string; roomKind: string | null }[][] = [];
     for (let k = 0; k < spec.coursesPerGrade; k++) {
       const [subject, hours, doubles, kind] = OBERSTUFE[k % OBERSTUFE.length]!;
       const id = `${grade}-${subject}${Math.floor(k / OBERSTUFE.length) + 1}`;
       names.set(id, id);
-      push([id], subject, hours, doubles, kind, null, 20);
       const band = Math.floor(k / perBand);
       (bands[band] ??= []).push(id);
+      // mit Bändern: Schienen aus 3-Stunden-Kursen werden eine Einheit je Stunde (Sport mit 2 Stunden bleibt einzeln)
+      if (spec.bands && hours === 3) (pending[band] ??= []).push({ group: id, subject, roomKind: kind });
+      else push([id], subject, hours, doubles, kind, null, 20);
     }
+    pending.forEach((members, b) => {
+      if (members.length > 1) pushBand(`${grade}-S${b + 1}`, members, 3, 1, 20);
+      else for (const m of members) push([m.group], m.subject, 3, 1, m.roomKind, null, 20);
+    });
     for (let s = 0; s < spec.studentsPerGrade; s++) {
       const chosenBands = new Set<number>();
       while (chosenBands.size < Math.min(8, bands.length)) chosenBands.add(Math.floor(random() * bands.length));
@@ -208,6 +240,147 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     expect(twoRooms).toBe(placed.length);
     expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(r.breakdown.noRoom).toBe(0);
+    expect(ms).toBeLessThan(120_000);
+  }, 300_000);
+
+  it("SP2-02: dieselbe Schule mit Oberstufen-Schienen als Bänder (vier Kurse je Einheit, eigenes Fach/Lehrkraft/Raum je Teil) – gültig, zusammen gesetzt", () => {
+    const input = syntheticSchool({ zuege: 7, coursesPerGrade: 40, studentsPerGrade: 130, bands: true });
+    const bandUnits = input.units.filter((u) => u.parts.length > 1);
+    // 3 Jahrgänge × 10 Schienen × (eine Doppel- + eine Einzelstunde); Schienen mit Sport (2 Std.) haben einen Kurs weniger im Band
+    expect(bandUnits.length).toBe(3 * 10 * 2);
+    expect(bandUnits.every((u) => u.parts.length >= 3 && new Set(u.parts.map((p) => p.subjectId)).size === u.parts.length)).toBe(true);
+    const t0 = performance.now();
+    const r = solve(input);
+    const ms = performance.now() - t0;
+    expect(validate(input, r.placements)).toEqual([]);
+    const ids = new Set(bandUnits.map((u) => u.id));
+    const placed = r.placements.filter((p) => ids.has(p.unitId));
+    const distinctRooms = placed.filter((p) => p.roomIds && new Set(p.roomIds).size === p.roomIds.length).length;
+    console.log(`[benchmark] bands ${JSON.stringify({ units: input.units.length, bandUnits: bandUnits.length, placedBands: placed.length, distinctRooms, totalMs: Math.round(ms), unplaced: r.unplaced.length, score: r.score, breakdown: r.breakdown, gaps: r.gaps })}`);
+    for (const u of r.unplaced) console.log(`[benchmark] nicht gesetzt: ${u.label} – ${u.reason}`);
+    // jede gesetzte Band-Stunde hat je Teil einen eigenen Raum
+    expect(distinctRooms).toBe(placed.length);
+    expect(r.breakdown.noRoom).toBe(0);
+    expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
+    expect(ms).toBeLessThan(120_000);
+  }, 300_000);
+
+  it("SP2-05: dieselbe Schule mit Schienen als Bänder und Jahrgang je Oberstufenkurs – Hohlstunden je Jahrgang über das Kursband gezählt und gesenkt", () => {
+    const base = syntheticSchool({ zuege: 7, coursesPerGrade: 40, studentsPerGrade: 130, bands: true });
+    const gradeNr: Record<string, number> = { EF: 11, Q1: 12, Q2: 13 };
+    const gradeOf = new Map([...new Set(base.units.flatMap((u) => u.groupIds))].filter((g) => g.includes("-")).map((g) => [g, gradeNr[g.split("-")[0]!]!]));
+    expect(new Set(gradeOf.values()).size).toBe(3);
+    /** Hohlstunden je Jahrgang: Lücken zwischen den Kurs-Stunden des Jahrgangs am Tag (Union über alle Kurse) */
+    const gradeHoles = (input: SolverInput, placements: { unitId: string; weekday: number; periodNr: number }[]) => {
+      const byId = new Map(input.units.map((u) => [u.id, u]));
+      const day = new Map<string, Set<number>>();
+      for (const p of placements) {
+        const u = byId.get(p.unitId)!;
+        for (const grade of new Set(u.groupIds.map((g) => gradeOf.get(g)).filter((x) => x !== undefined))) {
+          const k = `${grade}|${p.weekday}`;
+          if (!day.has(k)) day.set(k, new Set());
+          for (let i = 0; i < u.length; i++) day.get(k)!.add(p.periodNr + i);
+        }
+      }
+      let n = 0;
+      for (const s of day.values()) {
+        const min = Math.min(...s);
+        const max = Math.max(...s);
+        n += input.periods.filter((x) => x > min && x < max && !s.has(x)).length;
+      }
+      return n;
+    };
+    const before = solve(base);
+    const input = { ...base, gradeOf };
+    const t0 = performance.now();
+    const r = solve(input);
+    const ms = performance.now() - t0;
+    expect(validate(input, r.placements)).toEqual([]);
+    const holesBefore = gradeHoles(input, before.placements);
+    const holesAfter = gradeHoles(input, r.placements);
+    console.log(`[benchmark] oberstufe ${JSON.stringify({ units: input.units.length, totalMs: Math.round(ms), unplaced: r.unplaced.length, unplacedBefore: before.unplaced.length, score: r.score, holesBefore, holesAfter, breakdown: r.breakdown, gaps: r.gaps })}`);
+    for (const u of r.unplaced) console.log(`[benchmark] nicht gesetzt: ${u.label} – ${u.reason}`);
+    // die Kennzahl zählt die Jahrgänge wie Klassen; der Solver senkt ihre Hohlstunden
+    expect(r.gaps.classTotal).toBeGreaterThanOrEqual(holesAfter);
+    expect(holesAfter).toBeLessThan(holesBefore);
+    expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
+    expect(ms).toBeLessThan(120_000);
+  }, 300_000);
+
+  it("SP2-03: dieselbe Schule mit Tagesgrenzen (höchstens 7 Stunden am Tag, höchstens 3 Nachmittage ab der 7. Stunde) – gültig, Grenzen eingehalten", () => {
+    const input = syntheticSchool({ zuege: 7, coursesPerGrade: 40, studentsPerGrade: 130 });
+    const rule = { maxPerDay: 7, afternoonsPerWeek: 3, lunchPeriod: null, afternoonFrom: 7 };
+    input.dayRules = new Map([...input.classIds].map((c) => [c, rule]));
+    const t0 = performance.now();
+    const solver = createSolver(input);
+    solver.construct();
+    const constructMs = performance.now() - t0;
+    solver.improve(Number.POSITIVE_INFINITY);
+    const r = solver.result();
+    const ms = performance.now() - t0;
+    expect(validate(input, r.placements)).toEqual([]);
+    const byId = new Map(input.units.map((u) => [u.id, u]));
+    const day = new Map<string, Set<number>>();
+    for (const p of r.placements)
+      for (const g of byId.get(p.unitId)!.groupIds) {
+        if (!input.classIds.has(g)) continue;
+        const k = `${g}|${p.weekday}`;
+        if (!day.has(k)) day.set(k, new Set());
+        for (let i = 0; i < byId.get(p.unitId)!.length; i++) day.get(k)!.add(p.periodNr + i);
+      }
+    const maxDay = Math.max(...[...day.values()].map((s) => s.size));
+    const afternoons = new Map<string, number>();
+    for (const [k, s] of day) if ([...s].some((x) => x >= 7)) afternoons.set(k.split("|")[0]!, (afternoons.get(k.split("|")[0]!) ?? 0) + 1);
+    const maxAfternoons = Math.max(0, ...afternoons.values());
+    console.log(`[benchmark] tagesgrenzen ${JSON.stringify({ units: input.units.length, constructMs: Math.round(constructMs), totalMs: Math.round(ms), unplaced: r.unplaced.length, score: r.score, maxDay, maxAfternoons, breakdown: r.breakdown, gaps: r.gaps })}`);
+    for (const u of r.unplaced) console.log(`[benchmark] nicht gesetzt: ${u.label} – ${u.reason}`);
+    expect(maxDay).toBeLessThanOrEqual(7);
+    expect(maxAfternoons).toBeLessThanOrEqual(3);
+    expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
+    expect(ms).toBeLessThan(120_000);
+  }, 300_000);
+
+  it("SP2-04: dieselbe Schule (Schienen als Bänder) mit Tagesregeln (Lehrkräfte bis 22 Std. höchstens 6 Stunden am Tag, bis 21 Std. höchstens 4 Tage) und Fachverteilung (Gewicht 6) – gültig, Regeln eingehalten", () => {
+    // SP2-05: auf der Schule mit Schienen als Bänder (ohne Regeln 0–1 nicht gesetzt) – ohne Bänder lagen schon ohne Regeln 9–12 Oberstufenkurse
+    // wegen dichter Konfliktmengen offen, das Ergebnis kippte je nach Gewicht zwischen 12 und 19 um die 1-%-Grenze und maß die Regeln kaum
+    const input = syntheticSchool({ zuege: 7, coursesPerGrade: 40, studentsPerGrade: 130, bands: true });
+    const teachers = [...new Set(input.units.flatMap((u) => u.teacherIds))].sort();
+    const demand = new Map<string, number>();
+    for (const u of input.units) for (const t of u.teacherIds) demand.set(t, (demand.get(t) ?? 0) + u.length);
+    // Teilzeit (die synthetische Schule ist voll ausgelastet, ~22–24 Std. je Lehrkraft): bis 22 Wochenstunden höchstens 6 Stunden am Tag,
+    // bis 21 Wochenstunden zusätzlich höchstens 4 Anwesenheitstage
+    const ruled = teachers.filter((t) => demand.get(t)! <= 22);
+    const fourDays = ruled.filter((t) => demand.get(t)! <= 21);
+    expect(ruled.length).toBeGreaterThanOrEqual(20);
+    expect(fourDays.length).toBeGreaterThanOrEqual(10);
+    input.teacherRules = new Map(ruled.map((t) => [t, { maxPerDay: 6, maxDays: fourDays.includes(t) ? 4 : null }]));
+    input.weights = { subjectSpread: 6 };
+    const t0 = performance.now();
+    const solver = createSolver(input);
+    solver.construct();
+    const constructMs = performance.now() - t0;
+    solver.improve(Number.POSITIVE_INFINITY);
+    const r = solver.result();
+    const ms = performance.now() - t0;
+    expect(validate(input, r.placements)).toEqual([]);
+    const byId = new Map(input.units.map((u) => [u.id, u]));
+    const day = new Map<string, Set<number>>();
+    for (const p of r.placements)
+      for (const t of byId.get(p.unitId)!.teacherIds) {
+        const k = `${t}|${p.weekday}`;
+        if (!day.has(k)) day.set(k, new Set());
+        for (let i = 0; i < byId.get(p.unitId)!.length; i++) day.get(k)!.add(p.periodNr + i);
+      }
+    const ruledSet = new Set(ruled);
+    const maxDay = Math.max(...[...day].filter(([k]) => ruledSet.has(k.split("|")[0]!)).map(([, s]) => s.size));
+    const daysOf = new Map<string, number>();
+    for (const k of day.keys()) daysOf.set(k.split("|")[0]!, (daysOf.get(k.split("|")[0]!) ?? 0) + 1);
+    const maxDays = Math.max(0, ...fourDays.map((t) => daysOf.get(t) ?? 0));
+    console.log(`[benchmark] lehrkraftregeln ${JSON.stringify({ units: input.units.length, ruled: ruled.length, fourDays: fourDays.length, constructMs: Math.round(constructMs), totalMs: Math.round(ms), unplaced: r.unplaced.length, score: r.score, maxDay, maxDays, breakdown: r.breakdown, gaps: r.gaps })}`);
+    for (const u of r.unplaced) console.log(`[benchmark] nicht gesetzt: ${u.label} – ${u.reason}`);
+    expect(maxDay).toBeLessThanOrEqual(6);
+    expect(maxDays).toBeLessThanOrEqual(4);
+    expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(ms).toBeLessThan(120_000);
   }, 300_000);
 });

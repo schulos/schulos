@@ -38,7 +38,8 @@ export async function ownSubstitutions(db: Db, teacherId: string, from: string, 
   // Q5-11: Entwürfe zählen erst, wenn sie veröffentlicht sind
   const drafts = rows.length ? await draftDaysBetween(db, from, to) : new Set<string>();
   for (const r of rows) {
-    if (r.kind === "room" || drafts.has(r.date)) continue;
+    // SP2-07: Raumänderung und Verlegung ändern nichts an der Zahl; Zusammenlegung zählt als abgegeben
+    if (r.kind === "room" || r.kind === "move" || drafts.has(r.date)) continue;
     if (r.kind === "cancel") {
       if (r.teacherId === teacherId) out.cancelled++;
     } else {

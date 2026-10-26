@@ -81,6 +81,7 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     const queued = (await getRun(h.db, id))!;
     expect(queued).toMatchObject({ status: "queued", label: "Variante A", params: { effort: "schnell", seed: 3, preset: "klassenkompakt" }, cancelRequested: false });
     expect(queued.params!.weights.classGap).toBe(16);
+    // keine Warnung: die Kurse des Demo-Bands haben getrennte Schüler:innen (Q-SP2-6)
     expect(queued.log.map((e) => e.kind)).toEqual(["queued"]);
 
     expect(await executeRun(h.db, id, today)).toBe("done");
@@ -89,8 +90,11 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     expect(run.heartbeatAt).toBeInstanceOf(Date);
     expect(run.stored!.result.unplaced).toEqual([]);
     expect(run.stored!.keptLessonIds).toContain(pin.id);
-    // bandfähiges Format: jede Einheit hat genau einen Teil
-    expect(run.stored!.units.every((u) => u.parts?.length === 1 && u.parts[0]!.groupIds.join() === u.groupIds.join())).toBe(true);
+    // bandfähiges Format: Lehraufträge haben genau einen Teil, das Demo-Band (SP2-02) einen je Mitglied
+    const bandUnits = run.stored!.units.filter((u) => u.id.startsWith("band-q1-gk-a#"));
+    expect(bandUnits).toHaveLength(3);
+    expect(bandUnits.every((u) => u.parts?.length === 3 && u.parts.map((p) => p.groupIds.join()).sort().join() === [...u.groupIds].sort().join())).toBe(true);
+    expect(run.stored!.units.filter((u) => !u.id.startsWith("band-q1-gk-a#")).every((u) => u.parts?.length === 1 && u.parts[0]!.groupIds.join() === u.groupIds.join())).toBe(true);
     // Kennzahlen klein neben dem Ergebnis, Protokoll mit Eingabe, Vorprüfung, Konstruktion, Zwischenständen und Ende
     expect(run.metrics).toMatchObject({ score: run.stored!.result.score, unplaced: 0, units: run.stored!.units.length, precheck: { errors: 0 } });
     expect(run.metrics!.durationMs).toBeGreaterThan(0);
@@ -145,6 +149,23 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     await expect(deleteRun(h.db, "u-admin", id, today)).rejects.toMatchObject({ fieldErrors: { run: expect.stringContaining("zurücknehmen") } });
     // Herkunft an den übernommenen Stunden; beim Löschen des Laufs bleibt die Stunde, die Herkunft wird leer
     expect(await h.db.$count(timetableLessons, eq(timetableLessons.solverRunId, id))).toBe(res.created);
+    // SP2-02: das Band ist je Stunde eine Kopplung – drei Zeilen (drei Kurse, drei Fächer, drei Lehrkräfte) mit einer coupling_id
+    const bandLessons = await h.db
+      .select()
+      .from(timetableLessons)
+      .where(and(eq(timetableLessons.solverRunId, id), inArray(timetableLessons.groupId, ["g-q1-e-gk1", "g-q1-d-gk1", "g-q1-bi-gk1"])));
+    expect(bandLessons).toHaveLength(9);
+    const bySlot = new Map<string, typeof bandLessons>();
+    for (const l of bandLessons) bySlot.set(`${l.weekday}-${l.periodNr}`, [...(bySlot.get(`${l.weekday}-${l.periodNr}`) ?? []), l]);
+    expect(bySlot.size).toBe(3);
+    for (const slot of bySlot.values()) {
+      expect(slot.map((l) => l.subjectId).sort()).toEqual(["BI", "D", "E"]);
+      expect(new Set(slot.map((l) => l.couplingId)).size).toBe(1);
+      expect(slot[0]!.couplingId).not.toBeNull();
+      expect(new Set(slot.map((l) => l.roomId)).size).toBe(3);
+    }
+    // die Verteilung zählt das Band als gemeinsam verplant
+    expect((await distribution(h.db, year, "2026-11-04")).bands.find((b) => b.id === "band-q1-gk-a")).toMatchObject({ planned: 3, together: 3 });
 
     // bis zum Vortag gilt der alte Plan, ab Stichtag der neue – jeweils vollständig verplant
     const old = await distribution(h.db, year, "2026-10-30");
@@ -165,7 +186,7 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     expect((await h.db.select().from(timetableLessons).where(eq(timetableLessons.validFrom, from))).length).toBe(res.created);
   }, 90_000);
 
-  it("S79: Übernahme zurücknehmen bis zum Stichtag – alter Plan gilt wieder; Konflikte (veränderte, fremde, beendete Stunden, Vertretungen, Material, Buchungen, Klausuren) werden gezählt und erklärt", async () => {
+  it("S79/SP-13: Übernahme zurücknehmen bis zum Stichtag – alter Plan und entfernte Vertretungen gelten wieder; Konflikte (veränderte, fremde, beendete Stunden, Vertretungen, Material, Buchungen, Klausuren) werden gezählt und erklärt", async () => {
     await settle(h.db);
     await h.db.delete(timetableLessons).where(sql`${timetableLessons.solverRunId} is not null`);
     const year = (await planningYear(h.db))!;
@@ -175,8 +196,15 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     const active = before.filter((l) => !l.fixed && (l.validUntil === null || l.validUntil >= from));
     const lessonOn = (weekday: number) => active.find((l) => l.groupId === "g-7b" && l.weekday === weekday)!;
     // Randfälle vor der Übernahme: eine fixierte A-Wochen-Kopplung (bleibt), eine nicht fixierte A-Wochen-Stunde (wird ersetzt),
-    // eine Stunde, die erst nach dem Stichtag beginnt (wird entfernt), und eine Vertretung am Stichtag (entfällt, kommt nicht zurück)
+    // eine Stunde, die erst nach dem Stichtag beginnt (wird entfernt), und Vertretungen ab dem Stichtag (entfallen; SP-13: kommen beim
+    // Zurücknehmen wieder, sofern ihre Stunde an dem Tag wieder gilt)
     const anchor = lessonOn(0);
+    const endedA = active.find((l) => l.groupId === "g-9a")!;
+    const endedB = active.find((l) => l.groupId === "g-9b")!;
+    // Band (SP2-02): eine Kopplung des alten Plans mit einer Vertretung je Teil
+    const bandId = active.find((l) => l.couplingId)!.couplingId!;
+    const bandParts = active.filter((l) => l.couplingId === bandId);
+    expect(bandParts.length).toBeGreaterThan(1);
     const couplingId = "k-undo";
     await h.db.insert(timetableLessons).values([
       { id: "l-ab-fix-1", groupId: "g-7a", weekday: 4, periodNr: 8, subjectId: "REL", teacherId: null, roomId: null, week: "A", validFrom: year.startsOn, validUntil: year.endsOn, couplingId, fixed: true },
@@ -186,34 +214,43 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     ]);
     await h.db.insert(timetableSubstitutions).values({ id: "s-stichtag", lessonId: anchor.id, date: from, kind: "cancel", note: "entfällt" });
     await h.db.insert(timetableSubstitutions).values({ id: "s-davor", lessonId: anchor.id, date: "2026-11-02", kind: "cancel" });
+    const sLater = { id: "s-later", lessonId: "l-later", date: "2026-11-18", kind: "substitute" as const, substituteId: "u-frank.schulte", roomId: "101", note: "Fachtausch", subjectId: "REL", createdBy: "u-admin" };
+    await h.db.insert(timetableSubstitutions).values(sLater);
+    await h.db.insert(timetableSubstitutions).values({ id: "s-lost", lessonId: endedB.id, date: "2026-11-10", kind: "cancel" });
+    const bandSubIds = bandParts.map((l, i) => `s-band-${i}`);
+    await h.db.insert(timetableSubstitutions).values(bandParts.map((l, i) => ({ id: bandSubIds[i]!, lessonId: l.id, date: from, kind: "cancel" as const })));
+    const removedCount = 3 + bandParts.length;
+    const restoredIds = ["s-stichtag", "s-later", ...bandSubIds];
 
     const id = await createRun(h.db, "u-admin", { seed: 4, effort: "schnell" }, today);
     expect(await executeRun(h.db, id, today)).toBe("done");
     const run = (await getRun(h.db, id))!;
     expect(run.stored!.keptLessonIds).toEqual(expect.arrayContaining(["l-ab-fix-1", "l-ab-fix-2"]));
-    expect(await applyPreview(h.db, run, from)).toMatchObject({ deleted: 1, substitutions: 1 });
+    expect(await applyPreview(h.db, run, from)).toMatchObject({ deleted: 1, substitutions: removedCount });
     const res = await applyRun(h.db, "u-admin", id, from, today);
-    expect(res).toMatchObject({ deleted: 1, removedSubstitutions: 1 });
+    expect(res).toMatchObject({ deleted: 1, removedSubstitutions: removedCount });
     const applied = (await getRun(h.db, id))!;
     expect(applied.undo!.deleted).toEqual([{ id: "l-later", groupId: "g-7b", weekday: 2, periodNr: 8, subjectId: "M", teacherId: anchor.teacherId, roomId: "101", week: "all", validFrom: "2026-11-16", validUntil: year.endsOn, couplingId: null, fixed: false, solverRunId: null }]);
     expect(applied.undo!.ended.find((e) => e.id === "l-ab-loose")).toEqual({ id: "l-ab-loose", validUntil: null });
     expect(applied.undo!.ended.some((e) => e.id === "l-ab-fix-1")).toBe(false);
-    expect(await h.db.$count(timetableSubstitutions, eq(timetableSubstitutions.id, "s-stichtag"))).toBe(0);
+    expect(await h.db.$count(timetableSubstitutions, inArray(timetableSubstitutions.id, [...restoredIds, "s-lost"]))).toBe(0);
     expect(await h.db.$count(timetableSubstitutions, eq(timetableSubstitutions.id, "s-davor"))).toBe(1);
+    // SP-13: entfernte Vertretungen vollständig in `undo`
+    expect(applied.undo!.substitutions!.map((x) => x.id).sort()).toEqual([...restoredIds, "s-lost"].sort());
+    expect(applied.undo!.substitutions!.find((x) => x.id === "s-later")).toMatchObject({ ...sLater, createdAt: expect.any(String) });
     // ohne Eingriffe: alles wiederherstellbar
     const clean = (await undoPreview(h.db, applied, today))!;
-    expect(clean).toMatchObject({ lessons: res.created, changed: 0, substitutions: 0, classbook: 0, materials: 0, restorable: res.ended, notRestorable: 0, reinsert: 1, reinsertSkipped: 0, foreign: 0, lostSubstitutions: 1, roomClashes: { bookings: 0, exams: 0 } });
+    expect(clean).toMatchObject({ lessons: res.created, changed: 0, substitutions: 0, classbook: 0, materials: 0, restorable: res.ended, notRestorable: 0, reinsert: 1, reinsertSkipped: 0, foreign: 0, restoredSubstitutions: removedCount, lostSubstitutions: 0, roomClashes: { bookings: 0, exams: 0 } });
     expect(await undoPreview(h.db, applied, from)).toBeNull();
 
     // Eingriffe nach der Übernahme: Stunde des Laufs fixiert, Vertretung an einer Lauf-Stunde, Stunde von Hand angelegt, eine beendete
     // Stunde von Hand verändert, eine gelöscht; Raumbuchung und Klausur in einem Raum, den der alte Plan am Stichtag belegt
     const own = await h.db.select().from(timetableLessons).where(eq(timetableLessons.solverRunId, id));
     const ownMonday = own.find((l) => l.weekday === 0)!;
-    await setFixed(h.db, "u-admin", own[0]!.id, true);
+    // eine ungekoppelte Stunde fixieren (Fixieren gilt für alle Teile einer Kopplung – das Demo-Band wäre drei Stunden)
+    await setFixed(h.db, "u-admin", own.find((l) => !l.couplingId)!.id, true);
     await h.db.insert(timetableSubstitutions).values({ lessonId: ownMonday.id, date: from, kind: "cancel" });
     await h.db.insert(timetableLessons).values({ id: "l-foreign", groupId: "g-7b", weekday: 1, periodNr: 8, subjectId: "M", teacherId: anchor.teacherId, week: "all", validFrom: "2026-11-23", validUntil: year.endsOn });
-    const endedA = active.find((l) => l.groupId === "g-9a")!;
-    const endedB = active.find((l) => l.groupId === "g-9b")!;
     await h.db.update(timetableLessons).set({ validUntil: "2026-12-18" }).where(eq(timetableLessons.id, endedA.id));
     await h.db.delete(timetableLessons).where(eq(timetableLessons.id, endedB.id));
     const oldMonday = active.find((l) => l.weekday === 0 && l.roomId && l.id !== endedA.id && l.id !== endedB.id)!;
@@ -225,14 +262,21 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     await h.db.insert(bookings).values({ resourceId, date: "2026-11-02", periodNr: oldMonday.periodNr }).onConflictDoNothing(); // vor dem Stichtag: zählt nicht
     await h.db.insert(exams).values({ groupId: "g-9a", subjectId: "M", kind: "klassenarbeit", title: "KA", date: from, periodFrom: oldMonday.periodNr, periodTo: oldMonday.periodNr, roomId: oldMonday.roomId });
     const dirty = (await undoPreview(h.db, applied, today))!;
-    expect(dirty).toMatchObject({ lessons: res.created, changed: 1, substitutions: 1, restorable: res.ended - 2, notRestorable: 2, reinsert: 1, foreign: 1, lostSubstitutions: 1 });
+    // die Stunde der Vertretung „s-lost“ ist inzwischen gelöscht → sie kommt nicht zurück
+    expect(dirty).toMatchObject({ lessons: res.created, changed: 1, substitutions: 1, restorable: res.ended - 2, notRestorable: 2, reinsert: 1, foreign: 1, restoredSubstitutions: removedCount - 1, lostSubstitutions: 1 });
     expect(dirty.roomClashes.bookings).toBeGreaterThanOrEqual(1);
     expect(dirty.roomClashes.exams).toBeGreaterThanOrEqual(1);
 
     // Zurücknehmen: nur eigene Stunden weg, beendete wieder verlängert (bis auf die zwei veränderten), entfernte wieder da, fremde bleiben
     await expect(undoApply(h.db, "u-admin", id, from)).rejects.toBeInstanceOf(ValidationError);
     const undone = await undoApply(h.db, "u-admin", id, today);
-    expect(undone).toMatchObject({ lessons: res.created, changed: 1, substitutions: 1, restorable: res.ended - 2, notRestorable: 2, reinsert: 1, foreign: 1 });
+    expect(undone).toMatchObject({ lessons: res.created, changed: 1, substitutions: 1, restorable: res.ended - 2, notRestorable: 2, reinsert: 1, foreign: 1, restoredSubstitutions: removedCount - 1, lostSubstitutions: 1 });
+    // SP-13: Vertretungen wieder da – an der beendeten, der wieder angelegten Stunde und an jedem Band-Teil; mit allen Angaben
+    const subsBack = new Map((await h.db.select().from(timetableSubstitutions).where(inArray(timetableSubstitutions.id, [...restoredIds, "s-lost"]))).map((x) => [x.id, x]));
+    expect([...subsBack.keys()].sort()).toEqual([...restoredIds].sort());
+    expect(subsBack.get("s-later")).toMatchObject(sLater);
+    expect(subsBack.get("s-stichtag")).toMatchObject({ lessonId: anchor.id, date: from, kind: "cancel", note: "entfällt" });
+    for (const [i, l] of bandParts.entries()) expect(subsBack.get(bandSubIds[i]!)!.lessonId).toBe(l.id);
     expect(await h.db.$count(timetableLessons, eq(timetableLessons.solverRunId, id))).toBe(0);
     const after = new Map((await h.db.select().from(timetableLessons)).map((l) => [l.id, l]));
     for (const l of before) {
@@ -248,6 +292,7 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     expect(back).toMatchObject({ status: "done", appliedFrom: null, appliedBy: null, appliedAt: null, undo: null });
     expect(back.log.at(-1)).toMatchObject({ kind: "undo", data: { lessons: res.created, notRestorable: 2 } });
     expect(back.log.at(-1)!.text).toContain("2 nicht mehr wiederherstellbar");
+    expect(back.log.at(-1)!.text).toContain(`${removedCount - 1} bei der Übernahme entfernte Vertretungen wiederhergestellt, 1 bei der Übernahme entfernte Vertretungen kommen nicht zurück`);
     await expect(undoApply(h.db, "u-admin", id, today)).rejects.toMatchObject({ fieldErrors: { run: "Dieser Lauf ist nicht übernommen" } });
     // Audit für Übernahme und Rücknahme
     const actions = (await h.db.select({ action: auditLog.action }).from(auditLog).where(sql`${auditLog.meta} ->> 'run' = ${id}`)).map((a) => a.action);
@@ -263,7 +308,7 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     await h.db.delete(bookings).where(and(eq(bookings.resourceId, resourceId), inArray(bookings.date, [from, "2026-11-02"])));
     await h.db.delete(bookingResources).where(eq(bookingResources.id, "br-undo"));
     await h.db.delete(exams).where(and(eq(exams.groupId, "g-9a"), eq(exams.date, from)));
-    await h.db.delete(timetableSubstitutions).where(eq(timetableSubstitutions.id, "s-davor"));
+    await h.db.delete(timetableSubstitutions).where(inArray(timetableSubstitutions.id, ["s-davor", ...restoredIds]));
     await h.db.update(timetableLessons).set({ validUntil: endedA.validUntil }).where(eq(timetableLessons.id, endedA.id));
     await h.db.insert(timetableLessons).values({ ...endedB });
   }, 120_000);
@@ -434,7 +479,7 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     await h.db.delete(timetableSolverRuns);
     const year = (await planningYear(h.db))!;
     const now = new Date("2026-10-19T03:00:00Z");
-    const stored: StoredResult = { result: { placements: [], unplaced: [], score: 1, breakdown: { pref: 0, teacherGap: 0, classGap: 0, subjectTwice: 0, roomWish: 0, noRoom: 0, late: 0 }, items: [], stats: { units: 0, iterations: 0, improved: 0 }, gaps: { teacherTotal: 0, teacherMax: 0, classTotal: 0, classMax: 0 } }, units: [], keptLessonIds: [], refYmd: today };
+    const stored: StoredResult = { result: { placements: [], unplaced: [], score: 1, breakdown: { pref: 0, teacherGap: 0, classGap: 0, subjectTwice: 0, roomWish: 0, noRoom: 0, late: 0, teacherDays: 0, subjectSpread: 0 }, items: [], stats: { units: 0, iterations: 0, improved: 0 }, gaps: { teacherTotal: 0, teacherMax: 0, classTotal: 0, classMax: 0 } }, units: [], keptLessonIds: [], refYmd: today };
     const days = (n: number) => new Date(now.getTime() - n * 86_400_000);
     await h.db.insert(timetableSolverRuns).values([
       { id: "old-failed", schoolYearId: year.id, status: "failed", createdAt: days(8) },

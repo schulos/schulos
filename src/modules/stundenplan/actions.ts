@@ -18,8 +18,28 @@ import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenst
 import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
 import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
 import { deleteSubstitution, publishDay, saveSubstitution, type SubstitutionInput } from "./vertretung";
-import { addReduction, deleteReduction, setObligation } from "./deputate";
-import { assignmentsFromTimetable, createAssignment, deleteAssignment, planningYear, updateAssignment, type AssignmentInput } from "./verteilung";
+import { addReduction, deleteReduction, saveTeacherRule, setObligation } from "./deputate";
+import { applyGradeRuleDefaults, classGrades, saveGradeRules } from "./jahrgangsregeln";
+import {
+  assignmentsFromTimetable,
+  createAssignment,
+  createBand,
+  deleteAssignment,
+  deleteBand,
+  planningYear,
+  setBandMember,
+  updateAssignment,
+  updateBand,
+  type AssignmentInput,
+  type BandInput,
+} from "./verteilung";
+import { executeAssignmentImport, MAX_ASSIGNMENT_CSV_BYTES, planAssignmentImport, type ImportOutcome, type ImportPreview } from "./verteilung-import";
+import { decodeCsvBytes, type CsvEncoding } from "@/core/csv";
+import { addStandby, removeStandby } from "./bereitschaft";
+import { permanentMessage, savePermanentSubstitution } from "./dauervertretung";
+import { audit } from "@/core/audit";
+import { checkSubjectFit, executeTeacherSubjectImport, MAX_TEACHER_SUBJECT_CSV_BYTES, planTeacherSubjectImport, setTeacherSubjects, type TeacherSubjectPreview } from "./lehrfaecher";
+import { addStaffChange, deleteStaffChange, saveForecastGrades } from "./fachbedarf";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
 
@@ -49,8 +69,11 @@ export async function saveLessonAction(id: string | null, _prev: FormState, form
   const { user } = await requirePermission("stundenplan.manage");
   const input = readInput(form);
   try {
+    // SP2-12: fachfremde Lehrkraft nur mit Bestätigung
+    const off = await checkSubjectFit(await getDb(), input.subjectId, input.teacherId ? [input.teacherId] : [], form.get("offSubjectOk") === "1", "teacherId");
     if (id) await updateLesson(await getDb(), user.id, id, input);
     else await createLesson(await getDb(), user.id, input);
+    if (off.length) await audit(await getDb(), user.id, "stundenplan.lesson.off_subject", input.groupId, { subject: input.subjectId, teachers: off });
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
@@ -79,6 +102,9 @@ export async function saveCouplingAction(couplingId: string | null, groupId: str
     })),
   };
   try {
+    // SP2-12: fachfremde Lehrkräfte je Teil nur mit Bestätigung
+    const confirmed = form.get("offSubjectOk") === "1";
+    for (const [i, p] of input.parts.entries()) await checkSubjectFit(await getDb(), p.subjectId, p.teacherId ? [p.teacherId] : [], confirmed, `p${i}-teacherId`);
     await saveCoupling(await getDb(), user.id, couplingId, input);
   } catch (err) {
     if (err instanceof ValidationError) {
@@ -168,21 +194,61 @@ export async function saveSubstitutionAction(_prev: FormState, form: FormData): 
     roomId: str("roomId") || null,
     note: str("note") || null,
     subjectId: str("subjectId") || null,
+    // SP2-07: Verlegung (Stunde, Tausch) und Zusammenlegung
+    targetPeriod: str("targetPeriod") ? Number(str("targetPeriod")) : null,
+    swap: str("swap") === "1",
+    mergeLessonId: str("mergeLessonId") || null,
   };
+  let message: string | undefined;
   try {
-    await saveSubstitution(await getDb(), user.id, input);
+    // SP2-08: Dauervertretung – dieselbe Vertretung an allen Tagen der Abwesenheit
+    if (input.kind === "substitute" && str("permanent")) {
+      const r = await savePermanentSubstitution(await getDb(), user.id, { ...input, from: input.date, absenceId: str("permanent"), substituteId: input.substituteId ?? "" });
+      message = permanentMessage(r);
+    } else await saveSubstitution(await getDb(), user.id, input);
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
   revalidatePath("/", "layout");
-  return { ok: true };
+  return { ok: true, message };
 }
 
 export async function deleteSubstitutionAction(id: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.substitute");
-  await deleteSubstitution(await getDb(), user.id, id);
+  try {
+    await deleteSubstitution(await getDb(), user.id, id);
+  } catch (err) {
+    // SP2-07: Aufheben geht nicht, solange eine andere Stunde der Gruppe in diese Stunde verlegt ist
+    if (err instanceof ValidationError) redirect(`/planung/vertretungen?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
   revalidatePath("/", "layout");
+}
+
+// ---------------------------------------------------------------- Bereitschaft (SP2-07)
+
+export async function addStandbyAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  try {
+    await addStandby(await getDb(), user.id, {
+      schoolYearId: String(form.get("schoolYearId") ?? ""),
+      teacherId: String(form.get("teacherId") ?? ""),
+      weekday: Number(form.get("weekday")),
+      periodNr: Number(form.get("periodNr")),
+    });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/vertretungen/bereitschaft");
+  return { ok: true };
+}
+
+export async function removeStandbyAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  await removeStandby(await getDb(), user.id, id);
+  revalidatePath("/planung/vertretungen/bereitschaft");
 }
 
 /** Q5-11: Entwurf eines Tages veröffentlichen (Gong je betroffener Person). */
@@ -209,31 +275,84 @@ function backTo(raw: string): string {
 export async function saveAssignmentAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const str = (k: string) => String(form.get(k) ?? "").trim();
-  const all = (k: string) => form.getAll(k).map((v) => String(v).trim()).filter(Boolean);
   const db = await getDb();
   const year = await planningYear(db);
   const input: AssignmentInput = {
     schoolYearId: year?.id ?? "",
-    groupIds: [str("groupId"), ...all("coupledGroupIds")].filter(Boolean),
+    groupId: str("groupId"),
     subjectId: str("subjectId"),
-    hours: Number(str("hours")),
+    // im Band zählen die Stunden des Bands (das Formular schickt dann keine)
+    hours: Number(str("hours") || "1"),
     teacherIds: [str("teacherId"), str("teacher2Id")].filter(Boolean),
     doubleLessons: Number(str("doubleLessons") || "0"),
     roomId: str("roomId") || null,
     note: str("note") || null,
+    bandId: str("bandId") || null,
+    validFrom: str("validFrom") || null,
+    validUntil: str("validUntil") || null,
   };
   try {
+    // SP2-12: fachfremde Lehrkraft nur mit Bestätigung („Trotzdem zuweisen“), ohne gepflegte Lehrfächer nur ein Hinweis
+    const off = await checkSubjectFit(db, input.subjectId, input.teacherIds, form.get("offSubjectOk") === "1");
     if (id) await updateAssignment(db, user.id, id, input);
     else await createAssignment(db, user.id, input);
+    if (off.length) await audit(db, user.id, "stundenplan.assignment.off_subject", input.groupId, { subject: input.subjectId, teachers: off });
   } catch (err) {
-    if (err instanceof ValidationError) {
-      const values = { ...formValues(form), coupledGroupIds: all("coupledGroupIds").join(",") };
-      return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values };
-    }
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
   revalidatePath("/planung/unterricht");
   redirect(backTo(str("back")));
+}
+
+// ---------------------------------------------------------------- Bänder (SP2-01)
+
+const bandsPage = (bandId?: string) => `/planung/unterricht?ansicht=baender${bandId ? `&band=${encodeURIComponent(bandId)}` : ""}`;
+
+export async function saveBandAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  const db = await getDb();
+  const year = await planningYear(db);
+  const input: BandInput = { schoolYearId: year?.id ?? "", name: str("name"), hours: Number(str("hours")), doubleLessons: Number(str("doubleLessons") || "0") };
+  let bandId = id;
+  try {
+    if (id) await updateBand(db, user.id, id, input);
+    else bandId = await createBand(db, user.id, input);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/unterricht");
+  redirect(bandsPage(bandId ?? undefined));
+}
+
+export async function deleteBandAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteBand(await getDb(), user.id, id);
+  revalidatePath("/planung/unterricht");
+  redirect(bandsPage());
+}
+
+export async function addBandMemberAction(bandId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const assignmentId = String(form.get("assignmentId") ?? "").trim();
+  if (!assignmentId) return { error: "Lehrauftrag wählen", fieldErrors: { assignmentId: "Lehrauftrag wählen" } };
+  try {
+    await setBandMember(await getDb(), user.id, assignmentId, bandId);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors };
+    throw err;
+  }
+  revalidatePath("/planung/unterricht");
+  redirect(bandsPage(bandId));
+}
+
+export async function removeBandMemberAction(bandId: string, assignmentId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await setBandMember(await getDb(), user.id, assignmentId, null);
+  revalidatePath("/planung/unterricht");
+  redirect(bandsPage(bandId));
 }
 
 export async function deleteAssignmentAction(id: string, back: string): Promise<void> {
@@ -252,6 +371,48 @@ export async function importAssignmentsAction(): Promise<void> {
   redirect(`/planung/unterricht?uebernommen=${n}`);
 }
 
+// ---------------------------------------------------------------- CSV-Import der Unterrichtsverteilung (SP2-06)
+
+export interface AssignmentImportState {
+  preview?: ImportPreview;
+  /** gelesener Dateiinhalt – geht mit „Übernehmen“ zurück und wird dort neu geprüft */
+  text?: string;
+  encoding?: CsvEncoding;
+  error?: string;
+  done?: ImportOutcome;
+}
+
+/** Schritt 1: Datei lesen (UTF-8 oder Windows-1252) und prüfen – nichts wird gespeichert. */
+export async function previewAssignmentCsvAction(_prev: AssignmentImportState, form: FormData): Promise<AssignmentImportState> {
+  await requirePermission("stundenplan.manage");
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Bitte eine CSV-Datei wählen" };
+  if (file.size > MAX_ASSIGNMENT_CSV_BYTES) return { error: "Datei zu groß (höchstens 512 KB)" };
+  const db = await getDb();
+  const year = await planningYear(db);
+  if (!year) return { error: "Kein Schuljahr angelegt" };
+  const { text, encoding } = decodeCsvBytes(new Uint8Array(await file.arrayBuffer()));
+  const plan = await planAssignmentImport(db, year, text);
+  return { preview: plan.preview, text, encoding };
+}
+
+/** Schritt 2: plant serverseitig NEU (der Vorschau aus dem Browser wird nicht vertraut) und übernimmt nur ohne Fehler – ganz oder gar nicht. */
+export async function runAssignmentCsvAction(_prev: AssignmentImportState, form: FormData): Promise<AssignmentImportState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const text = String(form.get("text") ?? "");
+  const encoding = form.get("encoding") === "cp1252" ? "cp1252" : "utf8";
+  if (!text || text.length > MAX_ASSIGNMENT_CSV_BYTES) return { error: "Datei fehlt oder ist zu groß – bitte neu wählen" };
+  const db = await getDb();
+  const year = await planningYear(db);
+  if (!year) return { error: "Kein Schuljahr angelegt" };
+  const plan = await planAssignmentImport(db, year, text);
+  if (!plan.preview.ok) return { preview: plan.preview, text, encoding, error: "Die Datei hat Fehler bzw. nichts zu übernehmen – nichts übernommen" };
+  const done = await executeAssignmentImport(db, user.id, year, plan);
+  revalidatePath("/planung/unterricht");
+  revalidatePath("/planung");
+  return { done };
+}
+
 // ---------------------------------------------------------------- Deputate
 
 const hoursOf = (raw: string) => Number(raw.replace(",", "."));
@@ -264,6 +425,25 @@ export async function saveObligationAction(teacherId: string, _prev: FormState, 
   const raw = String(form.get("obligation") ?? "").trim();
   try {
     await setObligation(db, user.id, year?.id ?? "", teacherId, raw ? hoursOf(raw) : null);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/unterricht");
+  return { ok: true };
+}
+
+/** SP2-04: Tagesregel der Lehrkraft (höchstens Stunden am Tag / Anwesenheitstage); leer = keine Grenze. */
+export async function saveTeacherDayRuleAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const year = await planningYear(db);
+  const int = (k: string) => {
+    const raw = String(form.get(k) ?? "").trim();
+    return raw ? Number(raw) : null;
+  };
+  try {
+    await saveTeacherRule(db, user.id, year?.id ?? "", teacherId, { maxPerDay: int("maxPerDay"), maxDays: int("maxDays") });
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
@@ -292,6 +472,102 @@ export async function deleteReductionAction(id: string, teacherId: string): Prom
   await deleteReduction(await getDb(), user.id, id);
   revalidatePath("/planung/unterricht");
   redirect(teacherPage(teacherId));
+}
+
+// ---------------------------------------------------------------- Lehrfächer und Fachbedarf (SP2-12)
+
+/** Lehrfächer (Fakultas) einer Lehrkraft ersetzen – Häkchen je Fach. */
+export async function saveTeacherSubjectsAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await setTeacherSubjects(await getDb(), user.id, teacherId, form.getAll("subjectIds").map(String));
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors };
+    throw err;
+  }
+  revalidatePath("/planung", "layout");
+  return { ok: true };
+}
+
+export interface TeacherSubjectImportState {
+  preview?: TeacherSubjectPreview;
+  text?: string;
+  encoding?: CsvEncoding;
+  error?: string;
+  done?: number;
+}
+
+/** CSV „Lehrkraft;Lehrfächer“ – Schritt 1: lesen und prüfen, nichts wird gespeichert. */
+export async function previewTeacherSubjectCsvAction(_prev: TeacherSubjectImportState, form: FormData): Promise<TeacherSubjectImportState> {
+  await requirePermission("stundenplan.manage");
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Bitte eine CSV-Datei wählen" };
+  if (file.size > MAX_TEACHER_SUBJECT_CSV_BYTES) return { error: "Datei zu groß (höchstens 256 KB)" };
+  const { text, encoding } = decodeCsvBytes(new Uint8Array(await file.arrayBuffer()));
+  const plan = await planTeacherSubjectImport(await getDb(), text);
+  return { preview: plan.preview, text, encoding };
+}
+
+/** Schritt 2: serverseitig neu prüfen und nur ohne Fehler übernehmen – ganz oder gar nicht. */
+export async function runTeacherSubjectCsvAction(_prev: TeacherSubjectImportState, form: FormData): Promise<TeacherSubjectImportState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const text = String(form.get("text") ?? "");
+  const encoding = form.get("encoding") === "cp1252" ? "cp1252" : "utf8";
+  if (!text || text.length > MAX_TEACHER_SUBJECT_CSV_BYTES) return { error: "Datei fehlt oder ist zu groß – bitte neu wählen" };
+  const db = await getDb();
+  const plan = await planTeacherSubjectImport(db, text);
+  if (!plan.preview.ok) return { preview: plan.preview, text, encoding, error: "Die Datei hat Fehler bzw. nichts zu übernehmen – nichts übernommen" };
+  const done = await executeTeacherSubjectImport(db, user.id, plan);
+  revalidatePath("/planung", "layout");
+  return { done };
+}
+
+/** Abgang (Lehrkraft) bzw. Zugang (Fächer) für die Prognose – Datum + Stunden, ohne Begründung. */
+export async function addStaffChangeAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  try {
+    await addStaffChange(await getDb(), user.id, {
+      kind: str("kind"),
+      teacherId: str("teacherId") || null,
+      subjectIds: form.getAll("subjectIds").map(String),
+      effectiveOn: str("effectiveOn"),
+      hours: hoursOf(str("hours")),
+    });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/bedarf");
+  return { ok: true };
+}
+
+export async function deleteStaffChangeAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteStaffChange(await getDb(), user.id, id);
+  revalidatePath("/planung/bedarf");
+  redirect("/planung/bedarf");
+}
+
+/** Klassenzahl je Jahrgang im nächsten Schuljahr – Felder `g<Jahrgang>`, leer = Vorschlag „rücken auf“. */
+export async function saveForecastGradesAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const year = await planningYear(db);
+  const entries = [...form.keys()]
+    .filter((k) => /^g\d+$/.test(k))
+    .map((k) => {
+      const raw = String(form.get(k) ?? "").trim();
+      return { grade: Number(k.slice(1)), classes: raw ? Number(raw) : null };
+    });
+  try {
+    await saveForecastGrades(db, user.id, year?.id ?? "", entries);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/bedarf");
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- Raumsperrungen (P2b-17)
@@ -548,12 +824,12 @@ export async function startSolverAction(_prev: FormState, form: FormData): Promi
   const str = (k: string) => String(form.get(k) ?? "").trim();
   const num = (k: string) => (str(k) === "" ? undefined : Number(str(k)));
   const preset = str("preset") || "ausgewogen";
-  const weightKeys = ["pref", "teacherGap", "classGap", "subjectTwice", "roomWish", "noRoom", "late", "lateFrom"] as const;
+  const weightKeys = ["pref", "teacherGap", "classGap", "subjectTwice", "roomWish", "noRoom", "late", "lateFrom", "teacherDays", "subjectSpread"] as const;
   const weights = preset === "eigene" ? Object.fromEntries(weightKeys.map((k) => [k, num(`w_${k}`)]).filter(([, v]) => v !== undefined)) : undefined;
   const today = toBerlinDate(new Date());
   let id: string;
   try {
-    id = await createRun(db, user.id, { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights }, today);
+    id = await createRun(db, user.id, { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights, refYmd: str("refYmd") || null }, today);
   } catch (err) {
     if (err instanceof ValidationError) return { error: firstError(err), fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
@@ -617,7 +893,8 @@ export async function undoSolverAction(runId: string): Promise<void> {
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(withQuery(withQuery(runPage(runId), "zurueckgenommen", String(res.lessons)), "wiederhergestellt", String(res.restorable + res.reinsert)));
+  const target = withQuery(withQuery(runPage(runId), "zurueckgenommen", String(res.lessons)), "wiederhergestellt", String(res.restorable + res.reinsert));
+  redirect(res.restoredSubstitutions ? withQuery(target, "vertretungen", String(res.restoredSubstitutions)) : target);
 }
 
 /** Stunde fixieren/lösen (Pflege-Seite). */
@@ -626,4 +903,35 @@ export async function toggleFixedAction(lessonId: string, groupId: string, fixed
   await setFixed(await getDb(), user.id, lessonId, fixed);
   revalidatePath("/planung/stundenplan");
   redirect(pageOf(groupId, stand));
+}
+
+// ---------------------------------------------------------------- Tagesgrenzen und Ganztag (SP2-03)
+
+const limitsPage = (saved?: string) => `/planung/unterricht?ansicht=tagesgrenzen${saved ? `&gespeichert=${saved}` : ""}`;
+
+/** Speichert die Tagesgrenzen aller Jahrgänge mit Klassen (leeres Feld = keine Grenze). */
+export async function saveGradeRulesAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const optInt = (k: string) => {
+    const v = String(form.get(k) ?? "").trim();
+    return v === "" ? null : Number(v);
+  };
+  const rules = (await classGrades(db)).map((grade) => ({ grade, maxPerDay: optInt(`max_${grade}`), afternoonsPerWeek: optInt(`pm_${grade}`), lunchAfterPeriod: optInt(`lunch_${grade}`) }));
+  try {
+    await saveGradeRules(db, user.id, rules);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/unterricht");
+  redirect(limitsPage("1"));
+}
+
+/** Übernimmt die Vorgaben der Schulform (Katalog) für alle Jahrgänge mit Klassen. */
+export async function applyGradeRuleDefaultsAction(): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await applyGradeRuleDefaults(await getDb(), user.id);
+  revalidatePath("/planung/unterricht");
+  redirect(limitsPage("vorgaben"));
 }

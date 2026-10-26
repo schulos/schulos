@@ -7,6 +7,7 @@ import { groups, periods, subjects, timetableAbsences, timetableLessons, timetab
 import { TIMETABLE_ABSENCE_REASONS, type TimetableAbsenceReason, type TimetableAbsenceState } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { lessonActiveOn } from "./service";
+import type { SubstitutionKind } from "./schema";
 
 export const ABSENCE_LABELS: Record<TimetableAbsenceReason, string> = {
   krank: "krank",
@@ -168,7 +169,7 @@ export interface NeedLesson {
 export interface DayNeeds {
   /** Stunden abwesender Lehrkräfte; `status` = schon geregelt? */
   /** `substituteAbsent`: die eingetragene Vertretungslehrkraft ist selbst abwesend – die Stunde ist wieder offen */
-  open: (NeedLesson & { absence: Absence; status: "open" | "substitute" | "cancel" | "room"; substituteAbsent?: string })[];
+  open: (NeedLesson & { absence: Absence; status: "open" | Exclude<SubstitutionKind, "room">; substituteAbsent?: string })[];
   /** Stunden abwesender Gruppen: entfallen, die Lehrkraft ist frei */
   released: (NeedLesson & { absence: Absence; cancelled: boolean })[];
 }
@@ -176,7 +177,7 @@ export interface DayNeeds {
 /** Rein: ordnet die Stunden eines Tages den Abwesenheiten zu. Fehlt die Gruppe, zählt die Stunde als Freisetzung (auch wenn die Lehrkraft fehlt). */
 export function classifyNeeds(
   lessons: NeedLesson[],
-  subs: Map<string, "cancel" | "substitute" | "room">,
+  subs: Map<string, SubstitutionKind>,
   absences: Absence[],
   date: string,
   /** lessonId → vertretende Lehrkraft (für „Vertretung fällt aus“) */
@@ -194,7 +195,7 @@ export function classifyNeeds(
     const sub = s === "substitute" ? substitutes.get(l.lessonId) : undefined;
     const subAbsence = sub ? absences.find((a) => a.teacherId === sub && absenceCovers(a, date, l.periodNr)) : undefined;
     if (subAbsence) out.open.push({ ...l, absence: teacherAbsence ?? subAbsence, status: "open", substituteAbsent: subAbsence.label });
-    else if (teacherAbsence) out.open.push({ ...l, absence: teacherAbsence, status: s === "substitute" || s === "cancel" ? s : "open" });
+    else if (teacherAbsence) out.open.push({ ...l, absence: teacherAbsence, status: s && s !== "room" ? s : "open" });
   }
   const order = (a: NeedLesson, b: NeedLesson) => a.periodNr - b.periodNr || a.groupName.localeCompare(b.groupName, "de", { numeric: true });
   out.open.sort(order);

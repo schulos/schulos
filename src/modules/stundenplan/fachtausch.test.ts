@@ -1,8 +1,8 @@
 // SP-12: Vertretung mit abweichendem Fach („Fachtausch“, Plan §6.4) – Speichern, Anzeige, Gong, Klassenbuch, Statistik, Vorschläge.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
-import { classbookEntries, exams, notifications, timetableLessons, timetableSubstitutions } from "@/core/db/schema";
+import { classbookEntries, exams, notifications, timetableLessons, timetableSubstitutions, timetableTeacherSubjects } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { loadPermissions } from "@/core/permissions";
 import { lessonContext, saveEntry } from "@/modules/klassenbuch/service";
@@ -35,6 +35,8 @@ describe("SP-12 Fachtausch", () => {
   beforeAll(async () => {
     h = await createSeededTestDb();
     await h.db.delete(timetableLessons);
+    // SP2-12: Lehrfächer aus den Demo-Stammdaten zählen sonst als „unterrichtet das Fach“ – hier bestimmen nur die Stunden, wer Sport gibt
+    await h.db.delete(timetableTeacherSubjects);
     const mo = { weekday: 0, validFrom: "2026-08-01", validUntil: null };
     const di = { ...mo, weekday: 1 };
     const rows = await h.db
@@ -58,16 +60,34 @@ describe("SP-12 Fachtausch", () => {
   }, 60_000);
   afterAll(() => h.close());
 
-  it("Vorschlag: kennt die Klasse, nicht das Fach → „kann eigenes Fach geben“ (+10) mit dem Fach der meisten Wochenstunden", async () => {
+  it("SP-15: ist eine fachgleiche Vertretung frei (WAG und RIC unterrichten Sport), gibt es keinen Fachtausch-Vorschlag", async () => {
     const s = await suggestSubstitutes(h.db, sport, MO);
+    const bra = s.find((c) => c.id === "u-jana.brandt")!;
+    expect(bra.suggestedSubject).toBeNull();
+    expect(bra.reasons.map((r) => r.label)).not.toContain("kann eigenes Fach geben: Mathematik");
+    expect(s.every((c) => c.suggestedSubject === null)).toBe(true);
+    // fachgleich und frei: oben in der Liste (unterrichtet das Fach)
+    expect(s.find((c) => c.id === "u-sophie.wagner")!.reasons.map((r) => r.label)).toContain("unterrichtet das Fach");
+  });
+
+  it("Vorschlag: kennt die Klasse, nicht das Fach, und niemand mit Sport ist frei → „kann eigenes Fach geben“ (+10) mit dem Fach der meisten Wochenstunden", async () => {
+    // WAG und RIC sind in der 3. Stunde belegt
+    const busy = await h.db
+      .insert(timetableLessons)
+      .values([
+        { weekday: 0, validFrom: "2026-08-01", validUntil: null, groupId: "g-9a", periodNr: 3, subjectId: "SP", teacherId: "u-sophie.wagner", roomId: "201" },
+        { weekday: 0, validFrom: "2026-08-01", validUntil: null, groupId: "g-9b", periodNr: 3, subjectId: "SP", teacherId: "u-jonas.richter", roomId: "202" },
+      ])
+      .returning({ id: timetableLessons.id });
+    const s = await suggestSubstitutes(h.db, sport, MO);
+    await h.db.delete(timetableLessons).where(inArray(timetableLessons.id, busy.map((b) => b.id)));
     const bra = s.find((c) => c.id === "u-jana.brandt")!;
     expect(s[0]!.id).toBe("u-jana.brandt");
     expect(bra.reasons).toContainEqual({ label: "kann eigenes Fach geben: Mathematik", points: 10 });
     expect(bra.suggestedSubject).toEqual({ id: "M", name: "Mathematik" });
-    // kennt das Fach bzw. Klasse und Fach: kein Fachwechsel vorgeschlagen
-    expect(s.find((c) => c.id === "u-sophie.wagner")!.suggestedSubject).toBeNull();
-    expect(s.find((c) => c.id === "u-jonas.richter")!.suggestedSubject).toBeNull();
-    expect(s.find((c) => c.id === "u-jonas.richter")!.reasons.map((r) => r.label)).not.toContain("kann eigenes Fach geben: Sport");
+    // die fachgleichen sind belegt und stehen nicht in der Liste
+    expect(s.find((c) => c.id === "u-sophie.wagner")).toBeUndefined();
+    expect(s.find((c) => c.id === "u-jonas.richter")).toBeUndefined();
   });
 
   it("Speichern: anderes Fach nur bei Vertretung, gleiches Fach → leer, unbekanntes Fach → Fehler, Check in der DB", async () => {

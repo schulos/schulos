@@ -34,24 +34,49 @@ describe("scoreCandidates", () => {
     expect(r[0]!.reasons.map((x) => x.label)).toEqual(["unterrichtet das Fach", "Hohlstunde"]);
   });
 
-  it("SP-12: kennt die Klasse, nicht das Fach → eigenes Fach vorschlagen (+10); wer das Fach kennt, bekommt keinen Fachtausch", () => {
+  it("SP-12: kennt die Klasse, nicht das Fach → eigenes Fach vorschlagen (+10), solange niemand mit dem Fach frei ist", () => {
     const own = new Map([
       ["b", { id: "D", name: "Deutsch" }],
       ["c", { id: "E", name: "Englisch" }],
     ]);
-    const r = scoreCandidates(base({ ownSubjectInGroup: own, teachesGroup: new Map([["b", new Set(["7b"])], ["c", new Set(["7b"])]]) }));
+    const groups = new Map([
+      ["b", new Set(["7b"])],
+      ["c", new Set(["7b"])],
+    ]);
+    // niemand Freies unterrichtet Mathe (SP-15: sonst kein Fachtausch, siehe unten)
+    const r = scoreCandidates(base({ ownSubjectInGroup: own, teachesGroup: groups, teachesSubject: new Map() }));
     const b = r.find((x) => x.code === "BBB")!;
     expect(b.reasons).toContainEqual({ label: "kann eigenes Fach geben: Deutsch", points: WEIGHTS.ownSubject });
     expect(b.suggestedSubject).toEqual({ id: "D", name: "Deutsch" });
     expect(b.score).toBe(20 + 10 - 10);
-    // CCC unterrichtet Mathe: kennt Klasse + Fach, kein Fachwechsel
-    const c = r.find((x) => x.code === "CCC")!;
-    expect(c.suggestedSubject).toBeNull();
-    expect(c.score).toBe(20 + 15 + 10);
+    expect(r.find((x) => x.code === "CCC")!.suggestedSubject).toEqual({ id: "E", name: "Englisch" });
+    // CCC unterrichtet Mathe, ist aber nicht frei → B bekommt den Fachtausch weiter
+    const busy = scoreCandidates(base({ ownSubjectInGroup: own, teachesGroup: groups, free: base().free.filter((t) => t.id !== "c") }));
+    expect(busy.find((x) => x.code === "BBB")!.suggestedSubject).toEqual({ id: "D", name: "Deutsch" });
     // ohne Klassenbezug kein Vorschlag, auch wenn ein Fach bekannt wäre
     expect(scoreCandidates(base({ ownSubjectInGroup: new Map([["a", { id: "D", name: "Deutsch" }]]) })).find((x) => x.code === "AAA")!.suggestedSubject).toBeNull();
     // Rangfolge bleibt: Klasse + Fach vor Klasse + eigenes Fach
     expect(WEIGHTS.knowsGroup + WEIGHTS.knowsSubject).toBeGreaterThan(WEIGHTS.knowsGroup + WEIGHTS.ownSubject);
+  });
+
+  it("SP-15: ist eine fachgleiche Vertretung frei, schlägt niemand einen Fachtausch vor", () => {
+    const own = new Map([
+      ["b", { id: "D", name: "Deutsch" }],
+      ["c", { id: "E", name: "Englisch" }],
+    ]);
+    // CCC unterrichtet Mathe und ist frei
+    const r = scoreCandidates(base({ ownSubjectInGroup: own, teachesGroup: new Map([["b", new Set(["7b"])], ["c", new Set(["7b"])]]) }));
+    const b = r.find((x) => x.code === "BBB")!;
+    expect(b.suggestedSubject).toBeNull();
+    expect(b.reasons.map((x) => x.label)).not.toContain("kann eigenes Fach geben: Deutsch");
+    expect(b.score).toBe(20 - 10);
+    const c = r.find((x) => x.code === "CCC")!;
+    expect(c.suggestedSubject).toBeNull();
+    expect(c.score).toBe(20 + 15 + 10);
+    expect(r[0]!.code).toBe("CCC");
+    // auch eine fachgleiche Lehrkraft ohne Klassenbezug (hier AAA) reicht
+    const viaA = scoreCandidates(base({ ownSubjectInGroup: own, teachesGroup: new Map([["b", new Set(["7b"])]]), teachesSubject: new Map([["a", new Set(["M"])]]) }));
+    expect(viaA.find((x) => x.code === "BBB")!.suggestedSubject).toBeNull();
   });
 
   it("Freisetzung zählt viel, viele Vertretungen und zweimal heute senken", () => {

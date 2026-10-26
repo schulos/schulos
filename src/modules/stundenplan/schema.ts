@@ -57,7 +57,9 @@ export const timetableLessons = pgTable(
 export type TimetableLesson = typeof timetableLessons.$inferSelect;
 
 /** cancel = Entfall · substitute = Vertretung (andere Lehrkraft, ggf. anderer Raum) · room = nur Raumänderung */
-export const SUBSTITUTION_KINDS = ["cancel", "substitute", "room"] as const;
+/** SP2-07: `move` = Verlegung auf eine andere Stunde desselben Tages, `merge` = Zusammenlegung/Mitbetreuung bei einer anderen Stunde. Neue Arten nur hinten anfügen. */
+export const SUBSTITUTION_KINDS = ["cancel", "substitute", "room", "move", "merge"] as const;
+export type SubstitutionKind = (typeof SUBSTITUTION_KINDS)[number];
 export const substitutionKindEnum = pgEnum("substitution_kind", SUBSTITUTION_KINDS);
 
 /** Abweichung von einer regulären Stunde an einem bestimmten Tag. */
@@ -79,10 +81,15 @@ export const timetableSubstitutions = pgTable(
     note: text("note"),
     /** SP-12 (Fachtausch): abweichendes Fach der Vertretung („Mathe statt Sport“); leer = Fach der regulären Stunde. Nur bei `substitute`. */
     subjectId: text("subject_id").references(() => subjects.id, { onDelete: "set null", onUpdate: "cascade" }),
+    /** SP2-07 (Verlegung): Stunde desselben Tages, in der die Stunde stattdessen liegt; nur bei `move` */
+    targetPeriod: integer("target_period"),
+    /** SP2-07 (Zusammenlegung): Stunde zur selben Zeit, zu der die Gruppe geht (deren Lehrkraft betreut mit); nur bei `merge` */
+    mergeLessonId: text("merge_lesson_id").references((): AnyPgColumn => timetableLessons.id, { onDelete: "cascade" }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index("timetable_substitutions_merge_idx").on(t.mergeLessonId),
     uniqueIndex("timetable_substitutions_lesson_date_uq").on(t.lessonId, t.date),
     check("timetable_substitutions_subject", sql`${t.subjectId} is null or ${t.kind} = 'substitute'`),
     index("timetable_substitutions_date_idx").on(t.date),
@@ -93,8 +100,62 @@ export const timetableSubstitutions = pgTable(
 export type TimetableSubstitution = typeof timetableSubstitutions.$inferSelect;
 
 /**
+ * SP2-01: Band – Lehraufträge, die zur selben Zeit liegen (Religion/Philosophie, WP, E-/G-Kurse, Oberstufen-Schiene, eine
+ * Lehrkraft für mehrere Gruppen). Wochen- und Doppelstunden gelten für alle Mitglieder (die Lehraufträge übernehmen sie).
+ * Die Mitglieder sind die Lehraufträge mit `band_id`; jeder bleibt 1 Fach, 1 Gruppe, 1–2 Lehrkräfte.
+ */
+export const timetableBands = pgTable(
+  "timetable_bands",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "cascade" }),
+    /** z. B. „Religion/Philosophie 7“, „Q1 GK-Schiene A“ – keine Personen nennen */
+    name: text("name").notNull(),
+    /** Wochenstunden (Soll) aller Mitglieder */
+    hours: integer("hours").notNull(),
+    /** gewünschte Doppelstunden je Woche */
+    doubleLessons: integer("double_lessons").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("timetable_bands_hours", sql`${t.hours} between 1 and 12`),
+    check("timetable_bands_double", sql`${t.doubleLessons} >= 0 and ${t.doubleLessons} * 2 <= ${t.hours}`),
+    uniqueIndex("timetable_bands_name_uq").on(t.schoolYearId, t.name),
+  ],
+);
+
+/**
+ * SP2-03 (SP-G-04b): Tagesgrenzen und Ganztag je Jahrgangsstufe – gelten für die Klassen des Jahrgangs (Kurse des Jahrgangs zählen mit),
+ * hart im Solver und in der Setzhilfe, geprüft in der Diagnose. `null` = keine Grenze. Ohne Personenbezug, gilt über Schuljahre hinweg.
+ */
+export const timetableGradeRules = pgTable(
+  "timetable_grade_rules",
+  {
+    gradeLevel: integer("grade_level").primaryKey(),
+    /** höchstens so viele belegte Stunden am Tag */
+    maxPerDay: integer("max_per_day"),
+    /** höchstens so viele Tage mit Unterricht nach der Mittagspause */
+    afternoonsPerWeek: integer("afternoons_per_week"),
+    /** Mittag nach dieser Stunde: ohne lange Pause im Zeitraster bleibt die nächste Stunde frei, wenn danach Unterricht liegt */
+    lunchAfterPeriod: integer("lunch_after_period"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("timetable_grade_rules_max", sql`${t.maxPerDay} is null or ${t.maxPerDay} between 1 and 20`),
+    check("timetable_grade_rules_pm", sql`${t.afternoonsPerWeek} is null or ${t.afternoonsPerWeek} between 0 and 7`),
+    check("timetable_grade_rules_lunch", sql`${t.lunchAfterPeriod} is null or ${t.lunchAfterPeriod} between 1 and 20`),
+  ],
+);
+
+export type TimetableBand = typeof timetableBands.$inferSelect;
+
+/**
  * Lehrauftrag (Unterrichtsverteilung): „7b, Deutsch, 4 Wochenstunden, BRA“ – Planungsauftrag vor dem Stundenplan.
- * Mehrere Gruppen = Kopplung, mehrere Lehrkräfte = Teamteaching.
+ * Eine Gruppe, ein Fach, 1–2 Lehrkräfte (Teamteaching); was zur selben Zeit liegen soll, bündelt ein Band (SP2-01).
  */
 export const timetableAssignments = pgTable(
   "timetable_assignments",
@@ -115,12 +176,19 @@ export const timetableAssignments = pgTable(
     /** Raumwunsch; leer = Stammraum bzw. Raumwunsch des Fachs */
     roomId: text("room_id").references(() => rooms.id, { onDelete: "set null", onUpdate: "cascade" }),
     note: text("note"),
+    /** SP2-01: Band, in dem der Lehrauftrag liegt (Wochen-/Doppelstunden kommen dann vom Band); leer = eigenständig */
+    bandId: text("band_id").references(() => timetableBands.id, { onDelete: "set null" }),
+    /** SP2-09 (SP-G-07): gültig ab/bis (Halbjahr, Epoche); leer = Beginn bzw. Ende des Schuljahrs */
+    validFrom: date("valid_from"),
+    validUntil: date("valid_until"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check("timetable_assignments_hours", sql`${t.hours} between 1 and 12`),
     check("timetable_assignments_double", sql`${t.doubleLessons} >= 0 and ${t.doubleLessons} * 2 <= ${t.hours}`),
+    check("timetable_assignments_validity", sql`${t.validFrom} is null or ${t.validUntil} is null or ${t.validFrom} <= ${t.validUntil}`),
     index("timetable_assignments_year_idx").on(t.schoolYearId),
+    index("timetable_assignments_band_idx").on(t.bandId),
   ],
 );
 
@@ -165,6 +233,93 @@ export const timetableDeputies = pgTable(
     obligation: numeric("obligation", { precision: 4, scale: 1, mode: "number" }).notNull(),
   },
   (t) => [primaryKey({ columns: [t.schoolYearId, t.teacherId] }), check("timetable_deputies_range", sql`${t.obligation} between 0 and 40`)],
+);
+
+/**
+ * SP2-04 (SP-G-05): Tagesregeln je Lehrkraft und Schuljahr – höchstens n Stunden am Tag, höchstens n Anwesenheitstage in der Woche
+ * (Teilzeit). Hart im Solver und in der Setzhilfe, geprüft in der Diagnose. `null` = keine Grenze; ohne Grenze entfällt die Zeile.
+ * Personaldaten wie das Deputat (sieht/pflegt die Planung, die Lehrkraft sieht ihre eigene Regel).
+ */
+export const timetableTeacherDayRules = pgTable(
+  "timetable_teacher_day_rules",
+  {
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "cascade" }),
+    teacherId: text("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    maxPerDay: integer("max_per_day"),
+    maxDays: integer("max_days"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.schoolYearId, t.teacherId] }),
+    check("timetable_teacher_day_rules_max", sql`${t.maxPerDay} is null or ${t.maxPerDay} between 1 and 20`),
+    check("timetable_teacher_day_rules_days", sql`${t.maxDays} is null or ${t.maxDays} between 1 and 7`),
+  ],
+);
+
+/**
+ * SP2-12: Lehrfächer (Fakultas) je Lehrkraft – Stammdatum ohne Schuljahr. Grundlage für den Fachbedarf (Versorgung je Fach) und die
+ * Lehrervorschläge bei der Zuweisung (nur Lehrkräfte mit dem Fach, andere über „alle anzeigen“ mit Warnhinweis). Pflegt die Planung.
+ */
+export const timetableTeacherSubjects = pgTable(
+  "timetable_teacher_subjects",
+  {
+    teacherId: text("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subjectId: text("subject_id")
+      .notNull()
+      .references(() => subjects.id, { onDelete: "cascade", onUpdate: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.teacherId, t.subjectId] }), index("timetable_teacher_subjects_subject_idx").on(t.subjectId)],
+);
+
+/** SP2-12: bekannte Personalveränderungen für die Prognose – Abgang einer Lehrkraft bzw. Zugang (ohne Person) */
+export const STAFF_CHANGE_KINDS = ["abgang", "zugang"] as const;
+export type StaffChangeKind = (typeof STAFF_CHANGE_KINDS)[number];
+export const staffChangeKindEnum = pgEnum("staff_change_kind", STAFF_CHANGE_KINDS);
+
+/**
+ * SP2-12: Abgänge (Lehrkraft, ab Datum, wegfallende Stunden) und Zugänge (Fächer, ab Datum, Stunden) für die Prognose des nächsten
+ * Schuljahres – bewusst **ohne Begründung** (kein Ruhestand/Elternzeit/Befristung im Datensatz). Abgänge sind personenbezogen: nur
+ * `stundenplan.manage` sieht sie, die Schulleitung (`stundenplan.forecast_view`) nur Summen je Fach. Ein Zugang hat keine Person.
+ */
+export const timetableStaffChanges = pgTable(
+  "timetable_staff_changes",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    kind: staffChangeKindEnum("kind").notNull(),
+    /** nur beim Abgang */
+    teacherId: text("teacher_id").references(() => users.id, { onDelete: "cascade" }),
+    /** nur beim Zugang: Fächer der neuen Lehrkraft (Kurzzeichen); beim Abgang gelten die Lehrfächer der Lehrkraft */
+    subjectIds: text("subject_ids").array().notNull().default(sql`'{}'::text[]`),
+    effectiveOn: date("effective_on").notNull(),
+    hours: numeric("hours", { precision: 4, scale: 1, mode: "number" }).notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("timetable_staff_changes_hours", sql`${t.hours} > 0 and ${t.hours} <= 40`),
+    check("timetable_staff_changes_teacher", sql`(${t.kind} = 'abgang') = (${t.teacherId} is not null)`),
+  ],
+);
+
+/** SP2-12: Klassenzahl je Jahrgang im nächsten Schuljahr (Prognose, Abweichung von „Klassen rücken auf“) – ohne Personenbezug */
+export const timetableForecastGrades = pgTable(
+  "timetable_forecast_grades",
+  {
+    /** Schuljahr, von dem aus prognostiziert wird (das Planungsjahr) */
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "cascade" }),
+    grade: integer("grade").notNull(),
+    classes: integer("classes").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.schoolYearId, t.grade] }), check("timetable_forecast_grades_classes", sql`${t.classes} between 0 and 30`)],
 );
 
 /**
@@ -369,6 +524,35 @@ export const timetableDuties = pgTable(
     check("timetable_duties_weekday", sql`${t.weekday} between 0 and 4`),
     uniqueIndex("timetable_duties_uq").on(t.schoolYearId, t.areaId, t.weekday, t.afterPeriod, t.teacherId),
     index("timetable_duties_teacher_idx").on(t.teacherId, t.weekday),
+  ],
+);
+
+/**
+ * SP2-07: Bereitschaft (Vertretungsreserve) – Lehrkraft steht am Wochentag in Stunde `period_nr` für Vertretungen bereit.
+ * Personaldienst wie der Aufsichtsplan: sichtbar nur für die Vertretungsplanung (`stundenplan.substitute`).
+ */
+export const timetableStandby = pgTable(
+  "timetable_standby",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "cascade" }),
+    /** 0 = Montag … 4 = Freitag */
+    weekday: integer("weekday").notNull(),
+    periodNr: integer("period_nr").notNull(),
+    teacherId: text("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("timetable_standby_weekday", sql`${t.weekday} between 0 and 4`),
+    uniqueIndex("timetable_standby_uq").on(t.schoolYearId, t.weekday, t.periodNr, t.teacherId),
+    index("timetable_standby_teacher_idx").on(t.teacherId),
   ],
 );
 

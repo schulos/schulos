@@ -49,7 +49,7 @@ describe("Zeitwünsche (Demo-Schule)", () => {
 
   it("Setzhilfe: gesperrte Zeit der Klasse ist kein freies Feld, mit Grund", async () => {
     const year = (await planningYear(h.db))!;
-    await createAssignment(h.db, "u-admin", { schoolYearId: year.id, groupIds: ["g-6b"], subjectId: "F", hours: 2, teacherIds: ["u-sophie.wagner"], doubleLessons: 0, roomId: null, note: null });
+    await createAssignment(h.db, "u-admin", { schoolYearId: year.id, groupId: "g-6b", subjectId: "F", hours: 2, teacherIds: ["u-sophie.wagner"], doubleLessons: 0, roomId: null, note: null });
     const a = (await openAssignments(h.db, "g-6b", today)).find((x) => x.subjectId === "F")!;
     let grid = placementGrid({ ...(await assignmentPlacement(h.db, a, today)), unitIds: [], weekdays: [0, 1, 2, 3, 4], periods: [1, 2, 3, 4, 5, 6, 7, 8] });
     const free = [...grid.entries()].find(([, c]) => c.state === "free")![0];
