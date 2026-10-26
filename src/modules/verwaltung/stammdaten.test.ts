@@ -1,7 +1,7 @@
 import { ne } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbHandle } from "@/core/db/client";
-import { groups, periods, subjects, timetableLessons, users } from "@/core/db/schema";
+import { groups, periods, subjects, timetableLessons, timetableStaffChanges, users } from "@/core/db/schema";
 import { createTestDb } from "@/core/db/testing";
 import { SCHOOL_FORMS } from "@/core/school/catalog";
 import { TIME_GRIDS, defaultTimeGrid, maxWeeklyHours, stundentafelTemplate } from "@/core/school/templates";
@@ -188,6 +188,36 @@ describe("Stammdaten · Fächer und Zeitraster", () => {
     expect((await listPeriods(h.db)).length).toBe(2);
     // die 2. Stunde ist verplant
     await expect(removeLastPeriod(h.db, "u-admin")).rejects.toMatchObject({ fieldErrors: { "start-2": expect.stringContaining("1× verplant") } });
+  });
+});
+
+describe("R2-P9 Fach-Umbenennung zieht Zugänge der Fachbedarf-Prognose mit (text[] ohne Fremdschlüssel)", () => {
+  let h: DbHandle;
+  beforeAll(async () => {
+    h = await createTestDb();
+    await h.db.insert(users).values({ id: "u-admin", name: "Admin", email: "admin@test", role: "admin" });
+    await h.db.insert(subjects).values([
+      { id: "M", name: "Mathematik", color: "#1971C2", sortOrder: 0 },
+      { id: "PH", name: "Physik", color: "#000000", sortOrder: 1 },
+      { id: "CH", name: "Chemie", color: "#0C8599", sortOrder: 2 },
+    ]);
+    await h.db.insert(timetableStaffChanges).values([
+      { id: "z1", kind: "zugang", subjectIds: ["M", "PH"], effectiveOn: "2027-08-01", hours: 10 },
+      { id: "z2", kind: "zugang", subjectIds: ["CH", "M"], effectiveOn: "2027-08-01", hours: 5 },
+    ]);
+  });
+  afterAll(() => h.close());
+  const arrays = async () => Object.fromEntries((await h.db.select().from(timetableStaffChanges)).map((r) => [r.id, r.subjectIds]));
+
+  it("Tausch M ↔ PH und Umbenennung CH → CHE in derselben Transaktion; Löschen nimmt das Fach heraus", async () => {
+    const rows = (await listSubjects(h.db)).map((s) => ({ id: s.id, code: s.id, name: s.name, color: s.color, roomKind: s.roomKind ?? "" }));
+    rows[0]!.code = "PH";
+    rows[1]!.code = "M";
+    rows[2]!.code = "CHE";
+    await saveSubjects(h.db, "u-admin", rows);
+    expect(await arrays()).toEqual({ z1: ["PH", "M"], z2: ["CHE", "PH"] });
+    await deleteSubject(h.db, "u-admin", "CHE");
+    expect(await arrays()).toEqual({ z1: ["PH", "M"], z2: ["PH"] });
   });
 });
 

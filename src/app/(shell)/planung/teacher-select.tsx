@@ -1,22 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { rankTeachers, subjectFit, type PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
+import { offSubjectKey, rankTeachers, selectableTeachers, subjectFilterOn, subjectFit, type PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import { Field, Select } from "@schulos/ui/field";
 
 const hoursFmt = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 
-function restLabel(rest: number): string {
+function restLabel(rest: number | null): string {
+  if (rest === null) return "";
   if (rest === 0) return "Deputat voll";
   return rest > 0 ? `Rest ${hoursFmt.format(rest)} Std.` : `${hoursFmt.format(-rest)} Std. über Soll`;
 }
 
-const optionLabel = (t: PickTeacher, suffix = "") => `${t.code ?? "–"} – ${t.name} · ${restLabel(t.rest)}${suffix}`;
+const optionLabel = (t: PickTeacher, suffix = "") => `${t.code ?? "–"} – ${t.name}${t.rest === null ? "" : ` · ${restLabel(t.rest)}`}${suffix}`;
 
 /**
  * SP2-12: Lehrkraft für ein Fach zuweisen. Vorgeschlagen werden nur Lehrkräfte mit dem Fach als Lehrfach, sortiert nach Restdeputat
  * (Soll − Lehraufträge), dann Name. Weitere nur über „alle anzeigen“ – fachfremde mit Warnhinweis, ohne gepflegte Lehrfächer mit
- * Hinweis. Fachfremd speichern geht, braucht aber das Häkchen „Trotzdem zuweisen“ (`offSubjectOk`, prüft auch der Server).
+ * Hinweis. Fachfremd speichern geht, braucht aber das Häkchen „Trotzdem zuweisen“ (prüft auch der Server).
+ * R2-P3: das Häkchen gilt nur für dieses Feld und die gewählte Lehrkraft (`offSubjectOk:<name>` = Lehrkraft-ID).
+ * R2-P7: ohne gepflegte Lehrfächer (oder ohne Stundenplanmodul – dann kommt die Liste ohne Lehrfächer) kein Fachfilter: alle normal wählbar.
+ * R2-P2: nicht aktive Lehrkräfte stehen nur da, wenn sie schon gewählt sind – mit Hinweis, der Server lehnt sie ab.
  */
 export function TeacherSelect({
   name,
@@ -41,14 +45,17 @@ export function TeacherSelect({
   subjectName: string;
   teachers: PickTeacher[];
   defaultValue: string;
-  /** „Trotzdem zuweisen“ war beim letzten Absenden angekreuzt (Formular nach einem Fehler) */
-  confirmed?: boolean;
+  /** R2-P3: Lehrkraft, für die „Trotzdem zuweisen“ beim letzten Absenden angekreuzt war (Formular nach einem Fehler) */
+  confirmed?: string;
   className?: string;
 }) {
   const [value, setValue] = useState(defaultValue);
-  const ranked = rankTeachers(teachers, subjectId || null);
-  const chosen = teachers.find((t) => t.id === value);
-  const fit = chosen && subjectId ? subjectFit(chosen.subjectIds, subjectId) : "fits";
+  const pool = selectableTeachers(teachers, defaultValue);
+  const filterOn = subjectFilterOn(pool);
+  const ranked = rankTeachers(pool.filter((t) => !t.inactive), subjectId || null);
+  const gone = pool.filter((t) => t.inactive);
+  const chosen = pool.find((t) => t.id === value);
+  const fit = chosen && subjectId && filterOn && !chosen.inactive ? subjectFit(chosen.subjectIds, subjectId) : "fits";
   // Eine schon gewählte fachfremde Lehrkraft (z. B. beim Bearbeiten) bleibt sichtbar – dann gleich alle zeigen
   const [showAll, setShowAll] = useState(fit !== "fits");
   const hidden = ranked.unmaintained.length + ranked.others.length;
@@ -87,6 +94,15 @@ export function TeacherSelect({
               ))}
             </optgroup>
           )}
+          {gone.length > 0 && (
+            <optgroup label="nicht mehr aktiv">
+              {gone.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {optionLabel(t, " · nicht mehr aktiv")}
+                </option>
+              ))}
+            </optgroup>
+          )}
           {others.length > 0 && (
             <optgroup label={`unterrichten ${subjectName} laut Stammdaten nicht`}>
               {others.map((t) => (
@@ -104,7 +120,7 @@ export function TeacherSelect({
           alle anzeigen ({hidden} weitere)
         </label>
       )}
-      {subjectId && ranked.matching.length === 0 && (
+      {subjectId && filterOn && ranked.matching.length === 0 && (
         <p className="text-sm text-warn">Keine Lehrkraft hat {subjectName} als Lehrfach – Lehrfächer in den Stammdaten der Lehrkräfte pflegen oder „alle anzeigen“.</p>
       )}
       {fit === "off" && (
@@ -113,10 +129,15 @@ export function TeacherSelect({
             {who} unterrichtet {subjectName} laut Stammdaten nicht.
           </span>
           <label className="flex items-center gap-2 font-medium">
-            <input type="checkbox" name="offSubjectOk" value="1" defaultChecked={confirmed} className="size-4 accent-[var(--accent)]" />
+            <input key={value} type="checkbox" name={offSubjectKey(name)} value={value} defaultChecked={confirmed === value} className="size-4 accent-[var(--accent)]" />
             Trotzdem zuweisen
           </label>
         </div>
+      )}
+      {chosen?.inactive && (
+        <p role="alert" className="text-sm text-warn">
+          {who} ist nicht mehr aktiv – bitte eine andere Lehrkraft wählen.
+        </p>
       )}
       {fit === "unmaintained" && <p className="text-sm text-muted">Für {who} sind noch keine Lehrfächer gepflegt – bitte in den Stammdaten der Lehrkraft nachtragen.</p>}
     </div>

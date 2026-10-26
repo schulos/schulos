@@ -19,7 +19,8 @@ import {
   type ForecastInput,
 } from "./fachbedarf";
 import { setTeacherSubjects } from "./lehrfaecher";
-import { planningYear } from "./verteilung";
+import { planningOverview } from "./uebersicht";
+import { distribution, planningYear } from "./verteilung";
 
 const t = (id: string) => ({ id, code: id.toUpperCase(), name: `Name ${id}` });
 const a = (id: string, groupId: string, subjectId: string, hours: number, teachers: string[], bandId: string | null = null) => ({
@@ -150,6 +151,18 @@ describe("Fachbedarf – Berechnung (rein)", () => {
     expect(JSON.stringify(rows)).not.toMatch(/Name t|"t1"/);
   });
 
+  it("R2-P10: Personaländerungen bis zum Stichtag sind schon in den heutigen Daten – sie zählen nicht noch einmal", () => {
+    const input = { ...school(), fromYmd: "2027-08-01" };
+    const cov = computeCoverage(input, false);
+    const by = new Map(computeForecast(input, cov).rows.map((r) => [r.subjectId, r]));
+    // c1 (Abgang T1) und c2 (Zugang PH/CH) liegen am Stichtag – schon wirksam
+    expect(by.get("M")).toMatchObject({ supply: 10, leaving: 0 });
+    expect(by.get("PH")).toMatchObject({ joining: 0 });
+    // einen Tag früher zählen sie
+    const before = new Map(computeForecast({ ...input, fromYmd: "2027-07-31" }, cov).rows.map((r) => [r.subjectId, r]));
+    expect(before.get("M")).toMatchObject({ supply: 5, leaving: 5 });
+  });
+
   it("Name des Folgejahres", () => {
     expect(nextYearName("2026/27")).toBe("2027/28");
     expect(nextYearName("2099/00")).toBe("2100/01");
@@ -205,6 +218,27 @@ describe("Fachbedarf (Demo-Schule)", () => {
     expect(f.teachersWithoutSubjects).toEqual([expect.objectContaining({ id: "u-murat.yilmaz" })]);
     expect(f.current.some((r) => r.teachers?.some((x) => x.id === "u-murat.yilmaz"))).toBe(false);
     await setTeacherSubjects(h.db, "u-admin", "u-murat.yilmaz", ["M", "IF"]);
+  });
+
+  it("R2-P2: nicht aktive Lehrkraft – kein Abgang mehr eintragbar, zählt nicht zur Versorgung", async () => {
+    await h.db.update(users).set({ status: "locked" }).where(eq(users.id, "u-tobias.kleine"));
+    try {
+      expect(await fieldErrors(addStaffChange(h.db, "u-admin", { kind: "abgang", teacherId: "u-tobias.kleine", subjectIds: [], effectiveOn: "2027-08-01", hours: 5 }))).toHaveProperty("teacherId");
+      const f = (await loadFachbedarf(h.db, today, { details: true }))!;
+      expect(f.current.some((r) => r.teachers?.some((x) => x.id === "u-tobias.kleine"))).toBe(false);
+    } finally {
+      await h.db.update(users).set({ status: "active" }).where(eq(users.id, "u-tobias.kleine"));
+    }
+  });
+
+  it("R2-P12: eine schon berechnete Unterrichtsverteilung wird übernommen statt neu gerechnet", async () => {
+    const year = (await planningYear(h.db))!;
+    const d = await distribution(h.db, year, today);
+    const empty = { ...d, assignments: [] };
+    const f = (await loadFachbedarf(h.db, today, { details: false, distribution: empty }))!;
+    expect(f.current.every((r) => r.assigned === 0)).toBe(true);
+    const o = await planningOverview(h.db, today, { manage: true, substitute: false }, empty);
+    expect(o.manage!.assignments.total).toBe(0);
   });
 
   it("Abgang/Zugang prüfen: ohne Begründung, Stunden und Datum Pflicht", async () => {

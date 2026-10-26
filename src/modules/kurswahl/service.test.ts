@@ -20,6 +20,7 @@ import {
   targetStudents,
   updateVerfahren,
   verfahrenState,
+  angebotFormsOpen,
   wahlRows,
   type AngebotInput,
   type VerfahrenInput,
@@ -76,6 +77,11 @@ describe("Kurswahlen – Verfahren, Angebote, Wahl", () => {
     expect(verfahrenState(v, "2026-10-31")).toBe("geplant");
     expect(verfahrenState(v, TODAY)).toBe("offen");
     expect(verfahrenState(v, "2026-11-16")).toBe("geschlossen");
+    // R2-P13: Angebotsformulare (und damit die Lehrkraft-Auswahlliste) nur, solange nicht übernommen und mit `manage`
+    expect(angebotFormsOpen("offen", true)).toBe(true);
+    expect(angebotFormsOpen("geschlossen", true)).toBe(true);
+    expect(angebotFormsOpen("uebernommen", true)).toBe(false);
+    expect(angebotFormsOpen("offen", false)).toBe(false);
     await expect(createAngebot(h.db, await p(SABINE), id, offer("Zu klein", null, { minSize: 10, maxSize: 5 }))).rejects.toBeInstanceOf(ValidationError);
     offers = [];
     for (const [t, s] of [

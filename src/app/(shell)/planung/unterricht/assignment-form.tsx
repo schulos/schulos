@@ -5,7 +5,7 @@ import { useActionState, useState } from "react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
-import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
+import { offSubjectKey, type PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import { TeacherSelect } from "../teacher-select";
 
 export interface AssignmentFormValues {
@@ -114,18 +114,19 @@ export function AssignmentForm({
         subjectName={subjectName}
         teachers={options.teachers}
         defaultValue={v.teacherId ?? ""}
-        confirmed={v.offSubjectOk === "1"}
+        confirmed={v[offSubjectKey("teacherId")]}
       />
       <TeacherSelect
         name="teacher2Id"
         label="Zweite Lehrkraft"
         hint="Teamteaching"
+        error={fe.teacher2Id}
         emptyLabel="– keine –"
         subjectId={subjectId}
         subjectName={subjectName}
         teachers={options.teachers}
         defaultValue={v.teacher2Id ?? ""}
-        confirmed={v.offSubjectOk === "1"}
+        confirmed={v[offSubjectKey("teacher2Id")]}
       />
       <Field label="Raumwunsch" error={fe.roomId}>
         <Select name="roomId" defaultValue={v.roomId}>

@@ -143,7 +143,7 @@ describe("Kurswahlen – Gate-Review 4d (G4D-C01, C02, C08, S02)", () => {
     // Kapazität geändert → ebenso veraltet
     await runAllocation(h.db, await p(SABINE), id);
     expect((await wahl(students[2]!)).assignedId).toBe(inf);
-    await updateAngebot(h.db, await p(SABINE), f, { title: "Französisch", subjectId: "F", level: null, minSize: 0, maxSize: 20, note: null, teacherId: "u-jana.brandt", hours: null, offSubjectOk: true });
+    await updateAngebot(h.db, await p(SABINE), f, { title: "Französisch", subjectId: "F", level: null, minSize: 0, maxSize: 20, note: null, teacherId: "u-jana.brandt", hours: null });
     expect((await v()).allocatedAt).toBeNull();
     // gleiche Wünsche erneut abgegeben ändern nichts
     const at = await runAllocation(h.db, await p(SABINE), id).then(async () => (await v()).allocatedAt);

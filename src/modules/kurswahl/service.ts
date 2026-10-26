@@ -84,6 +84,11 @@ export function verfahrenState(v: Pick<KurswahlVerfahren, "opensOn" | "closesOn"
   return "offen";
 }
 
+/** R2-P13: Angebotsformulare gibt es nur mit `kurswahl.manage` und solange nicht übernommen – nur dann braucht die Seite die Lehrkraft-Auswahlliste. */
+export function angebotFormsOpen(state: VerfahrenState, manage: boolean): boolean {
+  return manage && state !== "uebernommen";
+}
+
 export const STATE_LABEL: Record<VerfahrenState, string> = {
   geplant: "Wahl noch nicht offen",
   offen: "Wahl offen",
@@ -354,8 +359,10 @@ export async function updateAngebot(db: Db, perms: PermissionSet, angebotId: str
   await editable(db, perms, a.verfahrenId);
   const fe = await checkAngebot(db, input);
   if (Object.keys(fe).length) throw new ValidationError(fe);
-  const off = await checkTeacherFit(db, input);
   const next = cleanAngebot(input);
+  // R2-P8: Fach-Passung nur prüfen (und protokollieren), wenn Lehrkraft oder Fach sich ändern – ein schon bestätigtes Angebot bleibt
+  // ohne erneutes Häkchen änderbar
+  const off = next.teacherId !== a.teacherId || next.subjectId !== a.subjectId ? await checkTeacherFit(db, input) : [];
   await db.transaction(async (tx) => {
     await tx.update(kurswahlAngebote).set(next).where(eq(kurswahlAngebote.id, angebotId));
     // G4D-C01: andere Kapazität → die berechnete Zuteilung passt nicht mehr

@@ -6,6 +6,7 @@ import { getDb } from "@/core/db/client";
 import type { KurswahlChooser, KurswahlKind } from "@/core/db/schema";
 import { formValues } from "@/core/form-values";
 import { moduleActions } from "@/core/modules/guard";
+import { offSubjectConfirmed } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { createAngebot, createVerfahren, deleteAngebot, deleteVerfahren, updateAngebot, updateVerfahren, type AngebotInput, type VerfahrenInput } from "./service";
@@ -50,7 +51,8 @@ function readAngebot(form: FormData): AngebotInput {
     note: str(form, "note") || null,
     teacherId: str(form, "teacherId") || null,
     hours: num(form, "hours"),
-    offSubjectOk: form.get("offSubjectOk") === "1",
+    // R2-P3: Bestätigung gilt nur für dieses Feld und die gewählte Lehrkraft
+    offSubjectOk: offSubjectConfirmed(form, "teacherId", str(form, "teacherId")),
   };
 }
 

@@ -1,7 +1,8 @@
 // SP-14 (Q-SP-9-2, Projektleitung 2026-10-20): Kontolöschung bereinigt Lehrkraft-Kennungen in Solver-Läufen. Die JSON-Felder
 // `params`, `result`, `undo` und `log` haben keinen Fremdschlüssel auf `users`; beim Löschen eines Kontos ersetzt `scrubSolverRuns`
 // jede Kennung des Kontos (als Wert oder Schlüssel) durch den Platzhalter `DELETED_TEACHER`. DS-21: ebenso Kürzel bzw. Name der
-// Lehrkraft in Texten des Laufs (Kostenposten, Gründe „nicht gesetzt“, Vorprüfung, Protokoll) – als ganzes Wort. Bewusst ohne schwere Abhängigkeiten,
+// Lehrkraft in Texten des Laufs (Kostenposten, Gründe „nicht gesetzt“, Vorprüfung, Protokoll) – als ganzes Wort. R2-P1: strukturelle
+// Kennungen (Fach, Raum, Gruppe, Stunde …) bleiben dabei immer unverändert (`STRUCTURAL_KEYS`). Bewusst ohne schwere Abhängigkeiten,
 // weil die Kontolöschung (`src/core/privacy/konto.ts`) es aufruft.
 import { inArray, or, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
@@ -19,14 +20,76 @@ export function labelPattern(labels: readonly (string | null | undefined)[]): Re
 }
 
 /**
- * Rein: ersetzt Kennungen aus `ids` (als Zeichenkette oder Objektschlüssel) überall in einem JSON-Wert durch den Platzhalter;
- * mit `labels` (DS-21) zusätzlich Kürzel/Namen als ganzes Wort in jeder Zeichenkette.
+ * R2-P1: Felder mit strukturellen Kennungen (Fach, Raum, Gruppe, Stunde, Einheit, Lehrauftrag, Kopplung, Zeit) – sie bleiben bei der
+ * Bereinigung immer unverändert, auch wenn ein Kürzel oder eine Kennung zufällig gleich lautet (Lehrkraft „MU“, Fach „MU“, Raum „MU“).
+ * Sonst scheitert die Übernahme an Fremdschlüsseln bzw. das Zurücknehmen verwirft Stunden.
  */
-export function scrubIds(value: unknown, ids: ReadonlySet<string>, labels: RegExp | null = null): unknown {
-  const str = (s: string) => (ids.has(s) ? DELETED_TEACHER : labels ? s.replace(labels, DELETED_TEACHER) : s);
-  if (typeof value === "string") return str(value);
-  if (Array.isArray(value)) return value.map((v) => scrubIds(v, ids, labels));
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [str(k), scrubIds(v, ids, labels)]));
+const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
+  "subjectId",
+  "subjectIds",
+  "roomId",
+  "roomIds",
+  "homeRoomId",
+  "roomKind",
+  "groupId",
+  "groupIds",
+  "unitId",
+  "assignmentId",
+  "lessonId",
+  "keptLessonIds",
+  "couplingId",
+  "bandId",
+  "solverRunId",
+  "schoolYearId",
+  "refYmd",
+  "from",
+  "to",
+  "date",
+  "week",
+  "weekday",
+  "periodNr",
+  "validFrom",
+  "validUntil",
+  "kind",
+  "severity",
+  "category",
+  "at",
+  "status",
+  "preset",
+  "effort",
+  "createdAt",
+]);
+
+/**
+ * R2-P1: Felder, die nur Kennungen tragen (Lehrkraft, Konto, Einheit/Stunde) – dort wird nur eine ganze Kennung ersetzt, nie ein Kürzel
+ * als Wortteil (sonst würde aus der Kennung „u-x.MU“ einer anderen Lehrkraft „u-x.gelöschte Lehrkraft“).
+ */
+const ID_KEYS: ReadonlySet<string> = new Set(["id", "teacherId", "teacherIds", "substituteId", "createdBy", "appliedBy", "teacher", "teachers"]);
+
+/** Kürzel/Namen als ganzes Wort ersetzen – ohne den Platzhalter selbst anzufassen (schon bereinigte Altbestände bleiben stabil). */
+function replaceLabels(s: string, labels: RegExp): string {
+  return s
+    .split(DELETED_TEACHER)
+    .map((part) => part.replace(labels, DELETED_TEACHER))
+    .join(DELETED_TEACHER);
+}
+
+/**
+ * Rein: ersetzt Kennungen aus `ids` (als Zeichenkette oder Objektschlüssel) in einem JSON-Wert durch den Platzhalter; mit `labels`
+ * (DS-21) zusätzlich Kürzel/Namen als ganzes Wort in Texten (Bezeichnung, Grund, Kostenposten, Protokoll, Hinweis). R2-P1: Werte
+ * unter strukturellen Schlüsseln (`STRUCTURAL_KEYS`) bleiben unverändert, unter Kennungs-Schlüsseln (`ID_KEYS`) zählt nur die ganze
+ * Kennung; Objektschlüssel werden nur als ganze Kennung ersetzt (Zählungen je Lehrkraft). Arrays erben den Schlüssel ihres Felds.
+ */
+export function scrubIds(value: unknown, ids: ReadonlySet<string>, labels: RegExp | null = null, key: string | null = null): unknown {
+  if (key !== null && STRUCTURAL_KEYS.has(key)) return value;
+  if (typeof value === "string") {
+    if (ids.has(value)) return DELETED_TEACHER;
+    if (!labels || (key !== null && ID_KEYS.has(key))) return value;
+    return replaceLabels(value, labels);
+  }
+  if (Array.isArray(value)) return value.map((v) => scrubIds(v, ids, labels, key));
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [ids.has(k) ? DELETED_TEACHER : k, scrubIds(v, ids, labels, k)]));
   return value;
 }
 

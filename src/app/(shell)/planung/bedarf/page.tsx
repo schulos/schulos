@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { subjects, users } from "@/core/db/schema";
@@ -156,7 +156,12 @@ export default async function FachbedarfPage() {
   const [subjectRows, teacherRows] = manage
     ? await Promise.all([
         db.select({ id: subjects.id, name: subjects.name }).from(subjects).orderBy(asc(subjects.sortOrder), asc(subjects.id)),
-        db.select({ id: users.id, code: users.shortCode, name: users.name }).from(users).where(eq(users.role, "lehrkraft")).orderBy(asc(users.shortCode)),
+        // R2-P2: Abgang nur für aktive Lehrkräfte
+        db
+          .select({ id: users.id, code: users.shortCode, name: users.name })
+          .from(users)
+          .where(and(eq(users.role, "lehrkraft"), eq(users.status, "active")))
+          .orderBy(asc(users.shortCode)),
       ])
     : [[], []];
   const subjectName = new Map(subjectRows.map((s) => [s.id, s.name]));

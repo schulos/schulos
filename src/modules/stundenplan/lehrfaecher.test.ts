@@ -2,23 +2,29 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
 import { createSeededTestDb } from "@/core/db/testing";
-import { timetableLessons, timetableSubstitutions, timetableTeacherSubjects } from "@/core/db/schema";
+import { timetableLessons, timetableSubstitutions, timetableTeacherSubjects, users } from "@/core/db/schema";
+import { setModuleEnabled } from "@/core/modules/registry";
 import { ValidationError } from "@/modules/verwaltung/users";
 import {
   checkSubjectFit,
   executeTeacherSubjectImport,
   loadPickList,
+  offSubjectConfirmed,
+  offSubjectKey,
   offSubjectText,
   parseTeacherSubjectCsv,
   pickList,
   planTeacherSubjectImport,
   rankTeachers,
+  selectableTeachers,
   setTeacherSubjects,
   subjectFit,
+  subjectFilterOn,
   subjectMismatch,
   teacherSubjectMap,
   type PickTeacher,
 } from "./lehrfaecher";
+import stundenplanManifest from "./manifest";
 import { planAssignmentImport } from "./verteilung-import";
 import { planningYear } from "./verteilung";
 import { suggestSubstitutes } from "./vorschlaege";
@@ -52,6 +58,40 @@ describe("Lehrervorschläge passend zum Fach (rein)", () => {
 
   it("Auswahlliste: Restdeputat = Soll − Lehraufträge", () => {
     expect(pickList([{ id: "a", code: "A", name: "Adler", target: 25.5, assigned: 20 }], new Map([["a", ["M"]]]))).toEqual([{ id: "a", code: "A", name: "Adler", subjectIds: ["M"], rest: 5.5 }]);
+  });
+
+  it("R2-P2: nicht aktive Lehrkräfte sind markiert und nur als schon gewählter Wert auswählbar", () => {
+    const accounts = [
+      { id: "a", code: "A", name: "Adler", target: 25, assigned: 20 },
+      { id: "x", code: "X", name: "Xaver", target: 25, assigned: 0 },
+    ];
+    const list = pickList(accounts, new Map([["a", ["M"]], ["x", ["M"]]]), new Set(["a"]));
+    expect(list.map((t) => [t.id, !!t.inactive])).toEqual([
+      ["a", false],
+      ["x", true],
+    ]);
+    expect(selectableTeachers(list, "").map((t) => t.id)).toEqual(["a"]);
+    expect(selectableTeachers(list, "x").map((t) => t.id)).toEqual(["a", "x"]);
+  });
+
+  it("R2-P3: „Trotzdem zuweisen“ gilt nur für das eigene Feld und die dort gewählte Lehrkraft", () => {
+    const form = new FormData();
+    form.set(offSubjectKey("teacherId"), "u-a");
+    expect(offSubjectConfirmed(form, "teacherId", "u-a")).toBe(true);
+    expect(offSubjectConfirmed(form, "teacher2Id", "u-b")).toBe(false);
+    expect(offSubjectConfirmed(form, "teacherId", "u-b")).toBe(false);
+    expect(offSubjectConfirmed(form, "teacherId", null)).toBe(false);
+  });
+
+  it("R2-P7: ohne gepflegte Lehrfächer greift kein Fachfilter – alle normal wählbar", () => {
+    const none = [p("a", "Adler", [], 2), p("b", "Bauer", [], 6)];
+    expect(subjectFilterOn(none)).toBe(false);
+    expect(rankTeachers(none, "M")).toEqual({ matching: [none[1], none[0]], unmaintained: [], others: [] });
+    expect(subjectFilterOn([...none, p("c", "Christ", ["D"], 1)])).toBe(true);
+    // nur nicht aktive mit Lehrfächern zählen nicht
+    expect(subjectFilterOn([...none, { ...p("c", "Christ", ["D"], 1), inactive: true }])).toBe(false);
+    // ohne Deputat (Stundenplan aus): Name entscheidet
+    expect(rankTeachers([{ ...p("b", "Bauer", [], 0), rest: null }, { ...p("a", "Adler", [], 0), rest: null }], "M").matching.map((t) => t.id)).toEqual(["a", "b"]);
   });
 
   it("CSV: Kopfzeile optional, Fächer mit Leerzeichen, „/“, „+“ oder in eigenen Spalten", () => {
@@ -113,6 +153,33 @@ describe("Lehrfächer (Demo-Schule)", () => {
     expect(await checkSubjectFit(h.db, "PH", ["u-sophie.wagner"], false)).toEqual([]);
     expect(await checkSubjectFit(h.db, "", ["u-petra.lindner"], false)).toEqual([]);
     await setTeacherSubjects(h.db, "u-admin", "u-sophie.wagner", ["E", "F"]);
+  });
+
+  it("R2-P2: nicht aktive Lehrkraft – in der Auswahlliste markiert, beim Speichern abgelehnt", async () => {
+    await h.db.update(users).set({ status: "locked" }).where(eq(users.id, "u-sophie.wagner"));
+    try {
+      const pick = await loadPickList(h.db, MO);
+      expect(pick.find((t) => t.id === "u-sophie.wagner")?.inactive).toBe(true);
+      expect(pick.filter((t) => !t.inactive)).toHaveLength(27);
+      const fe = await fieldErrors(checkSubjectFit(h.db, "E", ["u-sophie.wagner"], true, "teacher2Id"));
+      expect(fe.teacher2Id).toMatch(/nicht mehr aktiv/);
+    } finally {
+      await h.db.update(users).set({ status: "active" }).where(eq(users.id, "u-sophie.wagner"));
+    }
+  });
+
+  it("R2-P7: Stundenplanmodul aus → kein Fachfilter (keine Lehrfächer, kein Deputat in der Liste, keine Bestätigung nötig)", async () => {
+    await setModuleEnabled(h.db, stundenplanManifest, false);
+    try {
+      const pick = await loadPickList(h.db, MO);
+      expect(pick).toHaveLength(28);
+      expect(pick.every((t) => t.subjectIds.length === 0 && t.rest === null)).toBe(true);
+      expect(subjectFilterOn(pick)).toBe(false);
+      expect(await checkSubjectFit(h.db, "PH", ["u-petra.lindner"], false)).toEqual([]);
+    } finally {
+      await setModuleEnabled(h.db, stundenplanManifest, true);
+    }
+    expect(await fieldErrors(checkSubjectFit(h.db, "PH", ["u-petra.lindner"], false))).toHaveProperty("teacherIds");
   });
 
   it("CSV-Import der Unterrichtsverteilung warnt bei fachfremder Lehrkraft, sperrt aber nicht", async () => {

@@ -7,7 +7,7 @@ import { createSeededTestDb } from "@/core/db/testing";
 import { deleteAccounts } from "@/core/privacy/konto";
 import { runDeletion } from "@/core/privacy/loeschlauf";
 import { applyRun, createRun, executeRun, getRun, proposedLessons } from "./solverlauf";
-import { DELETED_TEACHER, runTeacherLabel, scrubIds } from "./solverlauf-konto";
+import { DELETED_TEACHER, labelPattern, runTeacherLabel, scrubIds } from "./solverlauf-konto";
 import { planningYear } from "./verteilung";
 
 const today = "2026-10-05";
@@ -23,6 +23,70 @@ describe("scrubIds", () => {
       z: null,
     });
     expect(scrubIds("text mit u-weg", ids)).toBe("text mit u-weg");
+  });
+
+  it("R2-P1: Kürzel = Fach-ID = Raum-ID – strukturelle IDs bleiben, nur Lehrkraft-Felder und Texte werden ersetzt", () => {
+    const ids = new Set(["u-mu"]);
+    const re = labelPattern(["MU"]);
+    const stored = {
+      units: [
+        {
+          id: "a-1#d0",
+          label: "7b Musik (MU + BRA)",
+          groupIds: ["MU"],
+          teacherIds: ["u-mu", "u-x.MU"],
+          subjectId: "MU",
+          length: 2,
+          parts: [{ assignmentId: "MU", groupIds: ["MU"], teacherIds: ["u-mu"], subjectId: "MU", roomId: "MU", roomKind: "MU", homeRoomId: "MU", size: 20 }],
+        },
+      ],
+      result: {
+        placements: [{ unitId: "MU", weekday: 0, periodNr: 1, roomId: "MU", roomIds: ["MU"] }],
+        unplaced: [{ unitId: "MU", label: "7b Musik (MU)", reason: "kein Slot frei – Lehrkraft MU: 0 von 30 frei", causes: [{ kind: "teacher", id: "u-mu", label: "MU", free: 0, of: 30, busy: 0, blocked: 0 }] }],
+        items: [{ category: "teacherGap", cost: 3, text: "MU Mo: 2 Hohlstunden" }],
+      },
+      keptLessonIds: ["MU"],
+      refYmd: "2026-11-02",
+    };
+    const undo = {
+      ended: [{ id: "MU", validUntil: null }],
+      deleted: [{ id: "MU", groupId: "MU", weekday: 0, periodNr: 1, subjectId: "MU", teacherId: "u-mu", roomId: "MU", week: "all", validFrom: "2026-11-09", validUntil: null, couplingId: "MU", fixed: false, solverRunId: null }],
+      removedSubstitutions: 1,
+      substitutions: [{ id: "s-1", lessonId: "MU", date: "2026-11-09", kind: "substitute", substituteId: "u-mu", roomId: "MU", note: "MU übernimmt", subjectId: "MU", createdBy: "u-x.MU", createdAt: "2026-10-01T00:00:00.000Z" }],
+    };
+    const log = [{ at: "2026-10-01T00:00:00.000Z", kind: "precheck", text: "Vorprüfung: Lehrkraft MU knapp", data: { findings: [{ severity: "warn", kind: "teacher", id: "u-mu", label: "MU", demand: 28, free: 29, message: "MU: 28 von 29" }], byTeacher: { "u-mu": 2, "u-x.MU": 1 } } }];
+
+    const s = scrubIds(stored, ids, re) as typeof stored;
+    const unit = s.units[0]!;
+    expect(unit).toMatchObject({ id: "a-1#d0", groupIds: ["MU"], subjectId: "MU", teacherIds: [DELETED_TEACHER, "u-x.MU"], label: `7b Musik (${DELETED_TEACHER} + BRA)` });
+    expect(unit.parts[0]).toEqual({ assignmentId: "MU", groupIds: ["MU"], teacherIds: [DELETED_TEACHER], subjectId: "MU", roomId: "MU", roomKind: "MU", homeRoomId: "MU", size: 20 });
+    expect(s.result.placements).toEqual(stored.result.placements);
+    expect(s.result.unplaced[0]).toMatchObject({ unitId: "MU", reason: `kein Slot frei – Lehrkraft ${DELETED_TEACHER}: 0 von 30 frei`, causes: [{ id: DELETED_TEACHER, label: DELETED_TEACHER }] });
+    expect(s.result.items[0]!.text).toBe(`${DELETED_TEACHER} Mo: 2 Hohlstunden`);
+    expect(s.keptLessonIds).toEqual(["MU"]);
+
+    const u = scrubIds(undo, ids, re) as typeof undo;
+    expect(u.ended).toEqual(undo.ended);
+    expect(u.deleted[0]).toEqual({ ...undo.deleted[0], teacherId: DELETED_TEACHER });
+    expect(u.substitutions[0]).toEqual({ ...undo.substitutions[0], substituteId: DELETED_TEACHER, note: `${DELETED_TEACHER} übernimmt` });
+
+    const l = scrubIds(log, ids, re) as typeof log;
+    expect(l[0]!.text).toBe(`Vorprüfung: Lehrkraft ${DELETED_TEACHER} knapp`);
+    expect(l[0]!.kind).toBe("precheck");
+    expect(l[0]!.data.findings[0]).toMatchObject({ kind: "teacher", id: DELETED_TEACHER, label: DELETED_TEACHER, message: `${DELETED_TEACHER}: 28 von 29` });
+    expect(l[0]!.data.byTeacher).toEqual({ [DELETED_TEACHER]: 2, "u-x.MU": 1 });
+  });
+
+  it("R2-P1: schon bereinigte Altbestände bleiben stabil – zweite Löschung ändert den Platzhalter nicht, Kennungen anderer bleiben", () => {
+    const old = {
+      units: [{ id: "a-1#e0", label: `7b Musik (${DELETED_TEACHER} + Lehrkraft)`, groupIds: ["g-7b"], teacherIds: [DELETED_TEACHER, "u-lehrkraft"], subjectId: "MU", length: 1 }],
+      result: { items: [{ category: "teacherGap", cost: 1, text: `${DELETED_TEACHER} Di: 1 Hohlstunde; Lehrkraft Di` }] },
+    };
+    // zweite gelöschte Lehrkraft heißt „Lehrkraft“ – das Wort im Platzhalter bleibt unberührt
+    const s = scrubIds(old, new Set(["u-lehrkraft"]), labelPattern(["Lehrkraft"])) as typeof old;
+    expect(s.units[0]).toEqual({ ...old.units[0], label: `7b Musik (${DELETED_TEACHER} + ${DELETED_TEACHER})`, teacherIds: [DELETED_TEACHER, DELETED_TEACHER] });
+    expect(s.result.items[0]!.text).toBe(`${DELETED_TEACHER} Di: 1 Hohlstunde; ${DELETED_TEACHER} Di`);
+    expect(scrubIds(s, new Set(["u-lehrkraft"]), labelPattern(["Lehrkraft"]))).toEqual(s);
   });
 
   it("Anzeige: Kürzel, Platzhalter für gelöschte, sonst nichts", () => {
@@ -111,5 +175,36 @@ describe("SP-14 Kontolöschung und Solver-Läufe (Demo-Schule)", () => {
     expect(text).not.toContain('"u-weg"');
     expect(text).toContain('"u-jana.brandt"');
     expect(JSON.parse(text)[1].units[0].teacherIds).toEqual([DELETED_TEACHER, "u-jana.brandt"]);
+  }, 120_000);
+});
+
+describe("R2-P1 Kontolöschung: Kürzel = Fach-ID (Demo-Schule)", () => {
+  let h: DbHandle;
+  beforeAll(async () => {
+    h = await createSeededTestDb();
+  });
+  afterAll(() => h.close());
+
+  it("Lehrkraft mit Kürzel „MU“ (= Fach MU) gelöscht → Fächer/Räume im Lauf bleiben, Übernahme ohne Fremdschlüssel-Fehler", async () => {
+    const [ric] = await h.db.select({ id: users.id }).from(users).where(eq(users.shortCode, "RIC"));
+    await h.db.update(users).set({ shortCode: "MU" }).where(eq(users.id, ric!.id));
+    const id = await createRun(h.db, "u-admin", { seed: 5, effort: "schnell" }, today);
+    expect(await executeRun(h.db, id, today)).toBe("done");
+    const before = (await getRun(h.db, id))!;
+    const subjectsOf = (r: typeof before) => r.stored!.units.flatMap((u) => [u.subjectId, ...(u.parts ?? []).map((p) => p.subjectId)]);
+    expect(subjectsOf(before)).toContain("MU");
+    expect(before.stored!.units.some((u) => u.teacherIds.includes(ric!.id))).toBe(true);
+
+    await deleteAccounts(h.db, [ric!.id]);
+    const after = (await getRun(h.db, id))!;
+    expect(subjectsOf(after)).toEqual(subjectsOf(before));
+    expect(after.stored!.result.placements).toEqual(before.stored!.result.placements);
+    expect(after.stored!.units.flatMap((u) => u.teacherIds)).not.toContain(ric!.id);
+    expect(after.stored!.units.some((u) => u.teacherIds.includes(DELETED_TEACHER))).toBe(true);
+    // Texte: Kürzel ersetzt (Einheiten-Bezeichnung „… Musik (MU)“)
+    expect(after.stored!.units.map((u) => u.label).join("|")).not.toMatch(/\(MU\)/);
+
+    const res = await applyRun(h.db, "u-admin", id, "2026-11-02", today);
+    expect(res.created).toBe(proposedLessons(after.stored!).length);
   }, 120_000);
 });

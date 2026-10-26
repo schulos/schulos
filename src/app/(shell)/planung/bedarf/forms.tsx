@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { listAfter } from "@/core/form-values";
 import type { FormState } from "@/modules/verwaltung/actions";
 import type { GradeForecast } from "@/modules/stundenplan/fachbedarf";
 import { Button } from "@schulos/ui/button";
@@ -51,6 +52,8 @@ export function StaffChangeForm({ action, teachers, subjects, defaultDate }: { a
   const fe = state.fieldErrors ?? {};
   const v = state.values ?? {};
   const [kind, setKind] = useState(v.kind ?? "abgang");
+  // R2-P11: nach einem Fehler bleiben die angehakten Fächer des Zugangs stehen
+  const checked = listAfter(state.values, "subjectIds", []);
   return (
     <form key={JSON.stringify(state.values ?? null) + String(state.ok ?? "")} action={formAction} className="flex flex-col gap-3">
       <div className="grid gap-3 sm:grid-cols-[1fr_2fr_1fr_1fr_auto]">
@@ -78,7 +81,7 @@ export function StaffChangeForm({ action, teachers, subjects, defaultDate }: { a
               <legend className="sr-only">Fächer der neuen Lehrkraft</legend>
               {subjects.map((s) => (
                 <label key={s.value} className="flex items-center gap-1.5 text-sm">
-                  <input type="checkbox" name="subjectIds" value={s.value} className="size-4 accent-[var(--accent)]" />
+                  <input type="checkbox" name="subjectIds" value={s.value} defaultChecked={checked.includes(s.value)} className="size-4 accent-[var(--accent)]" />
                   {s.label}
                 </label>
               ))}

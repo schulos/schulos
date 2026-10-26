@@ -2,14 +2,19 @@
 // Vorschläge bei der Zuweisung: nur Lehrkräfte mit dem Fach, sortiert nach Restdeputat (Soll − Lehraufträge), dann Name; alle anderen nur
 // über „alle anzeigen“ mit Warnhinweis. Speichern mit einer fachfremden Lehrkraft bleibt erlaubt, braucht aber eine Bestätigung.
 // Ohne gepflegte Lehrfächer gibt es einen Hinweis, keine Sperre.
+// R2-P7: Der Fachfilter greift nur, wenn das Stundenplanmodul an ist UND für die aktiven Lehrkräfte überhaupt Lehrfächer gepflegt sind
+// (`subjectFilterOn`); sonst sind alle Lehrkräfte normal wählbar, ohne Warnhinweis und ohne Bestätigung.
+// R2-P2: Vorgeschlagen werden nur aktive Lehrkräfte; gespeichert wird keine nicht aktive (gesperrt/ausgeschieden).
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
 import { detectSeparator, splitCsvLine } from "@/core/csv";
-import { subjects, timetableTeacherSubjects, users } from "@/core/db/schema";
+import { moduleStates, subjects, timetableTeacherSubjects, users } from "@/core/db/schema";
+import { isEnabled } from "@/core/modules/registry";
 import { readSchoolSettings } from "@/core/settings";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { defaultObligation, deputyAccounts } from "./deputate";
+import stundenplanManifest from "./manifest";
 import { offSubjectText, subjectMismatch, type PickTeacher } from "./lehrfaecher-auswahl";
 import { distribution, planningYear } from "./verteilung";
 
@@ -45,24 +50,41 @@ export async function setTeacherSubjects(db: Db, actorId: string, teacherId: str
   await audit(db, actorId, "stundenplan.teacher_subjects", teacherId, { subjects: wanted });
 }
 
+/** R2-P7: Ist das Stundenplanmodul an? (Lehrfächer und Deputate gehören dazu; ohne Modul kein Fachfilter.) */
+export async function timetableModuleOn(db: Db): Promise<boolean> {
+  const rows = await db.select().from(moduleStates).where(eq(moduleStates.moduleId, stundenplanManifest.id));
+  return isEnabled(stundenplanManifest, new Map(rows.map((r) => [r.moduleId, r.enabled])));
+}
+
+/** Kennungen der aktiven Lehrkräfte (R2-P2: nur sie werden vorgeschlagen und gespeichert). */
+export async function activeTeacherIds(db: Db): Promise<Set<string>> {
+  const rows = await db.select({ id: users.id }).from(users).where(and(eq(users.role, "lehrkraft"), eq(users.status, "active")));
+  return new Set(rows.map((r) => r.id));
+}
+
 /**
  * Prüfung für Formulare: fachfremde Lehrkräfte nur mit Bestätigung (`confirmed`) – sonst ein Feldfehler mit dem Warnhinweis. Lehrkräfte
  * ohne gepflegte Lehrfächer gehen ohne Bestätigung durch (Hinweis im Formular). Gibt die fachfremden Kürzel zurück (fürs Protokoll).
+ * R2-P2: nicht aktive Lehrkräfte werden immer abgelehnt. R2-P7: ohne Stundenplanmodul keine Fachprüfung.
  */
 export async function checkSubjectFit(db: Db, subjectId: string, teacherIds: string[], confirmed: boolean, field = "teacherIds"): Promise<string[]> {
   const ids = teacherIds.filter(Boolean);
-  if (!subjectId || !ids.length) return [];
+  if (!ids.length) return [];
+  const people = await db.select({ id: users.id, code: users.shortCode, name: users.name, status: users.status }).from(users).where(inArray(users.id, ids));
+  const inactive = people.filter((u) => u.status !== "active");
+  if (inactive.length)
+    throw new ValidationError({
+      [field]: `${inactive.map((u) => u.code ?? u.name).join(", ")} ${inactive.length === 1 ? "ist" : "sind"} nicht mehr aktiv – andere Lehrkraft wählen`,
+    });
+  if (!subjectId || !(await timetableModuleOn(db))) return [];
   const rows = await db.select().from(timetableTeacherSubjects).where(inArray(timetableTeacherSubjects.teacherId, ids));
   const map = new Map<string, string[]>();
   for (const r of rows) map.set(r.teacherId, [...(map.get(r.teacherId) ?? []), r.subjectId]);
   const { off } = subjectMismatch(map, subjectId, ids);
   if (!off.length) return [];
-  const [names, [s]] = await Promise.all([
-    db.select({ id: users.id, code: users.shortCode, name: users.name }).from(users).where(inArray(users.id, off)),
-    db.select({ name: subjects.name }).from(subjects).where(eq(subjects.id, subjectId)),
-  ]);
+  const [s] = await db.select({ name: subjects.name }).from(subjects).where(eq(subjects.id, subjectId));
   const codes = off.map((id) => {
-    const u = names.find((n) => n.id === id);
+    const u = people.find((n) => n.id === id);
     return u?.code ?? u?.name ?? id;
   });
   if (!confirmed) throw new ValidationError({ [field]: `${offSubjectText(codes, s?.name ?? subjectId)} – zum Speichern „Trotzdem zuweisen“ ankreuzen` });
@@ -205,18 +227,37 @@ export async function executeTeacherSubjectImport(db: Db, actorId: string, plan:
 // ---------------------------------------------------------------- Auswahlliste für Formulare
 
 /** Rein: Auswahlliste aus den Deputatskonten (Soll, Lehraufträge) und den Lehrfächern. */
-export function pickList(accounts: readonly { id: string; code: string | null; name: string; target: number; assigned: number }[], map: ReadonlyMap<string, readonly string[]>): PickTeacher[] {
-  return accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, subjectIds: [...(map.get(a.id) ?? [])], rest: Math.round((a.target - a.assigned) * 10) / 10 }));
+export function pickList(
+  accounts: readonly { id: string; code: string | null; name: string; target: number; assigned: number }[],
+  map: ReadonlyMap<string, readonly string[]>,
+  /** R2-P2: aktive Lehrkräfte – andere werden als `inactive` markiert (fehlt = alle aktiv) */
+  active?: ReadonlySet<string>,
+): PickTeacher[] {
+  return accounts.map((a) => ({
+    id: a.id,
+    code: a.code,
+    name: a.name,
+    subjectIds: [...(map.get(a.id) ?? [])],
+    rest: Math.round((a.target - a.assigned) * 10) / 10,
+    ...(active && !active.has(a.id) ? { inactive: true } : {}),
+  }));
 }
 
-/** Auswahlliste des Planungsjahres (Restdeputat am Stichtag) – für Formulare außerhalb der Unterrichtsverteilung. */
+/**
+ * Auswahlliste des Planungsjahres (Restdeputat am Stichtag) – für Formulare außerhalb der Unterrichtsverteilung. Nicht aktive Lehrkräfte
+ * sind markiert (R2-P2). Ohne Stundenplanmodul (R2-P7) nur aktive Lehrkräfte ohne Lehrfächer und ohne Deputat – kein Fachfilter.
+ */
 export async function loadPickList(db: Db, todayYmd: string): Promise<PickTeacher[]> {
-  const year = await planningYear(db);
-  const map = await teacherSubjectMap(db);
-  if (!year) {
-    const rows = await db.select({ id: users.id, code: users.shortCode, name: users.name }).from(users).where(eq(users.role, "lehrkraft")).orderBy(asc(users.shortCode));
-    return rows.map((t) => ({ ...t, subjectIds: map.get(t.id) ?? [], rest: 0 }));
+  const [year, active, moduleOn] = await Promise.all([planningYear(db), activeTeacherIds(db), timetableModuleOn(db)]);
+  if (!year || !moduleOn) {
+    const rows = await db
+      .select({ id: users.id, code: users.shortCode, name: users.name })
+      .from(users)
+      .where(and(eq(users.role, "lehrkraft"), eq(users.status, "active")))
+      .orderBy(asc(users.shortCode));
+    const map = moduleOn ? await teacherSubjectMap(db) : new Map<string, string[]>();
+    return rows.map((t) => ({ ...t, subjectIds: map.get(t.id) ?? [], rest: null }));
   }
-  const [d, school] = await Promise.all([distribution(db, year, todayYmd), readSchoolSettings(db)]);
-  return pickList(await deputyAccounts(db, year.id, d.teachers, defaultObligation(school.profile.form)), map);
+  const [d, school, map] = await Promise.all([distribution(db, year, todayYmd), readSchoolSettings(db), teacherSubjectMap(db)]);
+  return pickList(await deputyAccounts(db, year.id, d.teachers, defaultObligation(school.profile.form)), map, active);
 }
