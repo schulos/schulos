@@ -512,7 +512,7 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 | **SP2-09** ✅ | Lehrauftrag mit Gültigkeit (`valid_from/until`, Vorgabe Schuljahr; Verteilung und Solver am Stichtag, Übernahme bis `valid_until`) | M | teilw. | SP2-02 | SP-G-07 |
 | **SP2-10** | Drucke/Exporte: Gesamtübersicht alle Klassen/alle Lehrkräfte, Unterrichtsverteilung, Deputate, Aufsichtsplan, Vertretungsstatistik (Druck + CSV) | S–M | – | GATE SP | SP-G-14 |
 | **SP2-12** | **Fachbedarf & Vorsorge** (entschieden durch Projektleitung 19.10.2026): Reiter `/planung/bedarf` (Recht `stundenplan.manage`) + Kachel in der Übersicht `/planung`. Je Fach Bedarf (Wochenstunden aus Lehraufträgen/Stundentafel) gegen Versorgung (Deputatsstunden der Lehrkräfte mit diesem Lehrfach, abzüglich Anrechnungen) mit Ampel; Prognose nächstes Schuljahr (Jahrgänge rücken auf, Klassenzahl anpassbar, bekannte Abgänge/Zugänge – Ruhestand, Elternzeit, Befristung, Abordnung – nur als Datum + Stunden, **ohne Begründung**); Empfehlungstexte („Physik: −6 Std. … Einstellung/Abordnung prüfen“) + Hinweis auf Fächer, die nur eine Lehrkraft abdeckt. Neu: Lehrfächer (Fakultas) je Lehrkraft als Stammdatum; neues Leserecht „Fachbedarf einsehen“ (z. B. `stundenplan.forecast_view`) für die Schulleitung – nur aggregierte Zahlen je Fach, keine Personen/Namen; die Planung sieht Details. Datenschutz: Abgänge sind personenbezogen → Löschklasse/Löschfrist, nur mit `manage` sichtbar | M | – | GATE SP | Projektleitung 2026-10-19 |
-| **SP2-11** | E2E-Szenario „Gesamtschule“ (Band E/G Mathe 7 + WP + Tagesgrenze → Lauf → Übernahme; Verlegung/Bereitschaft; CSV-Import; Fachbedarf) + Review-PR **GATE SP2** | S | – | SP2-01 … SP2-10, SP2-12 | – |
+| **SP2-11** ✅ | E2E-Szenario „Gesamtschule“ (Band E/G Mathe 7 + WP + Tagesgrenze → Lauf → Übernahme; Verlegung/Bereitschaft; CSV-Import; Fachbedarf) + Review-PR **GATE SP2** | S | – | SP2-01 … SP2-10, SP2-12 | – |
 | **GATE SP2** | Review mit der Projektleitung – merged nur die Projektleitung | – | – | SP2-11 | – |
 
 **Umgesetzt (SP2-01, Migration 0100, 2026-10-20; Solver/Setzhilfe/Übernahme in SP2-02, s. u.):** Tabelle `timetable_bands` (Schuljahr, Name – eindeutig je Schuljahr –, Wochen-
@@ -694,6 +694,12 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
   Kein eigener Datensatz: einzeln überschreiben/aufheben wie jede Vertretung (einfache Vorgabe, Q-SP2-16).
 - **Wochenblick** (`weekNeeds`): oben auf `/planung/vertretungen` die nächsten fünf Schultage mit „n offen“/„m geregelt“, Link auf den Tag.
 - Tests: `dauervertretung.test.ts`, E2E `vertretung-dauer.spec.ts` (Planungs-Login, A11Y, dunkel/360 px).
+
+**Umgesetzt (SP2-11, ohne Migration, 2026-10-26) – E2E-Gesamtszenario „Gesamtschule“:** `e2e/zx-gate-sp2.spec.ts` (seriell, legt alles selbst an
+und räumt es weg – TD-07): Kurse Jahrgang 7 (Mathe E/G, zwei WP) → CSV-Import mit zwei Bändern → Bänder, Fachbedarf, CSV-Export ↔ Import →
+Tagesgrenze → Lauf → Übernahme ab Stichtag (Band-Stunden als Kopplung, Diagnose Tagesgrenzen/Bänder am Stichtag ohne Befund) → zurücknehmen;
+Bereitschaft oben in den Vorschlägen, Verlegung in eine freie Stunde, Vertretungsseite der 7b auf 360 px ohne seitliches Scrollen; A11Y der
+SP2-Seiten hell/dunkel. Fund: `Table` aus `@schulos/ui` ist jetzt `relative` (sonst ragten `sr-only`-Spaltenköpfe aus dem Scroll-Rahmen).
 
 **Übergabe für den Rest des Blocks (nach SP2-05):**
 - **SP2-09 (Lehrauftrag mit Gültigkeit):** `unitsFrom()`/`solverInputFromDb()` filtern Lehraufträge am Stichtag; `gradeOf` bleibt aus
