@@ -653,7 +653,31 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
   bis `min(Schuljahresende, valid_until)`; endet der Lehrauftrag vor dem Stichtag, entfällt die Stunde (`expired`, im Protokoll). Beginnt ein
   Lehrauftrag des Laufs erst nach dem Stichtag, lehnt die Übernahme ab („frühestens ab …“) – die Stunden beginnen so immer am Stichtag, das
   Zurücknehmen bleibt unverändert. Ablauf Halbjahr: Lauf mit Stand 1. Hj. übernehmen (Halbjahres-Aufträge enden am 31.01.), Lauf mit
-  „Lehraufträge am 01.02.“ ab dem 01.02. übernehmen (ersetzt ab dann).
+  „Lehraufträge am 01.02.“ ab dem 01.02. übernehmen (ersetzt ab dann). Seit R1a (unten) in beliebiger Reihenfolge – jeder Lauf ersetzt nur seinen
+  Planungszeitraum.
+- **Regel Planungszeitraum (Review-Fix R1a/A2, 2026-10-26, ohne Migration):** Ein Lauf mit Planungsstand `refYmd` gilt für den längsten Zeitraum
+  um `refYmd`, in dem kein Lehrauftrag gilt, den der Lauf nicht kennt (`planningPeriod`): er **endet am Vortag, an dem der nächste ihm unbekannte
+  Lehrauftrag beginnt** (sonst Schuljahresende), und **beginnt am Tag nach dem Ende des letzten ihm unbekannten** (sonst Schuljahresbeginn).
+  Lehraufträge, die er kennt, begrenzen ihn nicht (ihre Stunden enden mit ihnen; ein späterer Beginn lehnt wie bisher ab). Gerechnet wird mit den
+  Lehraufträgen zum Zeitpunkt der Übernahme. Die Übernahme ab `fromYmd` ersetzt **nur Stunden in `[fromYmd, Zeitraumende]`**: Stichtag vor dem
+  Zeitraum oder danach → Ablehnung („gilt erst ab …“ / „gilt nur bis …“); Stunden, die erst nach dem Zeitraum beginnen, bleiben unberührt;
+  ersetzbare Stunden, die über das Zeitraumende hinaus gelten, werden dort geteilt (wie „Periode kopieren“: Kopie ab dem Folgetag mit neuer
+  Kopplungs-id, gleicher Herkunft und Anlagezeit; Vertretungen – auch als aufnehmende Stunde –, Klassenbuch und Material ab dann ziehen mit;
+  `undo.split`); neue Stunden gelten höchstens bis zum Zeitraumende. Das Zurücknehmen fügt geteilte Stunden wieder zusammen (nur wenn der Teil
+  im Zeitraum wieder bis zum Zeitraumende gilt). Ohne Gültigkeitsangaben ist der Zeitraum das ganze Schuljahr – alles wie vorher. Die
+  Detailseite nennt das Zeitraumende im Hinweis vor dem Übernehmen, das Protokoll ebenso. Beispiel: Lauf 2. Hj. ab 01.02. übernommen, danach
+  Lauf 1. Hj. ab 02.11. → der Februar-Plan bleibt, die neuen Stunden enden am 31.01. Wird ersetzt durch den Entwurf aus
+  `STUNDENPLAN-LEBENSZYKLUS.md` (SP3), bis dahin gilt diese Regel.
+- **Verlegung/Zusammenlegung in der Übernahme (R1a/A1):** `undo.substitutions` trägt `targetPeriod` und `mergeLessonId`; Zusammenlegungen
+  anderer Gruppen **in** ersetzte Stunden werden ab dem Stichtag ausdrücklich entfernt, gezählt (Hinweis, `removedSubstitutions`) und gesichert,
+  statt still per Fremdschlüssel zu verschwinden bzw. an einer nicht mehr geltenden Stunde zu hängen. Zurück kommt eine Zusammenlegung nur, wenn
+  am Tag auch die aufnehmende Stunde wieder gilt; eine inzwischen aufgehobene Zusammenlegung (`merge_lesson_id` leer, Migration 0106) am selben
+  Tag weicht der alten Vertretung. Übernahmen vor R1a haben die Felder nicht (Verlegung kommt dann ohne Zielstunde zurück).
+- **Kalenderdaten (R1a/A12):** Gültigkeit der Lehraufträge, Planungsstand und Stichtag der Übernahme werden mit `isCalendarDate` geprüft
+  (2027-02-30 → Feldfehler statt Datenbankfehler). **Sortierung (R1a/A15):** `listAssignments` sortiert Fachname und id mit `collate "C"`
+  – PGlite und PostgreSQL liefern dieselbe Reihenfolge und damit denselben Solver-Lauf.
+- Tests R1a: `solverlauf.uebernahme.test.ts` (Zeitraum rein, Halbjahre in umgekehrter Reihenfolge, Teilen + Zurücknehmen, Verlegung/Zusammenlegung),
+  `verteilung.test.ts` (A12, A15 – die Collation-Probe greift im CI-Job `postgres`), `gueltigkeit.test.ts` angepasst.
 - **Setzhilfe:** Stunden gelten höchstens so lange wie ihr Lehrauftrag (`clipValidity`); weichen Band-Mitglieder ab, bekommt die Kopplung den
   Zeitraum der Setzhilfe (einfache Vorgabe; der Solver-Weg setzt je Teil).
 - **CSV-Import (SP2-06)** kennt keine Gültigkeit: neue Lehraufträge gelten das ganze Schuljahr, ein vorhandener mit Gültigkeit kann als „ändern“ zugeordnet werden.

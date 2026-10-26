@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
-import { auditLog, schoolYears, timetableLessons } from "@/core/db/schema";
+import { auditLog, schoolYears, timetableAssignments, timetableLessons } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { deleteSubject } from "@/modules/verwaltung/stammdaten";
 import { ValidationError } from "@/modules/verwaltung/users";
@@ -162,6 +162,20 @@ describe("Unterrichtsverteilung (Demo-Schule)", () => {
     expect(d.assignments.every((a) => a.doubleLessons * 2 <= a.hours)).toBe(true);
     // erneutes Übernehmen legt nichts doppelt an
     expect(await assignmentsFromTimetable(h.db, "u-admin", year, today)).toBe(0);
+  });
+
+  it("A12: Gültigkeit mit unmöglichem Kalenderdatum ist ein Feldfehler, kein Datenbankfehler", async () => {
+    expect((await fieldErrors(createAssignment(h.db, "u-admin", { ...base(), validFrom: "2027-02-30" }))).validFrom).toBe("Datum angeben");
+    expect((await fieldErrors(createAssignment(h.db, "u-admin", { ...base(), validUntil: "2026-11-31" }))).validUntil).toBe("Datum angeben");
+  });
+
+  it("A15: gleiche Sortierschlüssel → Reihenfolge nach id bytegenau (unabhängig von der Collation der Datenbank)", async () => {
+    const createdAt = new Date("2026-08-01T00:00:00Z");
+    const ids = ["r1a-a", "r1a-B", "r1a-_", "r1a-Z"];
+    await h.db.insert(timetableAssignments).values(ids.map((id) => ({ id, schoolYearId: year.id, subjectId: "F", hours: 1, createdAt })));
+    const order = (await listAssignments(h.db, year.id)).map((a) => a.id).filter((id) => ids.includes(id));
+    expect(order).toEqual([...ids].sort());
+    await h.db.delete(timetableAssignments).where(inArray(timetableAssignments.id, ids));
   });
 
   it("prüft Eingaben", async () => {

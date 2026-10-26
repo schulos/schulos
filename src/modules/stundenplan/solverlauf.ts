@@ -26,7 +26,7 @@ import {
   type TimetableSubstitution,
 } from "@/core/db/schema";
 import { loadSchoolCalendar } from "@/core/school/calendar";
-import { addDays, fromBerlinLocal, toBerlinDate, TZ, weekdayMon0 } from "@/core/time";
+import { addDays, fromBerlinLocal, isCalendarDate, toBerlinDate, TZ, weekdayMon0 } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { diagnose, type DiagLesson, type Finding } from "./diagnose";
 import { createSolver, DEFAULT_WEIGHTS, placementRooms, unitParts, type GapStats, type SolverResult, type SolverWeights, type UnitPart } from "./solver";
@@ -123,7 +123,12 @@ export type UndoLesson = Pick<TimetableLesson, "id" | "groupId" | "weekday" | "p
  * SP-13: eine bei der Übernahme entfernte Vertretung – vollständig, damit das Zurücknehmen sie wiederherstellt, sofern ihre Stunde
  * an dem Tag wieder gilt. `createdAt` als ISO-Zeitpunkt (JSONB).
  */
-export type UndoSubstitution = Pick<TimetableSubstitution, "id" | "lessonId" | "date" | "kind" | "substituteId" | "roomId" | "note" | "subjectId" | "createdBy"> & { createdAt: string };
+export type UndoSubstitution = Pick<TimetableSubstitution, "id" | "lessonId" | "date" | "kind" | "substituteId" | "roomId" | "note" | "subjectId" | "createdBy"> & {
+  createdAt: string;
+  /** SP2-07 (R1a/A1): Zielstunde einer Verlegung bzw. aufnehmende Stunde einer Zusammenlegung – fehlen bei Übernahmen davor */
+  targetPeriod?: number | null;
+  mergeLessonId?: string | null;
+};
 
 /**
  * SP-09: was die Übernahme am bestehenden Plan geändert hat – Grundlage für „Übernahme zurücknehmen“. Enthält Lehrkraft-IDs
@@ -138,6 +143,11 @@ export interface UndoData {
   removedSubstitutions: number;
   /** SP-13: diese Vertretungen vollständig – fehlt bei Übernahmen vor SP-13 (dann kommt keine zurück) */
   substitutions?: UndoSubstitution[];
+  /**
+   * R1a/A2: Stunden, die über das Ende des Planungszeitraums hinaus galten, wurden dort geteilt – `of` endet am Ende des Zeitraums,
+   * die Kopie `id` gilt danach weiter (mit den Vertretungen/Einträgen ab dann). Das Zurücknehmen fügt sie wieder zusammen.
+   */
+  split?: { id: string; of: string }[];
 }
 
 export interface SolverRun {
@@ -351,7 +361,7 @@ export function parseParams(opts: CreateRunOptions): RunParams {
     }
   }
   const refYmd = opts.refYmd || undefined;
-  if (refYmd && !/^\d{4}-\d{2}-\d{2}$/.test(refYmd)) errors.refYmd = "Datum angeben";
+  if (refYmd && !isCalendarDate(refYmd)) errors.refYmd = "Datum angeben";
   if (Object.keys(errors).length) throw new ValidationError(errors);
   return { effort, seed, weights, preset, ...(refYmd ? { refYmd } : {}) };
 }
@@ -885,15 +895,90 @@ async function assignmentValidity(db: Db, proposal: ProposedLesson[]): Promise<M
   return out;
 }
 
-/** Stunden, die die Übernahme ab `fromYmd` ersetzen würde: gültig ab dem Stichtag, nicht fixiert, nicht „bleibt“ (ohne Lehrauftrag). */
-async function replaceableLessons(db: Db, year: { endsOn: string }, fromYmd: string, kept: Set<string>): Promise<TimetableLesson[]> {
+/**
+ * R1a/A2: Planungszeitraum eines Laufs mit Planungsstand `refYmd` – der längste Zeitraum um `refYmd`, in dem kein Lehrauftrag gilt,
+ * den der Lauf nicht kennt (der am Planungsstand nicht galt). Er endet am Vortag, an dem der nächste solche Lehrauftrag beginnt
+ * (sonst am Schuljahresende), und beginnt am Tag nach dem Ende des letzten solchen (sonst am Schuljahresbeginn). Lehraufträge,
+ * die der Lauf kennt, begrenzen ihn nicht: ihre Stunden enden mit ihnen (SP2-09), ein späterer Beginn lehnt die Übernahme ab.
+ */
+export function planningPeriod(
+  refYmd: string,
+  year: { startsOn: string; endsOn: string },
+  assignments: { validFrom: string | null; validUntil: string | null }[],
+): { from: string; until: string } {
+  let from = year.startsOn;
+  let until = year.endsOn;
+  for (const a of assignments) {
+    if (a.validFrom !== null && a.validFrom > refYmd) {
+      const before = addDays(a.validFrom, -1);
+      if (before < until) until = before;
+    }
+    if (a.validUntil !== null && a.validUntil < refYmd) {
+      const after = addDays(a.validUntil, 1);
+      if (after > from) from = after;
+    }
+  }
+  return { from, until };
+}
+
+/** Planungszeitraum eines gespeicherten Laufs nach den aktuellen Lehraufträgen des Schuljahres. */
+async function runPeriod(db: Db, year: { id: string; startsOn: string; endsOn: string }, stored: StoredResult) {
+  const rows = await db
+    .select({ validFrom: timetableAssignments.validFrom, validUntil: timetableAssignments.validUntil })
+    .from(timetableAssignments)
+    .where(eq(timetableAssignments.schoolYearId, year.id));
+  return planningPeriod(stored.refYmd, year, rows);
+}
+
+/**
+ * Stunden, die die Übernahme ab `fromYmd` ersetzen würde: gültig zwischen dem Stichtag und dem Ende des Planungszeitraums
+ * (`untilYmd`), nicht fixiert, nicht „bleibt“ (ohne Lehrauftrag). Stunden, die erst nach dem Zeitraum beginnen, bleiben (A2).
+ */
+async function replaceableLessons(db: Db, untilYmd: string, fromYmd: string, kept: Set<string>): Promise<TimetableLesson[]> {
   return (
     await db
       .select()
       .from(timetableLessons)
-      .where(and(lte(timetableLessons.validFrom, year.endsOn), or(isNull(timetableLessons.validUntil), gte(timetableLessons.validUntil, fromYmd))))
+      .where(and(lte(timetableLessons.validFrom, untilYmd), or(isNull(timetableLessons.validUntil), gte(timetableLessons.validUntil, fromYmd))))
   ).filter((l) => !l.fixed && !kept.has(l.id));
 }
+
+/**
+ * R1a/A2: teilt ersetzbare Stunden, die über das Ende des Planungszeitraums hinaus gelten (wie „Periode kopieren“): die Stunde
+ * endet am letzten Tag des Zeitraums, eine Kopie (neue Kopplungs-id je Kopplung, gleiche Herkunft und Anlagezeit) gilt danach bis
+ * zum bisherigen Ende; Vertretungen (auch als aufnehmende Stunde), Klassenbuch und Material ab dann ziehen auf die Kopie um.
+ */
+async function splitAfter(tx: Db, lessons: TimetableLesson[], untilYmd: string): Promise<{ id: string; of: string }[]> {
+  const cutoff = addDays(untilYmd, 1);
+  const crossing = lessons.filter((l) => l.validUntil === null || l.validUntil > untilYmd);
+  if (!crossing.length) return [];
+  const couplings = new Map<string, string>();
+  const copies = crossing.map((l) => {
+    let couplingId: string | null = null;
+    if (l.couplingId) {
+      if (!couplings.has(l.couplingId)) couplings.set(l.couplingId, crypto.randomUUID());
+      couplingId = couplings.get(l.couplingId)!;
+    }
+    return { ...l, id: crypto.randomUUID(), couplingId, validFrom: cutoff };
+  });
+  for (const part of chunks(copies)) await tx.insert(timetableLessons).values(part);
+  for (const part of chunks(crossing.map((l) => l.id))) await tx.update(timetableLessons).set({ validUntil: untilYmd }).where(inArray(timetableLessons.id, part));
+  const out = copies.map((c, i) => ({ id: c.id, of: crossing[i]!.id }));
+  for (const { id, of } of out) await moveReferences(tx, of, id, cutoff);
+  return out;
+}
+
+/** Vertretungen, Zusammenlegungen, Klassenbuch und Material einer Stunde ab `fromYmd` auf eine andere Stunde umhängen. */
+async function moveReferences(tx: Db, fromId: string, toId: string, fromYmd: string): Promise<void> {
+  await tx.update(timetableSubstitutions).set({ lessonId: toId }).where(and(eq(timetableSubstitutions.lessonId, fromId), gte(timetableSubstitutions.date, fromYmd)));
+  await tx.update(timetableSubstitutions).set({ mergeLessonId: toId }).where(and(eq(timetableSubstitutions.mergeLessonId, fromId), gte(timetableSubstitutions.date, fromYmd)));
+  await tx.update(classbookEntries).set({ lessonId: toId }).where(and(eq(classbookEntries.lessonId, fromId), gte(classbookEntries.date, fromYmd)));
+  await tx.update(timetableAbsenceMaterials).set({ lessonId: toId }).where(and(eq(timetableAbsenceMaterials.lessonId, fromId), gte(timetableAbsenceMaterials.date, fromYmd)));
+}
+
+/** Vertretungen ab `fromYmd` an diesen Stunden – auch Zusammenlegungen anderer Gruppen in diese Stunden (R1a/A1). */
+const substitutionsOn = (ids: string[], fromYmd: string) =>
+  and(or(inArray(timetableSubstitutions.lessonId, ids), inArray(timetableSubstitutions.mergeLessonId, ids)), gte(timetableSubstitutions.date, fromYmd));
 
 /** Was eine Übernahme ab `fromYmd` ändern würde (Hinweis vor dem Übernehmen, SP-09). */
 export interface ApplyPreview {
@@ -906,23 +991,30 @@ export interface ApplyPreview {
   substitutions: number;
   /** Raumbuchungen/Klausuren ab dem Stichtag in Räumen, die der Vorschlag zu dieser Zeit belegt */
   roomClashes: { bookings: number; exams: number };
+  /** R1a/A2: Ende des Planungszeitraums, wenn er vor dem Schuljahresende endet (danach bleibt der Plan, wie er ist), sonst `null` */
+  until: string | null;
 }
 
 export async function applyPreview(db: Db, run: SolverRun, fromYmd: string): Promise<ApplyPreview | null> {
   if (!run.stored) return null;
   const year = await planningYear(db);
   if (!year) return null;
-  const current = await replaceableLessons(db, year, fromYmd, new Set(run.stored.keptLessonIds));
+  const period = await runPeriod(db, year, run.stored);
+  const current = await replaceableLessons(db, period.until, fromYmd, new Set(run.stored.keptLessonIds));
   const ids = current.map((l) => l.id);
-  let substitutions = 0;
-  for (const part of chunks(ids)) substitutions += await db.$count(timetableSubstitutions, and(inArray(timetableSubstitutions.lessonId, part), gte(timetableSubstitutions.date, fromYmd)));
-  const proposal = proposedLessons(run.stored).map((l) => ({ ...l, week: "all" as const, validFrom: fromYmd, validUntil: year.endsOn }));
+  const subIds = new Set<string>();
+  // nach dem Zeitraumende ziehen Vertretungen auf die Kopie um (Teilen) – sie entfallen nicht
+  for (const part of chunks(ids))
+    for (const s of await db.select({ id: timetableSubstitutions.id }).from(timetableSubstitutions).where(and(substitutionsOn(part, fromYmd), lte(timetableSubstitutions.date, period.until))))
+      subIds.add(s.id);
+  const proposal = proposedLessons(run.stored).map((l) => ({ ...l, week: "all" as const, validFrom: fromYmd, validUntil: period.until }));
   return {
     from: fromYmd,
     ended: current.filter((l) => l.validFrom < fromYmd).length,
     deleted: current.filter((l) => l.validFrom >= fromYmd).length,
-    substitutions,
+    substitutions: subIds.size,
     roomClashes: await roomClashes(db, proposal, fromYmd),
+    until: period.until < year.endsOn ? period.until : null,
   };
 }
 
@@ -945,7 +1037,7 @@ export async function applyRun(
   if (!run.stored) throw new ValidationError({ run: "Das Ergebnis dieses Laufs wurde beim Aufräumen entfernt – einen neuen Lauf starten" });
   const year = await planningYear(db);
   if (!year) throw new ValidationError({ run: "Kein Schuljahr" });
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromYmd) || fromYmd <= todayYmd) throw new ValidationError({ from: "Der Stichtag muss in der Zukunft liegen" });
+  if (!isCalendarDate(fromYmd) || fromYmd <= todayYmd) throw new ValidationError({ from: "Der Stichtag muss in der Zukunft liegen" });
   if (fromYmd < year.startsOn || fromYmd > year.endsOn) throw new ValidationError({ from: "Der Stichtag muss im Schuljahr liegen" });
   const cal = await loadSchoolCalendar(db);
   if (!cal.isSchoolDay(fromYmd)) {
@@ -966,23 +1058,33 @@ export async function applyRun(
     throw new ValidationError({
       from: `Lehraufträge dieses Laufs gelten erst ab ${dayFmt.format(fromBerlinLocal(startsLater.at(-1)!))} – Übernahme frühestens ab diesem Tag (oder den Lauf mit einem anderen Planungsstand rechnen)`,
     });
+  // R1a/A2: nur der Planungszeitraum des Laufs wird ersetzt – vorher (anderer Planungsstand) lässt er sich nicht übernehmen,
+  // danach bleibt der Plan, wie er ist (dort gilt ein Lehrauftrag, den der Lauf nicht kennt)
+  const period = await runPeriod(db, year, run.stored);
+  const periodHint = `Planungsstand ${dayFmt.format(fromBerlinLocal(run.stored.refYmd))}`;
+  if (fromYmd < period.from)
+    throw new ValidationError({ from: `Dieser Lauf gilt erst ab ${dayFmt.format(fromBerlinLocal(period.from))} (${periodHint}) – Übernahme frühestens ab diesem Tag` });
+  if (fromYmd > period.until)
+    throw new ValidationError({
+      from: `Dieser Lauf gilt nur bis ${dayFmt.format(fromBerlinLocal(period.until))} (${periodHint}; danach gelten andere Lehraufträge) – für einen späteren Stichtag einen Lauf mit passendem Planungsstand rechnen`,
+    });
   const untilOf = (l: ProposedLesson) => {
     const v = l.assignmentId ? validity.get(l.assignmentId)?.validUntil : null;
-    return v && v < year.endsOn ? v : year.endsOn;
+    return v && v < period.until ? v : period.until;
   };
   const expired = proposal.filter((l) => untilOf(l) < fromYmd).length;
 
   const out = await db.transaction(async (tx) => {
-    const current = await replaceableLessons(tx, year, fromYmd, kept);
+    let current = await replaceableLessons(tx, period.until, fromYmd, kept);
+    // Stunden über das Zeitraumende hinaus teilen; ersetzt wird dann nur der Teil im Zeitraum
+    const split = period.until < year.endsOn ? await splitAfter(tx, current, period.until) : [];
+    if (split.length) current = await replaceableLessons(tx, period.until, fromYmd, kept);
     const ids = current.map((l) => l.id);
     const later = current.filter((l) => l.validFrom >= fromYmd);
     const running = current.filter((l) => l.validFrom < fromYmd);
     const removed: UndoSubstitution[] = [];
     for (const part of chunks(ids))
-      for (const s of await tx
-        .delete(timetableSubstitutions)
-        .where(and(inArray(timetableSubstitutions.lessonId, part), gte(timetableSubstitutions.date, fromYmd)))
-        .returning())
+      for (const s of await tx.delete(timetableSubstitutions).where(substitutionsOn(part, fromYmd)).returning())
         removed.push({
           id: s.id,
           lessonId: s.lessonId,
@@ -992,6 +1094,8 @@ export async function applyRun(
           roomId: s.roomId,
           note: s.note,
           subjectId: s.subjectId,
+          targetPeriod: s.targetPeriod,
+          mergeLessonId: s.mergeLessonId,
           createdBy: s.createdBy,
           createdAt: s.createdAt.toISOString(),
         });
@@ -1003,6 +1107,7 @@ export async function applyRun(
       deleted: later.map(({ id, groupId, weekday, periodNr, subjectId, teacherId, roomId, week, validFrom, validUntil, couplingId, fixed, solverRunId }) => ({ id, groupId, weekday, periodNr, subjectId, teacherId, roomId, week, validFrom, validUntil, couplingId, fixed, solverRunId })),
       removedSubstitutions,
       substitutions: removed,
+      ...(split.length ? { split } : {}),
     };
     // SP-14: Lehrkräfte, deren Konto seit dem Lauf gelöscht wurde („gelöschte Lehrkraft“), werden leer – die Stunde bleibt offen
     const knownUsers = new Set((await tx.select({ id: users.id }).from(users)).map((u) => u.id));
@@ -1025,8 +1130,8 @@ export async function applyRun(
       ...run.log,
       logEntry(
         "apply",
-        `Übernommen ab ${dayFmt.format(fromBerlinLocal(fromYmd))}: ${result.created} Stunden gesetzt, ${result.ended} bestehende enden am Vortag, ${result.deleted} später beginnende entfallen, ${removedSubstitutions} Vertretungen ab dem Stichtag entfallen${expired ? `, ${expired} Stunden nicht gesetzt (Lehrauftrag endet vor dem Stichtag)` : ""}`,
-        { from: fromYmd, ...result },
+        `Übernommen ab ${dayFmt.format(fromBerlinLocal(fromYmd))}: ${result.created} Stunden gesetzt, ${result.ended} bestehende enden am Vortag, ${result.deleted} später beginnende entfallen, ${removedSubstitutions} Vertretungen ab dem Stichtag entfallen${expired ? `, ${expired} Stunden nicht gesetzt (Lehrauftrag endet vor dem Stichtag)` : ""}${period.until < year.endsOn ? `; ersetzt nur bis ${dayFmt.format(fromBerlinLocal(period.until))}${split.length ? ` (${split.length} Stunden dort geteilt)` : ""}` : ""}`,
+        { from: fromYmd, ...result, ...(period.until < year.endsOn ? { until: period.until } : {}) },
       ),
     ].slice(-LOG_LIMIT);
     const changed = await tx
@@ -1102,11 +1207,13 @@ interface ExistingIds {
  */
 function substitutionsToRestore(subs: UndoSubstitution[], lessons: Map<string, Validity>, ids: ExistingIds): (typeof timetableSubstitutions.$inferInsert)[] {
   const keep = (id: string | null, set: Set<string>) => (id && set.has(id) ? id : null);
+  const holds = (id: string, date: string) => {
+    const l = lessons.get(id);
+    return l !== undefined && l.validFrom <= date && (l.validUntil === null || l.validUntil >= date);
+  };
   return subs
-    .filter((s) => {
-      const l = lessons.get(s.lessonId);
-      return l !== undefined && l.validFrom <= s.date && (l.validUntil === null || l.validUntil >= s.date);
-    })
+    // R1a/A1: eine Zusammenlegung nur, wenn auch die aufnehmende Stunde an dem Tag wieder gilt
+    .filter((s) => holds(s.lessonId, s.date) && (!s.mergeLessonId || holds(s.mergeLessonId, s.date)))
     .map((s) => ({
       id: s.id,
       lessonId: s.lessonId,
@@ -1116,9 +1223,22 @@ function substitutionsToRestore(subs: UndoSubstitution[], lessons: Map<string, V
       roomId: keep(s.roomId, ids.rooms),
       note: s.note,
       subjectId: s.kind === "substitute" ? keep(s.subjectId, ids.subjects) : null,
+      targetPeriod: s.targetPeriod ?? null,
+      mergeLessonId: s.mergeLessonId ?? null,
       createdBy: keep(s.createdBy, ids.users),
       createdAt: new Date(s.createdAt),
     }));
+}
+
+/** Stunden, an denen die Vertretungen hängen – auch die aufnehmenden Stunden von Zusammenlegungen. */
+const referencedLessons = (subs: UndoSubstitution[]) => [...new Set(subs.flatMap((s) => (s.mergeLessonId ? [s.lessonId, s.mergeLessonId] : [s.lessonId])))];
+
+async function lessonValidity(db: Db, ids: string[]): Promise<Map<string, Validity>> {
+  const out = new Map<string, Validity>();
+  for (const part of chunks(ids))
+    for (const l of await db.select({ id: timetableLessons.id, validFrom: timetableLessons.validFrom, validUntil: timetableLessons.validUntil }).from(timetableLessons).where(inArray(timetableLessons.id, part)))
+      out.set(l.id, { validFrom: l.validFrom, validUntil: l.validUntil });
+  return out;
 }
 
 /** Stand für das Zurücknehmen: Stunden des Laufs, wiederherstellbare und fremde Stunden – gemeinsam für Vorschau und Rücknahme. */
@@ -1174,6 +1294,8 @@ async function undoState(db: Db, run: SolverRun) {
   for (const l of reinsert) if (!after.has(l.id)) after.set(l.id, { validFrom: l.validFrom, validUntil: l.validUntil });
   const existing: ExistingIds = { users: teacherIds, rooms: roomIds, subjects: subjectIds };
   const subs = undo.substitutions ?? [];
+  // R1a/A1: Stunden, die das Zurücknehmen nicht anfasst (z. B. fixierte Gäste einer Zusammenlegung), gelten wie jetzt
+  for (const [id, v] of await lessonValidity(db, referencedLessons(subs).filter((id) => !after.has(id)))) after.set(id, v);
   const restoredSubstitutions = substitutionsToRestore(subs, after, existing).length;
   return { undo, from, dayBefore, own, changed, restorable, reinsert, foreign, subs, existing, restoredSubstitutions, roomClashes: await roomClashes(db, restored, from) };
 }
@@ -1233,14 +1355,47 @@ export async function undoApply(db: Db, actorId: string, runId: string, todayYmd
     // 3. entfernte Stunden wieder anlegen (gleiche ID; gibt es sie wider Erwarten schon, bleibt die vorhandene)
     let reinserted = 0;
     for (const part of chunks(s.reinsert)) reinserted += (await tx.insert(timetableLessons).values(part).onConflictDoNothing().returning({ id: timetableLessons.id })).length;
-    // 4. SP-13: entfernte Vertretungen wieder anlegen, sofern ihre Stunde an dem Tag jetzt wieder gilt
-    const lessonsNow = new Map<string, Validity>();
-    for (const part of chunks([...new Set(s.subs.map((x) => x.lessonId))]))
-      for (const l of await tx.select({ id: timetableLessons.id, validFrom: timetableLessons.validFrom, validUntil: timetableLessons.validUntil }).from(timetableLessons).where(inArray(timetableLessons.id, part)))
-        lessonsNow.set(l.id, l);
+    // 3b. R1a/A2: geteilte Stunden wieder zusammenfügen – nur, wenn der Teil im Zeitraum wieder bis zum Ende des Zeitraums gilt
+    for (const { id, of } of s.undo.split ?? []) {
+      const [copy] = await tx.select().from(timetableLessons).where(eq(timetableLessons.id, id));
+      if (!copy) continue;
+      const until = addDays(copy.validFrom, -1);
+      const joined = await tx
+        .update(timetableLessons)
+        .set({ validUntil: copy.validUntil })
+        .where(and(eq(timetableLessons.id, of), eq(timetableLessons.validUntil, until)))
+        .returning({ id: timetableLessons.id });
+      if (!joined.length) continue;
+      await moveReferences(tx, id, of, copy.validFrom);
+      await tx.delete(timetableLessons).where(eq(timetableLessons.id, id));
+    }
+    // 4. SP-13: entfernte Vertretungen wieder anlegen, sofern ihre Stunde (bei Zusammenlegungen auch die aufnehmende) an dem Tag jetzt wieder gilt
+    const lessonsNow = await lessonValidity(tx, referencedLessons(s.subs));
     let restoredSubstitutions = 0;
     for (const part of chunks(substitutionsToRestore(s.subs, lessonsNow, s.existing)))
-      restoredSubstitutions += (await tx.insert(timetableSubstitutions).values(part).onConflictDoNothing().returning({ id: timetableSubstitutions.id })).length;
+      restoredSubstitutions += (
+        await tx
+          .insert(timetableSubstitutions)
+          .values(part)
+          // eine inzwischen aufgehobene Zusammenlegung (aufnehmende Stunde gelöscht, `merge_lesson_id` leer) am selben Tag weicht der alten Vertretung
+          .onConflictDoUpdate({
+            target: [timetableSubstitutions.lessonId, timetableSubstitutions.date],
+            set: {
+              id: sql`excluded.id`,
+              kind: sql`excluded.kind`,
+              substituteId: sql`excluded.substitute_id`,
+              roomId: sql`excluded.room_id`,
+              note: sql`excluded.note`,
+              subjectId: sql`excluded.subject_id`,
+              targetPeriod: sql`excluded.target_period`,
+              mergeLessonId: sql`excluded.merge_lesson_id`,
+              createdBy: sql`excluded.created_by`,
+              createdAt: sql`excluded.created_at`,
+            },
+            setWhere: sql`${timetableSubstitutions.kind} = 'merge' and ${timetableSubstitutions.mergeLessonId} is null`,
+          })
+          .returning({ id: timetableSubstitutions.id })
+      ).length;
     const result: UndoPreview = {
       lessons: ownIds.length,
       changed: s.changed,

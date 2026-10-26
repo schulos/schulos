@@ -1,6 +1,6 @@
 // SP2-09 (SP-G-07): Lehrauftrag mit Gültigkeit – Verteilung und Solver am Stichtag, Übernahme bis `valid_until`.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
 import { createSeededTestDb } from "@/core/db/testing";
 import { timetableAssignments, timetableLessons, timetableSolverRuns } from "@/core/db/schema";
@@ -99,7 +99,9 @@ describe("Lehrauftrag mit Gültigkeit (Demo-Schule)", () => {
     const deutsch7b = own.filter((l) => l.groupId === first.groups[0]!.id && l.subjectId === "D");
     expect(deutsch7b).toHaveLength(first.hours);
     expect(deutsch7b.every((l) => l.validUntil === "2027-01-31")).toBe(true);
-    expect(own.filter((l) => l.validUntil === year.endsOn).length).toBe(own.length - first.hours);
+    // R1a/A2: ab dem 01.02. gilt ein Lehrauftrag, den der Lauf nicht kennt → er ersetzt nur bis 31.01., danach bleibt der alte Plan (geteilt)
+    expect(own.every((l) => l.validUntil === "2027-01-31")).toBe(true);
+    expect(await h.db.$count(timetableLessons, and(isNull(timetableLessons.solverRunId), eq(timetableLessons.validFrom, "2027-02-01")))).toBeGreaterThan(0);
 
     // Lauf für das 2. Halbjahr: Übernahme vorher → Fehler, ab dem 1.2. → nur der neue Auftrag (der alte gilt dann nicht)
     const feb = await createRun(h.db, "u-admin", { seed: 5, effort: "schnell", refYmd: "2027-02-01" }, today);
