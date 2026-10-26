@@ -7,3 +7,13 @@ export function hasUnconfirmedChanges(status: EditorStatus, queued: boolean): bo
   if (typeof status === "object") return true; // abgelehnt: der Serverstand weicht ab
   return status === "pending" || status === "offline" || queued;
 }
+
+/**
+ * Review R3 N3: Rückfrage des Browsers auslösen – `preventDefault()` **und** `returnValue` (manche Browser fragen nur mit
+ * gesetztem `returnValue` nach; so hält es auch das Offline-Notenbuch).
+ */
+export function warnBeforeLeave(e: Pick<BeforeUnloadEvent, "preventDefault" | "returnValue">, unconfirmed: boolean): void {
+  if (!unconfirmed) return;
+  e.preventDefault();
+  e.returnValue = "";
+}

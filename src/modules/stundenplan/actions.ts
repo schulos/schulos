@@ -329,7 +329,13 @@ export async function saveBandAction(id: string | null, _prev: FormState, form: 
 
 export async function deleteBandAction(id: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
-  await deleteBand(await getDb(), user.id, id);
+  try {
+    // Review R3 N4: nur ohne Mitglieder (auch aus anderen Zeiträumen) – sonst zurück zum Band, das sie anzeigt
+    await deleteBand(await getDb(), user.id, id, { onlyEmpty: true });
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(bandsPage(id));
+    throw err;
+  }
   revalidatePath("/planung/unterricht");
   redirect(bandsPage());
 }

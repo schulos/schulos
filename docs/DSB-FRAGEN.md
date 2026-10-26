@@ -579,6 +579,8 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
   je Schüler:in ihrer Klasse Name und Zahl offener Schulbücher (nur mit Schulbuchausleihe) und offener Ersatzforderungen – keine
   Titel, Inventarnummern, Gründe, Beträge oder Fälligkeiten und keine Ausleihen der Bücherei (Stufe 1). Zweck: an die Rückgabe
   erinnern und Eltern ansprechen können, ohne dass die Klassenleitung erfährt, welche Medien jemand hat. Kein eigenes Recht (Prüfung
-  über die Klassenleitung), kein Export, kein Druck, kein Audit-Eintrag. **Frage:** Ist die Sicht der Klassenleitung auf die Zahl
-  offener Ersatzforderungen (Hinweis auf Schaden oder Verlust) erforderlich, oder soll sie nur offene Schulbücher sehen?
+  über die Klassenleitung), kein Export, kein Druck, kein Audit-Eintrag. **Entschieden (Projektleitung 2026-10-26): ja** – die
+  Klassenleitung sieht weiter die Zahl offener Ersatzforderungen je Schüler:in (wie umgesetzt: nur die Zahl, keine Gründe oder
+  Beträge), damit sie Eltern auf offene Posten ansprechen kann. Frühere Frage: Ist diese Sicht erforderlich, oder soll sie nur
+  offene Schulbücher sehen?
 - **Vorschlag:** Vorgaben übernehmen; Büchereiteam schriftlich belehren (Baustein), Befunde wie vorgesehen.

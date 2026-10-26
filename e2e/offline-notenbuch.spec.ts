@@ -258,6 +258,60 @@ test("P5-20: langsamer Zwischenspeicher – „ausstehend“ erst nach dem Speic
   expect(realErrors()).toEqual([]);
 });
 
+/** Zwischenspeicher dieses Buchs im aktuellen Dokument lesen/ersetzen/löschen (IndexedDB des Kontos, Eintrag `${gerät}:${buch}`). */
+async function queueEntry(p: Page, op: "get" | "corrupt" | "delete"): Promise<string | null> {
+  const bookId = bookPath.split("/").pop()!;
+  return p.evaluate(
+    async ({ op, bookId }) => {
+      const name = (await indexedDB.databases()).map((d) => d.name ?? "").find((n) => n.startsWith("schulos-notenbuch-offline:"))!;
+      const db = await new Promise<IDBDatabase>((res, rej) => {
+        const r = indexedDB.open(name);
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      const req = <T,>(r: IDBRequest<T>) => new Promise<T>((res, rej) => ((r.onsuccess = () => res(r.result)), (r.onerror = () => rej(r.error))));
+      try {
+        const device = (await req(db.transaction("device").objectStore("device").get("device"))) as { deviceId: string };
+        const key = `${device.deviceId}:${bookId}`;
+        const store = db.transaction("queue", op === "get" ? "readonly" : "readwrite").objectStore("queue");
+        if (op === "corrupt") await req(store.put({ iv: new Uint8Array(12), data: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]) }, key));
+        if (op === "delete") await req(store.delete(key));
+        const v = (await req(db.transaction("queue").objectStore("queue").get(key))) as { iv: Uint8Array; data: Uint8Array } | undefined;
+        return v ? `${Array.from(v.iv).join(",")}|${Array.from(v.data).join(",")}` : null;
+      } finally {
+        db.close();
+      }
+    },
+    { op, bookId },
+  );
+}
+
+test("Review R3 N2: unlesbarer Zwischenspeicher wird nicht überschrieben – keine Offline-Eingabe, klare Meldung", async () => {
+  await page.goto(bookPath);
+  await expect(status(page)).toContainText("aktiv auf diesem Gerät");
+  // gespeicherte Warteschlange unlesbar machen (wie beschädigte Daten bzw. ein Lesefehler der IndexedDB)
+  const corrupted = await queueEntry(page, "corrupt");
+  expect(corrupted).not.toBeNull();
+  await page.goto(bookPath);
+  await expect(panel(page).getByRole("alert").filter({ hasText: "ließ sich nicht lesen" })).toContainText("nimmt dieses Buch keine Offline-Eingaben an");
+  await ctx.setOffline(true);
+  await cell(page, s3, "Vokabeltest").click();
+  await page.keyboard.type("4");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alert").filter({ hasText: "Verbindung prüfen" })).toBeVisible();
+  await expect(status(page)).not.toContainText("ausstehend");
+  // der gespeicherte Eintrag ist unverändert (früher ersetzte ihn die neue Eingabe)
+  expect(await queueEntry(page, "get")).toBe(corrupted);
+  await page.keyboard.press("Escape");
+  await ctx.setOffline(false);
+  // aufräumen: kaputten Eintrag entfernen, danach geht es normal weiter
+  await queueEntry(page, "delete");
+  await page.goto(bookPath);
+  await expect(status(page)).toContainText("aktiv auf diesem Gerät");
+  await expect(panel(page).getByRole("alert").filter({ hasText: "ließ sich nicht lesen" })).toHaveCount(0);
+  expect(realErrors()).toEqual([]);
+});
+
 test("GATE-5a (G5A-C01): Abmelden warnt, solange Offline-Eingaben nicht übertragen sind", async () => {
   await page.goto(bookPath);
   await expect(status(page)).toContainText("aktiv auf diesem Gerät");

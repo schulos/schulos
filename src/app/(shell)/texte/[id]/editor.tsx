@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import * as Y from "yjs";
 import { deleteDocAction, updateDocAction } from "@/modules/texte/actions";
-import { hasUnconfirmedChanges, type EditorStatus } from "@/modules/texte/leave";
+import { hasUnconfirmedChanges, warnBeforeLeave, type EditorStatus } from "@/modules/texte/leave";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { passiveHeaders, passiveRefresh } from "@schulos/ui/auto-refresh";
 import { Button } from "@schulos/ui/button";
@@ -67,9 +67,7 @@ export function TextEditor({ docId, initialState, canWrite }: { docId: string; i
   // per keepalive, eine Rückmeldung gibt es dort aber nicht). In-App-Navigation fängt das Repo sonst nirgends ab.
   const unconfirmed = hasUnconfirmedChanges(status, false);
   useEffect(() => {
-    const warn = (e: BeforeUnloadEvent) => {
-      if (unconfirmed || unsent.current) e.preventDefault();
-    };
+    const warn = (e: BeforeUnloadEvent) => warnBeforeLeave(e, unconfirmed || unsent.current);
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [unconfirmed]);
@@ -177,6 +175,9 @@ export function TextEditor({ docId, initialState, canWrite }: { docId: string; i
           const missing = Y.encodeStateAsUpdate(ydoc, fromB64(j.sv));
           if (missing.length > 2 && Y.parseUpdateMeta(missing).to.size > 0) {
             queue.push(missing);
+            // Review R3 N3: auch das ist unbestätigt – sonst warnt das Schließen nicht, solange es unterwegs ist
+            unsent.current = true;
+            setStatus((s) => (s === "synced" ? "pending" : s));
             schedule(0);
           }
         }

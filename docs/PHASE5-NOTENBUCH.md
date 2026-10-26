@@ -233,6 +233,10 @@ an Gerät/Buch gebunden (AAD).
 Tabelle: ohne Service Worker (P4-73 offen, Notenbuch-Pfade bleiben `no-store`, S46) lässt sich ohne Verbindung keine Seite laden;
 offline weiterarbeiten kann nur die **schon offene** Notentabelle. Stirbt der Tab, bleibt die verschlüsselte Warteschlange und wird
 beim nächsten Öffnen des Buchs mit Verbindung abgeglichen. Halbjahresnoten, Spalten, Gewichte nur online (Q-5A-13 bleibt).
+Im Browser (`offline-queue.ts`, Review SP2-R3): Schreibvorgänge in den Zwischenspeicher laufen nacheinander, jede Änderung (Eingabe,
+Abgleich-Ergebnis, Konfliktauflösung) wird auf den Stand nach allen vorherigen angewendet; scheitert das Speichern einer Eingabe, fällt
+nur sie heraus. Lässt sich die gespeicherte Warteschlange eines Buchs (auch nach einem zweiten Versuch) nicht lesen, gilt sie als
+**unbekannt, nicht leer**: das Buch nimmt keine Offline-Eingaben an und schreibt nichts darüber, beim Auslaufen zählt sie als offen.
 
 **Abgleich (`offline-sync.ts`, `offline.ts`).** Revision je Zelle (`notenbuch_entries.version`, seit GATE-5a aus einer Sequenz –
 monoton auch über Löschen und Neuanlage; Konflikte bleiben bis zur Auflösung in der Warteschlange): Änderung nur, wenn die Grundrevision

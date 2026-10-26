@@ -601,9 +601,16 @@ test.describe("Bücherei", () => {
     await form.getByLabel("Rückgabetag").fill("2000-01-01");
     await form.getByRole("button", { name: "Rückgabetag speichern" }).click();
     await expect(form).toContainText("Vergangenheit");
-    await form.getByLabel("Rückgabetag").fill("2027-07-15");
+    // Review R3 N7: Datum relativ zu heute (zwischen heute und dem Ende des Demo-Schuljahrs), nicht fest – sonst ab Mitte Juli 2027 rot
+    const DEMO_YEAR_ENDS = "2027-07-31";
+    const todayYmd = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(new Date());
+    test.skip(todayYmd > DEMO_YEAR_ENDS, "Demo-Schuljahr ist vorbei – kein gültiger Rückgabetag mehr");
+    const next = new Date(`${todayYmd}T12:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 7);
+    const returnDay = next.toISOString().slice(0, 10) < DEMO_YEAR_ENDS ? next.toISOString().slice(0, 10) : DEMO_YEAR_ENDS;
+    await form.getByLabel("Rückgabetag").fill(returnDay);
     await form.getByRole("button", { name: "Rückgabetag speichern" }).click();
-    await expect(page.getByRole("article", { name: /Rückgabetag/ })).toContainText("15.07.2027");
+    await expect(page.getByRole("article", { name: /Rückgabetag/ })).toContainText(`${returnDay.slice(8, 10)}.${returnDay.slice(5, 7)}.${returnDay.slice(0, 4)}`);
     await expect(page.getByRole("article", { name: /Rückgabetag/ })).not.toContainText("Schuljahresende)");
     // zurück auf leer = Schuljahresende
     await page.getByRole("form", { name: "Rückgabetag festlegen" }).getByLabel("Rückgabetag").fill("");

@@ -166,3 +166,38 @@ test("TD-06: Texte-Editor warnt beim Schließen nur bei unbestätigten Änderung
     await ctx.close();
   }
 });
+
+// Review R3 N3: Was der Abgleich (Sync) als „dem Server fehlt noch“ einreiht, ist ebenfalls unbestätigt – solange es unterwegs
+// ist, fragt das Schließen nach. Nachgestellt: der Sync meldet einen leeren Server-Stand, das Update hängt.
+test("Review R3 N3: vom Sync eingereihte Updates lösen die Rückfrage beim Schließen aus", async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  const dialogs: string[] = [];
+  page.on("dialog", (d) => {
+    dialogs.push(d.type());
+    void d.dismiss();
+  });
+  try {
+    await login(page, "jana.brandt");
+    await page.goto("/texte/text-7b-regeln");
+    await expect(page.getByRole("textbox", { name: "Textinhalt" })).toContainText("Unsere Klassenregeln");
+    await expect(page.getByRole("status").filter({ hasText: "Gespeichert" })).toBeVisible();
+
+    let updates = 0;
+    // Update hängt (keine Antwort) – weder „gespeichert“ noch „keine Verbindung“
+    await ctx.route("**/api/texte/*/update", () => {
+      updates++;
+    });
+    await ctx.route("**/api/texte/*/sync", async (r) => {
+      const res = await r.fetch();
+      const j = (await res.json()) as Record<string, unknown>;
+      await r.fulfill({ response: res, json: { ...j, update: "AAA=", sv: "AA==" } }); // leerer Zustandsvektor: Server „hat nichts“
+    });
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect.poll(() => updates).toBeGreaterThan(0);
+    await Promise.all([page.waitForEvent("dialog", { timeout: 5000 }), page.close({ runBeforeUnload: true })]);
+    expect(dialogs).toEqual(["beforeunload"]);
+  } finally {
+    await ctx.close();
+  }
+});

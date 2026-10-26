@@ -50,7 +50,10 @@ test("Schülerin sieht die Tagesleiste auf „Heute“ und ihren Wochenplan", as
   const strip = page.getByRole("region", { name: "Tagesleiste" });
   await expect(strip).toBeVisible();
   await expect(strip.getByRole("heading", { level: 2 })).toContainText(/Stunden(, davon .+)? · [AB]-Woche/);
-  expect(await strip.locator("article").count()).toBeGreaterThanOrEqual(5);
+  // abends zeigt die Leiste „Morgen“ – die Zahl hängt vom Tag ab; sie muss zur Überschrift passen (vorher fest ≥ 5, abends rot)
+  const announced = Number(/(\d+) Stunden/.exec((await strip.getByRole("heading", { level: 2 }).textContent()) ?? "")![1]);
+  expect(announced).toBeGreaterThanOrEqual(1);
+  expect(await strip.locator("article").count()).toBe(announced);
   await page.screenshot({ path: ".data/shots/e2e/heute-tagesleiste.png" });
 
   await strip.getByRole("link", { name: "Wochenplan" }).click();

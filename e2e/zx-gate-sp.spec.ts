@@ -244,15 +244,11 @@ test("SP2-02: Band „Q1 GK-Schiene A“ liegt als Kopplung im Plan; die Setzhil
   await expect(cellOf(zeitung, moveSlot).getByRole("link", { name: /^Deutsch/ })).toBeVisible();
   await expect(cellOf(zeitung, setSlot).getByRole("link", { name: /^Deutsch/ })).toHaveCount(0);
 
-  // aufräumen: Kopplung, Band und beide Lehraufträge weg
+  // aufräumen: Kopplung, beide Lehraufträge und das Band weg (Review R3 N4: ein Band lässt sich erst ohne Mitglieder löschen)
   await page.goto("/planung/stundenplan?gruppe=g-ag-robotik");
   await informatik.click();
   await page.getByRole("button", { name: "Kopplung löschen" }).click();
   await expect(robotik.getByRole("link", { name: /^Informatik/ })).toHaveCount(0);
-  await page.goto("/planung/unterricht?ansicht=baender");
-  await page.getByRole("link", { name: bandName }).click();
-  await page.getByRole("button", { name: "Band löschen" }).click();
-  await expect(page.getByRole("link", { name: bandName })).toHaveCount(0);
   for (const [group, subject] of [
     ["g-ag-robotik", "Informatik"],
     ["g-ag-schuelerzeitung", "Deutsch"],
@@ -263,6 +259,10 @@ test("SP2-02: Band „Q1 GK-Schiene A“ liegt als Kopplung im Plan; die Setzhil
     await expect(page).not.toHaveURL(/auftrag=/);
     await expect(page.getByRole("row").filter({ hasText: subject })).toHaveCount(0);
   }
+  await page.goto("/planung/unterricht?ansicht=baender");
+  await page.getByRole("link", { name: bandName }).click();
+  await page.getByRole("button", { name: "Band löschen" }).click();
+  await expect(page.getByRole("link", { name: bandName })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

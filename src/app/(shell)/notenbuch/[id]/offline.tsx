@@ -14,6 +14,7 @@ import {
   type QueueStore,
   type ServerCell,
 } from "@/modules/notenbuch/offline-sync";
+import { OfflineQueue, readQueueSafely } from "@/modules/notenbuch/offline-queue";
 import { Button } from "@schulos/ui/button";
 import { clearAll, idbAvailable, loadDevice, queuedBooks, queueStore, readQueue, saveDevice, writeQueue } from "./offline-store";
 
@@ -58,6 +59,8 @@ export interface OfflineApi {
   pending: ReadonlyMap<string, OfflineOp>;
   /** weitere Bücher mit Warteschlange auf diesem Gerät */
   otherBooks: number;
+  /** gespeicherte Warteschlange dieses Buchs nicht lesbar (N2) – keine Offline-Eingaben, nichts wird überschrieben */
+  unreadable: boolean;
   /** Gerät nicht mehr berechtigt: nur noch übertragen und Konflikte klären, keine neuen Offline-Eingaben */
   expiring: boolean;
   conflicts: readonly OfflineConflict[];
@@ -87,6 +90,7 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
   const [pending, setPending] = useState<Map<string, OfflineOp>>(new Map());
   const [otherBooks, setOtherBooks] = useState(0);
+  const [unreadable, setUnreadable] = useState(false);
   const [expiring, setExpiring] = useState(false);
   const [conflicts, setConflicts] = useState<OfflineConflict[]>([]);
   const [rejected, setRejected] = useState<{ op: OfflineOp; reason: string }[]>([]);
@@ -94,7 +98,6 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const key = useRef<{ deviceId: string; cacheKey: CryptoKey } | null>(null);
-  const queue = useRef<OfflineOp[]>([]);
   const expiringRef = useRef<OfflineReason | null>(null);
   const cb = useRef(callbacks);
   useEffect(() => {
@@ -105,73 +108,82 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
 
   const idle: OfflineStatus = decision.mode === "aus" ? "aus" : decision.allowed ? "bereit" : "nicht-verfuegbar";
 
-  /** Laufende Schreibvorgänge in den Zwischenspeicher – solange > 0, warnt die Seite beim Verlassen. */
-  const writes = useRef(0);
-
   /**
-   * Warteschlange übernehmen: erst verschlüsselt speichern, dann als „ausstehend“ anzeigen. Vorher stand „ausstehend“ schon da,
-   * während das Schreiben noch lief – wer die Seite in dieser Lücke verließ, verlor die Eingabe still (Release-PR #71). Liefert
-   * `false`, wenn das Speichern scheiterte (dann mit Hinweis, im Arbeitsspeicher bleibt die Warteschlange bis zum Verlassen).
+   * Warteschlange (Review R3 N1/N2, `offline-queue.ts`): Änderungen als Funktion des aktuellen Stands, **ein Schreibvorgang nach
+   * dem anderen**; erst verschlüsselt speichern, dann als „ausstehend“ anzeigen (Release-PR #71). Scheitert das Speichern einer
+   * Eingabe, fällt nur sie heraus. Nach einem Lesefehler wird nichts geschrieben.
    */
-  const setQueue = useCallback(
-    async (ops: OfflineOp[]): Promise<boolean> => {
-      queue.current = ops;
-      let saved = true;
-      if (key.current) {
-        writes.current++;
-        try {
-          await writeQueue(userId, key.current.cacheKey, key.current.deviceId, bookId, ops);
-        } catch {
-          saved = false;
-          setError("Die Offline-Eingabe ließ sich auf diesem Gerät nicht speichern – bitte die Seite nicht schließen und erneut eintragen.");
-        } finally {
-          writes.current--;
-        }
-      }
-      setPending(new Map(ops.map((o) => [cellKey(o.columnId, o.studentId), o])));
-      return saved;
-    },
-    [bookId, userId],
+  const [q] = useState(
+    () =>
+      new OfflineQueue(
+        async () => undefined, // bis zum Effekt unten (ohne Schlüssel wird ohnehin nichts geschrieben)
+        (ops) => setPending(new Map(ops.map((o) => [cellKey(o.columnId, o.studentId), o]))),
+      ),
+  );
+  useEffect(() => {
+    q.setWriter(async (ops) => {
+      const k = key.current;
+      if (k) await writeQueue(userId, k.cacheKey, k.deviceId, bookId, ops);
+    });
+  }, [bookId, q, userId]);
+  const saveFailed = useCallback(
+    () => setError("Die Offline-Eingabe ließ sich auf diesem Gerät nicht speichern – bitte die Seite nicht schließen und erneut eintragen."),
+    [],
   );
 
-  // Seite verlassen, solange noch geschrieben wird: der Browser fragt nach (sonst bricht er das Schreiben ab)
+  // Seite verlassen, solange noch geschrieben wird (auch wartende Schreibvorgänge): der Browser fragt nach
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
-      if (writes.current === 0) return;
+      if (q.pendingWrites === 0) return;
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, []);
+  }, [q]);
 
   /** Alles dieses Kontos auf diesem Gerät löschen (andere Konten bleiben, G5A-S05). */
   const wipe = useCallback(async () => {
     key.current = null;
-    queue.current = [];
+    q.reset();
+    setUnreadable(false);
     expiringRef.current = null;
-    setPending(new Map());
     setOtherBooks(0);
     setExpiring(false);
     setExpiresAt(null);
+    // angestoßene Schreibvorgänge erst auslaufen lassen (ohne Schlüssel schreiben sie nichts mehr)
+    await q.idle();
     await clearAll(userId);
-  }, [userId]);
+  }, [q, userId]);
 
   const sync = useCallback(async () => {
-    if (!key.current || queue.current.length === 0 || !navigator.onLine) return;
+    if (!key.current || q.snapshot().length === 0 || !navigator.onLine) return;
     if (syncRun.current) return syncRun.current;
     let again = false;
     const run = (async () => {
       setSyncing(true);
       try {
         // G5A-C03: Momentaufnahme senden, die Antwort mit der **aktuellen** Warteschlange zusammenführen
-        const sent = queue.current;
+        const sent = [...q.snapshot()];
         const res = await offlineSyncAction(bookId, key.current!.deviceId, sent);
         if (!res.ok || !res.results) {
           setError(res.error ?? "Abgleich fehlgeschlagen");
           return;
         }
-        const out = reconcileQueue(queue.current, sent, res.results);
+        const results = res.results;
+        // eingereiht wie jede Eingabe: zusammengeführt mit dem Stand nach allen vorher eingereihten Änderungen (N1); der Server
+        // hat schon angewendet – darum auch übernehmen, wenn das Speichern scheitert
+        const box: { out?: ReturnType<typeof reconcileQueue> } = {};
+        const saved = await q.update(
+          (cur) => {
+            box.out = reconcileQueue(cur, sent, results);
+            return box.out.queue;
+          },
+          { keepOnFailure: true },
+        );
+        const out = box.out;
+        if (!out || !saved.applied) return;
+        if (!saved.saved) saveFailed();
         for (const [k, a] of out.applied) cb.current.onApplied(k, a.op, a.version);
         for (const r of out.rejected) cb.current.onRejected(cellKey(r.op.columnId, r.op.studentId), r.op, r.reason);
         if (out.rejected.length) setRejected((prev) => [...prev, ...out.rejected]);
@@ -180,8 +192,7 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
           const fresh = new Set(out.conflicts.map((n) => cellKey(n.op.columnId, n.op.studentId)));
           return [...prev.filter((c) => cells.has(cellKey(c.op.columnId, c.op.studentId)) && !fresh.has(cellKey(c.op.columnId, c.op.studentId))), ...out.conflicts];
         });
-        await setQueue(out.queue);
-        if (!expiringRef.current) setError(null);
+        if (!expiringRef.current && saved.saved) setError(null);
         const sentIds = new Set(sent.map((o) => o.opId));
         again = out.queue.some((o) => !sentIds.has(o.opId));
       } catch {
@@ -195,7 +206,7 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
     })();
     syncRun.current = run;
     return run;
-  }, [bookId, setQueue]);
+  }, [bookId, q, saveFailed]);
   useEffect(() => {
     syncRef.current = sync;
   }, [sync]);
@@ -208,12 +219,13 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
     const k = key.current;
     const reason = expiringRef.current;
     if (!k || !reason) return;
-    if (queue.current.length) await sync();
+    if (q.snapshot().length) await sync();
     const all = queueStore(userId, k.cacheKey, k.deviceId);
     const others: QueueStore = { ...all, books: async () => (await all.books()).filter((b) => b !== bookId) };
     const rest = await transferAllQueues(others, (b, ops) => offlineSyncAction(b, k.deviceId, ops).then((r) => (r.ok && r.results ? r.results : null)));
     setOtherBooks(rest.books);
-    const left = queue.current.length + rest.remaining;
+    // N2: eine unlesbare Warteschlange dieses Buchs zählt als offen – sonst würde sie mit dem Zwischenspeicher gelöscht
+    const left = q.snapshot().length + rest.remaining + (q.unreadable ? 1 : 0);
     if (left === 0) {
       await offlineDeactivateAction(k.deviceId).catch(() => undefined);
       await wipe();
@@ -226,7 +238,7 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
       `${expiringText(reason)} Noch nicht übertragen: ${left} ${left === 1 ? "Änderung" : "Änderungen"}` +
         `${rest.books ? ` (davon in ${books(rest.books)}, die du dort öffnest)` : ""} – bitte Konflikte klären; danach wird der Zwischenspeicher gelöscht.`,
     );
-  }, [bookId, idle, sync, userId, wipe]);
+  }, [bookId, idle, q, sync, userId, wipe]);
 
   // Start: Gerät aus IndexedDB (dieses Kontos), Server-Anteil holen, Schlüssel ableiten, Warteschlange lesen, abgleichen
   useEffect(() => {
@@ -261,29 +273,36 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
           );
         return;
       }
+      let cacheKey: CryptoKey;
       try {
-        const cacheKey = await deriveCacheKey(dev.deviceShare, r.share, dev.deviceId);
-        key.current = { deviceId: dev.deviceId, cacheKey };
-        // nicht lesbar: nicht still als leer behandeln, sondern sagen, dass Eingaben fehlen können
-        const ops = await readQueue(userId, cacheKey, dev.deviceId, bookId).catch(() => {
-          setError("Der Offline-Zwischenspeicher dieses Buchs ließ sich nicht lesen – nicht übertragene Offline-Eingaben fehlen möglicherweise.");
-          return [] as OfflineOp[];
-        });
-        queue.current = ops;
-        setPending(new Map(ops.map((o) => [cellKey(o.columnId, o.studentId), o])));
-        setOtherBooks((await queuedBooks(userId, dev.deviceId).catch(() => [] as string[])).filter((b) => b !== bookId).length);
-        setExpiresAt(r.expiresAt);
-        setStatus("aktiv");
-        if (r.keep) {
-          if (ops.length) await sync();
-        } else {
-          expiringRef.current = r.reason;
-          setExpiring(true);
-          await finalize();
-        }
+        cacheKey = await deriveCacheKey(dev.deviceShare, r.share, dev.deviceId);
       } catch {
         await wipe();
         setStatus(idle);
+        return;
+      }
+      if (cancelled) return;
+      key.current = { deviceId: dev.deviceId, cacheKey };
+      // N2: nicht lesbar heißt nicht leer – sperren, statt mit der nächsten Eingabe die gespeicherten Noten zu überschreiben
+      const read = await readQueueSafely(() => readQueue(userId, cacheKey, dev.deviceId, bookId));
+      if (cancelled) return;
+      if (read.ok) q.load(read.ops);
+      else {
+        q.markUnreadable();
+        setUnreadable(true);
+        setError(
+          "Der Offline-Zwischenspeicher dieses Buchs ließ sich nicht lesen. Damit dort liegende, nicht übertragene Offline-Eingaben nicht überschrieben werden, nimmt dieses Buch keine Offline-Eingaben an – bitte die Seite mit Verbindung neu laden.",
+        );
+      }
+      setOtherBooks((await queuedBooks(userId, dev.deviceId).catch(() => [] as string[])).filter((b) => b !== bookId).length);
+      setExpiresAt(r.expiresAt);
+      setStatus("aktiv");
+      if (r.keep) {
+        if (q.snapshot().length) await sync();
+      } else {
+        expiringRef.current = r.reason;
+        setExpiring(true);
+        await finalize();
       }
     })();
     const up = () => void sync();
@@ -292,20 +311,22 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
       cancelled = true;
       window.removeEventListener("online", up);
     };
-  }, [bookId, finalize, idle, sync, userId, wipe]);
+  }, [bookId, finalize, idle, q, sync, userId, wipe]);
 
   const enqueue = useCallback<OfflineApi["enqueue"]>(
     async (op) => {
-      if (status !== "aktiv" || !key.current || locked || expiringRef.current) return false;
-      const before = queue.current;
-      if (!(await setQueue(mergeOp(before, { ...op, opId: crypto.randomUUID(), at: new Date().toISOString() })))) {
-        await setQueue(before);
+      if (status !== "aktiv" || !key.current || locked || expiringRef.current || q.unreadable) return false;
+      const full: OfflineOp = { ...op, opId: crypto.randomUUID(), at: new Date().toISOString() };
+      // N1: auf dem Stand nach allen vorher eingereihten Änderungen; scheitert das Speichern, gilt nur diese Eingabe nicht
+      const res = await q.update((cur) => mergeOp(cur, full));
+      if (!res.applied) {
+        if (!q.unreadable) saveFailed();
         return false;
       }
       if (navigator.onLine) window.setTimeout(() => void sync(), 300);
       return true;
     },
-    [locked, setQueue, status, sync],
+    [locked, q, saveFailed, status, sync],
   );
 
   const activate = useCallback<OfflineApi["activate"]>(
@@ -327,8 +348,8 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
         const deviceShare = await importDeviceShare(randomBytes(SHARE_BYTES));
         await saveDevice(userId, { deviceId, deviceShare });
         key.current = { deviceId, cacheKey: await deriveCacheKey(deviceShare, res.share, deviceId) };
-        queue.current = [];
-        setPending(new Map());
+        q.load([]);
+        setUnreadable(false);
         setExpiresAt(res.expiresAt ?? null);
         setStatus("aktiv");
       } catch {
@@ -336,7 +357,7 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
         setError("Der Browser konnte den Zwischenspeicher nicht anlegen (IndexedDB/WebCrypto).");
       }
     },
-    [userId, wipe],
+    [q, userId, wipe],
   );
 
   const deactivate = useCallback<OfflineApi["deactivate"]>(async () => {
@@ -353,16 +374,19 @@ export function useOfflineGrades(bookId: string, userId: string, decision: Offli
       const k = cellKey(conflict.op.columnId, conflict.op.studentId);
       setConflicts((prev) => prev.filter((c) => cellKey(c.op.columnId, c.op.studentId) !== k));
       if (choice === "server") cb.current.onServerValue(k, conflict.server);
-      await setQueue(resolveInQueue(queue.current, conflict, choice, crypto.randomUUID(), new Date().toISOString()));
+      const opId = crypto.randomUUID();
+      const at = new Date().toISOString();
+      const res = await q.update((cur) => resolveInQueue(cur, conflict, choice, opId, at), { keepOnFailure: true });
+      if (!res.saved) saveFailed();
       if (choice === "mine") await sync();
       if (expiringRef.current) await finalize();
     },
-    [finalize, setQueue, sync],
+    [finalize, q, saveFailed, sync],
   );
 
   return useMemo(
-    () => ({ status, decision, online, pending, otherBooks, expiring, conflicts, rejected, expiresAt, error, syncing, enqueue, sync, activate, deactivate, resolve }),
-    [status, decision, online, pending, otherBooks, expiring, conflicts, rejected, expiresAt, error, syncing, enqueue, sync, activate, deactivate, resolve],
+    () => ({ status, decision, online, pending, otherBooks, unreadable, expiring, conflicts, rejected, expiresAt, error, syncing, enqueue, sync, activate, deactivate, resolve }),
+    [status, decision, online, pending, otherBooks, unreadable, expiring, conflicts, rejected, expiresAt, error, syncing, enqueue, sync, activate, deactivate, resolve],
   );
 }
 
@@ -403,7 +427,7 @@ export function OfflinePanel({ offline, locked }: { offline: OfflineApi; locked:
             </Button>
           )}
           {status === "aktiv" && !confirmOff && (
-            <Button size="sm" variant="ghost" onClick={() => (count > 0 || others > 0 ? setConfirmOff(true) : void offline.deactivate())}>
+            <Button size="sm" variant="ghost" onClick={() => (count > 0 || others > 0 || offline.unreadable ? setConfirmOff(true) : void offline.deactivate())}>
               Ausschalten
             </Button>
           )}
@@ -418,6 +442,7 @@ export function OfflinePanel({ offline, locked }: { offline: OfflineApi; locked:
         <p role="alert" className="flex flex-wrap items-center gap-2">
           {count > 0 && `${count} ${count === 1 ? "Änderung ist" : "Änderungen sind"} hier noch nicht übertragen. `}
           {others > 0 && `In ${books(others)} auf diesem Gerät liegen weitere nicht übertragene Offline-Eingaben. `}
+          {offline.unreadable && "Der nicht lesbare Zwischenspeicher dieses Buchs kann nicht übertragene Offline-Eingaben enthalten. "}
           Beim Ausschalten gehen sie verloren.
           <Button size="sm" variant="danger" onClick={() => void offline.deactivate().then(() => setConfirmOff(false))}>
             Trotzdem ausschalten

@@ -1,8 +1,46 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbHandle } from "@/core/db/client";
 import { createSeededTestDb } from "@/core/db/testing";
 import { MODULES } from "@/modules";
-import { listAudit } from "./audit-view";
+import { ACTION_LABELS, listAudit } from "./audit-view";
+
+/** Alle Aktionen, die der Code per `audit(db, actor, <aktion>, …)` schreibt – auch in Bedingungen (`a ? "x.ein" : "x.aus"`). */
+function auditActionsInSource(): Map<string, string> {
+  const src = join(import.meta.dirname, "..", "..");
+  const out = new Map<string, string>();
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+        const text = readFileSync(p, "utf8");
+        for (const call of text.matchAll(/\baudit\(\s*[^,()]+(?:\(\))?\s*,\s*[^,]+,\s*([^,]+),/g))
+          for (const lit of call[1]!.matchAll(/"([a-z]+\.[a-z0-9_.]+)"/g)) out.set(lit[1]!, p.slice(src.length + 1));
+      }
+    }
+  };
+  walk(src);
+  return out;
+}
+
+describe("Protokoll-Beschriftungen (Review R3 N6)", () => {
+  // Bereiche aus SP2 und die im Review genannten Aktionen – jede geschriebene Aktion braucht eine deutsche Beschriftung
+  const SCOPES = ["stundenplan.", "kurswahl.", "verwaltung.room.", "buecherei.material.return_day", "buecherei.compensation."];
+
+  it("findet die Aktionen im Code (Plausibilität der Suche)", () => {
+    const found = auditActionsInSource();
+    expect(found.has("verwaltung.room.activate")).toBe(true);
+    expect(found.has("kurswahl.angebot.off_subject")).toBe(true);
+    expect(found.size).toBeGreaterThan(100);
+  });
+
+  it("jede Aktion aus SP2-Bereichen hat eine deutsche Beschriftung", () => {
+    const missing = [...auditActionsInSource()].filter(([a]) => SCOPES.some((s) => a.startsWith(s)) && !ACTION_LABELS[a]).map(([a, f]) => `${a} (${f})`);
+    expect(missing).toEqual([]);
+  });
+});
 import { addMembers, createGroup, deleteGroup } from "./groups";
 import { setRoleGrant } from "./rights";
 import { setUserLocked } from "./users";
