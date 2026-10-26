@@ -143,7 +143,8 @@ test("TD-06: Texte-Editor warnt beim Schließen nur bei unbestätigten Änderung
 
     // Updates sperren (auch den keepalive-Versand beim Schließen), dann tippen
     await ctx.route("**/api/texte/*/update", (r) => r.abort());
-    await caretToEnd(page, box, "Regel für den Pausenhof");
+    await box.click();
+    await page.keyboard.press("Control+End");
     await page.keyboard.type("nur lokal");
     await expect(page.getByRole("status").filter({ hasText: "Keine Verbindung" })).toBeVisible();
     await Promise.all([page.waitForEvent("dialog", { timeout: 5000 }), page.close({ runBeforeUnload: true })]);
