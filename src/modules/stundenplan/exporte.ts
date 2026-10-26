@@ -168,14 +168,15 @@ async function verteilung(db: Db, today: string): Promise<ExportTable> {
     subtitle: "Kein Schuljahr angelegt",
     filename: "unterrichtsverteilung",
     // dieselben Spalten wie der CSV-Import der Unterrichtsverteilung (SP2-06) – die Datei lässt sich wieder einlesen
-    head: ["Klasse/Kurs", "Fach", "Stunden", "Lehrkraft", "Doppelstunden", "Raumwunsch", "Band"],
+    head: ["Klasse/Kurs", "Fach", "Stunden", "Lehrkraft", "Doppelstunden", "Raumwunsch", "Band", "gültig ab", "gültig bis"],
     rows: [],
     numeric: false,
   };
   if (!year) return empty;
   const d = await distribution(db, year, today);
   const bandName = new Map(d.bands.map((b) => [b.id, b.name]));
-  const rows = d.assignments
+  // Q-SP2-13: auch Lehraufträge, die am Stichtag nicht gelten (andere Halbjahreshälfte) – mit ihrem Zeitraum, damit die Datei vollständig bleibt
+  const rows = [...d.assignments, ...d.otherTime]
     .map((a) => [
       a.groups.map((g) => g.name).join(", "),
       a.subjectName,
@@ -184,6 +185,8 @@ async function verteilung(db: Db, today: string): Promise<ExportTable> {
       a.doubleLessons ? String(a.doubleLessons) : "",
       a.roomId ?? "",
       a.bandId ? (bandName.get(a.bandId) ?? "") : "",
+      a.validFrom ?? "",
+      a.validUntil ?? "",
     ])
     .sort((a, b) => de(a[0]!, b[0]!) || de(a[1]!, b[1]!));
   return { ...empty, subtitle: `Schuljahr ${year.name} · Stand ${ymdDe(d.refYmd)}`, rows };

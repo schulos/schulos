@@ -2,9 +2,11 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { listAfter } from "@/core/form-values";
+import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select, Textarea } from "@schulos/ui/field";
+import { TeacherSelect } from "../planung/teacher-select";
 
 type Action = (prev: FormState, form: FormData) => Promise<FormState>;
 type Option = { value: string; label: string };
@@ -215,7 +217,8 @@ export function AngebotForm({
   defaults: AngebotDefaults;
   submitLabel: string;
   subjects: Option[];
-  teachers: Option[];
+  /** SP2-12b: Lehrkräfte mit Lehrfächern und Restdeputat (wie bei der Zuweisung im Stundenplan) */
+  teachers: PickTeacher[];
   levels: Option[];
 }) {
   const [state, formAction, pending] = useActionState(action, {});
@@ -223,11 +226,37 @@ export function AngebotForm({
   const fe = state.fieldErrors ?? {};
   return (
     <form key={JSON.stringify(state)} action={formAction} aria-label={submitLabel} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <AngebotFields v={v} fe={fe} subjects={subjects} teachers={teachers} levels={levels} />
+      {state.error && (
+        <p role="alert" className="text-sm text-danger sm:col-span-full">
+          {state.error}
+        </p>
+      )}
+      {state.ok && (
+        <p role="status" className="text-sm text-success sm:col-span-full">
+          Gespeichert.
+        </p>
+      )}
+      <div className="sm:col-span-full">
+        <Button type="submit" variant="primary" size="sm" disabled={pending}>
+          {submitLabel}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** Felder des Angebots; der Zustand (gewähltes Fach) lebt hier und wird mit dem Formular (key) zurückgesetzt. */
+function AngebotFields({ v, fe, subjects, teachers, levels }: { v: Record<string, string>; fe: Record<string, string>; subjects: Option[]; teachers: PickTeacher[]; levels: Option[] }) {
+  const [subjectId, setSubjectId] = useState(v.subjectId ?? "");
+  const subjectName = subjects.find((s) => s.value === subjectId)?.label ?? "";
+  return (
+    <>
       <Field label="Titel" error={fe.title} className="sm:col-span-2">
         <Input name="title" defaultValue={v.title} required maxLength={120} />
       </Field>
       <Field label="Fach" error={fe.subjectId}>
-        <Select name="subjectId" defaultValue={v.subjectId}>
+        <Select name="subjectId" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
           <option value="">ohne Fach</option>
           {subjects.map((s) => (
             <option key={s.value} value={s.value}>
@@ -252,38 +281,26 @@ export function AngebotForm({
       <Field label="Höchstzahl" hint="leer = unbegrenzt" error={fe.maxSize}>
         <Input type="number" name="maxSize" min={1} max={500} defaultValue={v.maxSize} />
       </Field>
-      <Field label="Lehrkraft" hint="leitet die Gruppe" error={fe.teacherId}>
-        <Select name="teacherId" defaultValue={v.teacherId}>
-          <option value="">noch offen</option>
-          {teachers.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      {/* SP2-12b: nur Lehrkräfte mit dem Fach, nach Restdeputat; andere über „alle anzeigen“ mit Warnhinweis und „Trotzdem zuweisen“ */}
+      <TeacherSelect
+        name="teacherId"
+        label="Lehrkraft"
+        hint="leitet die Gruppe"
+        error={fe.teacherId}
+        emptyLabel="noch offen"
+        subjectId={subjectId}
+        subjectName={subjectName}
+        teachers={teachers}
+        defaultValue={v.teacherId ?? ""}
+        confirmed={v.offSubjectOk === "1"}
+      />
       <Field label="Wochenstunden" hint="für den Lehrauftrag" error={fe.hours}>
         <Input type="number" name="hours" min={1} max={12} defaultValue={v.hours} />
       </Field>
       <Field label="Beschreibung für die Familien" error={fe.note} className="sm:col-span-full">
         <Textarea name="note" defaultValue={v.note} rows={2} maxLength={1000} />
       </Field>
-      {state.error && (
-        <p role="alert" className="text-sm text-danger sm:col-span-full">
-          {state.error}
-        </p>
-      )}
-      {state.ok && (
-        <p role="status" className="text-sm text-success sm:col-span-full">
-          Gespeichert.
-        </p>
-      )}
-      <div className="sm:col-span-full">
-        <Button type="submit" variant="primary" size="sm" disabled={pending}>
-          {submitLabel}
-        </Button>
-      </div>
-    </form>
+    </>
   );
 }
 

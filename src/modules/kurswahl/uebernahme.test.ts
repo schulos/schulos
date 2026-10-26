@@ -38,7 +38,7 @@ describe("Kurswahlen – Übernahme in Gruppen und Lehraufträge", () => {
     h = await createSeededTestDb();
     teacher = "u-jana.brandt";
     id = await createVerfahren(h.db, await p(SABINE), input);
-    const f = await createAngebot(h.db, await p(SABINE), id, { title: "Französisch", subjectId: "F", level: null, minSize: 0, maxSize: null, note: null, teacherId: teacher, hours: 4 });
+    const f = await createAngebot(h.db, await p(SABINE), id, { title: "Französisch", subjectId: "F", level: null, minSize: 0, maxSize: null, note: null, teacherId: teacher, hours: 4, offSubjectOk: true });
     const inf = await createAngebot(h.db, await p(SABINE), id, { title: "Informatik", subjectId: "IF", level: null, minSize: 0, maxSize: null, note: null, teacherId: null, hours: null });
     students = (await targetStudents(h.db, input)).map((s) => s.id);
     // 24 wählen (12 F, 12 IF), eine Person nicht
@@ -114,7 +114,7 @@ describe("Kurswahlen – Gate-Review 4d (G4D-C01, C02, C08, S02)", () => {
   beforeAll(async () => {
     h = await createSeededTestDb();
     id = await createVerfahren(h.db, await p(SABINE), { ...input, title: "WP I Review" });
-    const offer = (title: string, subjectId: string | null, teacherId: string | null) => ({ title, subjectId, level: null, minSize: 0, maxSize: null, note: null, teacherId, hours: null });
+    const offer = (title: string, subjectId: string | null, teacherId: string | null) => ({ title, subjectId, level: null, minSize: 0, maxSize: null, note: null, teacherId, hours: null, offSubjectOk: true });
     f = await createAngebot(h.db, await p(SABINE), id, offer("Französisch", "F", "u-jana.brandt"));
     inf = await createAngebot(h.db, await p(SABINE), id, offer("Informatik", "IF", "u-jana.brandt"));
     dg = await createAngebot(h.db, await p(SABINE), id, offer("Darstellen", null, null));
@@ -143,7 +143,7 @@ describe("Kurswahlen – Gate-Review 4d (G4D-C01, C02, C08, S02)", () => {
     // Kapazität geändert → ebenso veraltet
     await runAllocation(h.db, await p(SABINE), id);
     expect((await wahl(students[2]!)).assignedId).toBe(inf);
-    await updateAngebot(h.db, await p(SABINE), f, { title: "Französisch", subjectId: "F", level: null, minSize: 0, maxSize: 20, note: null, teacherId: "u-jana.brandt", hours: null });
+    await updateAngebot(h.db, await p(SABINE), f, { title: "Französisch", subjectId: "F", level: null, minSize: 0, maxSize: 20, note: null, teacherId: "u-jana.brandt", hours: null, offSubjectOk: true });
     expect((await v()).allocatedAt).toBeNull();
     // gleiche Wünsche erneut abgegeben ändern nichts
     const at = await runAllocation(h.db, await p(SABINE), id).then(async () => (await v()).allocatedAt);

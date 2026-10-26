@@ -46,12 +46,16 @@ export default async function AssignmentImportPage() {
             </h2>
             <p className="text-sm text-muted">
               Eine Zeile je Lehrauftrag für das Schuljahr {year.name}. Spalten: <strong>{ASSIGNMENT_CSV_HEADER.join(" ; ")}</strong> – die Kopfzeile ist
-              optional, die letzten drei Spalten auch.
+              optional, die letzten fünf Spalten auch.
             </p>
             <ul className="list-disc pl-5 text-sm text-muted">
               <li>Klasse/Kurs, Fach, Lehrkraft und Raum über Kürzel oder Namen; zwei Lehrkräfte (Teamteaching) mit „/“ trennen, leer = noch offen.</li>
               <li>Gibt es den Lehrauftrag schon (gleiche Gruppe, gleiches Fach, eine gleiche Lehrkraft), wird er geändert; leere Spalten Doppelstunden/Raumwunsch lassen ihn wie er ist.</li>
               <li>Band: Name eines vorhandenen Bands (die Stunden müssen passen) oder eines neuen; Lehraufträge bleiben in ihrem bisherigen Band.</li>
+              <li>
+                „gültig ab“ / „gültig bis“ (JJJJ-MM-TT oder TT.MM.JJJJ, innerhalb des Schuljahrs): leer = ganzjährig. Ein Lehrauftrag mit anderem Zeitraum bei gleicher Gruppe, gleichem Fach und gleicher
+                Lehrkraft entsteht neu, solange sich die Zeiträume nicht überschneiden; vorhandene Zeiträume ändert der Import nicht.
+              </li>
               <li>Nur Lehraufträge – Stunden im Stundenplan entstehen erst beim Planen. Mit Fehlern wird nichts übernommen.</li>
             </ul>
           </Card>

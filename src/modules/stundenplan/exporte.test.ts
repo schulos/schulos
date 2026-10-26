@@ -132,9 +132,9 @@ describe("Inhalt (Demo-Schule)", () => {
 
   it("Unterrichtsverteilung: Spalten wie der CSV-Import, Stunden pro Auftrag", async () => {
     const t = await buildExport(h.db, "verteilung", { today: TODAY });
-    expect(t.head).toEqual(["Klasse/Kurs", "Fach", "Stunden", "Lehrkraft", "Doppelstunden", "Raumwunsch", "Band"]);
+    expect(t.head).toEqual(["Klasse/Kurs", "Fach", "Stunden", "Lehrkraft", "Doppelstunden", "Raumwunsch", "Band", "gültig ab", "gültig bis"]);
     expect(t.rows.length).toBeGreaterThan(5);
-    expect(t.rows.every((r) => r.length === 7 && /^\d+(,\d)?$/.test(r[2]!))).toBe(true);
+    expect(t.rows.every((r) => r.length === 9 && /^\d+(,\d)?$/.test(r[2]!))).toBe(true);
   });
 
   it("Deputate: Pflichtstunden, Soll und Saldo je Lehrkraft", async () => {
@@ -163,8 +163,8 @@ describe("Inhalt (Demo-Schule)", () => {
 
   it("CSV: Semikolon, BOM, Umlaute und Formeln entschärft", async () => {
     const t = await buildExport(h.db, "verteilung", { today: TODAY });
-    const csv = toCsv([t.head, ...t.rows, ["=1+1", "@x", "-3", "", "", "", ""]]);
-    expect(csv.startsWith("﻿Klasse/Kurs;Fach;Stunden;Lehrkraft;Doppelstunden;Raumwunsch;Band\r\n")).toBe(true);
+    const csv = toCsv([t.head, ...t.rows, ["=1+1", "@x", "-3", "", "", "", "", "", ""]]);
+    expect(csv.startsWith("﻿Klasse/Kurs;Fach;Stunden;Lehrkraft;Doppelstunden;Raumwunsch;Band;gültig ab;gültig bis\r\n")).toBe(true);
     expect(csv).toContain("'=1+1;'@x;'-3;");
     expect(csv.split("\r\n").length).toBe(t.rows.length + 3);
   });

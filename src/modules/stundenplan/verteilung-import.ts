@@ -5,8 +5,8 @@ import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
 import { detectSeparator, splitCsvLine, toCsv } from "@/core/csv";
-import { groups, rooms, subjects, timetableAssignmentGroups, timetableAssignments, timetableAssignmentTeachers, timetableBands, users } from "@/core/db/schema";
-import { listAssignments, listBands, PLANNED_GROUP_KINDS } from "./verteilung";
+import { groups, rooms, schoolYears, subjects, timetableAssignmentGroups, timetableAssignments, timetableAssignmentTeachers, timetableBands, users } from "@/core/db/schema";
+import { listAssignments, listBands, PLANNED_GROUP_KINDS, validityOverlaps } from "./verteilung";
 import { offSubjectText, subjectMismatch } from "./lehrfaecher-auswahl";
 import { teacherSubjectMap } from "./lehrfaecher";
 
@@ -14,11 +14,11 @@ import { teacherSubjectMap } from "./lehrfaecher";
 export const MAX_ASSIGNMENT_CSV_BYTES = 512 * 1024;
 export const MAX_ASSIGNMENT_CSV_ROWS = 5000;
 
-type Column = "group" | "subject" | "hours" | "teacher" | "doubles" | "room" | "band";
+type Column = "group" | "subject" | "hours" | "teacher" | "doubles" | "room" | "band" | "from" | "until";
 
-/** Spalten der Vorlage in dieser Reihenfolge (ohne Kopfzeile gilt sie auch für die Datei) */
-export const ASSIGNMENT_CSV_HEADER = ["Klasse/Kurs", "Fach", "Stunden", "Lehrkraft", "Doppelstunden", "Raumwunsch", "Band"] as const;
-const POSITIONAL: Column[] = ["group", "subject", "hours", "teacher", "doubles", "room", "band"];
+/** Spalten der Vorlage in dieser Reihenfolge (ohne Kopfzeile gilt sie auch für die Datei). „gültig ab/bis“ optional (Q-SP2-13). */
+export const ASSIGNMENT_CSV_HEADER = ["Klasse/Kurs", "Fach", "Stunden", "Lehrkraft", "Doppelstunden", "Raumwunsch", "Band", "gültig ab", "gültig bis"] as const;
+const POSITIONAL: Column[] = ["group", "subject", "hours", "teacher", "doubles", "room", "band", "from", "until"];
 
 const ALIASES: Record<string, Column> = {
   klassekurs: "group",
@@ -37,10 +37,27 @@ const ALIASES: Record<string, Column> = {
   raumwunsch: "room",
   raum: "room",
   band: "band",
+  gültigab: "from",
+  gueltigab: "from",
+  ab: "from",
+  von: "from",
+  gültigbis: "until",
+  gueltigbis: "until",
+  bis: "until",
 };
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-zäöüß]/g, "");
 const key = (s: string) => s.trim().toLocaleLowerCase("de");
+
+/** „2027-02-01“ oder „01.02.2027“ → ISO-Datum; null = kein gültiges Kalenderdatum */
+export function parseCsvDate(raw: string): string | null {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw) ?? /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(raw);
+  if (!m) return null;
+  const [y, mo, d] = raw.includes("-") ? [m[1]!, m[2]!, m[3]!] : [m[3]!, m[2]!, m[1]!];
+  const iso = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  const dt = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(dt.getTime()) || dt.toISOString().slice(0, 10) !== iso ? null : iso;
+}
 
 export interface ParsedRow {
   line: number;
@@ -51,6 +68,9 @@ export interface ParsedRow {
   doubles: string;
   room: string;
   band: string;
+  /** „gültig ab/bis“ wie in der Datei (leer = keine Angabe) */
+  validFrom: string;
+  validUntil: string;
 }
 
 /** Zerlegt die Datei; die Kopfzeile ist optional (ohne sie gilt die Reihenfolge der Vorlage). */
@@ -99,6 +119,8 @@ export function parseAssignmentCsv(text: string): { rows: ParsedRow[]; errors: s
       doubles: get("doubles"),
       room: get("room"),
       band: get("band").replace(/\s+/g, " "),
+      validFrom: get("from"),
+      validUntil: get("until"),
     });
   }
   if (!rows.length && !errors.length) errors.push("Keine Lehraufträge in der Datei");
@@ -117,6 +139,8 @@ export interface ImportRowView {
   doubles: string;
   room: string;
   band: string;
+  validFrom: string;
+  validUntil: string;
   status: ImportRowStatus;
   /** Fehler (status „fehler“) bzw. Änderungen (status „aendern“) */
   notes: string[];
@@ -148,6 +172,9 @@ interface Resolved {
   band: { id: string } | { name: string } | null;
   /** passender vorhandener Lehrauftrag */
   existingId: string | null;
+  /** Gültigkeit: undefined = Spalte leer (neu: ganzjährig, vorhanden: bleibt) */
+  validFrom: string | undefined;
+  validUntil: string | undefined;
 }
 
 interface Planned extends ImportRowView {
@@ -177,7 +204,8 @@ function index<T>(entries: [string, T][]): Map<string, T | "mehrdeutig"> {
  */
 export async function planAssignmentImport(db: Db, year: { id: string }, text: string): Promise<ImportPlan> {
   const { rows, errors: fileErrors } = parseAssignmentCsv(text);
-  const [groupRows, subjectRows, teacherRows, roomRows, existing, bands, fakultas] = await Promise.all([
+  const [[yearRow], groupRows, subjectRows, teacherRows, roomRows, existing, bands, fakultas] = await Promise.all([
+    db.select({ startsOn: schoolYears.startsOn, endsOn: schoolYears.endsOn }).from(schoolYears).where(eq(schoolYears.id, year.id)),
     db
       .select({ id: groups.id, name: groups.name, slug: groups.slug })
       .from(groups)
@@ -200,7 +228,7 @@ export async function planAssignmentImport(db: Db, year: { id: string }, text: s
   const newBands = new Map<string, { name: string; hours: number; doubleLessons: number; line: number }>();
   /** vorhandene Lehraufträge, die schon eine Zeile beansprucht */
   const claimed = new Map<string, number>();
-  const seen: { line: number; groupId: string; subjectId: string; teacherIds: string[] }[] = [];
+  const seen: { line: number; groupId: string; subjectId: string; teacherIds: string[]; validFrom: string | null; validUntil: string | null }[] = [];
 
   const planned: Planned[] = rows.map((r) => {
     const errors: string[] = [];
@@ -213,6 +241,8 @@ export async function planAssignmentImport(db: Db, year: { id: string }, text: s
       doubles: r.doubles,
       room: r.room,
       band: r.band,
+      validFrom: r.validFrom,
+      validUntil: r.validUntil,
       status: "fehler",
       notes: errors,
       warnings: [],
@@ -243,22 +273,52 @@ export async function planAssignmentImport(db: Db, year: { id: string }, text: s
     if (doubles !== null && (Number.isNaN(doubles) || (hours >= 1 && doubles * 2 > hours)))
       errors.push(`Doppelstunden: höchstens ${hours >= 1 ? Math.floor(hours / 2) : "die Hälfte der Stunden"}`);
     if (r.band.length > 60) errors.push("Band: höchstens 60 Zeichen");
+    // Q-SP2-13: „gültig ab/bis“ – leer = ganzjährig (neu) bzw. unverändert (vorhanden)
+    const dateOf = (raw: string, what: string): string | undefined => {
+      if (!raw) return undefined;
+      const iso = parseCsvDate(raw);
+      if (!iso) {
+        errors.push(`${what}: Datum angeben (JJJJ-MM-TT oder TT.MM.JJJJ)`);
+        return undefined;
+      }
+      if (yearRow && (iso < yearRow.startsOn || iso > yearRow.endsOn)) errors.push(`${what}: muss im Schuljahr liegen`);
+      return iso;
+    };
+    const validFrom = dateOf(r.validFrom, "gültig ab");
+    const validUntil = dateOf(r.validUntil, "gültig bis");
+    if (validFrom && validUntil && validFrom > validUntil) errors.push("„gültig bis“ liegt vor „gültig ab“");
     if (errors.length || !groupId || !subjectId) return view;
+    const span = { validFrom: validFrom ?? null, validUntil: validUntil ?? null };
 
-    // doppelt in der Datei?
-    const twin = seen.find((s) => s.groupId === groupId && s.subjectId === subjectId && (s.teacherIds.length === 0 && teacherIds.length === 0 ? true : s.teacherIds.some((t) => teacherIds.includes(t))));
+    // doppelt in der Datei? (SP2-09: gleiches Fach bei derselben Lehrkraft in getrennten Zeiträumen ist erlaubt)
+    const twin = seen.find(
+      (s) =>
+        s.groupId === groupId &&
+        s.subjectId === subjectId &&
+        validityOverlaps(s, span) &&
+        (s.teacherIds.length === 0 && teacherIds.length === 0 ? true : s.teacherIds.some((t) => teacherIds.includes(t))),
+    );
     if (twin) {
       errors.push(`steht schon in Zeile ${twin.line}`);
       return view;
     }
-    seen.push({ line: r.line, groupId, subjectId, teacherIds });
 
-    const match = existing.find(
+    const candidates = existing.filter(
       (a) =>
         a.subjectId === subjectId &&
         a.groups.some((g) => g.id === groupId) &&
         (a.teachers.length === 0 && teacherIds.length === 0 ? true : a.teachers.some((t) => teacherIds.includes(t.id))),
     );
+    // ohne Datum der erste passende (wie bisher); mit Datum der Lehrauftrag mit genau diesem Zeitraum
+    const match = candidates.find((a) => (validFrom === undefined || validFrom === a.validFrom) && (validUntil === undefined || validUntil === a.validUntil));
+    if (!match && (validFrom !== undefined || validUntil !== undefined)) {
+      const clash = candidates.find((a) => validityOverlaps(a, span));
+      if (clash) {
+        errors.push(`überschneidet sich mit dem vorhandenen Lehrauftrag (gültig ${clash.validFrom ?? "von Beginn"} bis ${clash.validUntil ?? "Schuljahresende"}) – dort die Gültigkeit ändern`);
+        return view;
+      }
+    }
+    seen.push({ line: r.line, groupId, subjectId, teacherIds, ...span });
     if (match && claimed.has(match.id)) {
       errors.push(`betrifft denselben Lehrauftrag wie Zeile ${claimed.get(match.id)}`);
       return view;
@@ -287,7 +347,7 @@ export async function planAssignmentImport(db: Db, year: { id: string }, text: s
     }
     if (errors.length) return view;
 
-    const resolved: Resolved = { groupId, subjectId, hours, doubles, teacherIds, roomId: roomId ?? undefined, band, existingId: match?.id ?? null };
+    const resolved: Resolved = { groupId, subjectId, hours, doubles, teacherIds, roomId: roomId ?? undefined, band, existingId: match?.id ?? null, validFrom, validUntil };
     view.resolved = resolved;
     // SP2-12: Lehrfächer prüfen – nur Hinweis, der Import bleibt möglich (die Vorschau ist die Bestätigung)
     const fit = subjectMismatch(fakultas, subjectId, teacherIds);
@@ -295,6 +355,7 @@ export async function planAssignmentImport(db: Db, year: { id: string }, text: s
     if (fit.unmaintained.length) view.warnings.push(`ohne gepflegte Lehrfächer: ${fit.unmaintained.map((t) => teacherCode.get(t) ?? t).join(", ")}`);
     if (!match) {
       view.status = "neu";
+      if (validFrom || validUntil) errors.push(`gültig ${validFrom ? `ab ${validFrom}` : "von Beginn"}${validUntil ? ` bis ${validUntil}` : ""}`);
       if (band && "name" in band) errors.push(`neues Band „${band.name}“`);
       else if (band) errors.push(`im Band „${bandName.get(band.id)}“`);
       return view;
@@ -378,6 +439,8 @@ export async function executeAssignmentImport(db: Db, actorId: string, year: { i
             doubleLessons: band?.doubleLessons ?? op.doubles ?? 0,
             roomId: op.roomId ?? null,
             bandId: band?.id ?? null,
+            validFrom: op.validFrom ?? null,
+            validUntil: op.validUntil ?? null,
           })
           .returning({ id: timetableAssignments.id });
         await tx.insert(timetableAssignmentGroups).values({ assignmentId: row!.id, groupId: op.groupId });
