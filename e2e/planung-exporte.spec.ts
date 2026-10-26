@@ -27,7 +27,7 @@ test("SP2-10: Planung druckt die Gesamtübersicht (A4 quer) und lädt die Unterr
     for await (const c of s) chunks.push(c as Buffer);
     return Buffer.concat(chunks).toString("utf8");
   });
-  expect(csv.startsWith("﻿Klasse/Kurs;Fach;Stunden;Lehrkraft;Doppelstunden;Raumwunsch;Band\r\n")).toBe(true);
+  expect(csv.startsWith("﻿Klasse/Kurs;Fach;Stunden;Lehrkraft;Doppelstunden;Raumwunsch;Band;gültig ab;gültig bis\r\n")).toBe(true);
   expect(csv.split("\r\n").length).toBeGreaterThan(5);
 
   expect(errors).toEqual([]);

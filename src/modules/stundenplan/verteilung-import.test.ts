@@ -3,8 +3,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
 import { createTestDb } from "@/core/db/testing";
-import { csvBytes, decodeCsvBytes } from "@/core/csv";
+import { csvBytes, decodeCsvBytes, toCsv } from "@/core/csv";
 import { auditLog, groups, rooms, schoolYears, subjects, timetableAssignments, timetableBands, users } from "@/core/db/schema";
+import { buildExport } from "./exporte";
 import { createAssignment, createBand, listAssignments, listBands } from "./verteilung";
 import { assignmentCsvTemplate, executeAssignmentImport, parseAssignmentCsv, planAssignmentImport } from "./verteilung-import";
 
@@ -12,7 +13,7 @@ describe("parseAssignmentCsv", () => {
   it("Kopfzeile in beliebiger Reihenfolge, Komma oder Semikolon, Teamteaching mit „/“", () => {
     const r = parseAssignmentCsv("Fach,Klasse,Stunden,Lehrkraft\nM,7a,4,ABC/DEF\n\n");
     expect(r.errors).toEqual([]);
-    expect(r.rows).toEqual([{ line: 2, group: "7a", subject: "M", hours: "4", teachers: ["ABC", "DEF"], doubles: "", room: "", band: "" }]);
+    expect(r.rows).toEqual([{ line: 2, group: "7a", subject: "M", hours: "4", teachers: ["ABC", "DEF"], doubles: "", room: "", band: "", validFrom: "", validUntil: "" }]);
   });
 
   it("ohne Kopfzeile gilt die Reihenfolge der Vorlage", () => {
@@ -169,12 +170,81 @@ describe("CSV-Import der Unterrichtsverteilung", () => {
     ]);
   });
 
+  it("Q-SP2-13: „gültig ab/bis“ (ISO oder TT.MM.JJJJ) legt befristete Lehraufträge an; ohne die Spalten bleibt es ganzjährig", async () => {
+    const p = await plan(
+      [
+        "Klasse;Fach;Stunden;Lehrkraft;gültig ab;gültig bis",
+        "7a;D;4;BAU;;2027-01-31",
+        "7a;D;4;BAU;01.02.2027;",
+        "7b;M;3;DIE;;",
+      ].join("\n"),
+    );
+    expect(p.preview.rows.map((r) => [r.status, r.validFrom, r.validUntil])).toEqual([
+      ["neu", "", "2027-01-31"],
+      ["neu", "01.02.2027", ""],
+      ["neu", "", ""],
+    ]);
+    expect(await executeAssignmentImport(h.db, "t1", year, p)).toEqual({ created: 3, updated: 0, bands: 0 });
+    const list = await listAssignments(h.db, year.id);
+    const d = list.filter((a) => a.subjectId === "D").map((a) => [a.validFrom, a.validUntil]);
+    expect(d.sort()).toEqual([
+      [null, "2027-01-31"],
+      ["2027-02-01", null],
+    ]);
+    expect(list.find((a) => a.subjectId === "M")).toMatchObject({ validFrom: null, validUntil: null });
+  });
+
+  it("Q-SP2-13: Datumsfehler je Zeile – kein Datum, außerhalb des Schuljahrs, bis vor ab; Überschneidungen", async () => {
+    await createAssignment(h.db, "t1", { schoolYearId: year.id, groupId: "g-7a", subjectId: "D", hours: 4, teacherIds: ["t1"], doubleLessons: 0, roomId: null, note: null, validUntil: "2027-01-31" });
+    const p = await plan(
+      [
+        "Klasse;Fach;Stunden;Lehrkraft;gültig ab;gültig bis",
+        "7b;D;4;BAU;31.02.2027;",
+        "7b;D;4;BAU;;morgen",
+        "7b;D;4;BAU;2026-07-31;",
+        "7b;D;4;BAU;2027-03-01;2027-02-01",
+        "7a;D;4;BAU;2027-01-15;",
+        "7a;D;4;BAU;2027-02-01;",
+        "7a;D;4;BAU;2027-03-01;",
+        "7b;M;2;DIE;2026-09-01;2027-01-31",
+        "7b;M;2;DIE;2027-01-15;2027-07-31",
+      ].join("\n"),
+    );
+    expect(p.preview.rows.map((r) => [r.status, r.notes.join(" | ")])).toEqual([
+      ["fehler", "gültig ab: Datum angeben (JJJJ-MM-TT oder TT.MM.JJJJ)"],
+      ["fehler", "gültig bis: Datum angeben (JJJJ-MM-TT oder TT.MM.JJJJ)"],
+      ["fehler", "gültig ab: muss im Schuljahr liegen"],
+      ["fehler", "„gültig bis“ liegt vor „gültig ab“"],
+      ["fehler", "überschneidet sich mit dem vorhandenen Lehrauftrag (gültig von Beginn bis 2027-01-31) – dort die Gültigkeit ändern"],
+      ["neu", "gültig ab 2027-02-01"],
+      ["fehler", "steht schon in Zeile 7"],
+      ["neu", "gültig ab 2026-09-01 bis 2027-01-31"],
+      ["fehler", "steht schon in Zeile 9"],
+    ]);
+    expect(p.preview.ok).toBe(false);
+  });
+
+  it("Q-SP2-13: Export ↔ Import – die Verteilungs-CSV mit Zeiträumen wird als „gleich“ wiedererkannt", async () => {
+    await createAssignment(h.db, "t1", { schoolYearId: year.id, groupId: "g-7a", subjectId: "D", hours: 4, teacherIds: ["t1"], doubleLessons: 0, roomId: null, note: null, validUntil: "2027-01-31" });
+    await createAssignment(h.db, "t1", { schoolYearId: year.id, groupId: "g-7a", subjectId: "D", hours: 3, teacherIds: ["t1"], doubleLessons: 0, roomId: null, note: null, validFrom: "2027-02-01" });
+    await createAssignment(h.db, "t1", { schoolYearId: year.id, groupId: "g-7b", subjectId: "M", hours: 4, teacherIds: ["t2"], doubleLessons: 0, roomId: null, note: null });
+    const t = await buildExport(h.db, "verteilung", { today: "2026-10-01" });
+    expect(t.rows).toHaveLength(3);
+    expect(t.rows.map((r) => [r[7], r[8]]).sort()).toEqual([
+      ["", ""],
+      ["", "2027-01-31"],
+      ["2027-02-01", ""],
+    ]);
+    const p = await plan(decodeCsvBytes(new TextEncoder().encode(toCsv([t.head, ...t.rows]))).text);
+    expect(p.preview.rows.map((r) => r.status)).toEqual(["gleich", "gleich", "gleich"]);
+  });
+
   it("Windows-1252 und Vorlage: Umlaute im Fachnamen, Vorlage ist selbst importierbar", async () => {
     const { text, encoding } = decodeCsvBytes(csvBytes([["Klasse", "Fach", "Stunden", "Lehrkraft"], ["7a", "Katholische Religion", 2, "Eva Förster"]], "cp1252"));
     expect(encoding).toBe("cp1252");
     expect((await plan(text)).preview.rows[0]!.status).toBe("neu");
     const tpl = await assignmentCsvTemplate(h.db);
-    expect(tpl.split("\r\n")[0]).toBe("﻿Klasse/Kurs;Fach;Stunden;Lehrkraft;Doppelstunden;Raumwunsch;Band");
+    expect(tpl.split("\r\n")[0]).toBe("﻿Klasse/Kurs;Fach;Stunden;Lehrkraft;Doppelstunden;Raumwunsch;Band;gültig ab;gültig bis");
     const p = await plan(decodeCsvBytes(new TextEncoder().encode(tpl)).text);
     expect(p.preview.rows.map((r) => r.status)).toEqual(["neu", "neu"]);
   });

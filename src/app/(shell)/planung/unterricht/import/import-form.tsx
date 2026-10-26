@@ -81,6 +81,8 @@ export function AssignmentImportForm({ preview, run }: { preview: Action; run: A
                   <th className="text-right">Doppelst.</th>
                   <th>Raum</th>
                   <th>Band</th>
+                  <th>gültig ab</th>
+                  <th>gültig bis</th>
                   <th>Ergebnis</th>
                 </tr>
               </thead>
@@ -95,6 +97,8 @@ export function AssignmentImportForm({ preview, run }: { preview: Action; run: A
                     <td className="text-right tabular-nums">{r.doubles}</td>
                     <td>{r.room}</td>
                     <td>{r.band}</td>
+                    <td className="tabular-nums">{r.validFrom}</td>
+                    <td className="tabular-nums">{r.validUntil}</td>
                     <td>
                       <div className="flex flex-col gap-1">
                         <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge>

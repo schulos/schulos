@@ -16,7 +16,7 @@ test.describe("Stundenplanung · CSV-Import der Unterrichtsverteilung (SP2-06)",
     const tpl = await page.request.get("/api/stundenplan/verteilung-vorlage");
     expect(tpl.status()).toBe(200);
     expect(tpl.headers()["content-type"]).toContain("text/csv");
-    expect((await tpl.text()).split("\r\n")[0]).toBe("﻿Klasse/Kurs;Fach;Stunden;Lehrkraft;Doppelstunden;Raumwunsch;Band");
+    expect((await tpl.text()).split("\r\n")[0]).toBe("﻿Klasse/Kurs;Fach;Stunden;Lehrkraft;Doppelstunden;Raumwunsch;Band;gültig ab;gültig bis");
 
     // Datei mit Fehlern: Vorschau nennt die Zeilen, Übernehmen gesperrt
     await page.getByLabel("CSV-Datei").setInputFiles({ name: "fehler.csv", mimeType: "text/csv", buffer: Buffer.from("Klasse;Fach;Stunden;Lehrkraft;Doppelstunden\n7b;F;3;BRA;2\n7z;D;4;BRA\n") });

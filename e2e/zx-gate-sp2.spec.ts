@@ -109,7 +109,7 @@ test("SP2-11: Kurse des Jahrgangs 7 → CSV-Import mit zwei Bändern → Bänder
   expect(res.status()).toBe(200);
   const csv = await res.text();
   const lines = csv.split("\r\n");
-  expect(lines.find((l) => l.startsWith(`${COURSES.e.name};`))).toMatch(new RegExp(`;4;KLE;.*;${BAND_M.replace(/[/]/g, "\\/")}$`));
+  expect(lines.find((l) => l.startsWith(`${COURSES.e.name};`))).toMatch(new RegExp(`;4;KLE;.*;${BAND_M.replace(/[/]/g, "\\/")};;$`));
   expect(lines.find((l) => l.startsWith(`${COURSES.wpF.name};`))).toContain(`;${BAND_WP}`);
   await page.goto("/planung/unterricht/import");
   await page.getByLabel("CSV-Datei").setInputFiles({ name: "export.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
