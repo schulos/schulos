@@ -23,8 +23,12 @@ const TOPICS: Record<string, string[]> = {
 
 export async function seedKlassenbuch(db: Db, now = new Date()) {
   const today = toBerlinDate(now);
-  const from = addDays(mondayOf(today), -7);
-  const slots = (await listSlots(db, { kind: "group", id: "g-7b" }, from, today)).filter((s) => s.change?.kind !== "cancel");
+  // Letzte Woche mit Unterricht (Ferien: bis zu acht Wochen zurück), sonst fehlt das Demo-Klassenbuch nach den Ferien
+  let slots: Awaited<ReturnType<typeof listSlots>> = [];
+  for (let back = 1; back <= 8 && slots.length === 0; back++) {
+    const from = addDays(mondayOf(today), -7 * back);
+    slots = (await listSlots(db, { kind: "group", id: "g-7b" }, from, back === 1 ? today : addDays(from, 7))).filter((s) => s.change?.kind !== "cancel");
+  }
   if (slots.length === 0) return;
   const students = await db
     .select({ id: users.id })
