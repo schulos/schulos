@@ -6,9 +6,20 @@ import { loadSchoolCalendar } from "@/core/school/calendar";
 import { GROUP_KIND_LABELS } from "@/core/labels";
 import { hasPermission } from "@/core/permissions";
 import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { applySuggestionAction, cancelReleasedAction, createAbsenceAction, deleteAbsenceAction, deleteSubstitutionAction, publishDayAction, saveSubstitutionAction } from "@/modules/stundenplan/actions";
+import {
+  applySuggestionAction,
+  cancelReleasedAction,
+  createAbsenceAction,
+  deleteAbsenceAction,
+  deleteSubstitutionAction,
+  keepReviewedAction,
+  publishDayAction,
+  removeReviewedAction,
+  saveSubstitutionAction,
+  shortenAbsenceAction,
+} from "@/modules/stundenplan/actions";
 import { dayRelease, draftDays, openDrafts } from "@/modules/stundenplan/freigabe";
-import { ABSENCE_LABELS, GROUP_REASONS, needsOn, TEACHER_REASONS } from "@/modules/stundenplan/abwesenheit";
+import { ABSENCE_LABELS, endedAbsenceReviews, GROUP_REASONS, needsOn, TEACHER_REASONS } from "@/modules/stundenplan/abwesenheit";
 import { CHANGE_KIND_LABEL, changeLabel, changeOff, changeRoom, changeTeacher, slotDisplay, subjectLabel } from "@/modules/stundenplan/display";
 import { plannableGroups, teacherOptions } from "@/modules/stundenplan/manage";
 import { listSlots, timetableMasterData, type PlanTarget } from "@/modules/stundenplan/service";
@@ -32,7 +43,7 @@ export const metadata: Metadata = { title: "Vertretungen" };
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 const shortDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", timeZone: TZ });
 
-export default async function VertretungenPage({ searchParams }: { searchParams: Promise<{ datum?: string; lehrkraft?: string; gruppe?: string; fehler?: string; veroeffentlicht?: string }> }) {
+export default async function VertretungenPage({ searchParams }: { searchParams: Promise<{ datum?: string; lehrkraft?: string; gruppe?: string; fehler?: string; veroeffentlicht?: string; verkuerzt?: string }> }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.substitute")) notFound();
   const sp = await searchParams;
@@ -41,7 +52,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   const today = toBerlinDate(new Date());
   const shown = planDays(today, cal);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.datum ?? "") ? sp.datum! : shown[0];
-  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week] = await Promise.all([
+  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week, reviews] = await Promise.all([
     teacherOptions(db),
     plannableGroups(db),
     timetableMasterData(db),
@@ -53,8 +64,11 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     draftDays(db, shown),
     // SP2-08 (SP-G-10): Vertretungsbedarf der nächsten fünf Schultage
     weekNeeds(db, today),
+    // SP2-16b: Änderungen nach dem Ende einer verkürzten/aufgehobenen Abwesenheit – „Abwesenheit beendet – prüfen“
+    endedAbsenceReviews(db, today),
   ]);
   const notified = /^\d+$/.test(sp.veroeffentlicht ?? "") ? Number(sp.veroeffentlicht) : null;
+  const shortened = /^\d+$/.test(sp.verkuerzt ?? "") ? Number(sp.verkuerzt) : null;
 
   const target: PlanTarget | null = sp.lehrkraft ? { kind: "teacher", id: sp.lehrkraft } : sp.gruppe ? { kind: "group", id: sp.gruppe } : null;
   // nur eigene Stunden der Lehrkraft/Gruppe – übernommene Vertretungen werden bei der Original-Stunde gepflegt
@@ -125,6 +139,14 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           Veröffentlicht{notified > 0 ? ` – ${notified === 1 ? "1 Person hat" : `${notified} Personen haben`} eine Nachricht bekommen.` : "."}
         </p>
       )}
+      {shortened !== null && (
+        <p role="status" className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
+          Abwesenheit verkürzt
+          {shortened > 0
+            ? ` – ${shortened === 1 ? "1 Änderung danach bleibt stehen und ist" : `${shortened} Änderungen danach bleiben stehen und sind`} unten zur Prüfung markiert.`
+            : "."}
+        </p>
+      )}
       {release.draft ? (
         <Card aria-label="Entwurf" className="gap-3 border-warn">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -171,6 +193,76 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           ))}
         </ul>
       </section>
+      {reviews.length > 0 && (
+        <Card aria-labelledby="review-title" className="gap-3 border-warn">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <h2 id="review-title" className="flex flex-wrap items-center gap-2 text-base font-semibold">
+                Abwesenheit beendet – prüfen
+                <Badge tone="warn">{reviews.length}</Badge>
+              </h2>
+              <p className="text-sm text-muted">
+                Die Abwesenheit wurde verkürzt oder aufgehoben. Diese Vertretungen stehen weiter im Plan – behalten oder entfernen (Betroffene werden benachrichtigt).
+              </p>
+            </div>
+            <form action={removeReviewedAction.bind(null, date)}>
+              <Button type="submit" size="sm">
+                Alle entfernen
+              </Button>
+            </form>
+          </div>
+          <Table>
+            <caption className="sr-only">Vertretungen nach dem Ende einer Abwesenheit</caption>
+            <thead>
+              <tr>
+                <th>Tag</th>
+                <th>Std.</th>
+                <th>Klasse</th>
+                <th>Fach</th>
+                <th>Art</th>
+                <th>
+                  <span className="sr-only">Aktion</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {reviews.map((r) => {
+                const what = `${shortDay.format(fromBerlinLocal(r.date))} ${r.groupName} ${r.periodNr}. Std`;
+                return (
+                  <tr key={r.id}>
+                    <td className="whitespace-nowrap">
+                      <Link href={`/planung/vertretungen?datum=${r.date}`} className="font-medium hover:underline">
+                        {shortDay.format(fromBerlinLocal(r.date))}
+                      </Link>
+                    </td>
+                    <td className="tabular-nums">{r.periodNr}.</td>
+                    <td className="font-medium whitespace-nowrap">{r.groupName}</td>
+                    <td className="whitespace-nowrap">
+                      {r.subjectName} <span className="text-muted">({r.teacherCode})</span>
+                    </td>
+                    <td className="whitespace-nowrap">
+                      {CHANGE_KIND_LABEL[r.kind]}
+                      {r.substituteCode && <span className="text-muted"> · {r.substituteCode}</span>}
+                    </td>
+                    <td className="text-right whitespace-nowrap">
+                      <form action={keepReviewedAction.bind(null, r.id)} className="inline">
+                        <Button type="submit" size="sm" variant="ghost" aria-label={`Behalten: ${what}`}>
+                          Behalten
+                        </Button>
+                      </form>
+                      <form action={deleteSubstitutionAction.bind(null, r.id)} className="inline">
+                        <Button type="submit" size="sm" variant="ghost" aria-label={`Entfernen: ${what}`}>
+                          Entfernen
+                        </Button>
+                      </form>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        </Card>
+      )}
       <Card aria-labelledby="absence-title" className="gap-3">
         <h2 id="absence-title" className="text-base font-semibold">
           Abwesenheit eintragen
@@ -235,6 +327,24 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                     {a.note && ` · ${a.note}`}
                     {a.selfReported && " · selbst gemeldet"}
                   </span>
+                  {/* SP2-16b: früher zurück – Ende vorziehen; Vertretungen danach werden zur Prüfung markiert */}
+                  {a.startsOn !== a.endsOn && (
+                    <form action={shortenAbsenceAction.bind(null, a.id, date)} className="flex items-center gap-1">
+                      <Input
+                        type="date"
+                        name="endsOn"
+                        required
+                        min={a.startsOn}
+                        max={addDays(a.endsOn, -1)}
+                        defaultValue={date < a.endsOn && date >= a.startsOn ? date : a.startsOn}
+                        aria-label={`Neues Ende: Abwesenheit ${a.label}`}
+                        className="h-8 w-36 px-2 text-sm"
+                      />
+                      <Button type="submit" size="sm" variant="ghost" aria-label={`Abwesenheit ${a.label} verkürzen`}>
+                        Verkürzen
+                      </Button>
+                    </form>
+                  )}
                   <form action={deleteAbsenceAction.bind(null, a.id, date)}>
                     <Button type="submit" size="sm" variant="ghost" aria-label={`Abwesenheit ${a.label} aufheben`}>
                       Aufheben
@@ -446,6 +556,11 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                   </td>
                   <td>
                     <Badge tone={changeOff(c) ? "neutral" : "warn"}>{changeLabel(c)}</Badge>
+                    {c.absenceEnded && (
+                      <Badge tone="danger" className="ml-1">
+                        Abwesenheit beendet – prüfen
+                      </Badge>
+                    )}
                   </td>
                   <td className="whitespace-nowrap">{[changeTeacher(c), changeRoom(c) && changeRoom(c) !== c.roomId && `R ${changeRoom(c)}`].filter(Boolean).join(" · ") || "–"}</td>
                   <td className="text-muted">{c.note}</td>

@@ -7,6 +7,7 @@ import { audit } from "@/core/audit";
 import { periods, schoolYears, timetableLessons, timetableStandby, users } from "@/core/db/schema";
 import { weekdayMon0 } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { schoolYearOn } from "./vertretung-regeln";
 
 export interface StandbyEntry {
   id: string;
@@ -18,14 +19,6 @@ export interface StandbyEntry {
 }
 
 /** Schuljahr, in dem `date` liegt. */
-async function yearOf(db: Db, date: string) {
-  const [y] = await db
-    .select({ id: schoolYears.id, startsOn: schoolYears.startsOn, endsOn: schoolYears.endsOn })
-    .from(schoolYears)
-    .where(and(lte(schoolYears.startsOn, date), gte(schoolYears.endsOn, date)));
-  return y ?? null;
-}
-
 /** Alle Bereitschaften eines Schuljahres, nach Tag, Stunde und Kürzel. */
 export async function listStandby(db: Db, schoolYearId: string): Promise<StandbyEntry[]> {
   return db
@@ -45,7 +38,7 @@ export async function listStandby(db: Db, schoolYearId: string): Promise<Standby
 
 /** Lehrkräfte mit Bereitschaft an `date` in Stunde `periodNr`. */
 export async function standbyAt(db: Db, date: string, periodNr: number): Promise<Set<string>> {
-  const year = await yearOf(db, date);
+  const year = await schoolYearOn(db, date);
   if (!year) return new Set();
   const rows = await db
     .select({ teacherId: timetableStandby.teacherId })

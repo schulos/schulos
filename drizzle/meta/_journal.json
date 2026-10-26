@@ -743,6 +743,13 @@
       "when": 1792978303457,
       "tag": "0105_sp2_12_fachbedarf",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1793040175269,
+      "tag": "0106_r1b_vertretung_pruefen",
+      "breakpoints": true
     }
   ]
 }

@@ -33,6 +33,8 @@ export async function savePermanentSubstitution(db: Db, actorId: string, input: 
   const [l] = await db.select().from(timetableLessons).where(eq(timetableLessons.id, input.lessonId));
   const absence = (await absencesBetween(db, input.from, "9999-12-31")).find((a) => a.id === input.absenceId);
   if (!l || !absence || !absence.teacherId || absence.teacherId !== l.teacherId) throw new ValidationError({ absenceId: "Abwesenheit der Lehrkraft dieser Stunde wählen" });
+  // R1b/A11: ohne Vertretungslehrkraft gar nicht erst versuchen (sonst „an 0 Tagen eingetragen … benachrichtigt“)
+  if (!input.substituteId) throw new ValidationError({ substituteId: "Vertretungslehrkraft wählen" });
   const cal = await loadSchoolCalendar(db);
   const out: PermanentResult = { saved: [], skipped: [] };
   for (let d = input.from < absence.startsOn ? absence.startsOn : input.from; d <= absence.endsOn; d = addDays(d, 1)) {
@@ -49,6 +51,11 @@ export async function savePermanentSubstitution(db: Db, actorId: string, input: 
       if (!(err instanceof ValidationError)) throw err;
       out.skipped.push({ date: d, reason: Object.values(err.fieldErrors)[0] ?? "geht nicht" });
     }
+  }
+  // R1b/A11: an keinem Tag eingetragen → Fehler mit den Gründen statt Erfolgsmeldung
+  if (out.saved.length === 0) {
+    const why = out.skipped.map((s) => `${ddmm(s.date)} (${s.reason})`).join(", ");
+    throw new ValidationError({ substituteId: why ? `Dauervertretung an keinem Tag eingetragen: ${why}` : "Dauervertretung an keinem Tag eingetragen – die Stunde findet im Zeitraum nicht statt" });
   }
   return out;
 }

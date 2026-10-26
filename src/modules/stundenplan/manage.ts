@@ -7,6 +7,8 @@ import { ValidationError } from "@/modules/verwaltung/users";
 import { LESSON_WEEKS } from "./schema";
 import { PLANNED_GROUP_KINDS } from "./verteilung";
 import { de } from "@/core/db/sort";
+import { toBerlinDate } from "@/core/time";
+import { mergesInto, notifyReleasedMerges } from "./vertretung";
 
 export const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr"] as const;
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -141,11 +143,14 @@ export async function updateLesson(db: Db, actorId: string, id: string, input: L
   await audit(db, actorId, "stundenplan.lesson.update", input.groupId, { lesson: id });
 }
 
-export async function deleteLesson(db: Db, actorId: string, id: string): Promise<void> {
+export async function deleteLesson(db: Db, actorId: string, id: string, today = toBerlinDate(new Date())): Promise<void> {
+  // R1b/A10: Zusammenlegungen in diese Stunde bleiben ohne Ziel stehen (Bedarf wieder offen) – Betroffene erfahren es
+  const released = await mergesInto(db, [id], today);
   const [old] = await db.delete(timetableLessons).where(eq(timetableLessons.id, id)).returning();
   if (!old) return;
   if (old.couplingId) await dissolveIfSingle(db, old.couplingId);
-  await audit(db, actorId, "stundenplan.lesson.delete", old.groupId, { weekday: old.weekday, period: old.periodNr, subject: old.subjectId });
+  await audit(db, actorId, "stundenplan.lesson.delete", old.groupId, { weekday: old.weekday, period: old.periodNr, subject: old.subjectId, mergesReleased: released.length || undefined });
+  await notifyReleasedMerges(db, actorId, released);
 }
 
 /** Eine Kopplung mit nur noch einem Teil ist keine mehr. */
@@ -210,9 +215,11 @@ export async function saveCoupling(db: Db, actorId: string, couplingId: string |
   if (Object.keys(fe).length) throw new ValidationError(fe);
 
   const slot = { weekday: input.weekday, periodNr: input.periodNr, week: input.week, validFrom: input.validFrom, validUntil: input.validUntil, couplingId: id };
+  const keep = new Set(ids);
+  const gone = existing.filter((e) => !keep.has(e.id)).map((e) => e.id);
+  // R1b/A10: Zusammenlegungen in wegfallende Teile bleiben ohne Ziel stehen – Betroffene erfahren es
+  const released = await mergesInto(db, gone, toBerlinDate(new Date()));
   await db.transaction(async (tx) => {
-    const keep = new Set(ids);
-    const gone = existing.filter((e) => !keep.has(e.id)).map((e) => e.id);
     if (gone.length) await tx.delete(timetableLessons).where(inArray(timetableLessons.id, gone));
     for (const p of input.parts) {
       const v = { ...slot, groupId: p.groupId, subjectId: p.subjectId, teacherId: p.teacherId, roomId: p.roomId };
@@ -225,13 +232,19 @@ export async function saveCoupling(db: Db, actorId: string, couplingId: string |
     weekday: input.weekday,
     period: input.periodNr,
     parts: input.parts.length,
+    mergesReleased: released.length || undefined,
   });
+  await notifyReleasedMerges(db, actorId, released);
   return id;
 }
 
 export async function deleteCoupling(db: Db, actorId: string, couplingId: string): Promise<void> {
+  const parts = await db.select({ id: timetableLessons.id }).from(timetableLessons).where(eq(timetableLessons.couplingId, couplingId));
+  // R1b/A10: Zusammenlegungen in die Kopplung bleiben ohne Ziel stehen – Betroffene erfahren es
+  const released = await mergesInto(db, parts.map((p) => p.id), toBerlinDate(new Date()));
   const gone = await db.delete(timetableLessons).where(eq(timetableLessons.couplingId, couplingId)).returning();
-  if (gone.length) await audit(db, actorId, "stundenplan.coupling.delete", gone[0]!.groupId, { coupling: couplingId, parts: gone.length });
+  if (gone.length) await audit(db, actorId, "stundenplan.coupling.delete", gone[0]!.groupId, { coupling: couplingId, parts: gone.length, mergesReleased: released.length || undefined });
+  await notifyReleasedMerges(db, actorId, released);
 }
 
 export interface CouplingRow {

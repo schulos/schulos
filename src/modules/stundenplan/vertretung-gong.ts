@@ -73,6 +73,8 @@ export function dayMessage(date: string, changes: readonly DayChange[]): { title
     [
       c.kind === "move" && c.targetPeriod ? `in der ${c.targetPeriod}. Std` : null,
       c.kind === "merge" && c.mergeGroup ? `mit ${coupledGroupLabel([c.mergeGroup])}` : null,
+      // R1b/A10: die aufnehmende Stunde gibt es nicht mehr – die Stunde wird neu geregelt
+      c.kind === "merge" && !c.mergeGroup ? "aufgehoben – wird neu geregelt" : null,
       (c.kind === "substitute" || c.kind === "merge") && c.substituteName ? `bei ${c.substituteName}` : null,
       c.roomId ? `Raum ${c.roomId}` : null,
       c.note,

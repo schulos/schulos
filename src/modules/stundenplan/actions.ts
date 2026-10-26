@@ -9,7 +9,7 @@ import { formValues } from "@/core/form-values";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { createLesson, deleteCoupling, deleteLesson, saveCoupling, updateLesson, type CouplingInput, type LessonInput } from "./manage";
-import { ABSENCE_LABELS, createAbsence, deleteAbsence, needsOn } from "./abwesenheit";
+import { ABSENCE_LABELS, createAbsence, deleteAbsence, needsOn, shortenAbsence } from "./abwesenheit";
 import { addDuty, clearDutyChange, createArea, deleteArea, removeDuty, setDutyChange } from "./aufsichten";
 import { copyPeriod } from "./periode";
 import { applyRun, cancelRun, createRun, deleteRun, executeQueued, setFixed, undoApply } from "./solverlauf";
@@ -17,7 +17,7 @@ import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
 import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenster";
 import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
 import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
-import { deleteSubstitution, publishDay, saveSubstitution, type SubstitutionInput } from "./vertretung";
+import { deleteSubstitution, keepReviewedSubstitution, publishDay, removeReviewedSubstitutions, saveSubstitution, type SubstitutionInput } from "./vertretung";
 import { addReduction, deleteReduction, saveTeacherRule, setObligation } from "./deputate";
 import { applyGradeRuleDefaults, classGrades, saveGradeRules } from "./jahrgangsregeln";
 import {
@@ -658,6 +658,36 @@ export async function deleteAbsenceAction(id: string, date: string): Promise<voi
   await deleteAbsence(await getDb(), user.id, id);
   revalidatePath("/", "layout");
   redirect(needsPage(date));
+}
+
+/** SP2-16b: Abwesenheit verkürzen (früher zurück); Änderungen danach bleiben stehen und werden zur Prüfung markiert. */
+export async function shortenAbsenceAction(id: string, date: string, form: FormData): Promise<void> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  let flagged: number;
+  try {
+    flagged = await shortenAbsence(await getDb(), user.id, id, String(form.get("endsOn") ?? "").trim());
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`${needsPage(date)}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(`${needsPage(date)}&verkuerzt=${flagged}`);
+}
+
+/** SP2-16b: markierte Änderung behalten. */
+export async function keepReviewedAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  await keepReviewedSubstitution(await getDb(), user.id, id);
+  revalidatePath("/", "layout");
+}
+
+/** SP2-16b: alle markierten Änderungen ab heute entfernen. */
+export async function removeReviewedAction(date: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  const { failed } = await removeReviewedSubstitutions(await getDb(), user.id, toBerlinDate(new Date()));
+  revalidatePath("/", "layout");
+  if (failed.length)
+    redirect(`${needsPage(date)}&fehler=${encodeURIComponent(`Nicht entfernt: ${failed.map((f) => `${f.date.slice(8)}.${f.date.slice(5, 7)}. (${f.reason})`).join(", ")}`)}`);
 }
 
 /** Für alle Stunden abwesender Klassen an `date` Entfall eintragen (Freisetzungen bestätigen). */

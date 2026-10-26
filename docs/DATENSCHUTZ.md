@@ -385,6 +385,8 @@ Phase 2 als eigener Block folgen.
   Aufsichtsplan: Pflege und Einsicht nur mit `stundenplan.substitute`, keine Anzeige im Vertretungsplan, auf Monitoren oder im Gong;
   Tabelle `timetable_standby` (LK-SJ-1J ab Schuljahr, Fremdschlüssel auf das Konto – geht mit der Kontolöschung). Verlegung und
   Zusammenlegung speichern nur Stunde bzw. Ziel-Stunde an der Vertretung (`timetable_substitutions.target_period/merge_lesson_id`, Löschung wie die Vertretung).
+  SP2-16b: `timetable_substitutions.absence_ended_at` (nur Zeitpunkt, kein Grund) markiert Vertretungen nach dem Ende einer verkürzten Abwesenheit
+  zur Prüfung – sichtbar nur in der Vertretungsplanung, gelöscht mit der Vertretung; das Protokoll der Verkürzung nennt wie beim Anlegen keinen Grund.
   Das Heute-Widget „Offen für dich“ (Q5-07) zeigt nur Zähler und eigene Vorgänge (eigene Kinder, eigene Briefe, eigene
   Klassen; Planungszahlen nur mit `stundenplan.substitute` (SP-02), Backup nur mit `verwaltung.system`) – keine Auswertung je Lehrkraft.
   Zeitwünsche (Q5-10) trägt eine Lehrkraft im Eingabefenster der Planung selbst ein – nur die eigenen, die Person kommt aus der

@@ -41,4 +41,4 @@ export function roomUse(l: Pick<SlotLesson, "periodNr" | "roomId">, s: SlotSub |
 }
 
 /** Findet die Stunde zu ihrer regulären Zeit statt (Vertretung, Raumänderung oder ohne Änderung)? */
-export const takesPlaceAsUsual = (s: SlotSub | undefined) => !s || s.kind === "substitute" || s.kind === "room";
+export const takesPlaceAsUsual = (s: Pick<SlotSub, "kind"> | undefined) => !s || s.kind === "substitute" || s.kind === "room";

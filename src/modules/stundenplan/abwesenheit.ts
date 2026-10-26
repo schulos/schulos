@@ -1,9 +1,11 @@
 // Abwesenheiten von Lehrkräften und Gruppen (P2b-18): Lehrkraft fehlt → ihre Stunden sind offen; Gruppe fehlt →
 // Stunden entfallen, die Lehrkraft ist frei (Freisetzung). Übersicht „Vertretungsbedarf“ je Tag.
-import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
-import { groups, periods, subjects, timetableAbsences, timetableLessons, timetableSubstitutions, users } from "@/core/db/schema";
+import { groups, periods, subjects, timetableAbsences, timetableLessons, timetableSubstitutions, users, type TimetableAbsence } from "@/core/db/schema";
+import { addDays } from "@/core/time";
 import { TIMETABLE_ABSENCE_REASONS, type TimetableAbsenceReason, type TimetableAbsenceState } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { lessonActiveOn } from "./service";
@@ -112,7 +114,98 @@ export async function createAbsence(db: Db, actorId: string, input: AbsenceInput
 
 export async function deleteAbsence(db: Db, actorId: string, id: string): Promise<void> {
   const [old] = await db.delete(timetableAbsences).where(eq(timetableAbsences.id, id)).returning();
-  if (old) await audit(db, actorId, "stundenplan.absence.delete", old.groupId ?? old.teacherId, { from: old.startsOn, to: old.endsOn });
+  if (!old) return;
+  // SP2-16b: eingetragene Vertretungen bleiben stehen, werden aber zur Prüfung markiert
+  const flagged = await flagAfterAbsenceEnd(db, old, old.startsOn);
+  await audit(db, actorId, "stundenplan.absence.delete", old.groupId ?? old.teacherId, { from: old.startsOn, to: old.endsOn, flagged: flagged || undefined });
+}
+
+const ddmm = (ymd: string) => `${ymd.slice(8)}.${ymd.slice(5, 7)}.`;
+
+/**
+ * SP2-16b: Abwesenheit verkürzen (früher zurück) – neues Ende vor dem bisherigen, nicht vor dem Beginn. Eingetragene Änderungen
+ * nach dem neuen Ende bleiben stehen und werden zur Prüfung markiert. Gibt die Zahl der markierten Änderungen zurück.
+ */
+export async function shortenAbsence(db: Db, actorId: string, id: string, endsOn: string): Promise<number> {
+  const [old] = await db.select().from(timetableAbsences).where(eq(timetableAbsences.id, id));
+  if (!old) throw new ValidationError({ endsOn: "Diese Abwesenheit gibt es nicht (mehr)" });
+  if (!YMD.test(endsOn)) throw new ValidationError({ endsOn: "Neues Ende angeben" });
+  if (endsOn < old.startsOn) throw new ValidationError({ endsOn: "Das neue Ende liegt vor dem Beginn – sonst die Abwesenheit aufheben" });
+  if (endsOn >= old.endsOn) throw new ValidationError({ endsOn: `Das neue Ende muss früher liegen als bisher (${ddmm(old.endsOn)})` });
+  await db.update(timetableAbsences).set({ endsOn }).where(eq(timetableAbsences.id, id));
+  const flagged = await flagAfterAbsenceEnd(db, old, addDays(endsOn, 1));
+  // Grund bewusst nicht ins Protokoll (Gesundheitsbezug bei „krank“)
+  await audit(db, actorId, "stundenplan.absence.shorten", old.groupId ?? old.teacherId, { from: old.startsOn, to: endsOn, before: old.endsOn, flagged: flagged || undefined });
+  return flagged;
+}
+
+/**
+ * SP2-16b (Q-SP2-16 = b, Projektleitung 2026-10-26): Die Abwesenheit `old` gilt ab `from` nicht mehr (verkürzt, aufgehoben,
+ * zurückgezogen). Eingetragene Änderungen an Stunden, die sie abdeckte und die keine andere wirksame Abwesenheit abdeckt, bleiben
+ * stehen und werden als „Abwesenheit beendet – prüfen“ markiert: bei einer Lehrkraft alle Arten außer der Raumänderung, bei einer
+ * Klasse der Entfall. Gibt die Zahl der markierten Änderungen zurück.
+ */
+export async function flagAfterAbsenceEnd(db: Db, old: TimetableAbsence, from: string): Promise<number> {
+  if (old.status !== "aktiv") return 0;
+  const start = from > old.startsOn ? from : old.startsOn;
+  if (start > old.endsOn) return 0;
+  const target = old.teacherId ? eq(timetableLessons.teacherId, old.teacherId) : eq(timetableLessons.groupId, old.groupId!);
+  const rows = await db
+    .select({ id: timetableSubstitutions.id, date: timetableSubstitutions.date, kind: timetableSubstitutions.kind, periodNr: timetableLessons.periodNr })
+    .from(timetableSubstitutions)
+    .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
+    .where(and(gte(timetableSubstitutions.date, start), lte(timetableSubstitutions.date, old.endsOn), target));
+  if (rows.length === 0) return 0;
+  const others = (await absencesBetween(db, start, old.endsOn)).filter((a) => a.id !== old.id && (old.teacherId ? a.teacherId === old.teacherId : a.groupId === old.groupId));
+  const hit = rows.filter(
+    (r) => (old.teacherId ? r.kind !== "room" : r.kind === "cancel") && absenceCovers(old, r.date, r.periodNr) && !others.some((a) => absenceCovers(a, r.date, r.periodNr)),
+  );
+  if (hit.length)
+    await db
+      .update(timetableSubstitutions)
+      .set({ absenceEndedAt: new Date() })
+      .where(
+        inArray(
+          timetableSubstitutions.id,
+          hit.map((r) => r.id),
+        ),
+      );
+  return hit.length;
+}
+
+export interface EndedAbsenceReview {
+  id: string;
+  date: string;
+  periodNr: number;
+  kind: SubstitutionKind;
+  groupName: string;
+  subjectName: string;
+  teacherCode: string | null;
+  substituteCode: string | null;
+}
+
+/** SP2-16b: zur Prüfung markierte Änderungen ab `from` („Abwesenheit beendet – prüfen“), nach Tag, Stunde und Gruppe. */
+export async function endedAbsenceReviews(db: Db, from: string): Promise<EndedAbsenceReview[]> {
+  const substitute = alias(users, "substitute");
+  const rows = await db
+    .select({
+      id: timetableSubstitutions.id,
+      date: timetableSubstitutions.date,
+      periodNr: timetableLessons.periodNr,
+      kind: timetableSubstitutions.kind,
+      groupName: groups.name,
+      subjectName: subjects.name,
+      teacherCode: users.shortCode,
+      substituteCode: substitute.shortCode,
+    })
+    .from(timetableSubstitutions)
+    .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
+    .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
+    .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
+    .leftJoin(users, eq(users.id, timetableLessons.teacherId))
+    .leftJoin(substitute, eq(substitute.id, timetableSubstitutions.substituteId))
+    .where(and(isNotNull(timetableSubstitutions.absenceEndedAt), gte(timetableSubstitutions.date, from)));
+  return rows.sort((a, b) => a.date.localeCompare(b.date) || a.periodNr - b.periodNr || a.groupName.localeCompare(b.groupName, "de", { numeric: true }));
 }
 
 /**
@@ -216,7 +309,12 @@ export async function needsOn(db: Db, date: string): Promise<DayNeeds & { absenc
   const active = rows.filter((r) => lessonActiveOn(r.l, date));
   const subs = active.length
     ? await db
-        .select({ lessonId: timetableSubstitutions.lessonId, kind: timetableSubstitutions.kind, substituteId: timetableSubstitutions.substituteId })
+        .select({
+          lessonId: timetableSubstitutions.lessonId,
+          kind: timetableSubstitutions.kind,
+          substituteId: timetableSubstitutions.substituteId,
+          mergeLessonId: timetableSubstitutions.mergeLessonId,
+        })
         .from(timetableSubstitutions)
         .where(
           and(
@@ -239,7 +337,8 @@ export async function needsOn(db: Db, date: string): Promise<DayNeeds & { absenc
       teacherCode: r.teacherCode,
       roomId: r.l.roomId,
     })),
-    new Map(subs.map((s) => [s.lessonId, s.kind])),
+    // R1b/A10: eine Zusammenlegung ohne aufnehmende Stunde (gelöscht) regelt nichts – der Bedarf ist wieder offen
+    new Map(subs.filter((s) => s.kind !== "merge" || s.mergeLessonId).map((s) => [s.lessonId, s.kind])),
     absences,
     date,
     new Map(subs.filter((s) => s.substituteId).map((s) => [s.lessonId, s.substituteId!])),

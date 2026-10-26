@@ -1,12 +1,12 @@
 // Vertretungsvorschläge (P2b-19): freie Lehrkräfte mit Punkten und Begründung + Vertretungsstatistik.
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { groups, schoolYears, subjects, timetableLessons, timetableSubstitutions, timetableTeacherSubjects, users } from "@/core/db/schema";
+import { groups, subjects, timetableLessons, timetableSubstitutions, timetableTeacherSubjects, users } from "@/core/db/schema";
 import { absencesBetween, absentGroups, absentTeachers } from "./abwesenheit";
 import { lessonActiveOn } from "./service";
 import { ownTeacherPeriod } from "./belegung";
 import { standbyAt } from "./bereitschaft";
-import { dayRuleBlocks } from "./vertretung-regeln";
+import { dayRuleBlocks, schoolYearOn } from "./vertretung-regeln";
 
 /** Gewichte – bewusst einfach und erklärbar. */
 export const WEIGHTS = {
@@ -101,16 +101,11 @@ export function scoreCandidates(input: ScoreInput): Candidate[] {
     );
 }
 
-async function yearOf(db: Db, date: string) {
-  const ys = await db.select().from(schoolYears);
-  return ys.find((y) => y.startsOn <= date && y.endsOn >= date) ?? null;
-}
-
 /** Vertretungsvorschläge für eine Stunde an einem Tag (bestbewertete zuerst). */
 export async function suggestSubstitutes(db: Db, lessonId: string, date: string): Promise<Candidate[]> {
   const [l] = await db.select().from(timetableLessons).where(eq(timetableLessons.id, lessonId));
   if (!l) return [];
-  const year = await yearOf(db, date);
+  const year = await schoolYearOn(db, date);
   const [all, teachers, absences, yearSubs] = await Promise.all([
     db.select().from(timetableLessons),
     db.select({ id: users.id, code: users.shortCode, name: users.name }).from(users).where(eq(users.role, "lehrkraft")),

@@ -42,7 +42,7 @@ export const changeOff = (e: Pick<ChangeEntry, "kind" | "movedTo">) => e.kind ==
 export function changeLabel(e: Pick<ChangeEntry, "kind" | "movedFrom" | "movedTo" | "mergeWith">): string {
   if (e.kind === "move" && e.movedTo !== null) return `verlegt in die ${e.movedTo}. Std.`;
   if (e.kind === "move" && e.movedFrom !== null) return `Verlegung aus der ${e.movedFrom}. Std.`;
-  if (e.kind === "merge" && e.mergeWith) return `Zusammenlegung mit ${e.mergeWith.groupName.replace(/^Klasse /, "")}`;
+  if (e.kind === "merge") return e.mergeWith ? `Zusammenlegung mit ${e.mergeWith.groupName.replace(/^Klasse /, "")}` : "Zusammenlegung aufgehoben";
   return CHANGE_KIND_LABEL[e.kind];
 }
 
@@ -78,6 +78,8 @@ export function slotDisplay(s: LessonSlot, view: PlanView, long = false): SlotDi
   // SP2-07 Zusammenlegung: die Gruppe geht zur anderen Stunde; Lehrkraft und Raum sehen sie als „abgegeben“
   if (c?.kind === "merge") {
     const w = c.mergeWith;
+    // R1b/A10: aufnehmende Stunde gelöscht – die Zusammenlegung steht ohne Ziel, bis sie neu geregelt ist
+    if (!w) return { tone: "sub", tag: "Zusammenlegung aufgehoben", detail: s.perspective === "away" ? s.groupName : regular, note, struck: false };
     return s.perspective === "away"
       ? { tone: "off", tag: "Zusammengelegt", detail: join(s.groupName, w && `→ ${coupledGroupLabel([w.groupName])} bei ${w.teacherCode ?? "–"}`), note: null, struck: true }
       : { tone: "sub", tag: "Zusammenlegung", detail: join(w && `mit ${coupledGroupLabel([w.groupName])}`, w?.teacherCode, room(w?.roomId)), note, struck: false };

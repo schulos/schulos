@@ -1,5 +1,5 @@
 // Vertretungen: Entfall, Vertretung durch andere Lehrkraft, Raumänderung – je Stunde und Tag.
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
@@ -21,6 +21,9 @@ type ExamKind = (typeof exams.$inferSelect)["kind"];
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Art einer vorhandenen Änderung in Meldungen („… ist schon eine Vertretung eingetragen“). */
+const CHANGE_WORD: Record<SubstitutionKind, string> = { cancel: "Entfall", substitute: "Vertretung", room: "Raumänderung", move: "Verlegung", merge: "Zusammenlegung" };
+
 export interface SubstitutionInput {
   lessonId: string;
   date: string;
@@ -38,8 +41,11 @@ export interface SubstitutionInput {
   mergeLessonId?: string | null;
 }
 
+type DayRow = { l: TimetableLesson; s: TimetableSubstitution | undefined };
+type DayLoader = (date: string, weekday: number) => Promise<DayRow[]>;
+
 /** Stunden des Wochentags, die an `date` gelten, mit ihrer Änderung an dem Tag (SP2-07: auch verlegte in andere Stunden). */
-async function dayLessons(db: Db, date: string, weekday: number): Promise<{ l: TimetableLesson; s: TimetableSubstitution | undefined }[]> {
+async function dayLessons(db: Db, date: string, weekday: number): Promise<DayRow[]> {
   const own = (await db.select().from(timetableLessons).where(eq(timetableLessons.weekday, weekday))).filter((l) => lessonActiveOn(l, date));
   const subs = own.length
     ? await db
@@ -52,11 +58,28 @@ async function dayLessons(db: Db, date: string, weekday: number): Promise<{ l: T
 }
 
 /**
+ * R1b/A13: `dayLessons` je (Datum, Wochentag) nur einmal laden – innerhalb einer Prüfung (z. B. Verlegung mit Tausch) ändert sich
+ * nichts, geschrieben wird erst danach. Nie über Schreibvorgänge hinweg weiterverwenden.
+ */
+function dayCache(db: Db): DayLoader {
+  const memo = new Map<string, Promise<DayRow[]>>();
+  return (date, weekday) => {
+    const key = `${date}:${weekday}`;
+    let p = memo.get(key);
+    if (!p) {
+      p = dayLessons(db, date, weekday);
+      memo.set(key, p);
+    }
+    return p;
+  };
+}
+
+/**
  * Wer ist zu dieser Stunde wirklich beschäftigt? Eigene Stunden (sofern nicht entfallen/abgegeben/zusammengelegt, verlegte in
  * ihrer neuen Stunde) + übernommene Vertretungen. Stunden in `except` zählen nicht.
  */
-async function busyTeachers(db: Db, date: string, weekday: number, periodNr: number, except: string[] = []): Promise<Set<string>> {
-  const day = await dayLessons(db, date, weekday);
+async function busyTeachers(db: Db, date: string, weekday: number, periodNr: number, except: string[] = [], load: DayLoader = dayCache(db)): Promise<Set<string>> {
+  const day = await load(date, weekday);
   // Abwesenheiten (P2b-18): abwesende Lehrkräfte stehen nicht zur Verfügung; fehlt die Gruppe, ist ihre Lehrkraft frei
   const absences = await absencesBetween(db, date, date);
   const goneGroups = absentGroups(absences, date, periodNr);
@@ -70,9 +93,9 @@ async function busyTeachers(db: Db, date: string, weekday: number, periodNr: num
 }
 
 /** Ist der Raum zu dieser Stunde belegt (reguläre Stunden, die dort bleiben, hierher verlegte und gebuchte)? */
-async function busyRooms(db: Db, date: string, weekday: number, periodNr: number, except: string[]): Promise<Set<string>> {
+async function busyRooms(db: Db, date: string, weekday: number, periodNr: number, except: string[], load: DayLoader = dayCache(db)): Promise<Set<string>> {
   const busy = new Set<string>();
-  for (const { l, s } of await dayLessons(db, date, weekday)) {
+  for (const { l, s } of await load(date, weekday)) {
     if (except.includes(l.id)) continue;
     const use = roomUse(l, s);
     if (use?.periodNr === periodNr) busy.add(use.roomId);
@@ -88,9 +111,9 @@ async function busyRooms(db: Db, date: string, weekday: number, periodNr: number
 }
 
 /** SP2-07: Gruppen, die zu dieser Stunde Unterricht haben (verlegte in ihrer neuen Stunde, zusammengelegte bei der anderen Stunde). */
-async function busyGroups(db: Db, date: string, weekday: number, periodNr: number, except: string[]): Promise<Set<string>> {
+async function busyGroups(db: Db, date: string, weekday: number, periodNr: number, except: string[], load: DayLoader = dayCache(db)): Promise<Set<string>> {
   const busy = new Set<string>();
-  for (const { l, s } of await dayLessons(db, date, weekday)) if (!except.includes(l.id) && groupPeriod(l, s) === periodNr) busy.add(l.groupId);
+  for (const { l, s } of await load(date, weekday)) if (!except.includes(l.id) && groupPeriod(l, s) === periodNr) busy.add(l.groupId);
   return busy;
 }
 
@@ -158,8 +181,8 @@ async function groupNames(db: Db, ids: readonly string[]): Promise<string> {
 }
 
 /** SP2-07: Stunden, die an `date` in Stunde `periodNr` zu einer der Gruppen verlegt sind (außer `except`). */
-async function movedInto(db: Db, date: string, weekday: number, periodNr: number, groupIds: readonly string[], except: readonly string[]): Promise<TimetableLesson[]> {
-  return (await dayLessons(db, date, weekday))
+async function movedInto(db: Db, date: string, weekday: number, periodNr: number, groupIds: readonly string[], except: readonly string[], load: DayLoader = dayCache(db)): Promise<TimetableLesson[]> {
+  return (await load(date, weekday))
     .filter(({ l, s }) => s?.kind === "move" && s.targetPeriod === periodNr && groupIds.includes(l.groupId) && !except.includes(l.id))
     .map(({ l }) => l);
 }
@@ -167,17 +190,26 @@ async function movedInto(db: Db, date: string, weekday: number, periodNr: number
 /**
  * SP2-07: Kann der Block `unit` (Stunden einer Kopplung) an `date` in Stunde `periodNr` liegen? Gruppen, Lehrkräfte und Räume
  * müssen dort frei sein (Stunden in `except` zählen nicht – beim Tausch die getauschten). Gibt den ersten Grund zurück.
+ * R1b/A3: `roomOf` = Raum je Teil in der Zielstunde (ein anderer Raum gilt nicht für alle Teile eines Bands).
  */
-async function slotProblems(db: Db, date: string, unit: TimetableLesson[], periodNr: number, roomOverride: string | null, except: string[]): Promise<string | null> {
+async function slotProblems(
+  db: Db,
+  date: string,
+  unit: TimetableLesson[],
+  periodNr: number,
+  roomOf: (u: TimetableLesson) => string | null,
+  except: string[],
+  load: DayLoader,
+): Promise<string | null> {
   const weekday = unit[0]!.weekday;
-  const groupsBusy = await busyGroups(db, date, weekday, periodNr, except);
+  const groupsBusy = await busyGroups(db, date, weekday, periodNr, except, load);
   const clash = [...new Set(unit.map((u) => u.groupId))].filter((g) => groupsBusy.has(g));
   if (clash.length) return `${await groupNames(db, clash)} hat in der ${periodNr}. Stunde Unterricht`;
-  const teachersBusy = await busyTeachers(db, date, weekday, periodNr, except);
+  const teachersBusy = await busyTeachers(db, date, weekday, periodNr, except, load);
   for (const t of new Set(unit.map((u) => u.teacherId).filter((x): x is string => !!x)))
     if (teachersBusy.has(t)) return `${await teacherLabel(db, t)} ist in der ${periodNr}. Stunde nicht frei`;
-  const roomsBusy = await busyRooms(db, date, weekday, periodNr, except);
-  for (const room of new Set(unit.map((u) => roomOverride ?? u.roomId).filter((x): x is string => !!x))) {
+  const roomsBusy = await busyRooms(db, date, weekday, periodNr, except, load);
+  for (const room of new Set(unit.map(roomOf).filter((x): x is string => !!x))) {
     if (roomsBusy.has(room)) return `Raum ${room} ist in der ${periodNr}. Stunde belegt`;
     const blk = await roomBlockAt(db, room, date, periodNr);
     if (blk) return `Raum ${room}: ${blockLabel(blk)}`;
@@ -242,6 +274,7 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
   const all = [l, ...siblings];
   const except = all.map((x) => x.id);
   const unitGroups = [...new Set(all.map((x) => x.groupId))];
+  const load = dayCache(db);
 
   const sub = {
     ...input,
@@ -263,6 +296,11 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
     sub.roomId = null;
   }
   if (sub.kind === "room" || sub.kind === "move") sub.substituteId = null;
+  if (sub.kind === "move" && sub.roomId === l.roomId) sub.roomId = null;
+  // R1b/A3: ein anderer Raum bei der Verlegung gilt für die Teile im Raum der bearbeiteten Stunde (dieselbe Lehrkraft bzw.
+  // Teamteaching); die übrigen Teile eines Bands behalten ihren Raum
+  const movesRoom = (x: TimetableLesson) => sub.kind === "move" && !!sub.roomId && x.roomId === l.roomId;
+  const roomInTarget = (x: TimetableLesson) => (movesRoom(x) ? sub.roomId : x.roomId);
   const weekday = l.weekday;
   if (sub.kind === "substitute") {
     if (!sub.substituteId) fe.substituteId = "Vertretungslehrkraft wählen";
@@ -271,11 +309,11 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
       if (t?.role !== "lehrkraft") fe.substituteId = "Vertretungslehrkraft wählen";
       else if (sub.substituteId === l.teacherId) fe.substituteId = "Das ist die eigene Lehrkraft der Stunde";
       else if (absentTeachers(await absencesBetween(db, sub.date, sub.date), sub.date, l.periodNr).has(sub.substituteId)) fe.substituteId = "Die Lehrkraft ist zu dieser Zeit abwesend";
-      else if ((await busyTeachers(db, sub.date, weekday, l.periodNr, except)).has(sub.substituteId)) fe.substituteId = "Die Lehrkraft unterrichtet zu dieser Zeit selbst";
+      else if ((await busyTeachers(db, sub.date, weekday, l.periodNr, except, load)).has(sub.substituteId)) fe.substituteId = "Die Lehrkraft unterrichtet zu dieser Zeit selbst";
       else {
         // SP2-07: Tagesregel der Vertretung (SP2-04) – gezählt die Stunden, die sie an dem Tag tatsächlich hält
         const substituteId = sub.substituteId;
-        const held = (await dayLessons(db, sub.date, weekday))
+        const held = (await load(sub.date, weekday))
           .filter(({ l: x }) => !except.includes(x.id))
           .flatMap(({ l: x, s }) => [x.teacherId === substituteId ? ownTeacherPeriod(x, s) : null, s?.kind === "substitute" && s.substituteId === substituteId ? x.periodNr : null])
           .filter((p): p is number => p !== null);
@@ -293,19 +331,25 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
     else if (target === l.periodNr) fe.targetPeriod = "Das ist die eigene Stunde";
     else {
       if (input.swap) {
-        swapped = (await dayLessons(db, sub.date, weekday))
-          .filter(({ l: x, s }) => x.periodNr === target && unitGroups.includes(x.groupId) && !except.includes(x.id) && (takesPlaceAsUsual(s) || s?.kind === "cancel"))
-          .map(({ l: x }) => x);
+        const day = await load(sub.date, weekday);
+        const subOf = new Map(day.map(({ l: x, s }) => [x.id, s]));
+        // Unterricht der Gruppe in der Zielstunde (dorthin verlegten prüft unten die Belegung, von dort weg verlegter zählt nicht)
+        const inTarget = day.filter(({ l: x, s }) => x.periodNr === target && unitGroups.includes(x.groupId) && !except.includes(x.id) && s?.kind !== "move");
+        // R1b/A4: getauscht wird nur Unterricht ohne Änderung – ein Entfall käme sonst zurück, eine Vertretung verlöre still ihre Lehrkraft
+        swapped = inTarget.filter(({ s }) => !s).map(({ l: x }) => x);
         // auch deren Kopplungsteile wandern mit
         for (const x of [...swapped]) for (const y of await couplingParts(db, x, sub.date)) if (!swapped.some((z) => z.id === y.id)) swapped.push(y);
-        if (swapped.length === 0) fe.targetPeriod = `In der ${target}. Stunde hat die Gruppe keinen Unterricht zum Tauschen`;
+        const changed = swapped.map((x) => subOf.get(x.id)).find((s) => !!s) ?? inTarget.find(({ s }) => s && s.kind !== "cancel")?.s;
+        if (changed) fe.targetPeriod = `In der ${target}. Stunde ist schon eine ${CHANGE_WORD[changed.kind]} eingetragen – erst aufheben, dann tauschen`;
+        else if (swapped.length === 0 && inTarget.length) fe.targetPeriod = `In der ${target}. Stunde entfällt der Unterricht der Gruppe – ohne „Tauschen“ verlegen`;
+        else if (swapped.length === 0) fe.targetPeriod = `In der ${target}. Stunde hat die Gruppe keinen Unterricht zum Tauschen`;
       }
       if (!fe.targetPeriod) {
         const ignore = [...except, ...swapped.map((x) => x.id)];
-        const problem = await slotProblems(db, sub.date, all, target, sub.roomId, ignore);
+        const problem = await slotProblems(db, sub.date, all, target, roomInTarget, ignore, load);
         if (problem) fe.targetPeriod = problem;
         else if (swapped.length) {
-          const back = await slotProblems(db, sub.date, swapped, l.periodNr, null, ignore);
+          const back = await slotProblems(db, sub.date, swapped, l.periodNr, (x) => x.roomId, ignore, load);
           if (back) fe.targetPeriod = `Tausch: ${back}`;
         }
       }
@@ -336,9 +380,10 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
     const [r] = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, sub.roomId));
     if (!r) fe.roomId = "Raum gibt es nicht";
     else if (sub.kind === "move") {
-      // Verlegung: Raum geprüft in der Zielstunde (oben)
+      // Verlegung: Raum geprüft in der Zielstunde (oben); R1b/A3: nicht in den Raum eines anderen Teils, der dort bleibt
+      if (all.some((x) => !movesRoom(x) && x.roomId === sub.roomId)) fe.roomId = `Raum ${sub.roomId} nutzt schon ein anderer Teil der Stunde`;
     } else if (sub.roomId === l.roomId) sub.roomId = null;
-    else if ((await busyRooms(db, sub.date, weekday, l.periodNr, except)).has(sub.roomId)) fe.roomId = `Raum ${sub.roomId} ist zu dieser Zeit belegt`;
+    else if ((await busyRooms(db, sub.date, weekday, l.periodNr, except, load)).has(sub.roomId)) fe.roomId = `Raum ${sub.roomId} ist zu dieser Zeit belegt`;
     else {
       const blk = await roomBlockAt(db, sub.roomId, sub.date, l.periodNr);
       if (blk) fe.roomId = `Raum ${sub.roomId}: ${blockLabel(blk)}`;
@@ -347,7 +392,7 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
   if (sub.kind === "room" && !sub.roomId && !fe.roomId) fe.roomId = "Der Raum ist derselbe wie sonst";
   // SP2-07: findet die Stunde zu ihrer Zeit statt, darf dort keine andere Stunde der Gruppe hinverlegt sein …
   if (takesPlaceAsUsual(sub) && !fe.kind) {
-    const moved = await movedInto(db, sub.date, weekday, l.periodNr, unitGroups, except);
+    const moved = await movedInto(db, sub.date, weekday, l.periodNr, unitGroups, except, load);
     if (moved.length) fe.kind = "In diese Stunde ist schon eine andere Stunde der Gruppe verlegt – erst die Verlegung aufheben";
   }
   // … und findet sie nicht statt, dürfen keine Gruppen zu ihr zusammengelegt sein
@@ -370,7 +415,17 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
   const previousHosts = await hostTeachers(db, sub.date, previous.map((p) => p.mergeLessonId).filter((x): x is string => !!x));
   // gekoppelte Teile derselben Lehrkraft (bei Verlegung alle Teile) bekommen dieselbe Änderung
   const ids: string[] = [];
-  const row = { kind: sub.kind, substituteId: sub.substituteId, roomId: sub.roomId, note: sub.note, subjectId: sub.subjectId, targetPeriod: sub.targetPeriod, mergeLessonId: sub.mergeLessonId };
+  // SP2-16b: erneutes Speichern bestätigt die Änderung („Abwesenheit beendet – prüfen“ fällt weg)
+  const row = {
+    kind: sub.kind,
+    substituteId: sub.substituteId,
+    roomId: sub.roomId,
+    note: sub.note,
+    subjectId: sub.subjectId,
+    targetPeriod: sub.targetPeriod,
+    mergeLessonId: sub.mergeLessonId,
+    absenceEndedAt: null,
+  };
   await db.transaction(async (tx) => {
     // Q5-11: im Modus „Freigabe“ wird ein neuer Tag zum Entwurf (dann gibt es unten keinen Gong) – in derselben Transaktion
     // wie die Änderung, damit ein gescheitertes Speichern keinen leeren Entwurf hinterlässt (GATE-4f C-11)
@@ -386,9 +441,10 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
         .returning({ id: timetableSubstitutions.id });
       return r!.id;
     };
-    for (const x of all) ids.push(await write(x.id, row));
+    for (const x of all) ids.push(await write(x.id, sub.kind === "move" ? { ...row, roomId: movesRoom(x) ? sub.roomId : null } : row));
     // SP2-07 Tausch: der Unterricht aus der Zielstunde rückt in diese Stunde (Raum wie sonst)
-    for (const x of swapped) await write(x.id, { kind: "move", substituteId: null, roomId: null, note: sub.note, subjectId: null, targetPeriod: l.periodNr, mergeLessonId: null });
+    for (const x of swapped)
+      await write(x.id, { kind: "move", substituteId: null, roomId: null, note: sub.note, subjectId: null, targetPeriod: l.periodNr, mergeLessonId: null, absenceEndedAt: null });
   });
   await audit(db, actorId, "stundenplan.substitution.save", l.groupId, {
     lesson: l.id,
@@ -413,6 +469,41 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
   return ids[0]!;
 }
 
+/** R1b/A10: Zusammenlegung in eine Stunde, die gleich gelöscht wird (vorher ermitteln – danach ist `merge_lesson_id` leer). */
+export interface ReleasedMerge {
+  date: string;
+  groupId: string;
+  teacherId: string | null;
+  hostTeachers: string[];
+}
+
+/** R1b/A10: Zusammenlegungen ab `fromDate` in die Stunden `hostIds` – mit den Betroffenen für die Benachrichtigung. */
+export async function mergesInto(db: Db, hostIds: readonly string[], fromDate: string): Promise<ReleasedMerge[]> {
+  if (hostIds.length === 0) return [];
+  const rows = await db
+    .select({ date: timetableSubstitutions.date, host: timetableSubstitutions.mergeLessonId, groupId: timetableLessons.groupId, teacherId: timetableLessons.teacherId })
+    .from(timetableSubstitutions)
+    .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
+    .where(and(inArray(timetableSubstitutions.mergeLessonId, [...hostIds]), gte(timetableSubstitutions.date, fromDate)));
+  const out: ReleasedMerge[] = [];
+  for (const r of rows) out.push({ date: r.date, groupId: r.groupId, teacherId: r.teacherId, hostTeachers: await hostTeachers(db, r.date, [r.host!]) });
+  return out;
+}
+
+/**
+ * R1b/A10: die aufnehmende Stunde ist gelöscht – die Zusammenlegung bleibt ohne Ziel stehen („aufgehoben“, Bedarf wieder offen).
+ * Gong je Tag an Schüler:innen der Gruppe, ihre Lehrkraft und die bisher mitbetreuende Lehrkraft.
+ */
+export async function notifyReleasedMerges(db: Db, actorId: string, released: readonly ReleasedMerge[]): Promise<void> {
+  for (const date of [...new Set(released.map((r) => r.date))].sort()) {
+    const day = released.filter((r) => r.date === date);
+    await notifySubstitutionDay(db, actorId, date, {
+      students: await studentsOf(db, day.map((r) => r.groupId)),
+      teachers: day.flatMap((r) => [r.teacherId, ...r.hostTeachers]).filter((x): x is string => !!x),
+    });
+  }
+}
+
 /** SP2-07: wer betreut in diesen Stunden an `date` (eigene Lehrkraft bzw. Vertretung)? */
 async function hostTeachers(db: Db, date: string, lessonIds: readonly string[]): Promise<string[]> {
   if (lessonIds.length === 0) return [];
@@ -422,6 +513,45 @@ async function hostTeachers(db: Db, date: string, lessonIds: readonly string[]):
     .leftJoin(timetableSubstitutions, and(eq(timetableSubstitutions.lessonId, timetableLessons.id), eq(timetableSubstitutions.date, date)))
     .where(inArray(timetableLessons.id, [...lessonIds]));
   return rows.map((r) => (r.kind === "substitute" ? r.substituteId : r.teacherId)).filter((x): x is string => !!x);
+}
+
+/** SP2-16b: markierte Änderung behalten („Abwesenheit beendet – prüfen“ fällt weg, auch bei den Teilen derselben Kopplung). */
+export async function keepReviewedSubstitution(db: Db, actorId: string, id: string): Promise<void> {
+  const [old] = await db.select().from(timetableSubstitutions).where(eq(timetableSubstitutions.id, id));
+  if (!old || !old.absenceEndedAt) return;
+  const [l] = await db.select().from(timetableLessons).where(eq(timetableLessons.id, old.lessonId));
+  const parts = l ? (old.kind === "move" ? await couplingParts(db, l, old.date) : await couplingSiblings(db, l, old.date)) : [];
+  await db
+    .update(timetableSubstitutions)
+    .set({ absenceEndedAt: null })
+    .where(and(eq(timetableSubstitutions.date, old.date), inArray(timetableSubstitutions.lessonId, [old.lessonId, ...parts.map((p) => p.id)])));
+  await audit(db, actorId, "stundenplan.substitution.save", l?.groupId ?? null, { lesson: old.lessonId, date: old.date, kind: old.kind, kept: true });
+}
+
+/**
+ * SP2-16b: alle markierten Änderungen ab `from` entfernen (wie „Aufheben“ je Änderung, mit Gong). Was nicht geht (etwa weil in die
+ * Stunde inzwischen etwas verlegt ist), bleibt markiert und wird genannt.
+ */
+export async function removeReviewedSubstitutions(db: Db, actorId: string, from: string): Promise<{ removed: number; failed: { date: string; reason: string }[] }> {
+  const rows = await db
+    .select({ id: timetableSubstitutions.id, date: timetableSubstitutions.date })
+    .from(timetableSubstitutions)
+    .where(and(isNotNull(timetableSubstitutions.absenceEndedAt), gte(timetableSubstitutions.date, from)));
+  let removed = 0;
+  const failed: { date: string; reason: string }[] = [];
+  for (const r of rows.sort((a, b) => a.date.localeCompare(b.date))) {
+    // Teile derselben Kopplung verschwinden mit der ersten
+    const [still] = await db.select({ id: timetableSubstitutions.id }).from(timetableSubstitutions).where(eq(timetableSubstitutions.id, r.id));
+    if (!still) continue;
+    try {
+      await deleteSubstitution(db, actorId, r.id);
+      removed++;
+    } catch (err) {
+      if (!(err instanceof ValidationError)) throw err;
+      failed.push({ date: r.date, reason: Object.values(err.fieldErrors)[0] ?? "geht nicht" });
+    }
+  }
+  return { removed, failed };
 }
 
 /** Löscht die Änderung – bei Kopplungen auch die der anderen Teile derselben Lehrkraft (Verlegung: aller Teile) am selben Tag. */
@@ -437,7 +567,14 @@ export async function deleteSubstitution(db: Db, actorId: string, id: string): P
     const moved = await movedInto(db, old.date, l.weekday, l.periodNr, [...new Set(unit.map((x) => x.groupId))], unit.map((x) => x.id));
     const partners = old.kind === "move" ? moved.filter((x) => x.periodNr === old.targetPeriod) : [];
     if (moved.length > partners.length) throw new ValidationError({ kind: "In diese Stunde ist eine andere Stunde der Gruppe verlegt – erst die Verlegung aufheben" });
-    siblings.push(...partners);
+    // R1b/A5: der Tauschpartner wanderte mit seinen Kopplungsteilen (auch anderer Gruppen) – die kommen mit zurück
+    const day = partners.length ? await dayLessons(db, old.date, l.weekday) : [];
+    for (const p of partners)
+      for (const y of await couplingParts(db, p, old.date)) {
+        const ys = day.find((d) => d.l.id === y.id)?.s;
+        if (ys?.kind === "move" && ys.targetPeriod === l.periodNr && !partners.some((z) => z.id === y.id)) partners.push(y);
+      }
+    siblings.push(...partners.filter((p) => !siblings.some((x) => x.id === p.id)));
   }
   await db.delete(timetableSubstitutions).where(eq(timetableSubstitutions.id, id));
   if (siblings.length)
@@ -529,6 +666,8 @@ export interface DaySubstitution {
   note: string | null;
   /** Q5-11: Tag ist noch Entwurf (nur mit `drafts: true` enthalten) */
   draft: boolean;
+  /** SP2-16b: die Abwesenheit, wegen der die Änderung eingetragen ist, wurde verkürzt/aufgehoben – prüfen (nur Vertretungsplanung zeigt es) */
+  absenceEnded: boolean;
 }
 
 /**
@@ -593,6 +732,7 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
         newRoomId: r.s.roomId,
         note: r.s.note,
         draft: drafts.has(r.s.date),
+        absenceEnded: r.s.absenceEndedAt !== null,
       };
       // SP2-07: eine Verlegung steht zweimal im Plan – in der neuen Stunde und als „verlegt“ in der bisherigen
       if (r.s.kind === "move" && r.s.targetPeriod !== null)
