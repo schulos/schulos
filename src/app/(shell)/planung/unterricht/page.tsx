@@ -37,6 +37,7 @@ import { Card } from "@schulos/ui/card";
 import { Input } from "@schulos/ui/field";
 import { EmptyState, PageHeader, SubjectBar } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
+import { ExportMenu } from "@/ui/export-menu";
 import { AssignmentForm, type AssignmentFormValues } from "./assignment-form";
 import { BandForm, BandMemberForm } from "./band-forms";
 import { GradeRulesForm } from "./grade-rules-form";
@@ -151,6 +152,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         title="Unterrichtsverteilung"
         actions={
           <>
+            <ExportMenu arts={["verteilung", "deputate"]} perms={perms} />
             {unmatchedCount > 0 && (
               <form action={importAssignmentsAction}>
                 <Button type="submit">

@@ -24,6 +24,7 @@ import { Card } from "@schulos/ui/card";
 import { Input, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader, SubjectBar } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
+import { ExportMenu } from "@/ui/export-menu";
 import { CouplingForm, type CouplingFormValues } from "./coupling-form";
 import { LessonForm, type LessonFormValues } from "./lesson-form";
 import { MoveLink, OpenPanel, PlacementCell } from "./setzhilfe-ui";
@@ -54,11 +55,14 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
         eyebrow="Stundenplanung"
         title="Stundenplan pflegen"
         actions={
-          <Button asChild>
-            <Link href="/planung/solver">
-              <Wand2 aria-hidden /> Automatisch planen
-            </Link>
-          </Button>
+          <>
+            <ExportMenu arts={["gesamt-klassen", "gesamt-lehrkraefte"]} perms={perms} />
+            <Button asChild>
+              <Link href="/planung/solver">
+                <Wand2 aria-hidden /> Automatisch planen
+              </Link>
+            </Button>
+          </>
         }
       />
       <form className="flex flex-wrap items-end gap-3">
