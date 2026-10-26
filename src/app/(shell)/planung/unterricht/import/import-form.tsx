@@ -103,6 +103,11 @@ export function AssignmentImportForm({ preview, run }: { preview: Action; run: A
                             {n}
                           </span>
                         ))}
+                        {r.warnings.map((n) => (
+                          <span key={n} className="text-xs text-warn">
+                            {n}
+                          </span>
+                        ))}
                       </div>
                     </td>
                   </tr>

@@ -6,6 +6,8 @@ import { Plus, X } from "lucide-react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
+import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
+import { TeacherSelect } from "../teacher-select";
 
 export interface CouplingPartValues {
   id: string;
@@ -41,7 +43,7 @@ export function CouplingForm({
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   deleteAction?: () => Promise<void>;
   initial: CouplingFormValues;
-  options: { weekdays: Option[]; periods: Option[]; groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: Option[]; rooms: Option[] };
+  options: { weekdays: Option[]; periods: Option[]; groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: PickTeacher[]; rooms: Option[] };
   cancelHref: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
@@ -60,6 +62,52 @@ export function CouplingForm({
   );
 }
 
+/** SP2-12: Fach und Lehrkraft eines Teils – die Lehrkraft-Auswahl folgt dem gewählten Fach. */
+function SubjectTeacher({
+  partKey,
+  n,
+  v,
+  fe,
+  subjects,
+  teachers,
+  confirmed,
+}: {
+  partKey: string;
+  n: number;
+  v: CouplingPartValues;
+  fe: Record<string, string>;
+  subjects: Option[];
+  teachers: PickTeacher[];
+  confirmed: boolean;
+}) {
+  const [subjectId, setSubjectId] = useState(v.subjectId);
+  return (
+    <>
+      <Field label={`Fach ${n}`} error={fe[`p${partKey}-subjectId`]}>
+        <Select name={`p${partKey}-subjectId`} defaultValue={v.subjectId} required onChange={(e) => setSubjectId(e.target.value)}>
+          <option value="">Fach wählen</option>
+          {subjects.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <TeacherSelect
+        name={`p${partKey}-teacherId`}
+        label={`Lehrkraft ${n}`}
+        error={fe[`p${partKey}-teacherId`]}
+        emptyLabel="– keine –"
+        subjectId={subjectId}
+        subjectName={subjects.find((s) => s.value === subjectId)?.label ?? ""}
+        teachers={teachers}
+        defaultValue={v.teacherId}
+        confirmed={confirmed}
+      />
+    </>
+  );
+}
+
 function CouplingFields({
   state,
   formAction,
@@ -74,7 +122,7 @@ function CouplingFields({
   pending: boolean;
   deleteAction?: () => Promise<void>;
   initial: CouplingFormValues;
-  options: { weekdays: Option[]; periods: Option[]; groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: Option[]; rooms: Option[] };
+  options: { weekdays: Option[]; periods: Option[]; groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: PickTeacher[]; rooms: Option[] };
   cancelHref: string;
 }) {
   const fe = state.fieldErrors ?? {};
@@ -129,7 +177,7 @@ function CouplingFields({
         {rows.map(({ key, v }, i) => {
           const n = i + 1;
           return (
-            <div key={key} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1.3fr_1.3fr_1.3fr_1fr_auto] sm:items-end">
+            <div key={key} className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1.3fr_1.3fr_1.3fr_1fr_auto] sm:items-start">
               <input type="hidden" name="part" value={key} />
               <input type="hidden" name={`p${key}-id`} value={v.id} />
               <Field label={`Gruppe ${n}`} error={fe[`p${key}-groupId`]}>
@@ -142,18 +190,7 @@ function CouplingFields({
                   ))}
                 </Select>
               </Field>
-              <Field label={`Fach ${n}`} error={fe[`p${key}-subjectId`]}>
-                <Select name={`p${key}-subjectId`} defaultValue={v.subjectId} required>
-                  <option value="">Fach wählen</option>
-                  {plain(options.subjects)}
-                </Select>
-              </Field>
-              <Field label={`Lehrkraft ${n}`} error={fe[`p${key}-teacherId`]}>
-                <Select name={`p${key}-teacherId`} defaultValue={v.teacherId}>
-                  <option value="">– keine –</option>
-                  {plain(options.teachers)}
-                </Select>
-              </Field>
+              <SubjectTeacher partKey={key} n={n} v={v} fe={fe} subjects={options.subjects} teachers={options.teachers} confirmed={sv?.offSubjectOk === "1"} />
               <Field label={`Raum ${n}`} error={fe[`p${key}-roomId`]}>
                 <Select name={`p${key}-roomId`} defaultValue={v.roomId}>
                   <option value="">– kein Raum –</option>

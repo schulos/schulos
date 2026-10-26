@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectErrors, login, publishIfDraft } from "./helpers";
+import { collectErrors, login, pickTeacher, publishIfDraft } from "./helpers";
 
 test("Stundenplanung pflegt den Stundenplan und bekommt Kollisionen gemeldet", async ({ page }) => {
   const errors = collectErrors(page);
@@ -11,7 +11,7 @@ test("Stundenplanung pflegt den Stundenplan und bekommt Kollisionen gemeldet", a
 
   await page.getByRole("link", { name: "Stunde anlegen: Fr 8. Stunde" }).click();
   await page.getByLabel("Fach", { exact: true }).selectOption({ label: "Informatik" });
-  await page.getByLabel("Lehrkraft").selectOption({ label: "LAN – Benedikt Lange" });
+  await pickTeacher(page, "teacherId", "u-benedikt.lange");
   await page.getByLabel("Raum").selectOption({ label: "IF1 – Informatik-Raum" });
   await page.getByRole("button", { name: "Speichern" }).click();
   await expect(page.getByRole("link", { name: /Informatik LAN · IF1/ })).toBeVisible();
@@ -21,12 +21,12 @@ test("Stundenplanung pflegt den Stundenplan und bekommt Kollisionen gemeldet", a
   await page.getByRole("button", { name: "Anzeigen" }).click();
   await page.getByRole("link", { name: "Stunde anlegen: Fr 8. Stunde" }).click();
   await page.getByLabel("Fach", { exact: true }).selectOption({ label: "Mathematik" });
-  await page.getByLabel("Lehrkraft").selectOption({ label: "LAN – Benedikt Lange" });
+  await pickTeacher(page, "teacherId", "u-benedikt.lange");
   await page.getByRole("button", { name: "Speichern" }).click();
   await expect(page.locator("form").getByRole("alert")).toContainText("LAN unterrichtet Fr 8. Stunde schon in Klasse 7b");
   // Eingaben bleiben nach dem Fehler erhalten
   await expect(page.getByLabel("Fach", { exact: true })).toHaveValue("M");
-  await expect(page.getByLabel("Lehrkraft").locator("option:checked")).toHaveText("LAN – Benedikt Lange");
+  await expect(page.getByLabel("Lehrkraft")).toHaveValue("u-benedikt.lange");
   await page.screenshot({ path: ".data/shots/e2e/stundenplan-pflege.png", fullPage: true });
 
   // in der 7b wieder löschen
@@ -159,16 +159,16 @@ test("Kopplung: geteilte Klasse und eine Lehrkraft für zwei Klassen", async ({ 
   await expect(page.getByLabel("Gruppe 1")).toHaveValue("g-7b");
 
   await page.getByLabel("Fach 1").selectOption({ label: "Religion/Philosophie" });
-  await page.getByLabel("Lehrkraft 1").selectOption({ label: "RIC – Jonas Richter" });
+  await pickTeacher(page, "p0-teacherId", "u-jonas.richter");
   await page.getByLabel("Raum 1").selectOption("110");
   await page.getByLabel("Gruppe 2").selectOption({ label: "Klasse 7a" });
   await page.getByLabel("Fach 2").selectOption({ label: "Religion/Philosophie" });
-  await page.getByLabel("Lehrkraft 2").selectOption({ label: "RIC – Jonas Richter" });
+  await pickTeacher(page, "p1-teacherId", "u-jonas.richter");
   await page.getByLabel("Raum 2").selectOption("111");
   await page.getByRole("button", { name: "Teil hinzufügen" }).click();
   await page.getByLabel("Gruppe 3").selectOption({ label: "Klasse 7b" });
   await page.getByLabel("Fach 3").selectOption({ label: "Deutsch" });
-  await page.getByLabel("Lehrkraft 3").selectOption({ label: "BRA – Jana Brandt" });
+  await pickTeacher(page, "p2-teacherId", "u-jana.brandt");
   await page.getByRole("button", { name: "Kopplung speichern" }).click();
   await expect(page.locator("form").getByRole("alert")).toContainText("Dieselbe Lehrkraft kann nicht in zwei Räumen sein");
   // Zeilen und Eingaben bleiben nach dem Fehler erhalten
@@ -232,7 +232,7 @@ test("Setzhilfe: offene Stunden setzen, belegte Felder mit Grund, Stunde tausche
   await page.goto("/planung/unterricht?gruppe=g-6b&neu=1");
   await page.getByLabel("Fach").selectOption({ label: "Französisch" });
   await page.getByLabel("Wochenstunden").fill("2");
-  await page.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: "WAG – Sophie Wagner" });
+  await pickTeacher(page, "teacherId", "u-sophie.wagner");
   await page.getByRole("button", { name: "Speichern" }).click();
   await expect(page).not.toHaveURL(/neu=/);
 
@@ -442,7 +442,7 @@ test("Periode kopieren: Halbjahreswechsel ab Stichtag, Plan ab Stichtag ändern 
   await page.getByRole("link", { name: "Stunde anlegen: Fr 8. Stunde" }).click();
   await expect(page.getByLabel("Gültig ab")).toHaveValue("2027-02-01");
   await page.getByLabel("Fach", { exact: true }).selectOption({ label: "Informatik" });
-  await page.getByLabel("Lehrkraft").selectOption({ label: "LAN – Benedikt Lange" });
+  await pickTeacher(page, "teacherId", "u-benedikt.lange");
   await page.getByLabel("Raum").selectOption({ label: "IF1 – Informatik-Raum" });
   await page.getByRole("button", { name: "Speichern" }).click();
   await expect(page).toHaveURL(/stand=2027-02-01/);

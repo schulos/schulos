@@ -37,6 +37,9 @@ import { executeAssignmentImport, MAX_ASSIGNMENT_CSV_BYTES, planAssignmentImport
 import { decodeCsvBytes, type CsvEncoding } from "@/core/csv";
 import { addStandby, removeStandby } from "./bereitschaft";
 import { permanentMessage, savePermanentSubstitution } from "./dauervertretung";
+import { audit } from "@/core/audit";
+import { checkSubjectFit, executeTeacherSubjectImport, MAX_TEACHER_SUBJECT_CSV_BYTES, planTeacherSubjectImport, setTeacherSubjects, type TeacherSubjectPreview } from "./lehrfaecher";
+import { addStaffChange, deleteStaffChange, saveForecastGrades } from "./fachbedarf";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
 
@@ -66,8 +69,11 @@ export async function saveLessonAction(id: string | null, _prev: FormState, form
   const { user } = await requirePermission("stundenplan.manage");
   const input = readInput(form);
   try {
+    // SP2-12: fachfremde Lehrkraft nur mit Bestätigung
+    const off = await checkSubjectFit(await getDb(), input.subjectId, input.teacherId ? [input.teacherId] : [], form.get("offSubjectOk") === "1", "teacherId");
     if (id) await updateLesson(await getDb(), user.id, id, input);
     else await createLesson(await getDb(), user.id, input);
+    if (off.length) await audit(await getDb(), user.id, "stundenplan.lesson.off_subject", input.groupId, { subject: input.subjectId, teachers: off });
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
@@ -96,6 +102,9 @@ export async function saveCouplingAction(couplingId: string | null, groupId: str
     })),
   };
   try {
+    // SP2-12: fachfremde Lehrkräfte je Teil nur mit Bestätigung
+    const confirmed = form.get("offSubjectOk") === "1";
+    for (const [i, p] of input.parts.entries()) await checkSubjectFit(await getDb(), p.subjectId, p.teacherId ? [p.teacherId] : [], confirmed, `p${i}-teacherId`);
     await saveCoupling(await getDb(), user.id, couplingId, input);
   } catch (err) {
     if (err instanceof ValidationError) {
@@ -283,8 +292,11 @@ export async function saveAssignmentAction(id: string | null, _prev: FormState, 
     validUntil: str("validUntil") || null,
   };
   try {
+    // SP2-12: fachfremde Lehrkraft nur mit Bestätigung („Trotzdem zuweisen“), ohne gepflegte Lehrfächer nur ein Hinweis
+    const off = await checkSubjectFit(db, input.subjectId, input.teacherIds, form.get("offSubjectOk") === "1");
     if (id) await updateAssignment(db, user.id, id, input);
     else await createAssignment(db, user.id, input);
+    if (off.length) await audit(db, user.id, "stundenplan.assignment.off_subject", input.groupId, { subject: input.subjectId, teachers: off });
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
@@ -460,6 +472,102 @@ export async function deleteReductionAction(id: string, teacherId: string): Prom
   await deleteReduction(await getDb(), user.id, id);
   revalidatePath("/planung/unterricht");
   redirect(teacherPage(teacherId));
+}
+
+// ---------------------------------------------------------------- Lehrfächer und Fachbedarf (SP2-12)
+
+/** Lehrfächer (Fakultas) einer Lehrkraft ersetzen – Häkchen je Fach. */
+export async function saveTeacherSubjectsAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await setTeacherSubjects(await getDb(), user.id, teacherId, form.getAll("subjectIds").map(String));
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors };
+    throw err;
+  }
+  revalidatePath("/planung", "layout");
+  return { ok: true };
+}
+
+export interface TeacherSubjectImportState {
+  preview?: TeacherSubjectPreview;
+  text?: string;
+  encoding?: CsvEncoding;
+  error?: string;
+  done?: number;
+}
+
+/** CSV „Lehrkraft;Lehrfächer“ – Schritt 1: lesen und prüfen, nichts wird gespeichert. */
+export async function previewTeacherSubjectCsvAction(_prev: TeacherSubjectImportState, form: FormData): Promise<TeacherSubjectImportState> {
+  await requirePermission("stundenplan.manage");
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Bitte eine CSV-Datei wählen" };
+  if (file.size > MAX_TEACHER_SUBJECT_CSV_BYTES) return { error: "Datei zu groß (höchstens 256 KB)" };
+  const { text, encoding } = decodeCsvBytes(new Uint8Array(await file.arrayBuffer()));
+  const plan = await planTeacherSubjectImport(await getDb(), text);
+  return { preview: plan.preview, text, encoding };
+}
+
+/** Schritt 2: serverseitig neu prüfen und nur ohne Fehler übernehmen – ganz oder gar nicht. */
+export async function runTeacherSubjectCsvAction(_prev: TeacherSubjectImportState, form: FormData): Promise<TeacherSubjectImportState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const text = String(form.get("text") ?? "");
+  const encoding = form.get("encoding") === "cp1252" ? "cp1252" : "utf8";
+  if (!text || text.length > MAX_TEACHER_SUBJECT_CSV_BYTES) return { error: "Datei fehlt oder ist zu groß – bitte neu wählen" };
+  const db = await getDb();
+  const plan = await planTeacherSubjectImport(db, text);
+  if (!plan.preview.ok) return { preview: plan.preview, text, encoding, error: "Die Datei hat Fehler bzw. nichts zu übernehmen – nichts übernommen" };
+  const done = await executeTeacherSubjectImport(db, user.id, plan);
+  revalidatePath("/planung", "layout");
+  return { done };
+}
+
+/** Abgang (Lehrkraft) bzw. Zugang (Fächer) für die Prognose – Datum + Stunden, ohne Begründung. */
+export async function addStaffChangeAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  try {
+    await addStaffChange(await getDb(), user.id, {
+      kind: str("kind"),
+      teacherId: str("teacherId") || null,
+      subjectIds: form.getAll("subjectIds").map(String),
+      effectiveOn: str("effectiveOn"),
+      hours: hoursOf(str("hours")),
+    });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/bedarf");
+  return { ok: true };
+}
+
+export async function deleteStaffChangeAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  await deleteStaffChange(await getDb(), user.id, id);
+  revalidatePath("/planung/bedarf");
+  redirect("/planung/bedarf");
+}
+
+/** Klassenzahl je Jahrgang im nächsten Schuljahr – Felder `g<Jahrgang>`, leer = Vorschlag „rücken auf“. */
+export async function saveForecastGradesAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const year = await planningYear(db);
+  const entries = [...form.keys()]
+    .filter((k) => /^g\d+$/.test(k))
+    .map((k) => {
+      const raw = String(form.get(k) ?? "").trim();
+      return { grade: Number(k.slice(1)), classes: raw ? Number(raw) : null };
+    });
+  try {
+    await saveForecastGrades(db, user.id, year?.id ?? "", entries);
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/planung/bedarf");
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- Raumsperrungen (P2b-17)

@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { collectErrors, login, logoutForSwitch, publishIfDraft } from "./helpers";
+import { collectErrors, login, logoutForSwitch, pickTeacher, publishIfDraft } from "./helpers";
 
 // SP-11 (docs/STUNDENPLAN-UMBAU.md §5): E2E-Gesamtszenario „Stundenplaner:in“ für GATE SP. Frank Schulte (Lehrkraft, Funktionsgruppe
 // „Stundenplanung“) plant ohne Verwaltungszugang: Übersicht → Lauf mit Parametern → Abbruch → weitere Läufe → Vergleich → Übernahme
@@ -182,12 +182,12 @@ test("SP2-02: Band „Q1 GK-Schiene A“ liegt als Kopplung im Plan; die Setzhil
   await page.getByRole("button", { name: "Band speichern" }).click();
   await expect(page.getByRole("heading", { name: `Band bearbeiten · ${bandName}` })).toBeVisible();
   for (const [group, subject, teacher] of [
-    ["g-ag-robotik", "Informatik", "LAN – Benedikt Lange"],
-    ["g-ag-schuelerzeitung", "Deutsch", "BRA – Jana Brandt"],
+    ["g-ag-robotik", "Informatik", "u-benedikt.lange"],
+    ["g-ag-schuelerzeitung", "Deutsch", "u-jana.brandt"],
   ] as const) {
     await page.goto(`/planung/unterricht?gruppe=${group}&neu=1`);
     await page.getByLabel("Fach").selectOption({ label: subject });
-    await page.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: teacher });
+    await pickTeacher(page, "teacherId", teacher);
     await page.getByLabel("Band", { exact: true }).selectOption({ label: `${bandName} (1 Std.)` });
     await page.getByRole("button", { name: "Speichern" }).click();
     await expect(page).not.toHaveURL(/neu=/);

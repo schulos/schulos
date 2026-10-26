@@ -260,6 +260,69 @@ export const timetableTeacherDayRules = pgTable(
 );
 
 /**
+ * SP2-12: Lehrfächer (Fakultas) je Lehrkraft – Stammdatum ohne Schuljahr. Grundlage für den Fachbedarf (Versorgung je Fach) und die
+ * Lehrervorschläge bei der Zuweisung (nur Lehrkräfte mit dem Fach, andere über „alle anzeigen“ mit Warnhinweis). Pflegt die Planung.
+ */
+export const timetableTeacherSubjects = pgTable(
+  "timetable_teacher_subjects",
+  {
+    teacherId: text("teacher_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subjectId: text("subject_id")
+      .notNull()
+      .references(() => subjects.id, { onDelete: "cascade", onUpdate: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.teacherId, t.subjectId] }), index("timetable_teacher_subjects_subject_idx").on(t.subjectId)],
+);
+
+/** SP2-12: bekannte Personalveränderungen für die Prognose – Abgang einer Lehrkraft bzw. Zugang (ohne Person) */
+export const STAFF_CHANGE_KINDS = ["abgang", "zugang"] as const;
+export type StaffChangeKind = (typeof STAFF_CHANGE_KINDS)[number];
+export const staffChangeKindEnum = pgEnum("staff_change_kind", STAFF_CHANGE_KINDS);
+
+/**
+ * SP2-12: Abgänge (Lehrkraft, ab Datum, wegfallende Stunden) und Zugänge (Fächer, ab Datum, Stunden) für die Prognose des nächsten
+ * Schuljahres – bewusst **ohne Begründung** (kein Ruhestand/Elternzeit/Befristung im Datensatz). Abgänge sind personenbezogen: nur
+ * `stundenplan.manage` sieht sie, die Schulleitung (`stundenplan.forecast_view`) nur Summen je Fach. Ein Zugang hat keine Person.
+ */
+export const timetableStaffChanges = pgTable(
+  "timetable_staff_changes",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    kind: staffChangeKindEnum("kind").notNull(),
+    /** nur beim Abgang */
+    teacherId: text("teacher_id").references(() => users.id, { onDelete: "cascade" }),
+    /** nur beim Zugang: Fächer der neuen Lehrkraft (Kurzzeichen); beim Abgang gelten die Lehrfächer der Lehrkraft */
+    subjectIds: text("subject_ids").array().notNull().default(sql`'{}'::text[]`),
+    effectiveOn: date("effective_on").notNull(),
+    hours: numeric("hours", { precision: 4, scale: 1, mode: "number" }).notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("timetable_staff_changes_hours", sql`${t.hours} > 0 and ${t.hours} <= 40`),
+    check("timetable_staff_changes_teacher", sql`(${t.kind} = 'abgang') = (${t.teacherId} is not null)`),
+  ],
+);
+
+/** SP2-12: Klassenzahl je Jahrgang im nächsten Schuljahr (Prognose, Abweichung von „Klassen rücken auf“) – ohne Personenbezug */
+export const timetableForecastGrades = pgTable(
+  "timetable_forecast_grades",
+  {
+    /** Schuljahr, von dem aus prognostiziert wird (das Planungsjahr) */
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "cascade" }),
+    grade: integer("grade").notNull(),
+    classes: integer("classes").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.schoolYearId, t.grade] }), check("timetable_forecast_grades_classes", sql`${t.classes} between 0 and 30`)],
+);
+
+/**
  * Gründe für Ermäßigungen/Anrechnungen – bewusst ohne Gesundheitsbezug (keine Schwerbehinderung o. Ä. als Grund,
  * dafür „sonstige Ermäßigung“). Neue Gründe nur hinten anfügen.
  */

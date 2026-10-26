@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeftRight, MoveRight } from "lucide-react";
 import type { Cell, OpenAssignment } from "@/modules/stundenplan/setzhilfe";
+import { subjectMismatch } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -20,7 +21,7 @@ export function MoveLink({ href }: { href: string }) {
 }
 
 /** Offene Stunden der Gruppe aus der Unterrichtsverteilung, jeweils mit „Setzen“. */
-export function OpenPanel({ open, base, placing }: { open: OpenAssignment[]; base: string; placing?: string }) {
+export function OpenPanel({ open, base, placing, fakultas }: { open: OpenAssignment[]; base: string; placing?: string; fakultas?: ReadonlyMap<string, readonly string[]> }) {
   return (
     <Card aria-labelledby="open-title" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -42,6 +43,9 @@ export function OpenPanel({ open, base, placing }: { open: OpenAssignment[]; bas
             {open.map((a) => {
               const active = a.id === placing;
               const label = `${a.subjectName}${a.teachers.length ? ` · ${a.teachers.map((t) => t.code ?? t.name).join(", ")}` : ""}`;
+              // SP2-12: Lehrauftrag mit fachfremder Lehrkraft – Warnhinweis schon vor dem Setzen
+              const off = fakultas ? subjectMismatch(fakultas, a.subjectId, a.teachers.map((t) => t.id)).off : [];
+              const offCodes = a.teachers.filter((t) => off.includes(t.id)).map((t) => t.code ?? t.name);
               return (
                 <li key={a.id}>
                   <Link
@@ -57,6 +61,11 @@ export function OpenPanel({ open, base, placing }: { open: OpenAssignment[]; bas
                         Band {a.band.name}
                         {a.band.members.length > 1 ? ` · mit ${a.band.members.filter((m) => m.id !== a.id).map((m) => `${m.groups.map((g) => g.name).join(" + ")} ${m.subjectName}`).join(", ")}` : ""}
                       </span>
+                    )}
+                    {offCodes.length > 0 && (
+                      <Badge tone="warn" title={`${offCodes.join(", ")} ${offCodes.length === 1 ? "unterrichtet" : "unterrichten"} ${a.subjectName} laut Stammdaten nicht`}>
+                        fachfremd: {offCodes.join(", ")}
+                      </Badge>
                     )}
                     <Badge tone={active ? "accent" : "warn"}>
                       {hoursFmt(a.open)} von {a.hours} offen

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectErrors, login } from "./helpers";
+import { collectErrors, login, pickTeacher } from "./helpers";
 
 test.describe("Stundenplanung · Lehrauftrag mit Gültigkeit (SP2-09)", () => {
   test("Lehrauftrag ab dem 2. Halbjahr: heute „zu anderer Zeit gültig“, am Stichtag in der Verteilung; Planungsstand im Lauf", async ({ page }) => {
@@ -9,7 +9,7 @@ test.describe("Stundenplanung · Lehrauftrag mit Gültigkeit (SP2-09)", () => {
     await page.getByRole("link", { name: "Lehrauftrag anlegen" }).click();
     await page.getByLabel("Fach").selectOption({ label: "Französisch" });
     await page.getByLabel("Wochenstunden").fill("2");
-    await page.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: "BRA – Jana Brandt" });
+    await pickTeacher(page, "teacherId", "u-jana.brandt", { offSubject: true });
     // bis vor ab → Fehler
     await page.getByLabel("Gültig ab").fill("2027-02-01");
     await page.getByLabel("Gültig bis").fill("2027-01-31");

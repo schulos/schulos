@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
-import { classbookEntries, exams, notifications, timetableLessons, timetableSubstitutions } from "@/core/db/schema";
+import { classbookEntries, exams, notifications, timetableLessons, timetableSubstitutions, timetableTeacherSubjects } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { loadPermissions } from "@/core/permissions";
 import { lessonContext, saveEntry } from "@/modules/klassenbuch/service";
@@ -35,6 +35,8 @@ describe("SP-12 Fachtausch", () => {
   beforeAll(async () => {
     h = await createSeededTestDb();
     await h.db.delete(timetableLessons);
+    // SP2-12: Lehrfächer aus den Demo-Stammdaten zählen sonst als „unterrichtet das Fach“ – hier bestimmen nur die Stunden, wer Sport gibt
+    await h.db.delete(timetableTeacherSubjects);
     const mo = { weekday: 0, validFrom: "2026-08-01", validUntil: null };
     const di = { ...mo, weekday: 1 };
     const rows = await h.db

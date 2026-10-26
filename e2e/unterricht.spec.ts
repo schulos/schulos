@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { collectErrors, login } from "./helpers";
+import { collectErrors, login, pickTeacher } from "./helpers";
 
 test.describe("Stundenplanung · Unterrichtsverteilung", () => {
   test("Soll/verplant je Klasse und Lehrkraft, Lehrauftrag anlegen, Fehler, löschen", async ({ page }) => {
@@ -25,7 +25,8 @@ test.describe("Stundenplanung · Unterrichtsverteilung", () => {
     await page.getByLabel("Fach").selectOption({ label: "Französisch" });
     await page.getByLabel("Wochenstunden").fill("3");
     await page.getByLabel("Doppelstunden je Woche").fill("2");
-    await page.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: "BRA – Jana Brandt" });
+    // SP2-12: BRA unterrichtet Französisch laut Stammdaten nicht – nur über „alle anzeigen“ und mit Bestätigung
+    await pickTeacher(page, "teacherId", "u-jana.brandt", { offSubject: true });
     await page.getByLabel("Hinweis").fill("Zweite Fremdsprache");
     await page.getByRole("button", { name: "Speichern" }).click();
     await expect(page.getByRole("alert").filter({ hasText: "höchstens 1 Doppelstunden" })).toBeVisible();
@@ -84,7 +85,7 @@ test.describe("Stundenplanung · Unterrichtsverteilung", () => {
     // Lehrauftrag mit Band: Stunden kommen vom Band
     await page.goto("/planung/unterricht?gruppe=g-7b&neu=1");
     await page.getByLabel("Fach").selectOption({ label: "Französisch" });
-    await page.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: "BRA – Jana Brandt" });
+    await pickTeacher(page, "teacherId", "u-jana.brandt", { offSubject: true });
     await page.getByLabel("Band", { exact: true }).selectOption({ label: "Französisch 7 Test (2 Std.)" });
     await expect(page.getByLabel("Wochenstunden")).toBeDisabled();
     await expect(page.getByLabel("Wochenstunden")).toHaveValue("2");

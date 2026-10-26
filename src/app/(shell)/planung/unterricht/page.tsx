@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Plus, Upload, Wand2 } from "lucide-react";
+import { ArrowLeft, GraduationCap, Plus, Upload, Wand2 } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
@@ -23,7 +23,9 @@ import {
   saveTeacherDayRuleAction,
   saveGradeRulesAction,
   applyGradeRuleDefaultsAction,
+  saveTeacherSubjectsAction,
 } from "@/modules/stundenplan/actions";
+import { pickList, teacherSubjectMap } from "@/modules/stundenplan/lehrfaecher";
 import { formName } from "@/core/school/catalog";
 import { classGrades, listGradeRules } from "@/modules/stundenplan/jahrgangsregeln";
 import { dayRuleFor, LUNCH_MIN_MINUTES, ruleSummary } from "@/modules/stundenplan/tagesgrenzen";
@@ -43,6 +45,7 @@ import { BandForm, BandMemberForm } from "./band-forms";
 import { GradeRulesForm } from "./grade-rules-form";
 import { ObligationForm, ReductionForm, TeacherDayRuleForm } from "./deputy-forms";
 import { DiagnosisView } from "./diagnosis";
+import { TeacherSubjectsForm } from "./teacher-subjects-form";
 
 export const metadata: Metadata = { title: "Unterrichtsverteilung" };
 
@@ -86,9 +89,10 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   const today = toBerlinDate(new Date());
   // SP2-09: Verteilung an einem wählbaren Stichtag (Lehraufträge mit Gültigkeit, z. B. 2. Halbjahr)
   const stichtag = sp.stichtag && /^\d{4}-\d{2}-\d{2}$/.test(sp.stichtag) ? sp.stichtag : undefined;
-  const [d, master, school] = await Promise.all([distribution(db, year, stichtag ?? today), timetableMasterData(db), readSchoolSettings(db)]);
+  const [d, master, school, fakultas] = await Promise.all([distribution(db, year, stichtag ?? today), timetableMasterData(db), readSchoolSettings(db), teacherSubjectMap(db)]);
   const fallback = defaultObligation(school.profile.form);
   const accounts = await deputyAccounts(db, year.id, d.teachers, fallback);
+  const subjectOptions = master.subjects.map((s) => ({ value: s.id, label: s.name, color: s.color }));
   const teachersView = sp.ansicht === "lehrkraefte";
   const diagnoseView = sp.ansicht === "diagnose";
   const bandsView = sp.ansicht === "baender";
@@ -135,7 +139,8 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
               options: d.groups.filter((g) => g.kind === k).map((g) => ({ value: g.id, label: g.name })),
             })).filter((g) => g.options.length),
             subjects: master.subjects.map((s) => ({ value: s.id, label: s.name })),
-            teachers: d.teachers.map((t) => ({ value: t.id, label: `${t.code ?? "–"} – ${t.name}` })),
+            // SP2-12: Lehrfächer + Restdeputat (Soll − Lehraufträge) für die Vorschläge passend zum Fach
+            teachers: pickList(accounts, fakultas),
             rooms: master.rooms.map((r) => ({ value: r.id, label: r.id === r.name ? r.id : `${r.id} – ${r.name}` })),
             bands: d.bands.map((b) => ({ value: b.id, label: b.name, hours: b.hours, doubleLessons: b.doubleLessons })),
           }}
@@ -241,9 +246,9 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
       ) : group ? (
         <GroupDetail d={d} groupId={group.id} current={current} />
       ) : teacher ? (
-        <TeacherDetail d={d} account={accounts.find((a) => a.id === teacher.id)!} fallback={fallback} current={current} />
+        <TeacherDetail d={d} account={accounts.find((a) => a.id === teacher.id)!} fallback={fallback} current={current} subjects={subjectOptions} selected={fakultas.get(teacher.id) ?? []} />
       ) : teachersView ? (
-        <TeacherOverview accounts={accounts} />
+        <TeacherOverview accounts={accounts} fakultas={fakultas} />
       ) : (
         <GroupOverview d={d} art={sp.art} stichtag={stichtag} />
       )}
@@ -318,12 +323,26 @@ function Balance({ balance }: { balance: number }) {
   );
 }
 
-function TeacherOverview({ accounts }: { accounts: DeputyAccount[] }) {
+function TeacherOverview({ accounts, fakultas }: { accounts: DeputyAccount[]; fakultas: Map<string, string[]> }) {
+  const without = accounts.filter((t) => !fakultas.get(t.id)?.length).length;
   return (
     <section aria-labelledby="ov" className="flex flex-col gap-3">
-      <h2 id="ov" className="font-display text-xl font-bold">
-        Deputatskonto je Lehrkraft
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="ov" className="font-display text-xl font-bold">
+          Deputatskonto je Lehrkraft
+        </h2>
+        <Button asChild size="sm">
+          <Link href="/planung/unterricht/lehrfaecher">
+            <GraduationCap aria-hidden /> Lehrfächer importieren (CSV)
+          </Link>
+        </Button>
+      </div>
+      {without > 0 && (
+        <p role="note" className="rounded-lg border border-warn-border bg-warn-soft px-3 py-2 text-sm text-warn">
+          {without === 1 ? "1 Lehrkraft hat" : `${without} Lehrkräfte haben`} noch keine Lehrfächer – bei der Zuweisung erscheinen sie nur unter „alle anzeigen“, und im
+          Fachbedarf zählt ihr Deputat nicht. Lehrfächer in der Zeile der Lehrkraft oder per CSV pflegen.
+        </p>
+      )}
       <Table>
         <thead>
           <tr>
@@ -332,6 +351,7 @@ function TeacherOverview({ accounts }: { accounts: DeputyAccount[] }) {
             <th className="text-right">Lehraufträge</th>
             <th className="text-right">Saldo</th>
             <th className="text-right">verplant</th>
+            <th>Lehrfächer</th>
           </tr>
         </thead>
         <tbody>
@@ -354,6 +374,7 @@ function TeacherOverview({ accounts }: { accounts: DeputyAccount[] }) {
               <td className="text-right">
                 <Coverage planned={t.planned} target={t.assigned} />
               </td>
+              <td>{fakultas.get(t.id)?.length ? <span className="text-sm">{fakultas.get(t.id)!.join(", ")}</span> : <Badge tone="warn">keine gepflegt</Badge>}</td>
             </tr>
           ))}
         </tbody>
@@ -592,7 +613,21 @@ function DeputyCard({ account: a, fallback }: { account: DeputyAccount; fallback
   );
 }
 
-function TeacherDetail({ d, account, fallback, current }: { d: Distribution; account: DeputyAccount; fallback: number; current: Current }) {
+function TeacherDetail({
+  d,
+  account,
+  fallback,
+  current,
+  subjects,
+  selected,
+}: {
+  d: Distribution;
+  account: DeputyAccount;
+  fallback: number;
+  current: Current;
+  subjects: { value: string; label: string; color: string }[];
+  selected: string[];
+}) {
   const t = account;
   const teacherId = t.id;
   const rows = d.assignments.filter((a) => a.teachers.some((x) => x.id === teacherId));
@@ -607,6 +642,13 @@ function TeacherDetail({ d, account, fallback, current }: { d: Distribution; acc
         <Badge>Lehraufträge {num.format(t.assigned)}</Badge>
         <Coverage planned={t.planned} target={t.assigned} />
       </div>
+      {/* SP2-12: Lehrfächer (Fakultas) – Stammdatum der Lehrkraft für Zuweisung und Fachbedarf */}
+      <Card aria-labelledby="fak" className="flex flex-col gap-3">
+        <h3 id="fak" className="text-base font-semibold">
+          Lehrfächer
+        </h3>
+        <TeacherSubjectsForm action={saveTeacherSubjectsAction.bind(null, t.id)} subjects={subjects} selected={selected} />
+      </Card>
       <DeputyCard account={account} fallback={fallback} />
       <AssignmentTable rows={rows} bands={d.bands} current={current} caption={`Lehraufträge ${t.name}`} show="groups" />
       <Unmatched rows={d.unmatched.filter((l) => l.teacherId === teacherId)} />
