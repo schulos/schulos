@@ -10,9 +10,10 @@ import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/r
 import StarterKit from "@tiptap/starter-kit";
 import { Bold, Code, Heading1, Heading2, Italic, List, ListOrdered, Quote, Redo2, Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import * as Y from "yjs";
 import { deleteDocAction, updateDocAction } from "@/modules/texte/actions";
+import { hasUnconfirmedChanges, type EditorStatus } from "@/modules/texte/leave";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { passiveHeaders, passiveRefresh } from "@schulos/ui/auto-refresh";
 import { Button } from "@schulos/ui/button";
@@ -38,7 +39,7 @@ function toB64(u: Uint8Array): string {
 }
 
 /** `error`: der Server hat eine Änderung endgültig abgelehnt – weitere Updates bauten darauf auf, also Seite neu laden */
-type Status = "synced" | "pending" | "offline" | "readonly" | "removed" | { error: string };
+type Status = EditorStatus;
 
 const EDITOR_CLASS =
   "min-h-[50vh] rounded-card border border-border bg-surface px-5 py-4 leading-relaxed outline-none whitespace-pre-wrap break-words focus:border-accent " +
@@ -59,6 +60,19 @@ export function TextEditor({ docId, initialState, canWrite }: { docId: string; i
   // Schreibrecht: bis zum ersten Sync das der Seite, danach das vom Server gemeldete (ändert sich live mit dem Modus)
   const [serverWritable, setServerWritable] = useState<boolean | null>(null);
   const writable = serverWritable ?? canWrite;
+  // Noch nicht bestätigte Updates (Warteschlange oder laufender POST) – greift auch im Fenster, bevor der Status umspringt
+  const unsent = useRef(false);
+
+  // TD-06: Tab schließen/neu laden mit unbestätigten Änderungen → Rückfrage des Browsers (pagehide schickt den Rest zwar noch
+  // per keepalive, eine Rückmeldung gibt es dort aber nicht). In-App-Navigation fängt das Repo sonst nirgends ab.
+  const unconfirmed = hasUnconfirmedChanges(status, false);
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (unconfirmed || unsent.current) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unconfirmed]);
 
   const editor = useEditor(
     {
@@ -129,6 +143,7 @@ export function TextEditor({ docId, initialState, canWrite }: { docId: string; i
         retry(batch);
       } finally {
         inflight = false;
+        unsent.current = queue.length > 0;
         if (queue.length) schedule(backoff);
       }
     };
@@ -136,6 +151,7 @@ export function TextEditor({ docId, initialState, canWrite }: { docId: string; i
     const onUpdate = (update: Uint8Array, origin: unknown) => {
       if (origin === "remote" || stopped) return;
       queue.push(update);
+      unsent.current = true;
       setStatus((s) => (s === "offline" ? s : "pending"));
       schedule(FLUSH_MS);
     };
