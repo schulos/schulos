@@ -125,6 +125,31 @@ describe("Notenbuch Offline: Abgleich (rein)", () => {
     expect(store.get("buch-b")!.map((o) => o.opId)).toEqual(["b2"]);
   });
 
+  it("transferAllQueues (Review R3 N2): unlesbare Warteschlange eines Buchs bleibt offen und unberührt, die anderen laufen weiter", async () => {
+    const store = new Map<string, OfflineOp[]>([
+      ["buch-a", [op({ opId: "a1" })]],
+      ["buch-kaputt", [op({ opId: "k1" })]],
+    ]);
+    const writes: string[] = [];
+    const qs: QueueStore = {
+      books: async () => [...store.keys()],
+      read: async (bookId) => {
+        if (bookId === "buch-kaputt") throw new Error("Entschlüsseln fehlgeschlagen");
+        return store.get(bookId) ?? [];
+      },
+      write: async (bookId, ops) => {
+        writes.push(bookId);
+        if (ops.length) store.set(bookId, [...ops]);
+        else store.delete(bookId);
+      },
+    };
+    const r = await transferAllQueues(qs, async (_bookId, ops) => ops.map((o): SyncResult => ({ opId: o.opId, status: "applied", version: 1 })));
+    // offen zählt (sonst würde der Zwischenspeicher gelöscht), geschrieben wird nur das lesbare Buch
+    expect(r).toEqual({ remaining: 1, books: 1 });
+    expect(writes).toEqual(["buch-a"]);
+    expect(store.get("buch-kaputt")!.map((o) => o.opId)).toEqual(["k1"]);
+  });
+
   it("resolveConflict: „meine Eingabe“ setzt neu auf die Server-Revision auf, „Server-Wert“ verwirft", () => {
     const conflict = { op: op({ opId: "a", baseVersion: 0 }), server: { value: "4", comment: null, version: 3 }, serverLabel: null };
     const mine = resolveConflict(conflict, "mine", "op-neu", "2026-10-13T11:00:00Z");

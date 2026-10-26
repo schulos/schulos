@@ -32,6 +32,7 @@ import { dayRuleFor, LUNCH_MIN_MINUTES, ruleSummary } from "@/modules/stundenpla
 import { DIAGNOSIS_CATEGORIES, diagnoseYear, type DiagnosisCategory } from "@/modules/stundenplan/diagnose";
 import { defaultObligation, deputyAccounts, REDUCTION_LABELS, reductionKind, type DeputyAccount } from "@/modules/stundenplan/deputate";
 import { timetableMasterData } from "@/modules/stundenplan/service";
+import { bandMembers, freeAssignments, validityLabel as validityText } from "@/modules/stundenplan/baender-ansicht";
 import { distribution, planningYear, PLANNED_GROUP_KINDS, type Assignment, type Distribution } from "@/modules/stundenplan/verteilung";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -101,7 +102,8 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   const category = DIAGNOSIS_CATEGORIES.find((c): c is DiagnosisCategory => c === sp.kategorie);
   const group = d.groups.find((g) => g.id === sp.gruppe);
   const teacher = teachersView ? d.teachers.find((t) => t.id === sp.lehrkraft) : undefined;
-  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : bandsView ? "baender" : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id, stichtag };
+  // Review R3 N5: auch die Tagesgrenzen-Ansicht bleibt bei Stichtag „Anzeigen“, „Heute“ und „Lehrauftrag anlegen“ erhalten
+  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : bandsView ? "baender" : limitsView ? "tagesgrenzen" : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id, stichtag };
   const back = href(current);
 
   // ------------------------------------------------------------ Formular
@@ -657,7 +659,7 @@ function TeacherDetail({
 }
 
 /** Kurzbezeichnung eines Lehrauftrags: „7a · Religion · RIC“ */
-function assignmentLabel(a: Distribution["assignments"][number]): string {
+function assignmentLabel(a: Assignment): string {
   return `${a.groups.map((g) => g.name).join(" + ") || "ohne Gruppe"} · ${a.subjectName} · ${a.teachers.map((t) => t.code ?? t.name).join(" + ") || "offen"}`;
 }
 
@@ -668,12 +670,14 @@ function assignmentLabel(a: Distribution["assignments"][number]): string {
 function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
   const editing = d.bands.find((b) => b.id === bandParam);
   const creating = bandParam === "neu";
-  const byId = new Map(d.assignments.map((a) => [a.id, a]));
+  // Review R3 N4: Mitglieder und „frei“ über alle Zeiträume, nicht nur die am Stichtag gültigen Lehraufträge
+  const all: Assignment[] = [...d.assignments, ...d.otherTime];
+  const plannedOf = new Map(d.assignments.map((a) => [a.id, a.planned]));
   const back = href({ ansicht: "baender" });
   let form: React.ReactNode = null;
   if (editing || creating) {
-    const members = (editing?.memberIds ?? []).map((id) => byId.get(id)).filter((a): a is NonNullable<typeof a> => Boolean(a));
-    const free = d.assignments.filter((a) => !a.bandId);
+    const members = editing ? bandMembers(editing.id, all, d.refYmd) : [];
+    const free = freeAssignments(all);
     const groupNames = [...new Set(free.map((a) => a.groups[0]?.name ?? "ohne Gruppe"))];
     form = (
       <Card aria-labelledby="band-form-title" className="flex flex-col gap-4">
@@ -683,7 +687,7 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
         <BandForm
           key={editing?.id ?? "neu"}
           action={saveBandAction.bind(null, editing?.id ?? null)}
-          deleteAction={editing ? deleteBandAction.bind(null, editing.id) : undefined}
+          deleteAction={editing && members.length === 0 ? deleteBandAction.bind(null, editing.id) : undefined}
           initial={{ name: editing?.name ?? "", hours: String(editing?.hours ?? 2), doubleLessons: String(editing?.doubleLessons ?? 0) }}
           back={back}
         />
@@ -696,13 +700,14 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
               <p className="text-sm text-muted">Noch keine – unten einen Lehrauftrag aufnehmen oder im Lehrauftrag das Band wählen.</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {members.map((a) => (
+                {members.map(({ assignment: a, active }) => (
                   <li key={a.id} className="flex flex-wrap items-center gap-2 text-sm">
                     <SubjectBar color={a.color} className="h-5 w-1 shrink-0" />
                     <Link href={href({ gruppe: a.groups[0]?.id, auftrag: a.id })} className="font-medium hover:underline">
                       {assignmentLabel(a)}
                     </Link>
-                    <Coverage planned={a.planned} target={a.hours} />
+                    {validityText(a) && <Badge tone={active ? "neutral" : "warn"}>{`${validityText(a)}${active ? "" : " · gilt am Stichtag nicht"}`}</Badge>}
+                    {active && <Coverage planned={plannedOf.get(a.id) ?? 0} target={a.hours} />}
                     <form action={removeBandMemberAction.bind(null, editing.id, a.id)} className="ml-auto">
                       <Button type="submit" size="sm" variant="ghost" aria-label={`${assignmentLabel(a)} aus dem Band nehmen`}>
                         Aus dem Band nehmen
@@ -712,12 +717,13 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
                 ))}
               </ul>
             )}
+            {members.length > 0 && <p className="text-sm text-muted">Zum Löschen des Bands erst alle Lehraufträge herausnehmen – auch die aus anderen Zeiträumen.</p>}
             {free.length > 0 && (
               <BandMemberForm
                 action={addBandMemberAction.bind(null, editing.id)}
                 options={groupNames.map((name) => ({
                   label: name,
-                  options: free.filter((a) => (a.groups[0]?.name ?? "ohne Gruppe") === name).map((a) => ({ value: a.id, label: assignmentLabel(a) })),
+                  options: free.filter((a) => (a.groups[0]?.name ?? "ohne Gruppe") === name).map((a) => ({ value: a.id, label: validityText(a) ? `${assignmentLabel(a)} (${validityText(a)})` : assignmentLabel(a) })),
                 }))}
               />
             )}
@@ -758,7 +764,9 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
             </tr>
           </thead>
           <tbody>
-            {d.bands.map((b) => (
+            {d.bands.map((b) => {
+              const bandAll = bandMembers(b.id, all, d.refYmd);
+              return (
               <tr key={b.id} aria-current={editing?.id === b.id ? "true" : undefined}>
                 <td>
                   <Link href={href({ ansicht: "baender", band: b.id })} className="font-medium hover:underline">
@@ -766,14 +774,16 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
                   </Link>
                 </td>
                 <td>
-                  {b.memberIds.length === 0 ? (
+                  {bandAll.length === 0 ? (
                     <Badge tone="warn">leer</Badge>
                   ) : (
                     <ul className="flex flex-col gap-0.5 text-sm">
-                      {b.memberIds.map((id) => {
-                        const a = byId.get(id);
-                        return a ? <li key={id}>{assignmentLabel(a)}</li> : null;
-                      })}
+                      {bandAll.map(({ assignment: a, active }) => (
+                        <li key={a.id} className={active ? undefined : "text-muted"}>
+                          {assignmentLabel(a)}
+                          {validityText(a) && ` (${validityText(a)})`}
+                        </li>
+                      ))}
                     </ul>
                   )}
                 </td>
@@ -788,7 +798,8 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
                   <Coverage planned={b.planned} target={b.hours} />
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </Table>
       )}

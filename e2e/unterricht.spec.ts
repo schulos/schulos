@@ -236,6 +236,17 @@ test("SP2-03: Tagesgrenzen je Jahrgang pflegen – Vorgaben der Demo, Prüfung, 
   await expect(page.getByRole("status").filter({ hasText: "Tagesgrenzen gespeichert." })).toBeVisible();
   await expect(page.getByLabel("Jahrgang 7: Mittag nach der … Stunde")).toHaveValue("6");
 
+  // Review R3 N5: Stichtag „Anzeigen“ und „Heute“ bleiben in der Tagesgrenzen-Ansicht
+  const stichtagForm = page.getByRole("form", { name: "Stichtag wählen" });
+  await stichtagForm.getByLabel("Stichtag").fill("2027-03-01");
+  await stichtagForm.getByRole("button", { name: "Anzeigen" }).click();
+  await expect(page).toHaveURL(/ansicht=tagesgrenzen.*stichtag=2027-03-01|stichtag=2027-03-01.*ansicht=tagesgrenzen/);
+  await expect(page.getByRole("heading", { name: "Tagesgrenzen und Ganztag", level: 2 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Lehrauftrag anlegen" })).toHaveAttribute("href", /ansicht=tagesgrenzen/);
+  await stichtagForm.getByRole("link", { name: "Heute" }).click();
+  await expect(page).not.toHaveURL(/stichtag=/);
+  await expect(page.getByRole("heading", { name: "Tagesgrenzen und Ganztag", level: 2 })).toBeVisible();
+
   // Diagnose: eigene Kategorie, Demo-Plan ohne Verstoß
   await page.goto("/planung/unterricht?ansicht=diagnose&kategorie=day");
   await expect(page.getByText("Tagesgrenzen: alles in Ordnung")).toBeVisible();

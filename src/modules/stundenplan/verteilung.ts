@@ -572,8 +572,16 @@ export async function updateBand(db: Db, actorId: string, id: string, input: Ban
   await audit(db, actorId, "stundenplan.band.update", null, { band: id, hours: input.hours });
 }
 
-/** Löscht das Band; die Lehraufträge bleiben eigenständig mit ihren Stunden. */
-export async function deleteBand(db: Db, actorId: string, id: string): Promise<void> {
+/**
+ * Löscht das Band; die Lehraufträge bleiben eigenständig mit ihren Stunden. `onlyEmpty` (Oberfläche, Review R3 N4): nur ohne
+ * Mitglieder – auch keine aus anderen Zeiträumen.
+ */
+export async function deleteBand(db: Db, actorId: string, id: string, opts: { onlyEmpty?: boolean } = {}): Promise<void> {
+  if (opts.onlyEmpty) {
+    const members = await db.select({ id: timetableAssignments.id }).from(timetableAssignments).where(eq(timetableAssignments.bandId, id));
+    if (members.length)
+      throw new ValidationError({ id: `Im Band ${members.length === 1 ? "ist noch ein Lehrauftrag" : `sind noch ${members.length} Lehraufträge`} – erst herausnehmen.` });
+  }
   const [old] = await db.delete(timetableBands).where(eq(timetableBands.id, id)).returning({ id: timetableBands.id });
   if (old) await audit(db, actorId, "stundenplan.band.delete", null, { band: id });
 }

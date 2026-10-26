@@ -165,7 +165,15 @@ export async function transferAllQueues(
   let remaining = 0;
   let books = 0;
   for (const bookId of await store.books()) {
-    const ops = await store.read(bookId);
+    let ops: OfflineOp[];
+    try {
+      ops = await store.read(bookId);
+    } catch {
+      // Review R3 N2: nicht lesbar heißt nicht leer – offen zählen (kein Löschen des Zwischenspeichers), nichts darüber schreiben
+      remaining++;
+      books++;
+      continue;
+    }
     if (!ops.length) continue;
     let left = ops;
     try {
