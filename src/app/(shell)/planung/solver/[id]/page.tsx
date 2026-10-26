@@ -475,6 +475,7 @@ export default async function SolverRunPage({
                 {applyHint.roomClashes.bookings || applyHint.roomClashes.exams
                   ? `; der Vorschlag belegt Räume, in denen ${[applyHint.roomClashes.bookings ? n(applyHint.roomClashes.bookings, "Raumbuchung", "Raumbuchungen") : null, applyHint.roomClashes.exams ? n(applyHint.roomClashes.exams, "Klausur", "Klausuren") : null].filter(Boolean).join(" und ")} ab dem Stichtag liegen – Räume prüfen`
                   : ""}
+                {applyHint.until ? `. Der Lauf ersetzt den Plan nur bis ${dayFmt.format(fromBerlinLocal(applyHint.until))} – danach gelten Lehraufträge, die er nicht kennt, und der Plan bleibt dort, wie er ist` : ""}
                 . Bei einem späteren Stichtag können die Zahlen abweichen.
               </p>
             )}

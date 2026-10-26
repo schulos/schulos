@@ -1,6 +1,6 @@
 // Unterrichtsverteilung (P2b-08): Lehraufträge je Schuljahr und Abgleich Soll ↔ verplant im Stundenplan.
 // SP2-01: Bänder bündeln Lehraufträge, die zur selben Zeit liegen; jeder Lehrauftrag hat genau eine Gruppe.
-import { and, asc, eq, gte, inArray, isNull, lte, ne, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
 import {
@@ -17,6 +17,7 @@ import {
   users,
 } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { isCalendarDate } from "@/core/time";
 import { de } from "@/core/db/sort";
 
 /** Gruppenarten, für die Unterricht verteilt wird */
@@ -108,8 +109,9 @@ export async function listAssignments(db: Db, schoolYearId: string): Promise<Ass
     .from(timetableAssignments)
     .innerJoin(subjects, eq(subjects.id, timetableAssignments.subjectId))
     .where(eq(timetableAssignments.schoolYearId, schoolYearId))
-    // deterministisch auch bei gleichem Fach und Anlagezeitpunkt (Seed, Import): zuletzt nach id – die Reihenfolge bestimmt den Solver-Lauf
-    .orderBy(asc(subjects.sortOrder), asc(subjects.name), asc(timetableAssignments.createdAt), asc(timetableAssignments.id));
+    // deterministisch auch bei gleichem Fach und Anlagezeitpunkt (Seed, Import): zuletzt nach id – die Reihenfolge bestimmt den Solver-Lauf;
+    // Fachname und id bytegenau (collate "C"), sonst sortieren PGlite und PostgreSQL mit anderer Collation verschieden (R1a/A15)
+    .orderBy(asc(subjects.sortOrder), sql`${subjects.name} collate "C"`, asc(timetableAssignments.createdAt), sql`${timetableAssignments.id} collate "C"`);
   if (!rows.length) return [];
   const ids = rows.map((r) => r.a.id);
   const [gs, ts] = await Promise.all([
@@ -430,7 +432,7 @@ async function validate(db: Db, input: AssignmentInput, excludeId?: string): Pro
   if (input.note && input.note.length > 200) fe.note = "höchstens 200 Zeichen";
   const validFrom = input.validFrom || null;
   const validUntil = input.validUntil || null;
-  const isDate = (v: string | null) => v === null || /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const isDate = (v: string | null) => v === null || isCalendarDate(v);
   if (!isDate(validFrom)) fe.validFrom = "Datum angeben";
   if (!isDate(validUntil)) fe.validUntil = "Datum angeben";
   if (!fe.validFrom && !fe.validUntil && validFrom && validUntil && validFrom > validUntil) fe.validUntil = "„gültig bis“ liegt vor „gültig ab“";
