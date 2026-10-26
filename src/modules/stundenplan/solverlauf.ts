@@ -1003,7 +1003,10 @@ export async function applyPreview(db: Db, run: SolverRun, fromYmd: string): Pro
   const current = await replaceableLessons(db, period.until, fromYmd, new Set(run.stored.keptLessonIds));
   const ids = current.map((l) => l.id);
   const subIds = new Set<string>();
-  for (const part of chunks(ids)) for (const s of await db.select({ id: timetableSubstitutions.id }).from(timetableSubstitutions).where(substitutionsOn(part, fromYmd))) subIds.add(s.id);
+  // nach dem Zeitraumende ziehen Vertretungen auf die Kopie um (Teilen) – sie entfallen nicht
+  for (const part of chunks(ids))
+    for (const s of await db.select({ id: timetableSubstitutions.id }).from(timetableSubstitutions).where(and(substitutionsOn(part, fromYmd), lte(timetableSubstitutions.date, period.until))))
+      subIds.add(s.id);
   const proposal = proposedLessons(run.stored).map((l) => ({ ...l, week: "all" as const, validFrom: fromYmd, validUntil: period.until }));
   return {
     from: fromYmd,

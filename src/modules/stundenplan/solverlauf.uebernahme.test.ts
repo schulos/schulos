@@ -137,7 +137,11 @@ describe("A2: Übernahme ersetzt nur den Planungszeitraum des Laufs", () => {
     await expect(applyRun(h.db, "u-admin", feb, "2026-11-02", today)).rejects.toBeInstanceOf(ValidationError);
 
     const sep = await freshRun(h);
-    await applyRun(h.db, "u-admin", sep, "2026-11-02", today);
+    // die Februar-Vertretung zieht mit und zählt nicht als entfallend
+    const preview = (await applyPreview(h.db, (await getRun(h.db, sep))!, "2026-11-02"))!;
+    const res = await applyRun(h.db, "u-admin", sep, "2026-11-02", today);
+    expect(preview.substitutions).toBe(res.removedSubstitutions);
+    expect((await getRun(h.db, sep))!.undo!.substitutions!.some((s) => s.id === "s-feb")).toBe(false);
     // die alte Stunde endet am Vortag; ab dem 01.02. gilt sie als Kopie weiter (bis ein Lauf fürs 2. Hj. übernommen wird)
     const [orig] = await h.db.select().from(timetableLessons).where(eq(timetableLessons.id, crossing.id));
     expect(orig!.validUntil).toBe("2026-11-01");
