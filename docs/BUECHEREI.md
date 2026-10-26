@@ -156,8 +156,8 @@ Datensparsam vorbelegt bei der Umsetzung; Abweichungen entscheidet die Projektle
   zurücknehmen; ein Schuljahr mit Ausgaben lässt sich nicht löschen. Den Prüfschritt im Schuljahreswechsel bringt BU-13.
 - **Theke der Stufe 1** erkennt `L-`-Nummern und verweist auf die Schulbuchausgabe; umgekehrt weist die Ausgabe `B-`-Nummern ab.
 - Ausgabe/Rücknahme im Audit-Log nur mit Inventarnummer, ohne Person (Nachweis über den Bestand, kein Verlauf je Person).
-- Nicht umgesetzt (für später notiert): Klassenleitung sieht offene Schulbücher der Klasse (Rollen-Tabelle oben) – braucht
-  eine eigene Freigabe, weil Lehrkräfte bisher keine Bücherei-Daten anderer sehen.
+- Klassenleitung sieht offene Schulbücher der Klasse: zunächst zurückgestellt (eigene Freigabe nötig), seit BU-16 umgesetzt –
+  nur als Zahl, siehe „Klassenleitung (BU-16)“.
 
 ## Stufe 2 – Ersatzforderungen (BU-12, 2026-10-20)
 
@@ -179,6 +179,26 @@ Datensparsam vorbelegt bei der Umsetzung; Abweichungen entscheidet die Projektle
   Schuljahresende), leer = Schuljahresende. Fälligkeit neuer und bereits ausgegebener Schulbücher des Schuljahres und der
   Mahnlauf folgen dem Tag; er steht bei der Ausgabe und unter „Meine Ausleihen“. Beide Einstellungen liegen ohne Migration in
   `app_settings` und haben keinen Personenbezug.
+
+## Klassenleitung (BU-16, Q-BU-9-3)
+
+Freigegeben von der Projektleitung am 2026-10-20 (Fragebogen Runde 9). Umgesetzt ohne Migration und ohne neues Recht.
+
+- **Wo:** Reiter „Meine Klasse“ in der Bücherei (`/buecherei/klasse`); `/buecherei` leitet eine Klassenleitung ohne andere
+  Bücherei-Rechte dorthin. Je geleiteter Klasse eine Karte mit allen Schüler:innen (aktive Konten), daneben die Zahl offener
+  Schulbücher (nur mit eingeschalteter Schulbuchausleihe) und offener Ersatzforderungen; „–“ für keine.
+- **Recht:** Klassenleitung = Lehrkraft als Leitung (`leader`) einer aktiven Klasse (Gruppenart `klasse`, nicht archiviert) – dasselbe
+  Muster wie im Notenbuch (`ledClasses`); Leitung einer AG oder eines Kurses zählt nicht. Gesperrte Konten bzw. offene Pflichtschritte
+  (Passwortwechsel, Zwei-Faktor) sehen nichts. Verwaltung, Büchereiteam und Schulleitung ohne Klassenleitung bekommen 404 – sie haben
+  ihre eigenen Ansichten. Service `classOpenItems` in `src/modules/buecherei/klasse.ts`, Zahlen aus `openItemsOf` (BU-13).
+- **Datensparsam:** keine Titel, Inventarnummern, Gründe, Beträge oder Fälligkeiten; Ausleihen der Bücherei (Stufe 1) zählen nicht
+  (was jemand liest, ist privat). Einzelheiten sehen weiter nur die Person, ihre Eltern („Meine Ausleihen“) und die Verwaltung mit
+  „Schulbuchausleihe“. Kein Export, kein Druck, keine Benachrichtigung; kein Eintrag im Audit-Log (nur Zahlen, wie die Hinweise im
+  Schuljahreswechsel und im Abgangsdialog).
+- **Querschnittstest** `klasse.test.ts`: die Klassenleitung bekommt aus keiner Funktion, die Seiten, Theke, Mahnliste, Brief,
+  Ausweis- oder Etikettendruck speist, Titel, Inventarnummern, Gründe oder Beträge ihrer Schüler:innen (Gegenprobe mit der
+  Verwaltung); die Seite liest nur aus `klasse.ts`, und `leaderOf` kommt im Modul nur dort vor. E2E BU-16 (Seite ohne Titel, 404 für
+  Schulbuchausgabe, Ersatzforderungen und Brief).
 
 ## Stufe 2 – Schuljahreswechsel und Abgang (BU-13, 2026-10-20)
 
