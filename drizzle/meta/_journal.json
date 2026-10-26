@@ -736,6 +736,13 @@
       "when": 1792588233616,
       "tag": "0104_sp2_07_vertretung_stufe2",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1792978303457,
+      "tag": "0105_sp2_12_fachbedarf",
+      "breakpoints": true
     }
   ]
 }

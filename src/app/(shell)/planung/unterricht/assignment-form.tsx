@@ -5,6 +5,8 @@ import { useActionState, useState } from "react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
+import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
+import { TeacherSelect } from "../teacher-select";
 
 export interface AssignmentFormValues {
   groupId: string;
@@ -38,7 +40,7 @@ export function AssignmentForm({
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   deleteAction?: () => Promise<void>;
   initial: AssignmentFormValues;
-  options: { groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: Option[]; rooms: Option[]; bands: (Option & { hours: number; doubleLessons: number })[] };
+  options: { groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: PickTeacher[]; rooms: Option[]; bands: (Option & { hours: number; doubleLessons: number })[] };
   back: string;
   /** SP2-09: Grenzen für „gültig ab/bis“ */
   year: { startsOn: string; endsOn: string };
@@ -49,6 +51,8 @@ export function AssignmentForm({
   const v: Record<string, string> = { ...initial, ...state.values };
   const [bandId, setBandId] = useState(v.bandId ?? "");
   const band = options.bands.find((b) => b.value === bandId);
+  const [subjectId, setSubjectId] = useState(v.subjectId ?? "");
+  const subjectName = options.subjects.find((s) => s.value === subjectId)?.label ?? "";
   const groupOptions = () =>
     options.groups.map((g) => (
       <optgroup key={g.label} label={g.label}>
@@ -75,7 +79,7 @@ export function AssignmentForm({
         </Select>
       </Field>
       <Field label="Fach" error={fe.subjectId}>
-        <Select name="subjectId" defaultValue={v.subjectId} required>
+        <Select name="subjectId" defaultValue={v.subjectId} required onChange={(e) => setSubjectId(e.target.value)}>
           <option value="">Fach wählen</option>
           {plain(options.subjects)}
         </Select>
@@ -99,18 +103,30 @@ export function AssignmentForm({
           </Field>
         </>
       )}
-      <Field label="Lehrkraft" hint="leer = noch offen" error={fe.teacherIds}>
-        <Select name="teacherId" defaultValue={v.teacherId}>
-          <option value="">– noch offen –</option>
-          {plain(options.teachers)}
-        </Select>
-      </Field>
-      <Field label="Zweite Lehrkraft" hint="Teamteaching">
-        <Select name="teacher2Id" defaultValue={v.teacher2Id}>
-          <option value="">– keine –</option>
-          {plain(options.teachers)}
-        </Select>
-      </Field>
+      {/* SP2-12: nur Lehrkräfte mit dem Fach, nach Restdeputat; andere über „alle anzeigen“ mit Warnhinweis */}
+      <TeacherSelect
+        name="teacherId"
+        label="Lehrkraft"
+        hint="leer = noch offen"
+        error={fe.teacherIds}
+        emptyLabel="– noch offen –"
+        subjectId={subjectId}
+        subjectName={subjectName}
+        teachers={options.teachers}
+        defaultValue={v.teacherId ?? ""}
+        confirmed={v.offSubjectOk === "1"}
+      />
+      <TeacherSelect
+        name="teacher2Id"
+        label="Zweite Lehrkraft"
+        hint="Teamteaching"
+        emptyLabel="– keine –"
+        subjectId={subjectId}
+        subjectName={subjectName}
+        teachers={options.teachers}
+        defaultValue={v.teacher2Id ?? ""}
+        confirmed={v.offSubjectOk === "1"}
+      />
       <Field label="Raumwunsch" error={fe.roomId}>
         <Select name="roomId" defaultValue={v.roomId}>
           <option value="">– kein Wunsch –</option>

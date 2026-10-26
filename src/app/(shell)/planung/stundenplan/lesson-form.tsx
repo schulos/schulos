@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useRef } from "react";
+import { useActionState, useRef, useState } from "react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
+import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
+import { TeacherSelect } from "../teacher-select";
 
 export interface LessonFormValues {
   groupId: string;
@@ -38,7 +40,7 @@ export function LessonForm({
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   deleteAction?: () => Promise<void>;
   initial: LessonFormValues;
-  options: { weekdays: Option[]; periods: Option[]; subjects: Option[]; teachers: Option[]; rooms: Option[] };
+  options: { weekdays: Option[]; periods: Option[]; subjects: Option[]; teachers: PickTeacher[]; rooms: Option[] };
   cancelHref: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
@@ -51,6 +53,7 @@ export function LessonForm({
     ...Object.fromEntries(Object.entries(initial).map(([k, val]) => [k, String(val)])),
     ...state.values,
   };
+  const [subjectId, setSubjectId] = useState(v.subjectId ?? "");
   return (
     <form key={JSON.stringify(state.values ?? null)} action={formAction} className="grid gap-4 sm:grid-cols-2">
       <input type="hidden" name="groupId" value={initial.groupId} />
@@ -60,6 +63,7 @@ export function LessonForm({
           defaultValue={v.subjectId}
           required
           onChange={(e) => {
+            setSubjectId(e.target.value);
             const room = suggestions?.[e.target.value];
             if (room !== undefined && roomRef.current && !roomTouched.current) roomRef.current.value = room;
           }}
@@ -72,16 +76,18 @@ export function LessonForm({
           ))}
         </Select>
       </Field>
-      <Field label="Lehrkraft" error={fe.teacherId}>
-        <Select name="teacherId" defaultValue={v.teacherId}>
-          <option value="">– keine –</option>
-          {options.teachers.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      {/* SP2-12: nur Lehrkräfte mit dem Fach, nach Restdeputat; andere über „alle anzeigen“ mit Warnhinweis */}
+      <TeacherSelect
+        name="teacherId"
+        label="Lehrkraft"
+        error={fe.teacherId}
+        emptyLabel="– keine –"
+        subjectId={subjectId}
+        subjectName={options.subjects.find((s) => s.value === subjectId)?.label ?? ""}
+        teachers={options.teachers}
+        defaultValue={v.teacherId ?? ""}
+        confirmed={v.offSubjectOk === "1"}
+      />
       <Field label="Wochentag" error={fe.weekday}>
         <Select name="weekday" defaultValue={v.weekday}>
           {options.weekdays.map((o) => (

@@ -1,7 +1,7 @@
 // Vertretungsvorschläge (P2b-19): freie Lehrkräfte mit Punkten und Begründung + Vertretungsstatistik.
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { groups, schoolYears, subjects, timetableLessons, timetableSubstitutions, users } from "@/core/db/schema";
+import { groups, schoolYears, subjects, timetableLessons, timetableSubstitutions, timetableTeacherSubjects, users } from "@/core/db/schema";
 import { absencesBetween, absentGroups, absentTeachers } from "./abwesenheit";
 import { lessonActiveOn } from "./service";
 import { ownTeacherPeriod } from "./belegung";
@@ -174,6 +174,12 @@ export async function suggestSubstitutes(db: Db, lessonId: string, date: string)
     if (!teachesSubject.has(x.teacherId)) teachesSubject.set(x.teacherId, new Set());
     teachesGroup.get(x.teacherId)!.add(x.groupId);
     teachesSubject.get(x.teacherId)!.add(x.subjectId);
+  }
+  // SP2-12: Lehrfächer aus den Stammdaten zählen mit – wer Physik als Lehrfach hat, gilt auch ohne Physik-Stunde in diesem Plan als
+  // fachgleiche Vertretung (und verdrängt damit den Fachtausch, SP-15)
+  for (const r of await db.select().from(timetableTeacherSubjects)) {
+    if (!teachesSubject.has(r.teacherId)) teachesSubject.set(r.teacherId, new Set());
+    teachesSubject.get(r.teacherId)!.add(r.subjectId);
   }
   // SP-12: je Lehrkraft das Fach mit den meisten Wochenstunden in dieser Gruppe (A/B-Stunden zählen halb)
   const hoursInGroup = new Map<string, Map<string, number>>();

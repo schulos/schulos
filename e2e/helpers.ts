@@ -123,3 +123,14 @@ export async function confirmNotenbuchNotice(page: Page) {
     await expect(form).toHaveCount(0);
   }
 }
+
+/**
+ * SP2-12: Lehrkraft in der Zuweisungs-Auswahl (Lehrauftrag, Stunde, Kopplung) wählen – `name` ist der Feldname (z. B. `teacherId`,
+ * `p0-teacherId`). Fachfremde Lehrkräfte gibt es nur über „alle anzeigen“ und mit „Trotzdem zuweisen“ (`offSubject`).
+ */
+export async function pickTeacher(scope: Page | Locator, name: string, userId: string, opts: { offSubject?: boolean } = {}) {
+  const box = scope.locator(`[data-teacher-select="${name}"]`);
+  if (opts.offSubject) await box.getByRole("checkbox", { name: /alle anzeigen/ }).check();
+  await box.getByRole("combobox").selectOption(userId);
+  if (opts.offSubject) await box.getByRole("checkbox", { name: "Trotzdem zuweisen" }).check();
+}

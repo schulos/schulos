@@ -19,6 +19,7 @@ import {
   timetableLessons,
   timetableReductions,
   timetableSubstitutions,
+  timetableTeacherSubjects,
   users,
 } from "@/core/db/schema";
 import { TEACHERS } from "@/core/seed/data";
@@ -122,6 +123,17 @@ export async function seedStundenplan(db: Db, now = new Date()) {
   );
   await db.insert(timetableAssignmentGroups).values(rows.map((r) => ({ assignmentId: r.id, groupId: r.groupId })));
   await db.insert(timetableAssignmentTeachers).values(rows.map((r) => ({ assignmentId: r.id, teacherId: r.teacherId })));
+  // SP2-12: Lehrfächer aus den Demo-Stammdaten (Fächer je Lehrkraft) plus die Fächer der Lehraufträge (Kursleitungen)
+  const knownSubjects = new Set((await db.select({ id: subjects.id }).from(subjects)).map((s) => s.id));
+  const fakultas = new Set(rows.map((r) => `${r.teacherId}|${r.subjectId}`));
+  for (const [, , code, subs] of TEACHERS) for (const s of subs) if (byCode.has(code) && knownSubjects.has(s)) fakultas.add(`${byCode.get(code)}|${s}`);
+  if (fakultas.size)
+    await db.insert(timetableTeacherSubjects).values(
+      [...fakultas].map((k) => {
+        const [teacherId, subjectId] = k.split("|") as [string, string];
+        return { teacherId, subjectId };
+      }),
+    );
 
   // SP2-03: Tagesgrenzen/Ganztag aus dem Schulform-Katalog (Gesamtschule: 5/6 höchstens 7, sonst 8 Stunden, Mittag nach der 6.,
   // höchstens 3 Nachmittage). Die Demo-Sperren unten (8. Stunde nie, 7. nur Mo/Di/Do) halten das ohnehin ein – der Plan bleibt gleich.

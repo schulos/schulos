@@ -33,7 +33,9 @@ test.describe("Stundenplanung · CSV-Import der Unterrichtsverteilung (SP2-06)",
     await page.getByLabel("CSV-Datei").setInputFiles({ name: "unterrichtsverteilung.csv", mimeType: "text/csv", buffer: file });
     await page.getByRole("button", { name: "Prüfen (Vorschau)" }).click();
     await expect(page.getByText("1 neu · 0 ändern · 0 unverändert · 0 mit Fehlern · gelesen als Windows-1252")).toBeVisible();
-    await expect(page.getByRole("cell", { name: "Französisch" })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "Französisch", exact: true })).toBeVisible();
+    // SP2-12: BRA hat Französisch nicht als Lehrfach – Hinweis, aber kein Fehler
+    await expect(page.getByText("BRA unterrichtet Französisch laut Stammdaten nicht")).toBeVisible();
     await page.getByRole("button", { name: "1 Lehrauftrag übernehmen" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Übernommen: 1 neuer Lehrauftrag, 0 geändert" })).toBeVisible();
 

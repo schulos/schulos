@@ -7,6 +7,8 @@ import { audit } from "@/core/audit";
 import { detectSeparator, splitCsvLine, toCsv } from "@/core/csv";
 import { groups, rooms, subjects, timetableAssignmentGroups, timetableAssignments, timetableAssignmentTeachers, timetableBands, users } from "@/core/db/schema";
 import { listAssignments, listBands, PLANNED_GROUP_KINDS } from "./verteilung";
+import { offSubjectText, subjectMismatch } from "./lehrfaecher-auswahl";
+import { teacherSubjectMap } from "./lehrfaecher";
 
 /** höchstens 512 KB – eine große Schule hat wenige tausend Lehraufträge */
 export const MAX_ASSIGNMENT_CSV_BYTES = 512 * 1024;
@@ -118,6 +120,8 @@ export interface ImportRowView {
   status: ImportRowStatus;
   /** Fehler (status „fehler“) bzw. Änderungen (status „aendern“) */
   notes: string[];
+  /** SP2-12: Warnhinweise ohne Sperre – fachfremde Lehrkraft bzw. Lehrkraft ohne gepflegte Lehrfächer */
+  warnings: string[];
 }
 
 export interface ImportPreview {
@@ -173,7 +177,7 @@ function index<T>(entries: [string, T][]): Map<string, T | "mehrdeutig"> {
  */
 export async function planAssignmentImport(db: Db, year: { id: string }, text: string): Promise<ImportPlan> {
   const { rows, errors: fileErrors } = parseAssignmentCsv(text);
-  const [groupRows, subjectRows, teacherRows, roomRows, existing, bands] = await Promise.all([
+  const [groupRows, subjectRows, teacherRows, roomRows, existing, bands, fakultas] = await Promise.all([
     db
       .select({ id: groups.id, name: groups.name, slug: groups.slug })
       .from(groups)
@@ -183,7 +187,9 @@ export async function planAssignmentImport(db: Db, year: { id: string }, text: s
     db.select({ id: rooms.id, name: rooms.name }).from(rooms).where(eq(rooms.active, true)),
     listAssignments(db, year.id),
     listBands(db, year.id),
+    teacherSubjectMap(db),
   ]);
+  const subjectNameOf = new Map(subjectRows.map((s) => [s.id, s.name]));
   const groupBy = index([...groupRows.map((g): [string, string] => [key(g.name), g.id]), ...groupRows.map((g): [string, string] => [key(g.slug), g.id])]);
   const subjectBy = index([...subjectRows.map((s): [string, string] => [key(s.id), s.id]), ...subjectRows.map((s): [string, string] => [key(s.name), s.id])]);
   const teacherBy = index([...teacherRows.map((t): [string, string] => [key(t.code ?? ""), t.id]), ...teacherRows.map((t): [string, string] => [key(t.name), t.id])]);
@@ -209,6 +215,7 @@ export async function planAssignmentImport(db: Db, year: { id: string }, text: s
       band: r.band,
       status: "fehler",
       notes: errors,
+      warnings: [],
     };
     const look = (m: Map<string, string | "mehrdeutig">, raw: string, what: string, missing: string): string | null => {
       if (!raw) {
@@ -282,6 +289,10 @@ export async function planAssignmentImport(db: Db, year: { id: string }, text: s
 
     const resolved: Resolved = { groupId, subjectId, hours, doubles, teacherIds, roomId: roomId ?? undefined, band, existingId: match?.id ?? null };
     view.resolved = resolved;
+    // SP2-12: Lehrfächer prüfen – nur Hinweis, der Import bleibt möglich (die Vorschau ist die Bestätigung)
+    const fit = subjectMismatch(fakultas, subjectId, teacherIds);
+    if (fit.off.length) view.warnings.push(offSubjectText(fit.off.map((t) => teacherCode.get(t) ?? t), subjectNameOf.get(subjectId) ?? subjectId));
+    if (fit.unmaintained.length) view.warnings.push(`ohne gepflegte Lehrfächer: ${fit.unmaintained.map((t) => teacherCode.get(t) ?? t).join(", ")}`);
     if (!match) {
       view.status = "neu";
       if (band && "name" in band) errors.push(`neues Band „${band.name}“`);

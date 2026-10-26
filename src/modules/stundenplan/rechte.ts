@@ -14,6 +14,9 @@ export const PLANNING_GROUP = {
   description: "Funktionsgruppe: Stundenplan planen und Vertretungen planen",
 } as const;
 
+/** SP2-12: Fachbedarf und Prognose lesen – nur Summen je Fach, keine Namen (Schulleitung); Details und Pflege nur mit `manage` */
+export const PLAN_FORECAST = "stundenplan.forecast_view";
+
 /** SP-05 (Projektleitung 2026-10-19): Kurswahlen lesen, um daraus Lehraufträge anzulegen (Recht des Moduls `kurswahl`) */
 export const KURSWAHL_VIEW = "kurswahl.view";
 

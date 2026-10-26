@@ -17,6 +17,8 @@ export default defineModule({
     "stundenplan.substitute": "Vertretungen planen (Vertretungen, Abwesenheiten, Veröffentlichen, Raumsperren, Aufsichtsvertretung)",
     // I-26: Fortbildung/dienstliche Abwesenheit, die eine Lehrkraft selbst meldet, genehmigt die Schulleitung
     "stundenplan.absence_approve": "Selbst gemeldete Abwesenheiten von Lehrkräften genehmigen (Fortbildung, dienstlich – Schulleitung)",
+    // SP2-12: Fachbedarf und Prognose lesen – nur Zahlen je Fach, keine Namen (Schulleitung); Details und Pflege bleiben bei `manage`
+    "stundenplan.forecast_view": "Fachbedarf einsehen (Bedarf, Versorgung und Prognose je Fach – nur Summen, keine Namen)",
   },
   // SP-02 (Q-SP-3): keine Rollen-Vorgabe mehr – geplant wird über die Funktionsgruppe „Stundenplanung“ (Migration 0088 legt sie an).
   // Bestehende Installationen behalten ihren Grant `verwaltung → stundenplan.manage` (grants.synced merkt sich das Paar).
@@ -32,7 +34,7 @@ export default defineModule({
     // Q5-10: eigene Zeitwünsche, im Eingabefenster der Planung selbst eintragen
     { href: "/stundenplan/zeitwuensche", label: "Zeitwünsche", icon: "CalendarCheck", roles: ["lehrkraft"] },
     // SP-03: eigener Bereich für die Planung (Jahresplanung und Tagesgeschäft) – nicht mehr unter Verwaltung
-    { href: "/planung", label: "Stundenplanung", icon: "CalendarCog", requires: ["stundenplan.manage", "stundenplan.substitute"] },
+    { href: "/planung", label: "Stundenplanung", icon: "CalendarCog", requires: ["stundenplan.manage", "stundenplan.substitute", "stundenplan.forecast_view"] },
   ],
   settings: STUNDENPLAN_SETTINGS,
   retention: [
@@ -97,6 +99,24 @@ export default defineModule({
       categories: ["Lehrkraft", "höchstens Stunden am Tag", "höchstens Anwesenheitstage"],
       class: "LK-SJ-1J",
       start: "school_year_id",
+    },
+    {
+      // SP2-12: Lehrfächer (Fakultas) – Stammdatum der Lehrkraft ohne Schuljahr, geht mit dem Konto
+      table: "timetable_teacher_subjects",
+      purpose: "Unterricht verteilen und Fachbedarf planen (Lehrfächer je Lehrkraft)",
+      categories: ["Lehrkraft", "Lehrfach"],
+      class: "LK-KONTO",
+      start: "teacher_id",
+      note: "sieht die Planung (Verteilung, Fachbedarf, Vorschläge bei der Zuweisung und für Vertretungen); die Schulleitung mit „Fachbedarf einsehen“ nur die Zahl der Lehrkräfte je Fach",
+    },
+    {
+      // SP2-12: Prognose – Abgang (Lehrkraft, Datum, Stunden) bzw. Zugang (Fächer, Datum, Stunden), ohne Begründung
+      table: "timetable_staff_changes",
+      purpose: "Fachbedarf des nächsten Schuljahres prognostizieren (bekannte Abgänge und Zugänge)",
+      categories: ["Lehrkraft (nur Abgang)", "ab Datum", "Stunden", "Fächer (nur Zugang)", "Eingetragen von"],
+      class: "LK-ENDE-1J",
+      start: "effective_on",
+      note: "ohne Begründung (kein Ruhestand, keine Elternzeit o. Ä.); Abgänge sieht nur die Planung (`stundenplan.manage`), die Schulleitung nur Summen je Fach; ein Jahr nach dem Datum gelöscht, mit dem Konto sofort",
     },
     {
       table: "timetable_room_blocks",

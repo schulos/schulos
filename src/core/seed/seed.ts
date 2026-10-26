@@ -343,6 +343,8 @@ export async function seedDemoSchool(
     { permission: "notenbuch.auskunft", groupId: "g-schulleitung" },
     // SP-02 (Q-SP-8, FEINSCHLIFF I-27): Schulleitung sieht Vertretungsbedarf, Entwürfe und „Offen für dich“ – plant aber nicht
     { permission: PLAN_SUBSTITUTE, groupId: "g-schulleitung" },
+    // SP2-12: Schulleitung sieht den Fachbedarf nur als Summen je Fach (keine Namen, keine Abgänge)
+    { permission: "stundenplan.forecast_view", groupId: "g-schulleitung" },
   ]);
   // Rechte der Funktionsgruppe (Migration 0088 legt sie schon an, nach demo-reset fehlen sie)
   await db
