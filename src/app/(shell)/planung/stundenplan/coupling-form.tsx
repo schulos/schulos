@@ -6,7 +6,7 @@ import { Plus, X } from "lucide-react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
-import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
+import { offSubjectKey, type PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import { TeacherSelect } from "../teacher-select";
 
 export interface CouplingPartValues {
@@ -78,7 +78,7 @@ function SubjectTeacher({
   fe: Record<string, string>;
   subjects: Option[];
   teachers: PickTeacher[];
-  confirmed: boolean;
+  confirmed?: string;
 }) {
   const [subjectId, setSubjectId] = useState(v.subjectId);
   return (
@@ -190,7 +190,7 @@ function CouplingFields({
                   ))}
                 </Select>
               </Field>
-              <SubjectTeacher partKey={key} n={n} v={v} fe={fe} subjects={options.subjects} teachers={options.teachers} confirmed={sv?.offSubjectOk === "1"} />
+              <SubjectTeacher partKey={key} n={n} v={v} fe={fe} subjects={options.subjects} teachers={options.teachers} confirmed={sv?.[offSubjectKey(`p${key}-teacherId`)]} />
               <Field label={`Raum ${n}`} error={fe[`p${key}-roomId`]}>
                 <Select name={`p${key}-roomId`} defaultValue={v.roomId}>
                   <option value="">– kein Raum –</option>

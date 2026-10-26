@@ -13,7 +13,7 @@ import { defaultObligation } from "./deputate";
 import { diagnoseYear } from "./diagnose";
 import { openDrafts } from "./freigabe";
 import { blocksOn } from "./raumsperren";
-import { distribution, planningYear } from "./verteilung";
+import { distribution, planningYear, type Distribution } from "./verteilung";
 import { planDays } from "./vertretung";
 import { activeTeachers, readPrefWindow, submissions, windowState, type PrefWindowState } from "./zeitwunsch-fenster";
 
@@ -91,9 +91,9 @@ async function lastSolverRun(db: Db, schoolYearId: string): Promise<YearPlanning
   return { ...row, score: num(row.score), unplaced: num(row.unplaced) };
 }
 
-async function yearFigures(db: Db, year: PlanningYearInfo, today: string): Promise<YearPlanningFigures> {
+async function yearFigures(db: Db, year: PlanningYearInfo, today: string, given?: Distribution): Promise<YearPlanningFigures> {
   const [d, school, window, submitted, teachers, lastRun] = await Promise.all([
-    distribution(db, year, today),
+    given ?? distribution(db, year, today),
     readSchoolSettings(db),
     readPrefWindow(db),
     submissions(db),
@@ -138,11 +138,12 @@ async function substituteFigures(db: Db, today: string): Promise<SubstituteFigur
 }
 
 /** Kennzahlen der Planungs-Übersicht; Teile ohne passendes Recht bleiben `null` (werden gar nicht erst berechnet). */
-export async function planningOverview(db: Db, today: string, rights: { manage: boolean; substitute: boolean }): Promise<PlanningOverview> {
+/** R2-P12: `dist` = schon berechnete Unterrichtsverteilung des Planungsjahres (die Übersicht teilt sie mit dem Fachbedarf). */
+export async function planningOverview(db: Db, today: string, rights: { manage: boolean; substitute: boolean }, dist?: Distribution): Promise<PlanningOverview> {
   const y = await planningYear(db);
   const year: PlanningYearInfo | null = y ? { id: y.id, name: y.name, startsOn: y.startsOn, endsOn: y.endsOn, isCurrent: y.isCurrent } : null;
   const [manage, substitute] = await Promise.all([
-    rights.manage && year ? yearFigures(db, year, today) : null,
+    rights.manage && year ? yearFigures(db, year, today, dist) : null,
     rights.substitute ? substituteFigures(db, today) : null,
   ]);
   return { year, manage, substitute };

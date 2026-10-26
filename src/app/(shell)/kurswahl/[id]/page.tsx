@@ -7,7 +7,7 @@ import type { KurswahlVerfahren } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { toBerlinDate } from "@/core/time";
 import { createAngebotAction, deleteAngebotAction, deleteVerfahrenAction, updateAngebotAction, updateVerfahrenAction } from "@/modules/kurswahl/actions";
-import { CHOOSER_LABEL, KIND_LABEL, MANAGE, STATE_LABEL, canViewKurswahl, classesOfGrade, getVerfahren, listAngebote, neededChoices, offerShortage, rankLabel, verfahrenState, type AngebotView } from "@/modules/kurswahl/service";
+import { angebotFormsOpen, CHOOSER_LABEL, KIND_LABEL, MANAGE, STATE_LABEL, canViewKurswahl, classesOfGrade, getVerfahren, listAngebote, neededChoices, offerShortage, rankLabel, verfahrenState, type AngebotView } from "@/modules/kurswahl/service";
 import { formOptions, progress } from "@/modules/kurswahl/uebersicht";
 import { loadPickList } from "@/modules/stundenplan/lehrfaecher";
 import { Badge } from "@schulos/ui/badge";
@@ -36,15 +36,16 @@ export default async function KurswahlDetailPage({ params }: { params: Promise<{
   if (!v) notFound();
   const today = toBerlinDate(new Date());
   const state = verfahrenState(v, today);
+  // ohne `manage` wie abgeschlossen: keine Formulare
+  const locked = !angebotFormsOpen(state, manage);
   const [opts, offers, stats, classes, pickTeachers] = await Promise.all([
     formOptions(db),
     listAngebote(db, v.id),
     progress(db, v),
     classesOfGrade(db, v.gradeLevel),
-    manage ? loadPickList(db, today) : Promise.resolve([]), // SP2-12b: Lehrkräfte mit Lehrfächern und Restdeputat für die Angebotsformulare
+    // SP2-12b: Lehrkräfte mit Lehrfächern und Restdeputat für die Angebotsformulare – R2-P13: nur, wenn Formulare da sind
+    locked ? Promise.resolve([]) : loadPickList(db, today),
   ]);
-  // ohne `manage` wie abgeschlossen: keine Formulare
-  const locked = state === "uebernommen" || !manage;
 
   return (
     <main className="flex flex-col gap-6">

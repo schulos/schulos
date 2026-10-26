@@ -38,7 +38,7 @@ import { decodeCsvBytes, type CsvEncoding } from "@/core/csv";
 import { addStandby, removeStandby } from "./bereitschaft";
 import { permanentMessage, savePermanentSubstitution } from "./dauervertretung";
 import { audit } from "@/core/audit";
-import { checkSubjectFit, executeTeacherSubjectImport, MAX_TEACHER_SUBJECT_CSV_BYTES, planTeacherSubjectImport, setTeacherSubjects, type TeacherSubjectPreview } from "./lehrfaecher";
+import { checkSubjectFit, executeTeacherSubjectImport, offSubjectConfirmed, MAX_TEACHER_SUBJECT_CSV_BYTES, planTeacherSubjectImport, setTeacherSubjects, type TeacherSubjectPreview } from "./lehrfaecher";
 import { addStaffChange, deleteStaffChange, saveForecastGrades } from "./fachbedarf";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
@@ -70,7 +70,7 @@ export async function saveLessonAction(id: string | null, _prev: FormState, form
   const input = readInput(form);
   try {
     // SP2-12: fachfremde Lehrkraft nur mit Bestätigung
-    const off = await checkSubjectFit(await getDb(), input.subjectId, input.teacherId ? [input.teacherId] : [], form.get("offSubjectOk") === "1", "teacherId");
+    const off = await checkSubjectFit(await getDb(), input.subjectId, input.teacherId ? [input.teacherId] : [], offSubjectConfirmed(form, "teacherId", input.teacherId), "teacherId");
     if (id) await updateLesson(await getDb(), user.id, id, input);
     else await createLesson(await getDb(), user.id, input);
     if (off.length) await audit(await getDb(), user.id, "stundenplan.lesson.off_subject", input.groupId, { subject: input.subjectId, teachers: off });
@@ -102,9 +102,9 @@ export async function saveCouplingAction(couplingId: string | null, groupId: str
     })),
   };
   try {
-    // SP2-12: fachfremde Lehrkräfte je Teil nur mit Bestätigung
-    const confirmed = form.get("offSubjectOk") === "1";
-    for (const [i, p] of input.parts.entries()) await checkSubjectFit(await getDb(), p.subjectId, p.teacherId ? [p.teacherId] : [], confirmed, `p${i}-teacherId`);
+    // SP2-12: fachfremde Lehrkräfte je Teil nur mit Bestätigung – R2-P3: je Teil eigene Bestätigung
+    for (const [i, p] of input.parts.entries())
+      await checkSubjectFit(await getDb(), p.subjectId, p.teacherId ? [p.teacherId] : [], offSubjectConfirmed(form, `p${keys[i]}-teacherId`, p.teacherId), `p${i}-teacherId`);
     await saveCoupling(await getDb(), user.id, couplingId, input);
   } catch (err) {
     if (err instanceof ValidationError) {
@@ -293,7 +293,11 @@ export async function saveAssignmentAction(id: string | null, _prev: FormState, 
   };
   try {
     // SP2-12: fachfremde Lehrkraft nur mit Bestätigung („Trotzdem zuweisen“), ohne gepflegte Lehrfächer nur ein Hinweis
-    const off = await checkSubjectFit(db, input.subjectId, input.teacherIds, form.get("offSubjectOk") === "1");
+    // R2-P3: je Lehrkraft-Feld eine eigene Bestätigung
+    const off = [
+      ...(await checkSubjectFit(db, input.subjectId, [str("teacherId")], offSubjectConfirmed(form, "teacherId", str("teacherId")))),
+      ...(await checkSubjectFit(db, input.subjectId, [str("teacher2Id")], offSubjectConfirmed(form, "teacher2Id", str("teacher2Id")), "teacher2Id")),
+    ];
     if (id) await updateAssignment(db, user.id, id, input);
     else await createAssignment(db, user.id, input);
     if (off.length) await audit(db, user.id, "stundenplan.assignment.off_subject", input.groupId, { subject: input.subjectId, teachers: off });

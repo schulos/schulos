@@ -11,8 +11,8 @@ import { isCalendarDate } from "@/core/time";
 import { schoolYears, subjects, timetableForecastGrades, timetableStaffChanges, users, type StaffChangeKind } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { defaultObligation, deputyAccounts } from "./deputate";
-import { teacherSubjectMap } from "./lehrfaecher";
-import { distribution, planningYear, type Assignment } from "./verteilung";
+import { activeTeacherIds, teacherSubjectMap } from "./lehrfaecher";
+import { distribution, planningYear, type Assignment, type Distribution } from "./verteilung";
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
 
@@ -230,6 +230,11 @@ export interface ForecastInput extends CoverageInput {
   customGrades: ReadonlyMap<number, number>;
   /** Abgänge/Zugänge bis zu diesem Tag zählen (Ende des nächsten Schuljahres) */
   untilYmd: string;
+  /**
+   * R2-P10: Stichtag der heutigen Daten – Abgänge/Zugänge bis einschließlich dieses Tags sind schon wirksam (Lehrkraft gesperrt bzw.
+   * angelegt) und zählen nicht noch einmal; fehlt = keine Untergrenze
+   */
+  fromYmd?: string;
 }
 
 /** Rein: Klassenzahl je Jahrgang im nächsten Schuljahr – Klassen rücken auf, der unterste Jahrgang bleibt wie bisher. */
@@ -278,7 +283,7 @@ export function computeForecast(input: ForecastInput, cov: { rows: SubjectNeed[]
   const joiningBy = new Map<string, number>();
   const joiningCount = new Map<string, number>();
   for (const c of input.changes) {
-    if (c.effectiveOn > input.untilYmd) continue;
+    if (c.effectiveOn > input.untilYmd || (input.fromYmd && c.effectiveOn <= input.fromYmd)) continue;
     if (c.kind === "abgang" && c.teacherId) bump(leavingHours, c.teacherId, c.hours);
     if (c.kind === "zugang" && c.subjectIds.length) {
       for (const s of c.subjectIds) {
@@ -356,12 +361,16 @@ export interface Fachbedarf {
   changes?: StaffChangeView[];
 }
 
-/** Fachbedarf des Planungsjahres; `details` nur mit `stundenplan.manage` (Namen, Abgänge), sonst nur Summen je Fach. */
-export async function loadFachbedarf(db: Db, todayYmd: string, { details }: { details: boolean }): Promise<Fachbedarf | null> {
+/**
+ * Fachbedarf des Planungsjahres; `details` nur mit `stundenplan.manage` (Namen, Abgänge), sonst nur Summen je Fach. R2-P12: eine schon
+ * berechnete Unterrichtsverteilung des Planungsjahres (`distribution`) wird übernommen statt neu gerechnet. R2-P2: Versorgung nur aus
+ * aktiven Lehrkräften.
+ */
+export async function loadFachbedarf(db: Db, todayYmd: string, { details, distribution: given }: { details: boolean; distribution?: Distribution }): Promise<Fachbedarf | null> {
   const year = await planningYear(db);
   if (!year) return null;
-  const [d, school, subjectRows, map, changeRows, gradeRows, [nextRow]] = await Promise.all([
-    distribution(db, year, todayYmd),
+  const [d, school, subjectRows, map, changeRows, gradeRows, [nextRow], active] = await Promise.all([
+    given ?? distribution(db, year, todayYmd),
     readSchoolSettings(db),
     db.select({ id: subjects.id, name: subjects.name, color: subjects.color }).from(subjects).orderBy(asc(subjects.sortOrder), asc(subjects.id)),
     teacherSubjectMap(db),
@@ -372,8 +381,14 @@ export async function loadFachbedarf(db: Db, todayYmd: string, { details }: { de
       .orderBy(asc(timetableStaffChanges.effectiveOn), asc(timetableStaffChanges.createdAt)),
     db.select().from(timetableForecastGrades).where(eq(timetableForecastGrades.schoolYearId, year.id)),
     db.select().from(schoolYears).where(gt(schoolYears.startsOn, year.endsOn)).orderBy(asc(schoolYears.startsOn)).limit(1),
+    activeTeacherIds(db),
   ]);
-  const accounts = await deputyAccounts(db, year.id, d.teachers, defaultObligation(school.profile.form));
+  const accounts = await deputyAccounts(
+    db,
+    year.id,
+    d.teachers.filter((t) => active.has(t.id)),
+    defaultObligation(school.profile.form),
+  );
   const next = nextRow
     ? { name: nextRow.name, startsOn: nextRow.startsOn, endsOn: nextRow.endsOn, exists: true }
     : { name: nextYearName(year.name), startsOn: plusYear(year.startsOn), endsOn: plusYear(year.endsOn), exists: false };
@@ -397,6 +412,7 @@ export async function loadFachbedarf(db: Db, todayYmd: string, { details }: { de
     changes,
     customGrades: new Map(gradeRows.map((g) => [g.grade, g.classes])),
     untilYmd: next.endsOn,
+    fromYmd: d.refYmd,
   };
   const cov = computeCoverage(input, details);
   const fc = computeForecast(input, cov);
@@ -428,8 +444,10 @@ export async function addStaffChange(db: Db, actorId: string, input: StaffChange
   if (!Number.isFinite(input.hours) || !Number.isInteger(input.hours * 2) || input.hours <= 0 || input.hours > 40) fe.hours = "0,5 bis 40 Stunden in halben Schritten";
   const subjectIds = [...new Set(input.subjectIds.filter(Boolean))];
   if (kind === "abgang") {
-    const [t] = input.teacherId ? await db.select({ role: users.role }).from(users).where(eq(users.id, input.teacherId)) : [];
+    const [t] = input.teacherId ? await db.select({ role: users.role, status: users.status }).from(users).where(eq(users.id, input.teacherId)) : [];
     if (t?.role !== "lehrkraft") fe.teacherId = "Lehrkraft wählen";
+    // R2-P2: eine nicht aktive Lehrkraft ist schon weg – kein Abgang mehr
+    else if (t.status !== "active") fe.teacherId = "Lehrkraft ist nicht mehr aktiv";
   }
   if (kind === "zugang") {
     if (!subjectIds.length) fe.subjectIds = "mindestens ein Fach wählen";

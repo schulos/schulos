@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectErrors, login } from "./helpers";
+import { collectErrors, login, pickTeacher } from "./helpers";
 
 test.describe("SP2-12 · Lehrfächer und Fachbedarf", () => {
   test("Zuweisung schlägt nur Lehrkräfte mit dem Fach vor (nach Restdeputat), andere über „alle anzeigen“ mit Warnhinweis und Bestätigung", async ({ page }) => {
@@ -48,6 +48,51 @@ test.describe("SP2-12 · Lehrfächer und Fachbedarf", () => {
     await row.getByRole("link", { name: "Physik" }).click();
     await page.getByRole("button", { name: "Lehrauftrag löschen" }).click();
     await expect(page.getByRole("row").filter({ hasText: "Physik" }).filter({ has: page.getByRole("cell", { name: "BRA", exact: true }) })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("R2-P3: „Trotzdem zuweisen“ gilt je Lehrkraft-Feld – ein Häkchen bestätigt nicht die zweite fachfremde Lehrkraft", async ({ page }) => {
+    const errors = collectErrors(page);
+    await login(page, "frank.schulte");
+    await page.goto("/planung/unterricht?gruppe=g-7b&neu=1");
+    await page.getByLabel("Fach").selectOption({ label: "Chemie" });
+    await page.getByLabel("Wochenstunden").fill("1");
+    // BRA (D/E) und LIN (GE/D) unterrichten Chemie laut Stammdaten nicht – nur die erste wird bestätigt
+    await pickTeacher(page, "teacherId", "u-jana.brandt", { offSubject: true });
+    await pickTeacher(page, "teacher2Id", "u-petra.lindner", { offSubject: false, showAll: true });
+    const second = page.locator('[data-teacher-select="teacher2Id"]');
+    await expect(second.getByRole("alert")).toContainText("LIN unterrichtet Chemie laut Stammdaten nicht.");
+    await page.screenshot({ path: ".data/shots/e2e/r2-p3-zwei-felder.png", fullPage: true });
+    await page.getByRole("button", { name: "Speichern" }).click();
+    await expect(second.getByText("LIN unterrichtet Chemie laut Stammdaten nicht – zum Speichern „Trotzdem zuweisen“ ankreuzen")).toBeVisible();
+    await expect(page).toHaveURL(/neu=1/);
+    // das erste Häkchen bleibt nach dem Fehler stehen, das zweite nicht
+    await expect(page.locator('[data-teacher-select="teacherId"]').getByRole("checkbox", { name: "Trotzdem zuweisen" })).toBeChecked();
+    await second.getByRole("checkbox", { name: "Trotzdem zuweisen" }).check();
+    await page.getByRole("button", { name: "Speichern" }).click();
+    await expect(page).not.toHaveURL(/neu=/);
+    const row = page.getByRole("row").filter({ hasText: "Chemie" }).filter({ has: page.getByRole("cell", { name: /BRA/ }) });
+    await expect(row).toHaveCount(1);
+    await row.getByRole("link", { name: "Chemie" }).click();
+    await page.getByRole("button", { name: "Lehrauftrag löschen" }).click();
+    await expect(page.getByRole("row").filter({ hasText: "Chemie" }).filter({ has: page.getByRole("cell", { name: /BRA/ }) })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("R2-P11: Zugang – nach einem Eingabefehler bleiben die angehakten Fächer stehen", async ({ page }) => {
+    const errors = collectErrors(page);
+    await login(page, "frank.schulte");
+    await page.goto("/planung/bedarf");
+    const form = page.getByRole("region", { name: "Abgänge und Zugänge" });
+    await form.getByLabel("Art").selectOption("zugang");
+    await form.getByLabel("Physik").check();
+    await form.getByLabel("Chemie").check();
+    await form.getByLabel("Stunden").fill("0,3");
+    await form.getByRole("button", { name: "Eintragen" }).click();
+    await expect(form.getByText("0,5 bis 40 Stunden in halben Schritten")).toBeVisible();
+    await expect(form.getByLabel("Physik")).toBeChecked();
+    await expect(form.getByLabel("Chemie")).toBeChecked();
+    await expect(form.getByLabel("Biologie")).not.toBeChecked();
     expect(errors).toEqual([]);
   });
 

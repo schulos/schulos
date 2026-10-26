@@ -2,7 +2,7 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { listAfter } from "@/core/form-values";
-import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
+import { offSubjectKey, type PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select, Textarea } from "@schulos/ui/field";
@@ -292,7 +292,7 @@ function AngebotFields({ v, fe, subjects, teachers, levels }: { v: Record<string
         subjectName={subjectName}
         teachers={teachers}
         defaultValue={v.teacherId ?? ""}
-        confirmed={v.offSubjectOk === "1"}
+        confirmed={v[offSubjectKey("teacherId")]}
       />
       <Field label="Wochenstunden" hint="für den Lehrauftrag" error={fe.hours}>
         <Input type="number" name="hours" min={1} max={12} defaultValue={v.hours} />

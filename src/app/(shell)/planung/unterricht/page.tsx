@@ -25,7 +25,7 @@ import {
   applyGradeRuleDefaultsAction,
   saveTeacherSubjectsAction,
 } from "@/modules/stundenplan/actions";
-import { pickList, teacherSubjectMap } from "@/modules/stundenplan/lehrfaecher";
+import { activeTeacherIds, pickList, teacherSubjectMap } from "@/modules/stundenplan/lehrfaecher";
 import { formName } from "@/core/school/catalog";
 import { classGrades, listGradeRules } from "@/modules/stundenplan/jahrgangsregeln";
 import { dayRuleFor, LUNCH_MIN_MINUTES, ruleSummary } from "@/modules/stundenplan/tagesgrenzen";
@@ -90,7 +90,13 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   const today = toBerlinDate(new Date());
   // SP2-09: Verteilung an einem wählbaren Stichtag (Lehraufträge mit Gültigkeit, z. B. 2. Halbjahr)
   const stichtag = sp.stichtag && /^\d{4}-\d{2}-\d{2}$/.test(sp.stichtag) ? sp.stichtag : undefined;
-  const [d, master, school, fakultas] = await Promise.all([distribution(db, year, stichtag ?? today), timetableMasterData(db), readSchoolSettings(db), teacherSubjectMap(db)]);
+  const [d, master, school, fakultas, active] = await Promise.all([
+    distribution(db, year, stichtag ?? today),
+    timetableMasterData(db),
+    readSchoolSettings(db),
+    teacherSubjectMap(db),
+    activeTeacherIds(db), // R2-P2: nur aktive Lehrkräfte vorschlagen
+  ]);
   const fallback = defaultObligation(school.profile.form);
   const accounts = await deputyAccounts(db, year.id, d.teachers, fallback);
   const subjectOptions = master.subjects.map((s) => ({ value: s.id, label: s.name, color: s.color }));
@@ -142,7 +148,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
             })).filter((g) => g.options.length),
             subjects: master.subjects.map((s) => ({ value: s.id, label: s.name })),
             // SP2-12: Lehrfächer + Restdeputat (Soll − Lehraufträge) für die Vorschläge passend zum Fach
-            teachers: pickList(accounts, fakultas),
+            teachers: pickList(accounts, fakultas, active),
             rooms: master.rooms.map((r) => ({ value: r.id, label: r.id === r.name ? r.id : `${r.id} – ${r.name}` })),
             bands: d.bands.map((b) => ({ value: b.id, label: b.name, hours: b.hours, doubleLessons: b.doubleLessons })),
           }}

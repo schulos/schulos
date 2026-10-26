@@ -1,5 +1,5 @@
 // Stammdaten: Jahrgangsstufen, Fächer, Zeitraster, Stundentafel (Räume und Schuljahre in rooms.ts/school-years.ts).
-import { asc, count, eq, gte, inArray, isNotNull, max } from "drizzle-orm";
+import { asc, count, eq, gte, inArray, isNotNull, max, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
 import {
@@ -16,6 +16,7 @@ import {
   subjects,
   timetableAssignments,
   timetableLessons,
+  timetableStaffChanges,
   type RoomKind,
 } from "@/core/db/schema";
 import { gradeTemplate, levelTemplate, terms, type SchoolProfile } from "@/core/school/catalog";
@@ -161,7 +162,8 @@ function checkSubject(r: SubjectInput, key: string, fe: Record<string, string>) 
 
 /**
  * Speichert alle Fächer auf einmal; ein geändertes Kürzel wird in Stundenplan, Klassenbuch, Klausurplan und
- * Gruppen mitgezogen (ON UPDATE CASCADE). Optional kommt ein neues Fach hinten dazu.
+ * Gruppen mitgezogen (ON UPDATE CASCADE). Optional kommt ein neues Fach hinten dazu. R2-P9: die Fächer der Zugänge in der
+ * Fachbedarf-Prognose (`timetable_staff_changes.subject_ids`, Array ohne Fremdschlüssel) zieht die Transaktion von Hand mit.
  */
 export async function saveSubjects(db: Db, actorId: string, rows: SubjectInput[], added?: SubjectInput): Promise<void> {
   const fe: Record<string, string> = {};
@@ -177,8 +179,14 @@ export async function saveSubjects(db: Db, actorId: string, rows: SubjectInput[]
   const renamed = rows.filter((r) => r.code.trim() !== r.id);
   await db.transaction(async (tx) => {
     // erst auf Platzhalter, dann aufs Ziel – so gehen auch Tausche (M ↔ MA)
-    for (const r of renamed) await tx.update(subjects).set({ id: `~${r.id}` }).where(eq(subjects.id, r.id!));
-    for (const r of renamed) await tx.update(subjects).set({ id: r.code.trim() }).where(eq(subjects.id, `~${r.id}`));
+    for (const r of renamed) {
+      await tx.update(subjects).set({ id: `~${r.id}` }).where(eq(subjects.id, r.id!));
+      await renameInStaffChanges(tx, r.id!, `~${r.id}`);
+    }
+    for (const r of renamed) {
+      await tx.update(subjects).set({ id: r.code.trim() }).where(eq(subjects.id, `~${r.id}`));
+      await renameInStaffChanges(tx, `~${r.id}`, r.code.trim());
+    }
     for (const r of rows) {
       await tx
         .update(subjects)
@@ -203,6 +211,14 @@ export async function saveSubjects(db: Db, actorId: string, rows: SubjectInput[]
   });
 }
 
+/** R2-P9: Fach-Kürzel in den Zugängen der Fachbedarf-Prognose ersetzen (`subject_ids` hat als Array keinen Fremdschlüssel). */
+async function renameInStaffChanges(tx: Pick<Db, "update">, from: string, to: string): Promise<void> {
+  await tx
+    .update(timetableStaffChanges)
+    .set({ subjectIds: sql`array_replace(${timetableStaffChanges.subjectIds}, ${from}, ${to})` })
+    .where(sql`${from} = any(${timetableStaffChanges.subjectIds})`);
+}
+
 /** Verschiebt ein Fach in der Reihenfolge (Listen, Auswahlfelder, später Stundentafel). */
 export async function moveSubject(db: Db, actorId: string, id: string, dir: -1 | 1): Promise<void> {
   const list = await listSubjects(db);
@@ -219,7 +235,14 @@ export async function moveSubject(db: Db, actorId: string, id: string, dir: -1 |
 export async function deleteSubject(db: Db, actorId: string, id: string): Promise<void> {
   const used = (await subjectUsage(db)).get(id) ?? 0;
   if (used) throw new ValidationError({ [`code-${id}`]: `${id} wird noch ${used}× in Stundenplan, Unterrichtsverteilung, Klassenbuch, Klausurplan oder Notenbuch verwendet` });
-  await db.delete(subjects).where(eq(subjects.id, id));
+  await db.transaction(async (tx) => {
+    // R2-P9: Zugänge der Prognose ohne das gelöschte Fach (Array ohne Fremdschlüssel)
+    await tx
+      .update(timetableStaffChanges)
+      .set({ subjectIds: sql`array_remove(${timetableStaffChanges.subjectIds}, ${id})` })
+      .where(sql`${id} = any(${timetableStaffChanges.subjectIds})`);
+    await tx.delete(subjects).where(eq(subjects.id, id));
+  });
   await audit(db, actorId, "verwaltung.stammdaten.subject_delete", null, { id });
 }
 

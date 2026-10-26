@@ -5,7 +5,7 @@ import { useActionState, useRef, useState } from "react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
-import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
+import { offSubjectKey, type PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import { TeacherSelect } from "../teacher-select";
 
 export interface LessonFormValues {
@@ -86,7 +86,7 @@ export function LessonForm({
         subjectName={options.subjects.find((s) => s.value === subjectId)?.label ?? ""}
         teachers={options.teachers}
         defaultValue={v.teacherId ?? ""}
-        confirmed={v.offSubjectOk === "1"}
+        confirmed={v[offSubjectKey("teacherId")]}
       />
       <Field label="Wochentag" error={fe.weekday}>
         <Select name="weekday" defaultValue={v.weekday}>

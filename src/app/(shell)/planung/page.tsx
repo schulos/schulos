@@ -8,6 +8,7 @@ import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { PLAN_FORECAST, PLAN_MANAGE, PLAN_SUBSTITUTE, PLANNING_GROUP } from "@/modules/stundenplan/rechte";
 import { loadFachbedarf, type Fachbedarf } from "@/modules/stundenplan/fachbedarf";
 import { planningOverview, type SubstituteFigures, type YearPlanningFigures } from "@/modules/stundenplan/uebersicht";
+import { distribution, planningYear } from "@/modules/stundenplan/verteilung";
 import { Badge } from "@schulos/ui/badge";
 import { PageHeader } from "@schulos/ui/misc";
 
@@ -215,7 +216,13 @@ export default async function PlanungPage() {
   const schoolData = hasPermission(perms, "verwaltung.school");
   const db = await getDb();
   const today = toBerlinDate(new Date());
-  const [o, need] = await Promise.all([planningOverview(db, today, { manage, substitute }), manage || forecast ? loadFachbedarf(db, today, { details: false }) : null]);
+  // R2-P12: die Unterrichtsverteilung nur einmal rechnen – Kennzahlen und Fachbedarf teilen sie
+  const year = manage || forecast ? await planningYear(db) : null;
+  const dist = year ? await distribution(db, year, today) : undefined;
+  const [o, need] = await Promise.all([
+    planningOverview(db, today, { manage, substitute }, dist),
+    manage || forecast ? loadFachbedarf(db, today, { details: false, distribution: dist }) : null,
+  ]);
   const yearLine = o.year
     ? `Schuljahr ${o.year.name} · ${date(o.year.startsOn)} – ${date(o.year.endsOn)}${o.year.isCurrent ? "" : " (nicht als aktuell markiert)"}`
     : null;
