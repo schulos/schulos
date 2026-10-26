@@ -201,7 +201,13 @@ test("SP2-02: Band „Q1 GK-Schiene A“ liegt als Kopplung im Plan; die Setzhil
   await expect(open).toContainText("AG Schülerzeitung Deutsch");
   await open.click();
   await expect(page).toHaveURL(/setzen=/);
-  const setButton = page.getByRole("button", { name: /^Hier setzen: / }).first();
+  // erster freier Slot ohne Raumhinweis („Raum IF1 belegt → …“) – welcher das ist, hängt vom Plan ab, nicht von früheren Specs (TD-07)
+  const setButton = page
+    .locator("form")
+    .filter({ has: page.getByRole("button", { name: /^Hier setzen: / }) })
+    .filter({ hasNot: page.locator("span.text-warn") })
+    .first()
+    .getByRole("button", { name: /^Hier setzen: / });
   const setSlot = (await setButton.getAttribute("aria-label"))!.replace("Hier setzen: ", "");
   await setButton.click();
   await expect(page).not.toHaveURL(/setzen=/);

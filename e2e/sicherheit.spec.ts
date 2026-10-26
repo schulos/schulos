@@ -38,8 +38,14 @@ test.describe("Sicherheit · fremde Daten über IDs (IDOR)", () => {
 
     const jana = await (await browser.newContext()).newPage();
     await login(jana, "jana.brandt");
-    await jana.goto("/aufgaben");
-    const taskHref = (await jana.getByRole("link", { name: /Erörterung Handyverbot/ }).first().getAttribute("href"))!;
+    // eigene Aufgabe für die 7b (TD-07: nicht auf die Aufgabe aus aufgaben.spec angewiesen)
+    await jana.goto("/aufgaben/neu");
+    await jana.getByLabel("Titel").fill("IDOR-Probe Erörterung 7b");
+    await jana.getByLabel("Aufgabenstellung").fill("Nur für die 7b.");
+    await jana.getByLabel("Klasse 7b").check();
+    await jana.getByRole("button", { name: "Aufgabe stellen" }).click();
+    await expect(jana.getByRole("heading", { name: "IDOR-Probe Erörterung 7b" })).toBeVisible();
+    const taskHref = new URL(jana.url()).pathname;
     // privater Upload und Datei im Klassenordner der 7b
     const up = await jana.request.post("/api/dateien/upload", {
       multipart: { space: "personal", files: { name: "notenliste-7b.txt", mimeType: "text/plain", buffer: Buffer.from("geheim 7b") } },
@@ -57,7 +63,7 @@ test.describe("Sicherheit · fremde Daten über IDs (IDOR)", () => {
 
     // --- Schülerin der 9a
     await login(page, outsider.username);
-    await pageDenied(page, taskHref, "Erörterung Handyverbot");
+    await pageDenied(page, taskHref, "IDOR-Probe Erörterung 7b");
     await pageDenied(page, "/messenger/room-g-7b");
     await pageDenied(page, "/adressbuch/gruppe/g-7b");
     await pageDenied(page, `/adressbuch/person/${lea.id}`);

@@ -62,6 +62,8 @@ test("Gate 3 – Forenbeitrag wird ausgeblendet, Pinnwand-Karte erscheint live",
     await post.getByRole("button", { name: "Ausblenden" }).click();
     await post.getByLabel("Grund (sehen alle)").fill("Gate-Test");
     await post.getByRole("button", { name: "Ausblenden" }).click();
+    // erst neu laden, wenn das Ausblenden gespeichert ist (sonst Wettlauf mit der Server Action)
+    await expect(post.getByText("Von der Moderation ausgeblendet: Gate-Test")).toBeVisible();
     await student.page.reload();
     await expect(student.page.getByText("Von der Moderation ausgeblendet: Gate-Test")).toBeVisible();
     await expect(student.page.getByText("Dieser Satz wird ausgeblendet")).toHaveCount(0);

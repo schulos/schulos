@@ -124,11 +124,9 @@ test.describe("Stundenplanung · Vertretung Stufe 2 (SP2-07)", () => {
     for (const path of ["/planung/vertretungen/bereitschaft", "/planung/vertretungen?gruppe=g-7b"]) {
       await p.goto(path);
       await p.waitForLoadState("load");
-      // neue Seite: kein seitliches Scrollen (die Vertretungsseite hängt mit ihren Tabellen vom Stand anderer Tests ab – dort nur A11Y)
-      if (path.endsWith("bereitschaft")) {
-        const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-        expect(overflow, path).toBeLessThanOrEqual(0);
-      }
+      // kein seitliches Scrollen (Tabellen scrollen im Rahmen; `sr-only`-Spaltenköpfe ragten vor SP2-11 aus ihm heraus)
+      const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, path).toBeLessThanOrEqual(0);
       await axe(p, `${path} (360 px)`);
     }
     await p.screenshot({ path: ".data/shots/e2e/vertretung-bereitschaft-360.png", fullPage: true });
