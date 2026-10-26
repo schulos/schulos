@@ -1,38 +1,55 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Plus, Wand2 } from "lucide-react";
+import { ArrowLeft, GraduationCap, Plus, Upload, Wand2 } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
 import { hasPermission } from "@/core/permissions";
 import { toBerlinDate } from "@/core/time";
-import { REDUCTION_REASONS } from "@/core/db/schema";
+import { periods, REDUCTION_REASONS } from "@/core/db/schema";
 import { readSchoolSettings } from "@/core/settings";
 import {
+  addBandMemberAction,
   addReductionAction,
   deleteAssignmentAction,
+  deleteBandAction,
   deleteReductionAction,
   importAssignmentsAction,
+  removeBandMemberAction,
   saveAssignmentAction,
+  saveBandAction,
   saveObligationAction,
+  saveTeacherDayRuleAction,
+  saveGradeRulesAction,
+  applyGradeRuleDefaultsAction,
+  saveTeacherSubjectsAction,
 } from "@/modules/stundenplan/actions";
+import { pickList, teacherSubjectMap } from "@/modules/stundenplan/lehrfaecher";
+import { formName } from "@/core/school/catalog";
+import { classGrades, listGradeRules } from "@/modules/stundenplan/jahrgangsregeln";
+import { dayRuleFor, LUNCH_MIN_MINUTES, ruleSummary } from "@/modules/stundenplan/tagesgrenzen";
 import { DIAGNOSIS_CATEGORIES, diagnoseYear, type DiagnosisCategory } from "@/modules/stundenplan/diagnose";
 import { defaultObligation, deputyAccounts, REDUCTION_LABELS, reductionKind, type DeputyAccount } from "@/modules/stundenplan/deputate";
 import { timetableMasterData } from "@/modules/stundenplan/service";
-import { distribution, planningYear, PLANNED_GROUP_KINDS, type Distribution } from "@/modules/stundenplan/verteilung";
+import { distribution, planningYear, PLANNED_GROUP_KINDS, type Assignment, type Distribution } from "@/modules/stundenplan/verteilung";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
+import { Input } from "@schulos/ui/field";
 import { EmptyState, PageHeader, SubjectBar } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
+import { ExportMenu } from "@/ui/export-menu";
 import { AssignmentForm, type AssignmentFormValues } from "./assignment-form";
-import { ObligationForm, ReductionForm } from "./deputy-forms";
+import { BandForm, BandMemberForm } from "./band-forms";
+import { GradeRulesForm } from "./grade-rules-form";
+import { ObligationForm, ReductionForm, TeacherDayRuleForm } from "./deputy-forms";
 import { DiagnosisView } from "./diagnosis";
+import { TeacherSubjectsForm } from "./teacher-subjects-form";
 
 export const metadata: Metadata = { title: "Unterrichtsverteilung" };
 
-type Search = { ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string };
+type Search = { ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string; stichtag?: string };
 
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "UTC" });
@@ -70,26 +87,30 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
     );
   }
   const today = toBerlinDate(new Date());
-  const [d, master, school] = await Promise.all([distribution(db, year, today), timetableMasterData(db), readSchoolSettings(db)]);
+  // SP2-09: Verteilung an einem wählbaren Stichtag (Lehraufträge mit Gültigkeit, z. B. 2. Halbjahr)
+  const stichtag = sp.stichtag && /^\d{4}-\d{2}-\d{2}$/.test(sp.stichtag) ? sp.stichtag : undefined;
+  const [d, master, school, fakultas] = await Promise.all([distribution(db, year, stichtag ?? today), timetableMasterData(db), readSchoolSettings(db), teacherSubjectMap(db)]);
   const fallback = defaultObligation(school.profile.form);
   const accounts = await deputyAccounts(db, year.id, d.teachers, fallback);
+  const subjectOptions = master.subjects.map((s) => ({ value: s.id, label: s.name, color: s.color }));
   const teachersView = sp.ansicht === "lehrkraefte";
   const diagnoseView = sp.ansicht === "diagnose";
-  const report = diagnoseView ? await diagnoseYear(db, year, today, fallback, d) : null;
+  const bandsView = sp.ansicht === "baender";
+  const limitsView = sp.ansicht === "tagesgrenzen";
+  const report = diagnoseView ? await diagnoseYear(db, year, stichtag ?? today, fallback, d) : null;
   const category = DIAGNOSIS_CATEGORIES.find((c): c is DiagnosisCategory => c === sp.kategorie);
   const group = d.groups.find((g) => g.id === sp.gruppe);
   const teacher = teachersView ? d.teachers.find((t) => t.id === sp.lehrkraft) : undefined;
-  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id };
+  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : bandsView ? "baender" : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id, stichtag };
   const back = href(current);
 
   // ------------------------------------------------------------ Formular
-  const editing = sp.auftrag ? d.assignments.find((a) => a.id === sp.auftrag) : undefined;
+  const editing = sp.auftrag ? [...d.assignments, ...d.otherTime].find((a) => a.id === sp.auftrag) : undefined;
   let form: React.ReactNode = null;
   if (editing || sp.neu !== undefined) {
-    const [first, ...coupled] = editing?.groups.map((g) => g.id) ?? [group?.id ?? ""];
     const initial: AssignmentFormValues = {
-      groupId: first ?? "",
-      coupledGroupIds: coupled.join(","),
+      groupId: editing?.groups[0]?.id ?? group?.id ?? "",
+      bandId: editing?.bandId ?? "",
       subjectId: editing?.subjectId ?? "",
       hours: String(editing?.hours ?? 2),
       doubleLessons: String(editing?.doubleLessons ?? 0),
@@ -97,6 +118,8 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
       teacher2Id: editing?.teachers[1]?.id ?? "",
       roomId: editing?.roomId ?? "",
       note: editing?.note ?? "",
+      validFrom: editing?.validFrom ?? "",
+      validUntil: editing?.validUntil ?? "",
     };
     form = (
       <Card aria-labelledby="assignment-form-title">
@@ -109,14 +132,17 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
           deleteAction={editing ? deleteAssignmentAction.bind(null, editing.id, back) : undefined}
           initial={initial}
           back={back}
+          year={year}
           options={{
             groups: PLANNED_GROUP_KINDS.map((k) => ({
               label: GROUP_KIND_LABELS[k],
               options: d.groups.filter((g) => g.kind === k).map((g) => ({ value: g.id, label: g.name })),
             })).filter((g) => g.options.length),
             subjects: master.subjects.map((s) => ({ value: s.id, label: s.name })),
-            teachers: d.teachers.map((t) => ({ value: t.id, label: `${t.code ?? "–"} – ${t.name}` })),
+            // SP2-12: Lehrfächer + Restdeputat (Soll − Lehraufträge) für die Vorschläge passend zum Fach
+            teachers: pickList(accounts, fakultas),
             rooms: master.rooms.map((r) => ({ value: r.id, label: r.id === r.name ? r.id : `${r.id} – ${r.name}` })),
+            bands: d.bands.map((b) => ({ value: b.id, label: b.name, hours: b.hours, doubleLessons: b.doubleLessons })),
           }}
         />
       </Card>
@@ -131,6 +157,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         title="Unterrichtsverteilung"
         actions={
           <>
+            <ExportMenu arts={["verteilung", "deputate"]} perms={perms} />
             {unmatchedCount > 0 && (
               <form action={importAssignmentsAction}>
                 <Button type="submit">
@@ -138,6 +165,11 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
                 </Button>
               </form>
             )}
+            <Button asChild>
+              <Link href="/planung/unterricht/import">
+                <Upload aria-hidden /> CSV-Import
+              </Link>
+            </Button>
             <Button asChild variant="primary">
               <Link href={href({ ...current, neu: "1" })}>
                 <Plus aria-hidden /> Lehrauftrag anlegen
@@ -147,26 +179,56 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         }
       />
       <p className="-mt-3 text-sm text-muted">
-        Schuljahr {year.name} · „verplant“ zählt die Stunden im Stundenplan am {dateFmt.format(new Date(`${d.refYmd}T00:00:00Z`))} (A-/B-Wochen halb).
+        Schuljahr {year.name} · Lehraufträge und „verplant“ (Stunden im Stundenplan, A-/B-Wochen halb) am {dateFmt.format(new Date(`${d.refYmd}T00:00:00Z`))}
+        {d.otherTime.length > 0 && ` · ${d.otherTime.length} ${d.otherTime.length === 1 ? "Lehrauftrag gilt" : "Lehraufträge gelten"} an diesem Tag nicht`}
       </p>
+      <form method="get" aria-label="Stichtag wählen" className="-mt-3 flex flex-wrap items-end gap-2">
+        {Object.entries(current)
+          .filter((e): e is [string, string] => Boolean(e[1]) && e[0] !== "stichtag")
+          .map(([k, v]) => (
+            <input key={k} type="hidden" name={k} value={v} />
+          ))}
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Stichtag</span>
+          <Input type="date" name="stichtag" min={year.startsOn} max={year.endsOn} defaultValue={d.refYmd} />
+        </label>
+        <Button type="submit" size="sm">
+          Anzeigen
+        </Button>
+        {stichtag && (
+          <Button asChild size="sm" variant="ghost">
+            <Link href={href({ ...current, stichtag: undefined })}>Heute</Link>
+          </Button>
+        )}
+      </form>
       {sp.uebernommen !== undefined && (
         <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
           {sp.uebernommen === "0" ? "Alle Stunden des Stundenplans haben schon einen Lehrauftrag." : `${sp.uebernommen} Lehraufträge aus dem Stundenplan übernommen.`}
         </p>
       )}
-      <nav aria-label="Ansicht" className="flex gap-2">
-        <Button asChild size="sm" variant={teachersView || diagnoseView ? "ghost" : "secondary"}>
-          <Link href={href({})} aria-current={teachersView || diagnoseView ? undefined : "page"}>
+      <nav aria-label="Ansicht" className="flex flex-wrap gap-2">
+        <Button asChild size="sm" variant={teachersView || diagnoseView || bandsView || limitsView ? "ghost" : "secondary"}>
+          <Link href={href({ stichtag })} aria-current={teachersView || diagnoseView || bandsView || limitsView ? undefined : "page"}>
             Klassen & Kurse
           </Link>
         </Button>
         <Button asChild size="sm" variant={teachersView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "lehrkraefte" })} aria-current={teachersView ? "page" : undefined}>
+          <Link href={href({ ansicht: "lehrkraefte", stichtag })} aria-current={teachersView ? "page" : undefined}>
             Lehrkräfte
           </Link>
         </Button>
+        <Button asChild size="sm" variant={bandsView ? "secondary" : "ghost"}>
+          <Link href={href({ ansicht: "baender", stichtag })} aria-current={bandsView ? "page" : undefined}>
+            Bänder
+          </Link>
+        </Button>
+        <Button asChild size="sm" variant={limitsView ? "secondary" : "ghost"}>
+          <Link href={href({ ansicht: "tagesgrenzen", stichtag })} aria-current={limitsView ? "page" : undefined}>
+            Tagesgrenzen
+          </Link>
+        </Button>
         <Button asChild size="sm" variant={diagnoseView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "diagnose" })} aria-current={diagnoseView ? "page" : undefined}>
+          <Link href={href({ ansicht: "diagnose", stichtag })} aria-current={diagnoseView ? "page" : undefined}>
             Diagnose
           </Link>
         </Button>
@@ -175,16 +237,20 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         </Button>
       </nav>
       {form}
-      {report ? (
+      {limitsView ? (
+        <LimitsView saved={sp.gespeichert} />
+      ) : bandsView ? (
+        <BandsView d={d} bandParam={sp.band} />
+      ) : report ? (
         <DiagnosisView report={report} category={category} refLabel={`Stand ${dateFmt.format(new Date(`${d.refYmd}T00:00:00Z`))}`} />
       ) : group ? (
         <GroupDetail d={d} groupId={group.id} current={current} />
       ) : teacher ? (
-        <TeacherDetail d={d} account={accounts.find((a) => a.id === teacher.id)!} fallback={fallback} current={current} />
+        <TeacherDetail d={d} account={accounts.find((a) => a.id === teacher.id)!} fallback={fallback} current={current} subjects={subjectOptions} selected={fakultas.get(teacher.id) ?? []} />
       ) : teachersView ? (
-        <TeacherOverview accounts={accounts} />
+        <TeacherOverview accounts={accounts} fakultas={fakultas} />
       ) : (
-        <GroupOverview d={d} art={sp.art} />
+        <GroupOverview d={d} art={sp.art} stichtag={stichtag} />
       )}
     </main>
   );
@@ -192,7 +258,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
 
 type Current = Record<string, string | undefined>;
 
-function GroupOverview({ d, art }: { d: Distribution; art?: string }) {
+function GroupOverview({ d, art, stichtag }: { d: Distribution; art?: string; stichtag?: string }) {
   const kinds = PLANNED_GROUP_KINDS.filter((k) => d.groups.some((g) => g.kind === k));
   const kind = kinds.find((k) => k === art) ?? "klasse";
   const list = d.groups.filter((g) => g.kind === kind);
@@ -205,7 +271,7 @@ function GroupOverview({ d, art }: { d: Distribution; art?: string }) {
         <div className="flex flex-wrap gap-1">
           {kinds.map((k) => (
             <Button key={k} asChild size="sm" variant={k === kind ? "secondary" : "ghost"}>
-              <Link href={href({ art: k })} aria-current={k === kind ? "page" : undefined}>
+              <Link href={href({ art: k, stichtag })} aria-current={k === kind ? "page" : undefined}>
                 {GROUP_KIND_LABELS[k]}
               </Link>
             </Button>
@@ -225,7 +291,7 @@ function GroupOverview({ d, art }: { d: Distribution; art?: string }) {
           {list.map((g) => (
             <tr key={g.id}>
               <td>
-                <Link href={href({ art: kind === "klasse" ? undefined : kind, gruppe: g.id })} className="font-medium hover:underline">
+                <Link href={href({ art: kind === "klasse" ? undefined : kind, gruppe: g.id, stichtag })} className="font-medium hover:underline">
                   {g.name}
                 </Link>
               </td>
@@ -257,12 +323,26 @@ function Balance({ balance }: { balance: number }) {
   );
 }
 
-function TeacherOverview({ accounts }: { accounts: DeputyAccount[] }) {
+function TeacherOverview({ accounts, fakultas }: { accounts: DeputyAccount[]; fakultas: Map<string, string[]> }) {
+  const without = accounts.filter((t) => !fakultas.get(t.id)?.length).length;
   return (
     <section aria-labelledby="ov" className="flex flex-col gap-3">
-      <h2 id="ov" className="font-display text-xl font-bold">
-        Deputatskonto je Lehrkraft
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="ov" className="font-display text-xl font-bold">
+          Deputatskonto je Lehrkraft
+        </h2>
+        <Button asChild size="sm">
+          <Link href="/planung/unterricht/lehrfaecher">
+            <GraduationCap aria-hidden /> Lehrfächer importieren (CSV)
+          </Link>
+        </Button>
+      </div>
+      {without > 0 && (
+        <p role="note" className="rounded-lg border border-warn-border bg-warn-soft px-3 py-2 text-sm text-warn">
+          {without === 1 ? "1 Lehrkraft hat" : `${without} Lehrkräfte haben`} noch keine Lehrfächer – bei der Zuweisung erscheinen sie nur unter „alle anzeigen“, und im
+          Fachbedarf zählt ihr Deputat nicht. Lehrfächer in der Zeile der Lehrkraft oder per CSV pflegen.
+        </p>
+      )}
       <Table>
         <thead>
           <tr>
@@ -271,6 +351,7 @@ function TeacherOverview({ accounts }: { accounts: DeputyAccount[] }) {
             <th className="text-right">Lehraufträge</th>
             <th className="text-right">Saldo</th>
             <th className="text-right">verplant</th>
+            <th>Lehrfächer</th>
           </tr>
         </thead>
         <tbody>
@@ -293,6 +374,7 @@ function TeacherOverview({ accounts }: { accounts: DeputyAccount[] }) {
               <td className="text-right">
                 <Coverage planned={t.planned} target={t.assigned} />
               </td>
+              <td>{fakultas.get(t.id)?.length ? <span className="text-sm">{fakultas.get(t.id)!.join(", ")}</span> : <Badge tone="warn">keine gepflegt</Badge>}</td>
             </tr>
           ))}
         </tbody>
@@ -301,8 +383,9 @@ function TeacherOverview({ accounts }: { accounts: DeputyAccount[] }) {
   );
 }
 
-function AssignmentTable({ rows, current, caption, show }: { rows: Distribution["assignments"]; current: Current; caption: string; show: "teachers" | "groups" }) {
+function AssignmentTable({ rows, bands, current, caption, show }: { rows: Distribution["assignments"]; bands: Distribution["bands"]; current: Current; caption: string; show: "teachers" | "groups" }) {
   if (!rows.length) return <EmptyState title="Noch keine Lehraufträge" />;
+  const bandName = new Map(bands.map((b) => [b.id, b.name]));
   return (
     <Table>
       <caption className="sr-only">{caption}</caption>
@@ -332,8 +415,13 @@ function AssignmentTable({ rows, current, caption, show }: { rows: Distribution[
             <td className="text-right tabular-nums">{a.hours}</td>
             <td>
               <span className="flex flex-wrap gap-1">
-                {show === "teachers" && a.groups.length > 1 && <Badge>gekoppelt: {a.groups.length} Gruppen</Badge>}
+                {a.bandId && bandName.get(a.bandId) && (
+                  <Link href={href({ ansicht: "baender", band: a.bandId })} className="hover:underline">
+                    <Badge>Band: {bandName.get(a.bandId)}</Badge>
+                  </Link>
+                )}
                 {show === "groups" && a.teachers.length > 1 && <Badge>Team: {a.teachers.map((t) => t.code).join(" + ")}</Badge>}
+                {(a.validFrom || a.validUntil) && <Badge tone="soft">{validityLabel(a)}</Badge>}
                 {a.doubleLessons > 0 && <Badge>{a.doubleLessons}× Doppelstunde</Badge>}
                 {a.roomId && <Badge>Raum {a.roomId}</Badge>}
                 {a.otherTeacher && <Badge tone="warn">andere Lehrkraft im Plan</Badge>}
@@ -347,6 +435,43 @@ function AssignmentTable({ rows, current, caption, show }: { rows: Distribution[
         ))}
       </tbody>
     </Table>
+  );
+}
+
+const shortDate = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+const fmtYmd = (ymd: string) => shortDate.format(new Date(`${ymd}T00:00:00Z`));
+
+/** SP2-09: „ab 01.02.2027“, „bis 31.01.2027“ bzw. „01.02.2027–30.04.2027“ */
+function validityLabel(a: Pick<Assignment, "validFrom" | "validUntil">): string {
+  if (a.validFrom && a.validUntil) return `${fmtYmd(a.validFrom)}–${fmtYmd(a.validUntil)}`;
+  return a.validFrom ? `ab ${fmtYmd(a.validFrom)}` : `bis ${fmtYmd(a.validUntil!)}`;
+}
+
+/** SP2-09: Lehraufträge der Gruppe, die am Stichtag nicht gelten – zählen dort nirgends mit. */
+function OtherTime({ rows, current }: { rows: Assignment[]; current: Current }) {
+  if (!rows.length) return null;
+  return (
+    <section aria-labelledby="ot" className="flex flex-col gap-2">
+      <h3 id="ot" className="font-semibold">
+        Zu anderer Zeit gültig
+      </h3>
+      <ul className="flex flex-col gap-1 text-sm">
+        {rows.map((a) => (
+          <li key={a.id} className="flex flex-wrap items-center gap-2">
+            <Link href={href({ ...current, auftrag: a.id })} className="font-medium hover:underline">
+              {a.subjectName}
+            </Link>
+            <span className="text-muted">
+              {a.teachers.map((t) => t.code ?? t.name).join(" + ") || "offen"} · {a.hours} Std.
+            </span>
+            <Badge tone="soft">{validityLabel(a)}</Badge>
+            <Link href={href({ ...current, stichtag: a.validFrom ?? a.validUntil ?? undefined })} className="text-accent-ink hover:underline">
+              am {fmtYmd(a.validFrom ?? a.validUntil!)} ansehen
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -397,7 +522,7 @@ function GroupDetail({ d, groupId, current }: { d: Distribution; groupId: string
     : [];
   return (
     <section aria-labelledby="gd" className="flex flex-col gap-4">
-      <BackLink to={href({ art: current.art })} label="Alle Gruppen" />
+      <BackLink to={href({ art: current.art, stichtag: current.stichtag })} label="Alle Gruppen" />
       <div className="flex flex-wrap items-center gap-3">
         <h2 id="gd" className="font-display text-xl font-bold">
           {g.name}
@@ -407,7 +532,8 @@ function GroupDetail({ d, groupId, current }: { d: Distribution; groupId: string
         <Badge>Lehraufträge {num.format(g.assigned)}</Badge>
         <Coverage planned={g.planned} target={g.assigned} />
       </div>
-      <AssignmentTable rows={rows} current={current} caption={`Lehraufträge ${g.name}`} show="teachers" />
+      <AssignmentTable rows={rows} bands={d.bands} current={current} caption={`Lehraufträge ${g.name}`} show="teachers" />
+      <OtherTime rows={d.otherTime.filter((a) => a.groups.some((x) => x.id === groupId))} current={current} />
       {tafel && (
         <section aria-labelledby="st" className="flex flex-col gap-2">
           <h3 id="st" className="font-semibold">
@@ -446,6 +572,8 @@ function DeputyCard({ account: a, fallback }: { account: DeputyAccount; fallback
         </p>
       </div>
       <ObligationForm action={saveObligationAction.bind(null, a.id)} value={a.isDefault ? "" : num.format(a.obligation)} fallback={num.format(fallback)} />
+      {/* SP2-04: Tagesregel (hart im Solver und in der Setzhilfe, geprüft in der Diagnose) */}
+      <TeacherDayRuleForm action={saveTeacherDayRuleAction.bind(null, a.id)} maxPerDay={a.dayRule?.maxPerDay?.toString() ?? ""} maxDays={a.dayRule?.maxDays?.toString() ?? ""} />
       {a.reductions.length > 0 && (
         <Table>
           <caption className="sr-only">Ermäßigungen und Anrechnungen</caption>
@@ -485,7 +613,21 @@ function DeputyCard({ account: a, fallback }: { account: DeputyAccount; fallback
   );
 }
 
-function TeacherDetail({ d, account, fallback, current }: { d: Distribution; account: DeputyAccount; fallback: number; current: Current }) {
+function TeacherDetail({
+  d,
+  account,
+  fallback,
+  current,
+  subjects,
+  selected,
+}: {
+  d: Distribution;
+  account: DeputyAccount;
+  fallback: number;
+  current: Current;
+  subjects: { value: string; label: string; color: string }[];
+  selected: string[];
+}) {
   const t = account;
   const teacherId = t.id;
   const rows = d.assignments.filter((a) => a.teachers.some((x) => x.id === teacherId));
@@ -500,9 +642,209 @@ function TeacherDetail({ d, account, fallback, current }: { d: Distribution; acc
         <Badge>Lehraufträge {num.format(t.assigned)}</Badge>
         <Coverage planned={t.planned} target={t.assigned} />
       </div>
+      {/* SP2-12: Lehrfächer (Fakultas) – Stammdatum der Lehrkraft für Zuweisung und Fachbedarf */}
+      <Card aria-labelledby="fak" className="flex flex-col gap-3">
+        <h3 id="fak" className="text-base font-semibold">
+          Lehrfächer
+        </h3>
+        <TeacherSubjectsForm action={saveTeacherSubjectsAction.bind(null, t.id)} subjects={subjects} selected={selected} />
+      </Card>
       <DeputyCard account={account} fallback={fallback} />
-      <AssignmentTable rows={rows} current={current} caption={`Lehraufträge ${t.name}`} show="groups" />
+      <AssignmentTable rows={rows} bands={d.bands} current={current} caption={`Lehraufträge ${t.name}`} show="groups" />
       <Unmatched rows={d.unmatched.filter((l) => l.teacherId === teacherId)} />
+    </section>
+  );
+}
+
+/** Kurzbezeichnung eines Lehrauftrags: „7a · Religion · RIC“ */
+function assignmentLabel(a: Distribution["assignments"][number]): string {
+  return `${a.groups.map((g) => g.name).join(" + ") || "ohne Gruppe"} · ${a.subjectName} · ${a.teachers.map((t) => t.code ?? t.name).join(" + ") || "offen"}`;
+}
+
+/**
+ * SP2-01: Bänder – Lehraufträge, die zur selben Zeit liegen. Soll = Wochenstunden des Bands, verplant = das am wenigsten verplante
+ * Mitglied, dazu „zur selben Zeit“ = Stunden, in denen alle Mitglieder im selben Slot liegen.
+ */
+function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
+  const editing = d.bands.find((b) => b.id === bandParam);
+  const creating = bandParam === "neu";
+  const byId = new Map(d.assignments.map((a) => [a.id, a]));
+  const back = href({ ansicht: "baender" });
+  let form: React.ReactNode = null;
+  if (editing || creating) {
+    const members = (editing?.memberIds ?? []).map((id) => byId.get(id)).filter((a): a is NonNullable<typeof a> => Boolean(a));
+    const free = d.assignments.filter((a) => !a.bandId);
+    const groupNames = [...new Set(free.map((a) => a.groups[0]?.name ?? "ohne Gruppe"))];
+    form = (
+      <Card aria-labelledby="band-form-title" className="flex flex-col gap-4">
+        <h3 id="band-form-title" className="text-base font-semibold">
+          {editing ? `Band bearbeiten · ${editing.name}` : "Band anlegen"}
+        </h3>
+        <BandForm
+          key={editing?.id ?? "neu"}
+          action={saveBandAction.bind(null, editing?.id ?? null)}
+          deleteAction={editing ? deleteBandAction.bind(null, editing.id) : undefined}
+          initial={{ name: editing?.name ?? "", hours: String(editing?.hours ?? 2), doubleLessons: String(editing?.doubleLessons ?? 0) }}
+          back={back}
+        />
+        {editing && (
+          <section aria-labelledby="band-members" className="flex flex-col gap-3">
+            <h4 id="band-members" className="font-semibold">
+              Lehraufträge im Band
+            </h4>
+            {members.length === 0 ? (
+              <p className="text-sm text-muted">Noch keine – unten einen Lehrauftrag aufnehmen oder im Lehrauftrag das Band wählen.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {members.map((a) => (
+                  <li key={a.id} className="flex flex-wrap items-center gap-2 text-sm">
+                    <SubjectBar color={a.color} className="h-5 w-1 shrink-0" />
+                    <Link href={href({ gruppe: a.groups[0]?.id, auftrag: a.id })} className="font-medium hover:underline">
+                      {assignmentLabel(a)}
+                    </Link>
+                    <Coverage planned={a.planned} target={a.hours} />
+                    <form action={removeBandMemberAction.bind(null, editing.id, a.id)} className="ml-auto">
+                      <Button type="submit" size="sm" variant="ghost" aria-label={`${assignmentLabel(a)} aus dem Band nehmen`}>
+                        Aus dem Band nehmen
+                      </Button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {free.length > 0 && (
+              <BandMemberForm
+                action={addBandMemberAction.bind(null, editing.id)}
+                options={groupNames.map((name) => ({
+                  label: name,
+                  options: free.filter((a) => (a.groups[0]?.name ?? "ohne Gruppe") === name).map((a) => ({ value: a.id, label: assignmentLabel(a) })),
+                }))}
+              />
+            )}
+          </section>
+        )}
+      </Card>
+    );
+  }
+  return (
+    <section aria-labelledby="bands" className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="bands" className="font-display text-xl font-bold">
+          Bänder
+        </h2>
+        <Button asChild>
+          <Link href={href({ ansicht: "baender", band: "neu" })}>
+            <Plus aria-hidden /> Band anlegen
+          </Link>
+        </Button>
+      </div>
+      <p className="-mt-2 text-sm text-muted">
+        Ein Band bündelt Lehraufträge, die zur selben Zeit liegen: Religion/Philosophie, Wahlpflicht, E-/G-Kurse, Oberstufen-Schienen oder eine Lehrkraft für mehrere
+        Gruppen. Wochen- und Doppelstunden gelten für alle Lehraufträge im Band.
+      </p>
+      {form}
+      {d.bands.length === 0 ? (
+        <EmptyState title="Noch keine Bänder" />
+      ) : (
+        <Table>
+          <caption className="sr-only">Bänder mit Soll und verplant</caption>
+          <thead>
+            <tr>
+              <th>Band</th>
+              <th>Lehraufträge</th>
+              <th className="text-right">Std.</th>
+              <th>Hinweise</th>
+              <th className="text-right">verplant</th>
+            </tr>
+          </thead>
+          <tbody>
+            {d.bands.map((b) => (
+              <tr key={b.id} aria-current={editing?.id === b.id ? "true" : undefined}>
+                <td>
+                  <Link href={href({ ansicht: "baender", band: b.id })} className="font-medium hover:underline">
+                    {b.name}
+                  </Link>
+                </td>
+                <td>
+                  {b.memberIds.length === 0 ? (
+                    <Badge tone="warn">leer</Badge>
+                  ) : (
+                    <ul className="flex flex-col gap-0.5 text-sm">
+                      {b.memberIds.map((id) => {
+                        const a = byId.get(id);
+                        return a ? <li key={id}>{assignmentLabel(a)}</li> : null;
+                      })}
+                    </ul>
+                  )}
+                </td>
+                <td className="text-right tabular-nums">{b.hours}</td>
+                <td>
+                  <span className="flex flex-wrap gap-1">
+                    {b.doubleLessons > 0 && <Badge>{b.doubleLessons}× Doppelstunde</Badge>}
+                    {b.memberIds.length > 1 && b.together < b.planned && <Badge tone="warn">nur {num.format(b.together)} Std. zur selben Zeit</Badge>}
+                  </span>
+                </td>
+                <td className="text-right">
+                  <Coverage planned={b.planned} target={b.hours} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+    </section>
+  );
+}
+
+/**
+ * SP2-03: Tagesgrenzen und Ganztag je Jahrgang – höchstens n Stunden am Tag, Mittag nach der n-ten Stunde, höchstens n Nachmittage.
+ * Gilt für die Klassen des Jahrgangs (Kurse des Jahrgangs zählen mit); hart in Solver und Setzhilfe, geprüft in der Diagnose.
+ */
+async function LimitsView({ saved }: { saved?: string }) {
+  const db = await getDb();
+  const [grades, rules, periodRows, school] = await Promise.all([
+    classGrades(db),
+    listGradeRules(db),
+    db.select({ nr: periods.nr, startsAt: periods.startsAt, endsAt: periods.endsAt }).from(periods).orderBy(periods.nr),
+    readSchoolSettings(db),
+  ]);
+  const byGrade = new Map(rules.map((r) => [r.grade, r]));
+  const str = (n: number | null | undefined) => (n === null || n === undefined ? "" : String(n));
+  const rows = grades.map((grade) => {
+    const r = byGrade.get(grade);
+    const eff = r ? dayRuleFor(r, periodRows) : null;
+    const inGrid = r?.lunchAfterPeriod != null && eff?.lunchPeriod === null ? `Mittagspause im Zeitraster nach der ${r.lunchAfterPeriod}. Stunde` : null;
+    const effect = eff ? [ruleSummary(eff), inGrid].filter(Boolean).join(" · ") : "keine Grenzen";
+    return { grade, maxPerDay: str(r?.maxPerDay), afternoonsPerWeek: str(r?.afternoonsPerWeek), lunchAfterPeriod: str(r?.lunchAfterPeriod), effect };
+  });
+  return (
+    <section aria-labelledby="limits" className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="limits" className="font-display text-xl font-bold">
+          Tagesgrenzen und Ganztag
+        </h2>
+        <form action={applyGradeRuleDefaultsAction}>
+          <Button type="submit" variant="secondary">
+            Vorgaben der Schulform übernehmen
+          </Button>
+        </form>
+      </div>
+      <p className="-mt-2 text-sm text-muted">
+        Je Jahrgang für alle Klassen; Stunden der Kurse, Wahlpflicht- und Förderkurse des Jahrgangs zählen mit. Ist zwischen der Mittagsstunde und der nächsten Stunde
+        schon eine Pause von mindestens {LUNCH_MIN_MINUTES} Minuten im Zeitraster, liegt die Mittagspause dort; sonst bleibt die Stunde danach frei, sobald noch
+        Unterricht folgt. Nachmittag ist alles nach der Mittagspause. Leeres Feld = keine Grenze. Die automatische Planung und die Setzhilfe halten die Grenzen ein, die
+        Diagnose zeigt Verstöße im Plan. Vorgaben der Schulform ({formName(school.profile.form, school.profile.state)}) überschreiben die Werte aller Jahrgänge.
+      </p>
+      {saved && (
+        <p role="status" className="text-sm text-success">
+          {saved === "vorgaben" ? "Vorgaben der Schulform übernommen." : "Tagesgrenzen gespeichert."}
+        </p>
+      )}
+      {grades.length === 0 ? (
+        <EmptyState title="Noch keine Klassen mit Jahrgang">Tagesgrenzen gelten je Jahrgang – lege zuerst Klassen mit Jahrgangsstufe an.</EmptyState>
+      ) : (
+        <GradeRulesForm action={saveGradeRulesAction} rows={rows} periodCount={periodRows.length} />
+      )}
     </section>
   );
 }

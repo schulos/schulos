@@ -1,10 +1,11 @@
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { DbHandle } from "@/core/db/client";
-import { periods, rooms, subjects, timetableLessons, users } from "@/core/db/schema";
+import { auditLog, periods, rooms, subjects, timetableLessons, users } from "@/core/db/schema";
 import { createTestDb } from "@/core/db/testing";
 import { timetableMasterData } from "@/modules/stundenplan/service";
 import { createGroup } from "./groups";
-import { createRoom, deleteRoom, getRoom, listRooms, roomUsage, updateRoom, type RoomInput } from "./rooms";
+import { createRoom, deleteRoom, getRoom, listRooms, roomUsage, setRoomActive, updateRoom, type RoomInput } from "./rooms";
 import { ValidationError } from "./users";
 
 const room = (code: string, more: Partial<RoomInput> = {}): RoomInput => ({ code, name: `Raum ${code}`, kind: "klassenraum", equipment: [], accessible: false, active: true, ...more });
@@ -69,5 +70,21 @@ describe("Stammdaten · Räume", () => {
     expect((await listRooms(h.db, { q: "chem" })).map((r) => r.id)).toEqual(["CH1"]);
     await deleteRoom(h.db, "u-admin", "ALT");
     expect(await h.db.select({ id: rooms.id }).from(rooms)).toHaveLength(2);
+  });
+
+  it("Stilllegen und Wiederinbetriebnahme: verplanter Raum bleibt erhalten, Audit, unbekannter Raum", async () => {
+    await createRoom(h.db, "u-admin", room("ST1"));
+    await setRoomActive(h.db, "u-admin", "ST1", false);
+    expect((await getRoom(h.db, "ST1"))?.active).toBe(false);
+    expect((await timetableMasterData(h.db)).rooms.map((r) => r.id)).not.toContain("ST1");
+    await setRoomActive(h.db, "u-admin", "ST1", false); // idempotent
+    await setRoomActive(h.db, "u-admin", "ST1", true);
+    expect((await getRoom(h.db, "ST1"))?.active).toBe(true);
+    const acts = (await h.db.select({ a: auditLog.action }).from(auditLog).where(eq(auditLog.target, "ST1"))).map((r) => r.a);
+    expect(acts).toContain("verwaltung.room.deactivate");
+    expect(acts).toContain("verwaltung.room.activate");
+    expect(acts.filter((a) => a === "verwaltung.room.deactivate")).toHaveLength(1);
+    await expect(setRoomActive(h.db, "u-admin", "NIX", false)).rejects.toBeInstanceOf(ValidationError);
+    await deleteRoom(h.db, "u-admin", "ST1");
   });
 });

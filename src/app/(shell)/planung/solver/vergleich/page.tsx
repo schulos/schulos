@@ -128,6 +128,11 @@ export default async function SolverComparePage({
         r.params ? PRESET_LABELS[r.params.preset] : "–",
     },
     {
+      key: "refYmd",
+      label: "Lehraufträge am",
+      get: (r: (typeof runs)[number]) => r.params?.refYmd ?? "Tag der Berechnung",
+    },
+    {
       key: "seed",
       label: "Startwert",
       get: (r: (typeof runs)[number]) => String(r.params?.seed ?? r.seed),

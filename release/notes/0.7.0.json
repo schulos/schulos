@@ -1,0 +1,13 @@
+{
+  "minVersion": "0.5.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Stundenplanung: Bänder – mehrere Kurse mit eigenen Lehrkräften, Fächern und Räumen liegen zur selben Zeit; Pflege unter Planung → Unterricht → Bänder mit Soll und verplanten Stunden je Band" },
+    { "kind": "verbessert", "text": "Bisherige „gekoppelte“ Lehraufträge werden beim Update automatisch in Bänder umgewandelt – jede Gruppe bekommt einen eigenen Lehrauftrag; bitte die Liste der Bänder nach dem Update kurz durchsehen" },
+    { "kind": "neu", "text": "Der Solver, die Setzhilfe und die Übernahme setzen Bänder als Einheit, mit eigenem Raum je Kurs; die Diagnose warnt, wenn Kurse eines Bands gemeinsame Schüler:innen haben" },
+    { "kind": "behoben", "text": "Gekoppelte Stunden derselben Lehrkraft wurden in der Unterrichtsverteilung doppelt als verplant gezählt" },
+    { "kind": "neu", "text": "Schulbuchausleihe: Ausgabe klassen- oder kursweise per Scan, Rücknahme mit Zustand am Exemplar; wem ein Schulbuch gehört, bleibt nur im laufenden Schuljahr gespeichert" },
+    { "kind": "neu", "text": "Ersatzforderungen für beschädigte oder verlorene Bücher (Betrag, Grund, offen/bezahlt/erlassen) mit Brief an die Eltern bzw. die volljährige Person" },
+    { "kind": "verbessert", "text": "Schuljahreswechsel und Abgangsdialog zeigen offene Bücherei-Posten als Zahl, ohne den Ablauf aufzuhalten" }
+  ]
+}

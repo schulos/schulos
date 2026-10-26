@@ -68,6 +68,9 @@ export function SolverStartForm({
             ))}
           </Select>
         </Field>
+        <Field label="Lehraufträge am" hint="leer = heute; z. B. Beginn des 2. Halbjahrs" error={fe.refYmd}>
+          <Input type="date" name="refYmd" defaultValue={v.refYmd ?? ""} />
+        </Field>
         <FieldActions className="sm:col-span-2">
           <Button type="submit" variant="primary" disabled={pending}>
             {pending ? "Wird angelegt …" : "Plan berechnen"}

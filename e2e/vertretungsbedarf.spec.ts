@@ -1,10 +1,29 @@
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch, publishIfDraft } from "./helpers";
 
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Nächster Tag (heute oder später) mit diesem Wochentag (0 = Montag). */
+function nextWeekday(weekday: number): string {
+  const d = new Date();
+  while ((d.getDay() + 6) % 7 !== weekday) d.setDate(d.getDate() + 1);
+  return ymd(d);
+}
+
 test("Vertretungsbedarf: Lehrkraft krank → offene Stunden; Klasse auf Exkursion → Freisetzungen mit Entfall; aufheben", async ({ page }) => {
   const errors = collectErrors(page);
   await login(page, "frank.schulte");
-  await page.goto("/planung/vertretungen");
+  // ein Tag, an dem Jana Brandt die 7b unterrichtet (der Demo-Plan kommt aus dem Solver – der Wochentag steht nicht fest)
+  await page.goto("/planung/stundenplan?gruppe=g-7b");
+  const plan = page.getByRole("table", { name: "Stundenplan Klasse 7b" });
+  const bra = plan.getByRole("link", { name: /BRA/ }).first();
+  await expect(bra).toBeVisible();
+  const weekday = await bra.evaluate((el) => {
+    const td = el.closest("td")!;
+    return Array.from(td.parentElement!.children).indexOf(td) - 1;
+  });
+  expect(weekday).toBeGreaterThanOrEqual(0);
+  await page.goto(`/planung/vertretungen?datum=${nextWeekday(weekday)}`);
   const form = page.getByRole("form", { name: "Abwesenheit eintragen" });
   await form.getByLabel("Lehrkraft", { exact: true }).selectOption({ label: "BRA – Jana Brandt" });
   await form.getByLabel("Grund").selectOption({ label: "krank" });
@@ -92,6 +111,8 @@ test("SP-12 Fachtausch: Vertretung mit anderem Fach – Klasse, Eltern, Druck un
   await form.getByRole("button", { name: "Speichern" }).click();
   await expect(form.getByRole("status")).toContainText("Gespeichert");
   await publishIfDraft(page);
+  // das Veröffentlichen leitet ohne `gruppe` weiter – für die Stundenliste der 7b zurück auf die Klassensicht
+  await page.goto(`/planung/vertretungen?gruppe=g-7b&datum=${date}`);
   const all = page.getByRole("region", { name: /^Alle Änderungen am/ });
   await expect(all.getByText(`Informatik statt ${regular}`)).toBeVisible();
   await expect(lessons.getByText("→ Informatik").first()).toBeVisible();

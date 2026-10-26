@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -194,13 +194,34 @@ describe("Demo-Stundenplan", () => {
     expect(gaps).toBeLessThanOrEqual(2);
   });
 
-  it("Frau Brandt gibt in der 7b Deutsch und Englisch; Oberstufenkurse eines Jahrgangs liegen nie parallel", async () => {
+  it("Frau Brandt gibt in der 7b Deutsch und Englisch; Q1: die drei Grundkurse der Schiene liegen gemeinsam, der LK daneben", async () => {
     const rows = await h.db.select().from(timetableLessons);
     const sevenB = rows.filter((l) => l.groupId === "g-7b" && ["D", "E"].includes(l.subjectId));
     expect(new Set(sevenB.map((l) => l.teacherId))).toEqual(new Set(["u-jana.brandt"]));
     const q1 = rows.filter((l) => l.groupId.startsWith("g-q1-"));
-    expect(new Set(q1.map((l) => `${l.weekday}:${l.periodNr}`)).size).toBe(q1.length);
     expect(q1.length).toBe(3 + 5 + 3 + 3); // E GK, M LK, D GK, BI GK
+    // SP2-02: das Demo-Band „Q1 GK-Schiene A“ (E, D, BI) liegt als Kopplung in drei Slots, der Mathe-LK nie parallel dazu
+    const slot = (l: { weekday: number; periodNr: number }) => `${l.weekday}:${l.periodNr}`;
+    const band = q1.filter((l) => l.groupId !== "g-q1-m-lk1");
+    const bandSlots = new Set(band.map(slot));
+    expect(bandSlots.size).toBe(3);
+    for (const s of bandSlots) {
+      const inSlot = band.filter((l) => slot(l) === s);
+      expect(inSlot.map((l) => l.subjectId).sort()).toEqual(["BI", "D", "E"]);
+      expect(new Set(inSlot.map((l) => l.couplingId)).size).toBe(1);
+      expect(inSlot[0]!.couplingId).not.toBeNull();
+    }
+    const lk = q1.filter((l) => l.groupId === "g-q1-m-lk1");
+    expect(lk.some((l) => bandSlots.has(slot(l)))).toBe(false);
+    expect(new Set(lk.map(slot)).size).toBe(lk.length);
+    // Q-SP2-6: die Kurse der Schiene haben getrennte Schüler:innen
+    const members = await h.db
+      .select({ groupId: groupMembers.groupId, userId: groupMembers.userId })
+      .from(groupMembers)
+      .innerJoin(users, eq(users.id, groupMembers.userId))
+      .where(and(inArray(groupMembers.groupId, ["g-q1-e-gk1", "g-q1-d-gk1", "g-q1-bi-gk1"]), eq(users.role, "schueler")));
+    expect(new Set(members.map((m) => m.userId)).size).toBe(members.length);
+    expect(members.length).toBe(20);
   });
 });
 

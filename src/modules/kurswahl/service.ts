@@ -25,6 +25,7 @@ import {
   type KurswahlWahl,
 } from "@/core/db/schema";
 import { notify } from "@/core/notifications";
+import { checkSubjectFit } from "@/modules/stundenplan/lehrfaecher";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
 import { LEVEL_LABELS } from "@/core/school/catalog";
 import { childrenOf, isParentFor, isSelfResponsible, parentLinks, selfResponsibleIds } from "@/core/school/majority";
@@ -275,6 +276,13 @@ export interface AngebotInput {
   note: string | null;
   teacherId: string | null;
   hours: number | null;
+  /** SP2-12b: „Trotzdem zuweisen“ – Lehrkraft unterrichtet das Fach laut Stammdaten nicht */
+  offSubjectOk?: boolean;
+}
+
+/** SP2-12b: fachfremde Lehrkraft nur mit Bestätigung (wie SP2-12 im Stundenplan); Rückgabe: Kürzel der bestätigt Fachfremden. */
+async function checkTeacherFit(db: Db, input: AngebotInput): Promise<string[]> {
+  return checkSubjectFit(db, input.subjectId ?? "", input.teacherId ? [input.teacherId] : [], !!input.offSubjectOk, "teacherId");
 }
 
 async function checkAngebot(db: Db, input: AngebotInput): Promise<Record<string, string>> {
@@ -322,6 +330,7 @@ export async function createAngebot(db: Db, perms: PermissionSet, verfahrenId: s
   await editable(db, perms, verfahrenId);
   const fe = await checkAngebot(db, input);
   if (Object.keys(fe).length) throw new ValidationError(fe);
+  const off = await checkTeacherFit(db, input);
   const [last] = await db
     .select({ n: kurswahlAngebote.sortOrder })
     .from(kurswahlAngebote)
@@ -335,6 +344,7 @@ export async function createAngebot(db: Db, perms: PermissionSet, verfahrenId: s
   // G4D-C01: ein neues Angebot war bei der Berechnung nicht dabei
   await invalidateAllocation(db, verfahrenId);
   await audit(db, perms.userId, "kurswahl.angebot.create", verfahrenId, { title: input.title.trim() });
+  if (off.length) await audit(db, perms.userId, "kurswahl.angebot.off_subject", verfahrenId, { subject: input.subjectId, teachers: off });
   return row!.id;
 }
 
@@ -344,6 +354,7 @@ export async function updateAngebot(db: Db, perms: PermissionSet, angebotId: str
   await editable(db, perms, a.verfahrenId);
   const fe = await checkAngebot(db, input);
   if (Object.keys(fe).length) throw new ValidationError(fe);
+  const off = await checkTeacherFit(db, input);
   const next = cleanAngebot(input);
   await db.transaction(async (tx) => {
     await tx.update(kurswahlAngebote).set(next).where(eq(kurswahlAngebote.id, angebotId));
@@ -351,6 +362,7 @@ export async function updateAngebot(db: Db, perms: PermissionSet, angebotId: str
     if (next.minSize !== a.minSize || next.maxSize !== a.maxSize) await invalidateAllocation(tx, a.verfahrenId);
   });
   await audit(db, perms.userId, "kurswahl.angebot.update", a.verfahrenId, { title: input.title.trim() });
+  if (off.length) await audit(db, perms.userId, "kurswahl.angebot.off_subject", a.verfahrenId, { subject: input.subjectId, teachers: off });
 }
 
 /** Löschen nimmt das Angebot auch aus allen abgegebenen Wünschen (die Wahl ist dann ggf. unvollständig). */

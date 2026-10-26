@@ -52,15 +52,16 @@ describe("Klausurplan", () => {
   it("Oberstufe: Regel gilt je Schüler:in über alle Kurse", async () => {
     const jana = await p("u-jana.brandt");
     await createExam(h.db, jana, { ...base, groupId: "g-q1-e-gk1", subjectId: "E", kind: "klausur", title: "Klausur 1", date: "2026-10-20" }, TODAY);
-    // Teilmenge der Q1 im Deutsch-GK: wer auch im Englisch-GK sitzt, hätte zwei Klausuren an einem Tag
-    const [eng, deu] = await Promise.all(
-      ["g-q1-e-gk1", "g-q1-d-gk1"].map(async (g) =>
+    // Teilmenge der Q1 im Mathe-LK: wer auch im Englisch-GK sitzt, hätte zwei Klausuren an einem Tag (die drei GK der Schiene
+    // haben seit SP2-02 getrennte Schüler:innen – darum gegen den LK prüfen)
+    const [eng, lk] = await Promise.all(
+      ["g-q1-e-gk1", "g-q1-m-lk1"].map(async (g) =>
         (await h.db.select({ id: groupMembers.userId }).from(groupMembers).innerJoin(users, eq(users.id, groupMembers.userId)).where(and(eq(groupMembers.groupId, g), eq(users.role, "schueler")))).map((r) => r.id),
       ),
     );
-    const overlap = deu!.filter((s) => eng!.includes(s)).length;
+    const overlap = lk!.filter((s) => eng!.includes(s)).length;
     expect(overlap).toBeGreaterThan(0);
-    expect(await ruleViolations(h.db, "g-q1-d-gk1", "2026-10-20")).toEqual([`${overlap} Schüler:innen haben an diesem Tag schon eine Arbeit: Englisch (Q1 Englisch GK1)`]);
+    expect(await ruleViolations(h.db, "g-q1-m-lk1", "2026-10-20")).toEqual([`${overlap} Schüler:innen haben an diesem Tag schon eine Arbeit: Englisch (Q1 Englisch GK1)`]);
   });
 
   it("validiert Datum und Stunden; sichtbar für Klasse und Eltern, nicht für fremde Schüler:innen", async () => {

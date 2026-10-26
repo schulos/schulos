@@ -14,7 +14,8 @@ import { coupledGroupLabel } from "@/modules/stundenplan/display";
 import { periodPreview } from "@/modules/stundenplan/periode";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { DIAGNOSIS_LABELS, groupPlanFindings } from "@/modules/stundenplan/diagnose";
-import { couplingParts, defaultValidity, lessonsOfGroup, plannableGroups, suggestRoom, teacherOptions, WEEKDAYS } from "@/modules/stundenplan/manage";
+import { couplingParts, defaultValidity, lessonsOfGroup, plannableGroups, suggestRoom, WEEKDAYS } from "@/modules/stundenplan/manage";
+import { loadPickList, teacherSubjectMap } from "@/modules/stundenplan/lehrfaecher";
 import { timetableMasterData } from "@/modules/stundenplan/service";
 import { assignmentPlacement, movePlacement, moveGridInput, openAssignments, placementGrid, type Cell } from "@/modules/stundenplan/setzhilfe";
 import { PLANNED_GROUP_KINDS } from "@/modules/stundenplan/verteilung";
@@ -24,6 +25,7 @@ import { Card } from "@schulos/ui/card";
 import { Input, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader, SubjectBar } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
+import { ExportMenu } from "@/ui/export-menu";
 import { CouplingForm, type CouplingFormValues } from "./coupling-form";
 import { LessonForm, type LessonFormValues } from "./lesson-form";
 import { MoveLink, OpenPanel, PlacementCell } from "./setzhilfe-ui";
@@ -42,7 +44,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
   const sp = await searchParams;
   const db = await getDb();
   const today = toBerlinDate(new Date());
-  const [groupList, master, teachers] = await Promise.all([plannableGroups(db), timetableMasterData(db), teacherOptions(db)]);
+  const [groupList, master, fakultas] = await Promise.all([plannableGroups(db), timetableMasterData(db), teacherSubjectMap(db)]);
   const group = groupList.find((g) => g.id === sp.gruppe);
   // Planungsstand: heute oder der Beginn einer künftigen Periode (nach „Periode kopieren“)
   const stand = sp.stand && /^\d{4}-\d{2}-\d{2}$/.test(sp.stand) && sp.stand > today ? sp.stand : undefined;
@@ -54,11 +56,14 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
         eyebrow="Stundenplanung"
         title="Stundenplan pflegen"
         actions={
-          <Button asChild>
-            <Link href="/planung/solver">
-              <Wand2 aria-hidden /> Automatisch planen
-            </Link>
-          </Button>
+          <>
+            <ExportMenu arts={["gesamt-klassen", "gesamt-lehrkraefte"]} perms={perms} />
+            <Button asChild>
+              <Link href="/planung/solver">
+                <Wand2 aria-hidden /> Automatisch planen
+              </Link>
+            </Button>
+          </>
         }
       />
       <form className="flex flex-wrap items-end gap-3">
@@ -124,11 +129,13 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
   const editing = !modeOn && sp.stunde ? lessons.find((r) => r.l.id === sp.stunde && !r.l.couplingId) : undefined;
   const [newDay, newPeriod] = (sp.neu ?? "").split("-").map(Number);
   const creating = !editing && sp.neu !== undefined && Number.isInteger(newDay) && Number.isInteger(newPeriod);
+  // SP2-12: Lehrfächer + Restdeputat nur laden, wenn ein Formular offen ist
+  const formOpen = Boolean(editing || creating || (sp.kopplung && (sp.kopplung !== "neu" || sp.von || creating)));
   const options = {
     weekdays: WEEKDAYS.map((d, i) => ({ value: String(i), label: d })),
     periods: master.periods.map((p) => ({ value: String(p.nr), label: `${p.nr}. Stunde (${p.startsAt}–${p.endsAt})` })),
     subjects: master.subjects.map((s) => ({ value: s.id, label: s.name })),
-    teachers: teachers.map((t) => ({ value: t.id, label: `${t.code} – ${t.name}` })),
+    teachers: formOpen ? await loadPickList(db, today) : [],
     rooms: master.rooms.map((r) => ({ value: r.id, label: r.id === r.name ? r.id : `${r.id} – ${r.name}` })),
   };
 
@@ -251,7 +258,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
         </nav>
       )}
       {form}
-      <OpenPanel open={open} base={base} placing={placing?.id} />
+      <OpenPanel open={open} base={base} placing={placing?.id} fakultas={fakultas} />
       {moving && (
         <Card aria-labelledby="move-title" className="flex flex-wrap items-center justify-between gap-3">
           <div>

@@ -2,7 +2,7 @@
 // CSV-Import in der Vorschau; Lehrkraft ohne Teamrecht bekommt 404. Theke (BU-02): Person suchen, scannen, verlängern,
 // Rückgabe nur scannen, Rückgabe mit Befund; Befunde nur für die Verwaltung. Ausweise (BU-07): drucken, scannen, ersetzen.
 // Katalog (BU-03): suchen, vormerken, „Meine Ausleihen“, Eltern-Sicht. Mahnliste und Widget (BU-04). Etiketten und Statistik (BU-05). ISBN-Abfrage (BU-06) ohne Netz: Schalter, Hinweis, Dublette, ungültige ISBN.
-// Stufe 2 (BU-10): Lernmittel mit Inventarnummern anlegen, Etiketten, Bücherliste freigeben, Eltern lesen sie. BU-11: Schulbuchausgabe.
+// Stufe 2 (BU-10): Lernmittel mit Inventarnummern anlegen, Etiketten, Bücherliste freigeben, Eltern lesen sie. BU-11: Schulbuchausgabe. BU-16: Klassenleitung sieht nur Zahlen.
 import { expect, test } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch } from "./helpers";
 
@@ -203,8 +203,8 @@ test.describe("Bücherei", () => {
     await page.getByRole("link", { name: "Bücherei", exact: true }).first().click();
     await expect(page).toHaveURL("/buecherei/katalog");
     const nav = page.getByRole("navigation", { name: "Bücherei" });
-    // BU-10: mit eingeschalteter Schulbuchausleihe (Demo) auch die Bücherliste – Lernmittel-Pflege nicht
-    await expect(nav.getByRole("link")).toHaveText(["Katalog", "Meine Ausleihen", "Bücherliste"]);
+    // BU-10: mit eingeschalteter Schulbuchausleihe (Demo) auch die Bücherliste – Lernmittel-Pflege nicht; BU-16: Klassenleitung 7b → „Meine Klasse“
+    await expect(nav.getByRole("link")).toHaveText(["Katalog", "Meine Ausleihen", "Meine Klasse", "Bücherliste"]);
     expect((await page.goto("/buecherei/bestand"))?.status()).toBe(404);
     await logoutForSwitch(page);
   });
@@ -557,12 +557,23 @@ test.describe("Bücherei", () => {
     await claim.getByRole("button", { name: "Ersatz fordern" }).click();
     const open = page.getByRole("list", { name: "Offene Forderungen" }).getByRole("listitem").filter({ hasText: nr });
     await expect(open).toContainText("19,90 €");
+    // BU-17: Hinweis im Ersatzbrief
+    const hint = page.getByRole("form", { name: "Hinweis im Ersatzbrief" });
+    await hint.getByLabel("Hinweis").fill("Bitte im Sekretariat melden (E2E-Hinweis).");
+    await hint.getByRole("button", { name: "Hinweis speichern" }).click();
+    await expect(hint.getByRole("status")).toContainText("Gespeichert");
     await open.getByRole("link", { name: "Brief drucken" }).click();
     await expect(page).toHaveURL(/\/druck\/buecherei-ersatz\?id=/);
     const letter = page.getByRole("main", { name: "Brief Ersatzforderung" });
     await expect(letter).toContainText("Sehr geehrte Erziehungsberechtigte");
     await expect(letter).toContainText("Daniela Schäfer");
     await expect(letter).toContainText("19,90 €");
+    await expect(page.getByTestId("ersatz-hinweis")).toHaveText("Bitte im Sekretariat melden (E2E-Hinweis).");
+    // Hinweis wieder leeren, damit andere Läufe unverändert bleiben
+    await page.goto("/buecherei/ersatz");
+    await page.getByRole("form", { name: "Hinweis im Ersatzbrief" }).getByLabel("Hinweis").fill("");
+    await page.getByRole("form", { name: "Hinweis im Ersatzbrief" }).getByRole("button", { name: "Hinweis speichern" }).click();
+    await expect(page.getByRole("form", { name: "Hinweis im Ersatzbrief" }).getByRole("status")).toContainText("Gespeichert");
     expect(errors).toEqual([]);
     await logoutForSwitch(page);
 
@@ -580,6 +591,27 @@ test.describe("Bücherei", () => {
     expect(errors).toEqual([]);
   });
 
+  test("BU-14: Rückgabetag der Schulbücher festlegen, Prüfung, zurück auf Schuljahresende", async ({ page }) => {
+    const errors = collectErrors(page);
+    await login(page, "sabine.kowalski");
+    await page.goto("/buecherei/ausgabe");
+    const card = page.getByRole("article", { name: /Rückgabetag/ });
+    await expect(card).toContainText("Schuljahresende");
+    const form = page.getByRole("form", { name: "Rückgabetag festlegen" });
+    await form.getByLabel("Rückgabetag").fill("2000-01-01");
+    await form.getByRole("button", { name: "Rückgabetag speichern" }).click();
+    await expect(form).toContainText("Vergangenheit");
+    await form.getByLabel("Rückgabetag").fill("2027-07-15");
+    await form.getByRole("button", { name: "Rückgabetag speichern" }).click();
+    await expect(page.getByRole("article", { name: /Rückgabetag/ })).toContainText("15.07.2027");
+    await expect(page.getByRole("article", { name: /Rückgabetag/ })).not.toContainText("Schuljahresende)");
+    // zurück auf leer = Schuljahresende
+    await page.getByRole("form", { name: "Rückgabetag festlegen" }).getByLabel("Rückgabetag").fill("");
+    await page.getByRole("form", { name: "Rückgabetag festlegen" }).getByRole("button", { name: "Rückgabetag speichern" }).click();
+    await expect(page.getByRole("article", { name: /Rückgabetag/ })).toContainText("(Schuljahresende)");
+    expect(errors).toEqual([]);
+  });
+
   test("BU-13: Abgangsdialog nennt offene Schulbücher als Hinweis (Abgang bleibt möglich)", async ({ page }) => {
     const errors = collectErrors(page);
     await login(page, "sabine.kowalski");
@@ -592,6 +624,68 @@ test.describe("Bücherei", () => {
     await expect(note).toContainText(/\d Schulbücher/);
     await expect(note).toContainText("nicht aufgehalten");
     await expect(page.getByRole("button", { name: "Abgang eintragen" })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("BU-16: Klassenleitung sieht offene Schulbücher ihrer Klasse nur als Zahl – keine Titel, Einzelheiten 404", async ({ page }) => {
+    test.setTimeout(120_000);
+    const errors = collectErrors(page);
+    const MAT = "Klassenleitungsbuch 7 (E2E)";
+    await login(page, "sabine.kowalski");
+    await page.goto("/buecherei/lernmittel");
+    const create = page.getByRole("form", { name: "Lernmittel anlegen" });
+    await create.getByLabel("Titel", { exact: true }).fill(MAT);
+    await create.getByLabel("Jahrgänge").selectOption(["7"]);
+    await create.getByLabel("Exemplare der Schule").fill("1");
+    await create.getByRole("button", { name: "Anlegen" }).click();
+    await expect(page.getByRole("heading", { name: MAT })).toBeVisible();
+    const nr = (await page.getByRole("table", { name: `Exemplare von ${MAT}` }).getByText(/^L-\d{6}-\d$/).first().textContent())!.trim();
+    await page.goto("/buecherei/ausgabe?gruppe=g-7b");
+    await page.getByRole("table", { name: "Schulbücher je Schüler:in in Klasse 7b" }).getByRole("link", { name: "Lea Schäfer" }).click();
+    await expect(page.getByRole("heading", { name: "Ausgabe an Lea Schäfer" })).toBeVisible();
+    const scan = page.getByRole("form", { name: "Schulbuch scannen" });
+    await scan.getByLabel("Ausweis oder Schulbuch scannen").fill(nr);
+    await scan.getByRole("button", { name: "Buchen" }).click();
+    await expect(scan.getByRole("status")).toContainText("Ausgegeben");
+    // ein echter Brief-Link (Demo-Forderung) für die Gegenprobe
+    await page.goto("/buecherei/ersatz");
+    const letterHref = (await page.getByRole("link", { name: "Brief drucken" }).first().getAttribute("href"))!;
+    await logoutForSwitch(page);
+
+    // Klassenleitung 7b: Reiter „Meine Klasse“, Lea mit einer Zahl, kein Titel, keine Inventarnummer
+    await login(page, "jana.brandt");
+    await page.goto("/buecherei/katalog");
+    await page.getByRole("navigation", { name: "Bücherei" }).getByRole("link", { name: "Meine Klasse" }).click();
+    await expect(page).toHaveURL("/buecherei/klasse");
+    await expect(page.getByRole("heading", { name: "Meine Klasse" })).toBeVisible();
+    const table = page.getByRole("table", { name: "Offene Posten in Klasse 7b" });
+    await expect(table.getByRole("columnheader", { name: "Schulbücher offen" })).toBeVisible();
+    const lea = table.getByRole("row").filter({ hasText: "Lea Schäfer" });
+    await expect(lea.getByRole("cell").nth(1)).toHaveText(/^[1-9]\d*$/);
+    const main = page.getByRole("main");
+    await expect(main).not.toContainText(MAT);
+    await expect(main).not.toContainText(nr);
+    await expect(main).not.toContainText(/L-\d{6}-\d/);
+    expect(errors).toEqual([]);
+    // Einzelheiten bleiben gesperrt: Schulbuchausgabe, Ersatzforderungen, Brief, Ausweisdruck, Theke
+    for (const url of ["/buecherei/ausgabe?gruppe=g-7b", "/buecherei/ersatz", letterHref, "/druck/buecherei-ausweise?klasse=g-7b", "/buecherei/theke", "/buecherei/mahnliste"]) {
+      expect((await page.goto(url))?.status(), url).toBe(404);
+    }
+    await logoutForSwitch(page);
+    // Schülerin: keine Klassenansicht
+    await login(page, "lea.schaefer");
+    expect((await page.goto("/buecherei/klasse"))?.status()).toBe(404);
+    await expect(page.getByRole("navigation", { name: "Bücherei" })).toHaveCount(0);
+    await logoutForSwitch(page);
+    errors.length = 0; // die gewollten 404 zählen nicht
+
+    // aufräumen: zurücknehmen
+    await login(page, "sabine.kowalski");
+    await page.goto("/buecherei/ausgabe");
+    const back = page.getByRole("form", { name: "Schulbuch scannen" });
+    await back.getByLabel("Ausweis oder Schulbuch scannen").fill(nr);
+    await back.getByRole("button", { name: "Buchen" }).click();
+    await expect(back.getByRole("status")).toContainText("Zurückgenommen");
     expect(errors).toEqual([]);
   });
 });

@@ -39,6 +39,23 @@ export function encodeCp1252(text: string): Uint8Array {
   return Uint8Array.from(out);
 }
 
+const CP1252_DECODE = new Map(Object.entries(CP1252_HIGH).map(([ch, b]) => [b, ch]));
+
+/**
+ * SP2-06: hochgeladene CSV lesen – gültiges UTF-8 (mit oder ohne BOM) bleibt UTF-8, sonst Windows-1252 (Tabellenprogramme
+ * unter Windows speichern „CSV“ oft so). Ein BOM fällt weg.
+ */
+export function decodeCsvBytes(bytes: Uint8Array): { text: string; encoding: CsvEncoding } {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return { text: text.startsWith("﻿") ? text.slice(1) : text, encoding: "utf8" };
+  } catch {
+    let text = "";
+    for (const b of bytes) text += b >= 0x80 && b <= 0x9f ? (CP1252_DECODE.get(b) ?? String.fromCharCode(b)) : String.fromCharCode(b);
+    return { text, encoding: "cp1252" };
+  }
+}
+
 /** CSV-Datei in der gewählten Kodierung: UTF-8 mit BOM oder Windows-1252 ohne BOM. */
 export function csvBytes(rows: readonly (readonly (string | number | null | undefined)[])[], encoding: CsvEncoding): Uint8Array {
   const text = toCsv(rows);

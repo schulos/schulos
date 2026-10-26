@@ -24,6 +24,7 @@ import { Input, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { AreaForm, DutyForm } from "./forms";
+import { ExportMenu } from "@/ui/export-menu";
 
 export const metadata: Metadata = { title: "Pausenaufsichten" };
 
@@ -52,7 +53,7 @@ export default async function AufsichtenPage({ searchParams }: { searchParams: P
 
   return (
     <main className="flex flex-col gap-6">
-      <PageHeader eyebrow="Stundenplanung" title="Pausenaufsichten" />
+      <PageHeader eyebrow="Stundenplanung" title="Pausenaufsichten" actions={<ExportMenu arts={["aufsichten"]} perms={perms} />} />
       {sp.fehler && (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
           {sp.fehler}

@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -151,8 +152,11 @@ describe("SEC-09: Entsperren und Secure Boot", () => {
 
 // Das Skript echt in bash ausführen – systemd-cryptenroll und blkid als Attrappen, die ihre Aufrufe mitschreiben
 const bash =
-  spawnSync("bash", ["-c", "command -v sha256sum od awk find"]).status === 0;
-describe.skipIf(!bash)("SEC-09: tpm-binden.sh (bash, Attrappen)", () => {
+  spawnSync("bash", ["-c", "command -v sha256sum od awk find sort xargs"]).status === 0;
+// G4E-O02-Wackler: jeder Lauf startet echte Prozesse (bash, find, sha256sum …) – unter der Last der ganzen Suite dauert ein Test
+// auf Windows bis ~20 s (allein ~3 s) und lief gelegentlich in die 30-s-Grenze. Daher weniger Prozesse je Lauf (Stand mit einem
+// sha256sum-Aufruf, chmod einmal beim Anlegen) und ein eigenes Zeitbudget für diese Gruppe statt Wiederholungen.
+describe.skipIf(!bash)("SEC-09: tpm-binden.sh (bash, Attrappen)", { timeout: 120_000 }, () => {
   let dir = "";
   afterEach(() => dir && rmSync(dir, { recursive: true, force: true }));
 
@@ -176,12 +180,13 @@ describe.skipIf(!bash)("SEC-09: tpm-binden.sh (bash, Attrappen)", () => {
       path.join(dir, "stubs/blkid"),
       '#!/bin/bash\n[ -n "${MEDIUM:-}" ] && echo /dev/sr0\nexit 0\n',
     );
+    for (const stub of ["systemd-cryptenroll", "blkid"]) chmodSync(path.join(dir, "stubs", stub), 0o755);
     const run = (arg: string, env: Record<string, string> = {}) => {
       const r = spawnSync(
         "bash",
         [
           "-c",
-          'u() { cygpath -u "$1" 2>/dev/null || echo "$1"; }; D=$(u "$D"); chmod +x "$D"/stubs/*; ' +
+          'u() { cygpath -u "$1" 2>/dev/null || echo "$1"; }; D=$(u "$D"); ' +
             'PATH="$D/stubs:$PATH" SCHULOS_TPM_STATE="$D/state" SCHULOS_CRYPTTAB="$D/crypttab" SCHULOS_BOOT_DIR="$D/boot" ' +
             'SCHULOS_SB_VAR="$D/sb" CALLS="$D/calls" bash "$D/tpm-binden.sh" "$1"',
           "_",
@@ -301,6 +306,23 @@ describe.skipIf(!bash)("SEC-09: tpm-binden.sh (bash, Attrappen)", () => {
     expect(t.marker()).toBe(false);
     expect(readFileSync(path.join(dir, "state/fehler"), "utf8")).toMatch(/Übergangsschlüssel nicht angelegt/);
     expect(t.run("x").status).toBe(64);
+  });
+
+  it("G4E-O02: Stand mit einem sha256sum-Aufruf je Lauf ist derselbe wie früher mit einem Aufruf je Datei (kein Übergang nach dem Update)", () => {
+    setup();
+    mkdirSync(path.join(dir, "boot/grub/locale"), { recursive: true });
+    writeFileSync(path.join(dir, "boot/grub/locale/de.mo"), "mo");
+    writeFileSync(path.join(dir, "boot/datei mit leerzeichen"), "x");
+    const hash = (pipeline: string) =>
+      spawnSync("bash", ["-c", `B=$(cygpath -u "$D" 2>/dev/null || echo "$D")/boot; ${pipeline}`], {
+        encoding: "utf8",
+        env: { ...process.env, D: dir },
+      }).stdout.trim();
+    const before = hash(`find "$B" -type f -print | LC_ALL=C sort | while IFS= read -r f; do sha256sum "$f"; done | sha256sum | cut -d' ' -f1`);
+    const now = hash(`find "$B" -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1`);
+    expect(now).toMatch(/^[0-9a-f]{64}$/);
+    expect(now).toBe(before);
+    expect(TPM_SCRIPT_CONTENT).toContain("xargs -0 -r sha256sum");
   });
 
   it("TPM2 mit PIN, Passphrase oder ohne crypttab: nie etwas tun", () => {

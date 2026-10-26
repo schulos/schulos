@@ -48,14 +48,20 @@ test("Gate 2 – Abwesenheit: Mutter meldet krank, Klassenleitung entschuldigt, 
   // Klassenleitung trägt am letzten Schultag in einer eigenen 7b-Stunde ein: Lea fehlt
   const jana = await as(browser, "jana.brandt");
   await jana.page.goto("/klassenbuch");
-  const start = jana.page.url();
-  await jana.page.getByRole("link", { name: "Vorheriger Schultag" }).click();
-  await expect(jana.page).not.toHaveURL(start);
   // nur Stunden des angezeigten Tages: nachmittags stehen weiter oben auch heutige offene Stunden – und für heute beurlaubt der
-  // Q5-16-Test (abwesenheiten.spec.ts) Lea; dann stünde dort „beurlaubt“ statt „entschuldigt“
-  const day = new URL(jana.page.url()).searchParams.get("datum")!;
-  expect(day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  const lesson = jana.page.locator(`a[href^="/klassenbuch/eintrag"][href*="datum=${day}"]`).filter({ hasText: "Klasse 7b" }).first();
+  // Q5-16-Test (abwesenheiten.spec.ts) Lea; dann stünde dort „beurlaubt“ statt „entschuldigt“. Der Demo-Plan kommt aus dem Solver –
+  // an welchem Vortag Jana Brandt die 7b hat, steht nicht fest: bis zu fünf Schultage zurückgehen
+  let day = "";
+  let lesson = jana.page.locator("a[href^='/klassenbuch/eintrag']").filter({ hasText: "Klasse 7b" }).first();
+  for (let back = 0; back < 5; back++) {
+    const before = jana.page.url();
+    await jana.page.getByRole("link", { name: "Vorheriger Schultag" }).click();
+    await expect(jana.page).not.toHaveURL(before);
+    day = new URL(jana.page.url()).searchParams.get("datum")!;
+    expect(day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    lesson = jana.page.locator(`a[href^="/klassenbuch/eintrag"][href*="datum=${day}"]`).filter({ hasText: "Klasse 7b" }).first();
+    if ((await lesson.count()) > 0) break;
+  }
   await expect(lesson).toBeVisible();
   const href = (await lesson.getAttribute("href"))!;
   const date = new URL(href, "http://x").searchParams.get("datum")!;

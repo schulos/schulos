@@ -135,8 +135,16 @@ test("P4-64: nach dem Wahlende übernimmt das Sekretariat in Gruppen (mit Hinwei
   const add = page.getByRole("listitem").filter({ hasText: "Spanisch" });
   await add.getByText("Ändern").click();
   const edit = page.getByRole("form", { name: "Spanisch speichern" });
-  await edit.getByLabel("Lehrkraft").selectOption({ label: "Jana Brandt (BRA)" });
+  // SP2-12b: Frau Brandt unterrichtet Französisch laut Stammdaten nicht – erst unter „alle anzeigen“, dann nur mit „Trotzdem zuweisen“
+  await expect(edit.getByLabel("Lehrkraft").locator("option", { hasText: "BRA" })).toHaveCount(0);
+  await edit.getByLabel("alle anzeigen").check();
+  await edit.getByLabel("Lehrkraft").selectOption("u-jana.brandt");
+  await expect(edit.getByLabel("Lehrkraft").locator("option:checked")).toContainText("fachfremd");
+  await expect(edit.getByText("unterrichtet Französisch laut Stammdaten nicht").first()).toBeVisible();
   await edit.getByLabel("Wochenstunden").fill("3");
+  await edit.getByRole("button", { name: "Spanisch speichern" }).click();
+  await expect(edit.getByText("zum Speichern „Trotzdem zuweisen“ ankreuzen").first()).toBeVisible();
+  await edit.getByLabel("Trotzdem zuweisen").check();
   await edit.getByRole("button", { name: "Spanisch speichern" }).click();
   await expect(edit.getByRole("status")).toContainText("Gespeichert");
   await page.getByText("Wahl vom Papier-Wahlbogen eintragen").click();

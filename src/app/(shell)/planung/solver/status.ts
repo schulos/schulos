@@ -32,6 +32,8 @@ export const WEIGHT_FIELDS = [
   { key: "noRoom", label: "Ohne Raum", hint: "je Stunde" },
   { key: "late", label: "Späte Stunde", hint: "je Stunde nach der Grenze" },
   { key: "lateFrom", label: "Grenze späte Stunden", hint: "ganze Zahl: Stunden nach dieser zählen als spät" },
+  { key: "teacherDays", label: "Anwesenheitstag Lehrkraft", hint: "je Tag mit Unterricht (0 = egal)" },
+  { key: "subjectSpread", label: "Fach an Folgetagen", hint: "je vermeidbarem Folgetag (0 = egal)" },
 ] as const;
 
 export type WeightKey = (typeof WEIGHT_FIELDS)[number]["key"];

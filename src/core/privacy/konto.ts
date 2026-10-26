@@ -23,6 +23,7 @@ import "@/core/school/logo";
 import { auditOfUsers, pseudonymizeAudit } from "./protokoll";
 import { qid, refWhere, SOFT_REFS, userRefs, type UserRef } from "./refs";
 import { de } from "@/core/db/sort";
+import { scrubSolverRuns } from "@/modules/stundenplan/solverlauf-konto";
 
 /** Karenz zwischen Abgang und Löschung (Rückfragen, Eigenexport) – Vorgabe; die Schule stellt sie ein (DS-15, 30–365 Tage). */
 export const ACCOUNT_GRACE_DAYS = 90;
@@ -241,15 +242,21 @@ async function heldUserIds(db: Db, todayYmd: string): Promise<string[]> {
   return rows.map((r) => r.userId).filter((x): x is string => Boolean(x));
 }
 
-/** Löscht Konten; alles mit Kaskade geht mit, Verweise mit „set null“ bleiben ohne Namen. */
+/**
+ * Löscht Konten; alles mit Kaskade geht mit, Verweise mit „set null“ bleiben ohne Namen. **Einziger Weg, Konten zu löschen** –
+ * Löschung auf Antrag und nächtlicher Löschlauf rufen beide diese Funktion (DS-21), damit die Bereinigung ohne Fremdschlüssel
+ * (Zeitwünsche, Solver-Läufe) und die sofortige Pseudonymisierung des Audit-Logs nie fehlen. Alles in einer Transaktion.
+ */
 export async function deleteAccounts(db: Db, ids: readonly string[]): Promise<number> {
   if (!ids.length) return 0;
   // Verweise ohne Fremdschlüssel, die mit dem Konto gehen (z. B. Zeitwünsche einer Lehrkraft)
   const soft = SOFT_REFS.filter((r) => r.onDelete === "cascade");
-  // Audit-Log bleibt als Nachweis, aber ohne Klarnamen (sonst stünde dort nur noch „System“ bzw. die sprechende ID)
-  await pseudonymizeAudit(db, auditOfUsers(ids));
   const res = await db.transaction(async (tx) => {
+    // Audit-Log bleibt als Nachweis, aber ohne Klarnamen (sonst stünde dort nur noch „System“ bzw. die sprechende ID)
+    await pseudonymizeAudit(tx, auditOfUsers(ids));
     for (const r of soft) for (const id of ids) await tx.execute(sql`delete from ${qid(r.table)} where ${refWhere(r, id)}`);
+    // SP-14/DS-21: Lehrkraft-Kennungen und -Kürzel in Solver-Läufen (ohne Fremdschlüssel) → Platzhalter „gelöschte Lehrkraft“
+    await scrubSolverRuns(tx, ids);
     return tx.delete(users).where(inArray(users.id, [...ids])).returning({ id: users.id });
   });
   return res.length;

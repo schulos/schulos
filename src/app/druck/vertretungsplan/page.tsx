@@ -5,7 +5,7 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { subjectLabel } from "@/modules/stundenplan/display";
+import { changeLabel, changeOff, changeRoom, changeTeacher, subjectLabel } from "@/modules/stundenplan/display";
 import { planDays, substitutionsOn, type DaySubstitution } from "@/modules/stundenplan/vertretung";
 import { Button } from "@schulos/ui/button";
 import { cn } from "@schulos/ui/cn";
@@ -16,7 +16,6 @@ export const metadata: Metadata = { title: "Vertretungsplan drucken" };
 
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: TZ });
 const shortDate = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TZ });
-const KIND_LABEL = { cancel: "Entfall", substitute: "Vertretung", room: "Raumänderung" } as const;
 
 function DayTable({ date, entries }: { date: string; entries: DaySubstitution[] }) {
   const label = longDay.format(fromBerlinLocal(date));
@@ -39,14 +38,14 @@ function DayTable({ date, entries }: { date: string; entries: DaySubstitution[] 
           </thead>
           <tbody>
             {entries.map((e, i) => (
-              <tr key={e.id} className={cn(i > 0 && entries[i - 1]!.groupId !== e.groupId && "border-t-2 border-ink")}>
+              <tr key={`${e.id}-${e.periodNr}`} className={cn(i > 0 && entries[i - 1]!.groupId !== e.groupId && "border-t-2 border-ink")}>
                 <td className="border border-border-strong px-2 py-1 font-semibold">{i === 0 || entries[i - 1]!.groupId !== e.groupId ? e.groupName : ""}</td>
                 <td className="border border-border-strong px-2 py-1 tabular-nums">{e.periodNr}.</td>
-                <td className={cn("border border-border-strong px-2 py-1", e.kind === "cancel" && "line-through")}>{subjectLabel(e.subjectName, e.insteadOf)}</td>
+                <td className={cn("border border-border-strong px-2 py-1", changeOff(e) && "line-through")}>{subjectLabel(e.subjectName, e.insteadOf)}</td>
                 <td className="border border-border-strong px-2 py-1">{e.teacherCode ?? "–"}</td>
-                <td className="border border-border-strong px-2 py-1 font-semibold">{KIND_LABEL[e.kind]}</td>
-                <td className="border border-border-strong px-2 py-1">{e.kind === "substitute" ? (e.substituteCode ?? e.substituteName ?? "–") : ""}</td>
-                <td className="border border-border-strong px-2 py-1">{e.newRoomId ?? e.roomId ?? ""}</td>
+                <td className="border border-border-strong px-2 py-1 font-semibold">{changeLabel(e)}</td>
+                <td className="border border-border-strong px-2 py-1">{changeTeacher(e) ?? ""}</td>
+                <td className="border border-border-strong px-2 py-1">{changeRoom(e) ?? ""}</td>
                 <td className="border border-border-strong px-2 py-1">{e.note ?? ""}</td>
               </tr>
             ))}

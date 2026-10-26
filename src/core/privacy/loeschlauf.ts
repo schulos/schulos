@@ -16,7 +16,7 @@ import { MODULES } from "@/modules";
 import { sweepOrphanFiles } from "./dateispeicher";
 // Schullogo-Dateien stehen in app_settings und melden sich beim Aufräumlauf per registerStorageKeySource an (P4-03)
 import "@/core/school/logo";
-import { planAccountDeletion, recordTables } from "./konto";
+import { deleteAccounts, planAccountDeletion, recordTables } from "./konto";
 import { pseudonymizeAudit } from "./protokoll";
 import { readPeriods } from "./fristen";
 
@@ -59,6 +59,8 @@ export interface PlanItem {
   clear?: string[];
   /** nur intern: Bedingung für Zählen und Löschen */
   where?: SQL;
+  /** nur intern (Konten): die zu löschenden Konten – gelöscht über `deleteAccounts` (DS-21) */
+  userIds?: string[];
 }
 
 type ColumnTypes = Map<string, Map<string, string>>;
@@ -153,6 +155,7 @@ export async function planDeletion(db: Db, todayYmd: string, entries: readonly R
         scope: "Konten nach Abgang",
         status: "due",
         count: ids.length,
+        userIds: ids,
         where: ids.length ? sql`id in (${sql.join(
           ids.map((u) => sql`${u}`),
           sql`, `,
@@ -291,6 +294,11 @@ export async function runDeletion(
         );
         const cleared = await db.transaction(async (tx) => tx.execute(sql`update ${id(p.table)} set ${set} where ${p.where!} returning 1`));
         items.push({ table: p.table, scope: p.scope, deleted: rowsOf<unknown>(cleared).length });
+        continue;
+      }
+      if (p.userIds) {
+        // DS-21: Konten nur über die gemeinsame Kontolöschung – Verweise ohne Fremdschlüssel, Solver-Läufe, Audit-Log sofort pseudonymisiert
+        items.push({ table: p.table, scope: p.scope, deleted: await deleteAccounts(db, p.userIds) });
         continue;
       }
       const res = await db.transaction(async (tx) => tx.execute(sql`delete from ${id(p.table)} where ${p.where!} returning 1`));

@@ -12,6 +12,7 @@ import {
   proposedLessons,
   type StoredResult,
 } from "@/modules/stundenplan/solverlauf";
+import { runTeacherLabel } from "@/modules/stundenplan/solverlauf-konto";
 import { SubjectBar } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 
@@ -152,9 +153,7 @@ export function PreviewGrid({
                         <span className="block text-xs text-muted">
                           {[
                             p.kind === "g"
-                              ? l.teacherId
-                                ? ctx.teacherCode.get(l.teacherId)
-                                : null
+                              ? runTeacherLabel(ctx.teacherCode, l.teacherId)
                               : (ctx.groupName.get(l.groupId) ?? l.groupId),
                             l.roomId,
                             l.kept ? "bleibt" : null,

@@ -5,7 +5,8 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { hasPermission } from "@/core/permissions";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { PLAN_MANAGE, PLAN_SUBSTITUTE, PLANNING_GROUP } from "@/modules/stundenplan/rechte";
+import { PLAN_FORECAST, PLAN_MANAGE, PLAN_SUBSTITUTE, PLANNING_GROUP } from "@/modules/stundenplan/rechte";
+import { loadFachbedarf, type Fachbedarf } from "@/modules/stundenplan/fachbedarf";
 import { planningOverview, type SubstituteFigures, type YearPlanningFigures } from "@/modules/stundenplan/uebersicht";
 import { Badge } from "@schulos/ui/badge";
 import { PageHeader } from "@schulos/ui/misc";
@@ -95,6 +96,29 @@ function yearTiles(m: YearPlanningFigures): Tile[] {
             },
   );
   return tiles;
+}
+
+/** SP2-12: Fachbedarf – nur Summen je Fach (auch für `stundenplan.forecast_view`). */
+function needTile(f: Fachbedarf): Tile {
+  const red = f.current.filter((r) => r.tone === "danger").length;
+  const yellow = f.current.filter((r) => r.tone === "warn").length;
+  const single = f.current.filter((r) => r.demand > 0 && r.teacherCount === 1).length;
+  const nextGaps = f.forecast.filter((r) => r.tone !== "success").length;
+  return {
+    key: "fachbedarf",
+    title: "Fachbedarf",
+    value: num.format(red + yellow),
+    status: red ? { label: "Lücke", tone: "danger" } : yellow ? { label: "knapp", tone: "warn" } : { label: "gedeckt", tone: "success" },
+    detail: [
+      `${plural(red, "Fach", "Fächer")} rot, ${yellow} gelb`,
+      single ? `${plural(single, "Fach", "Fächer")} mit nur einer Lehrkraft` : null,
+      `Prognose ${f.next.name}: ${plural(nextGaps, "Fach", "Fächer")} mit Lücke`,
+      f.unmaintained ? `${plural(f.unmaintained, "Lehrkraft", "Lehrkräfte")} ohne Lehrfächer` : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    href: "/planung/bedarf",
+  };
 }
 
 function substituteTiles(s: SubstituteFigures): Tile[] {
@@ -187,10 +211,11 @@ export default async function PlanungPage() {
   const { perms } = await requireUser();
   const manage = hasPermission(perms, PLAN_MANAGE);
   const substitute = hasPermission(perms, PLAN_SUBSTITUTE);
+  const forecast = hasPermission(perms, PLAN_FORECAST);
   const schoolData = hasPermission(perms, "verwaltung.school");
   const db = await getDb();
   const today = toBerlinDate(new Date());
-  const o = await planningOverview(db, today, { manage, substitute });
+  const [o, need] = await Promise.all([planningOverview(db, today, { manage, substitute }), manage || forecast ? loadFachbedarf(db, today, { details: false }) : null]);
   const yearLine = o.year
     ? `Schuljahr ${o.year.name} · ${date(o.year.startsOn)} – ${date(o.year.endsOn)}${o.year.isCurrent ? "" : " (nicht als aktuell markiert)"}`
     : null;
@@ -211,7 +236,7 @@ export default async function PlanungPage() {
       </div>
       {manage &&
         (o.manage ? (
-          <TileSection id="jahresplanung" title="Jahresplanung" tiles={yearTiles(o.manage)} />
+          <TileSection id="jahresplanung" title="Jahresplanung" tiles={[...yearTiles(o.manage), ...(need ? [needTile(need)] : [])]} />
         ) : (
           <section aria-labelledby="jahresplanung" className="flex flex-col gap-3">
             <h2 id="jahresplanung" className="text-base font-semibold">
@@ -222,6 +247,7 @@ export default async function PlanungPage() {
             </p>
           </section>
         ))}
+      {!manage && need && <TileSection id="fachbedarf" title="Fachbedarf" tiles={[needTile(need)]} />}
       {o.substitute && <TileSection id="tagesgeschaeft" title="Tagesgeschäft" tiles={substituteTiles(o.substitute)} />}
       <p className="text-sm">
         <Link href="/stundenplan/raeume" className="font-medium text-accent-ink hover:underline">

@@ -66,7 +66,7 @@ export function DiagnosisView({ report, category, refLabel }: { report: Diagnosi
         </h2>
         <p className="text-sm text-muted">Prüft Stundenplan ({refLabel}), Lehraufträge, Stundentafel und Deputate. Ein Klick auf eine Prüfung filtert die Liste.</p>
       </div>
-      <nav aria-label="Prüfungen" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <nav aria-label="Prüfungen" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {DIAGNOSIS_CATEGORIES.map((c) => {
           const n = report.counts[c];
           const active = category === c;
@@ -106,12 +106,18 @@ export function DiagnosisView({ report, category, refLabel }: { report: Diagnosi
             <article key={`${f.target.kind}:${f.target.id}`} className="flex flex-col gap-2 rounded-card border border-border bg-surface p-4" aria-label={f.target.label}>
               <h3 className="flex flex-wrap items-center gap-2 font-semibold">
                 <Link
-                  href={f.target.kind === "teacher" ? unterricht({ ansicht: "lehrkraefte", lehrkraft: f.target.id }) : unterricht({ gruppe: f.target.id })}
+                  href={
+                    f.target.kind === "teacher"
+                      ? unterricht({ ansicht: "lehrkraefte", lehrkraft: f.target.id })
+                      : f.target.kind === "band"
+                        ? unterricht({ ansicht: "baender", band: f.target.id })
+                        : unterricht({ gruppe: f.target.id })
+                  }
                   className="hover:underline"
                 >
                   {f.target.label}
                 </Link>
-                <span className="text-xs font-normal text-muted">{f.target.kind === "teacher" ? "Lehrkraft" : "Klasse/Kurs"}</span>
+                <span className="text-xs font-normal text-muted">{f.target.kind === "teacher" ? "Lehrkraft" : f.target.kind === "band" ? "Band" : "Klasse/Kurs"}</span>
                 {f.target.kind === "group" && (
                   <Link href={`/planung/stundenplan?gruppe=${encodeURIComponent(f.target.id)}`} className="ml-auto text-sm font-normal text-accent-ink hover:underline">
                     Plan bearbeiten

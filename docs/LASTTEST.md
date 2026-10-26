@@ -168,6 +168,45 @@ Teilen, 6 Sporthallen, 76 Lehrkräfte): alle 84 geteilten Einheiten mit **zwei v
 Klassenraum – Raumwunsch 784 statt 756), 10 Einheiten (0,8 %) nicht gesetzt (wieder Oberstufenkurse mit dichten Konfliktmengen), kein Raum fehlt,
 Hohlstunden 169/11, gesamt 0,9 s. Grenzwerte unverändert (≤ 1 % nicht gesetzt, kein „ohne Raum“, < 120 s).
 
+**Nachmessung SP2-02 (2026-10-20, Bänder als Einheiten mit Teilen):** Fachsperren, Zeitwünsche und „Fach mehrfach am Tag“ gelten jetzt je
+Teil; für Einheiten mit einem Teil ändert sich nichts – der Benchmark liefert vor und nach der Änderung **dieselbe Lösung** (9 nicht gesetzt,
+Bewertung 2 163, Hohlstunden 169/13; Konstruktion 0,23 → 0,24 s, gesamt 0,66 → 0,68 s; „geteilter Sport“ 0,68 → 0,71 s, 10 nicht gesetzt,
+Bewertung 2 395 – Streuung des Entwicklungsrechners). Neue Variante **„Oberstufen-Schienen als Bänder“** (je Jahrgang 10 Schienen aus 3–4
+Kursen mit je eigenem Fach/Lehrkraft/Raumart als eine Einheit je Stunde → 60 Band-Einheiten mit 3–4 Teilen, 1 161 Einheiten statt 1 323):
+**0 nicht gesetzt** (die Schienen nehmen den Konfliktmengen die Enge), alle 60 Band-Stunden mit je Teil verschiedenen Räumen, Bewertung 2 091,
+Hohlstunden Lehrkräfte 151 (max. 8), Klassen 4, gesamt **0,69 s**. Grenzwerte unverändert.
+
+**Nachmessung SP2-03 (2026-10-21, Tagesgrenzen und Ganztag je Klasse):** ohne Regeln ändert sich nichts – vor und nach der Änderung **dieselbe
+Lösung** (9 nicht gesetzt, Bewertung 2 163, Hohlstunden 169/13; gesamt 0,68 → 0,68–0,70 s; „geteilter Sport“ 0,71 → 0,70 s; Bänder 0,67 → 0,68–0,75 s).
+Neue Variante **„Tagesgrenzen“** (alle 42 Sek-I-Klassen höchstens 7 Stunden am Tag und höchstens 3 Nachmittage ab der 7. Stunde): 9 nicht gesetzt
+(dieselben Oberstufenkurse), Grenzen eingehalten (höchstens 7 Stunden, 3 Nachmittage), Bewertung 2 156, Hohlstunden 164/11, Konstruktion 0,26 s,
+gesamt **0,71–0,72 s** allein bzw. bis 2,7 s als vierter Großlauf in derselben Datei (Speicherbereinigung nach drei Großläufen). Die Klassentage sind im
+Solver zwischengespeichert und werden nur beim Setzen/Entfernen einer Stunde der Klasse bzw. eines Kurses ihres Jahrgangs verworfen.
+
+**Nachmessung SP2-04 (2026-10-21, Tagesregeln je Lehrkraft, Fachverteilung):** ohne Regeln und mit den neuen Gewichten 0 ändert sich nichts – vor und
+nach der Änderung **dieselbe Lösung** (9 nicht gesetzt, Bewertung 2 163, 82 Verbesserungen in 40 000 Schritten, Hohlstunden 169/13; gesamt 0,70 → 0,69 s).
+Neue Variante **„Lehrkraft-Tagesregeln“** (die 24 Lehrkräfte mit höchstens 22 Wochenstunden höchstens 6 Stunden am Tag, die 3 mit höchstens 20 zusätzlich
+höchstens 4 Anwesenheitstage; Gewicht „Fach an Folgetagen“ 6): **14 nicht gesetzt** (= Grenzwert 1 %; Ursache je Einheit „Tagesregel …“ bzw. Kurskonflikte),
+Regeln eingehalten, Bewertung 3 283 (davon „Fach an Folgetagen“ 618), Konstruktion 0,28 s, gesamt **0,76 s** allein bzw. 2,2 s als fünfter Großlauf derselben
+Datei. Die synthetische Schule ist voll ausgelastet (~22–24 Std. je Lehrkraft): „höchstens 4 Tage“ für alle 24 ließ 27–32 Einheiten liegen – das ist der
+erwartbare Fall „Regel enger als der Auftrag“ (Vorprüfung und Diagnose warnen bei Lehraufträgen über der Wochenkapazität).
+
+**Nachmessung SP2-05 (2026-10-21, Hohlstunden je Oberstufen-Jahrgang):** ohne Kurs-Jahrgänge (`gradeOf`) ändert sich nichts – vor und nach der Änderung
+**dieselbe Lösung** (9 nicht gesetzt, Bewertung 2 163, 82 Verbesserungen, Hohlstunden 169/13; gesamt 0,71 s; „geteilter Sport“ 10 nicht gesetzt, 0,70 s;
+Bänder 0 nicht gesetzt, Bewertung 2 091, 0,69 s; „Tagesgrenzen“ 9 nicht gesetzt, Bewertung 2 156, 0,70 s). Neue Variante **„Oberstufe mit Jahrgang“** (Schienen
+als Bänder, alle 120 Kurse mit Jahrgang 11–13, kein Jahrgang mit Klassen): Hohlstunden der Jahrgänge (Lücken zwischen den Kurs-Stunden je Jahrgang und Tag)
+**6 → 4**, 0 nicht gesetzt, Bewertung 1 985 (Hohlstunden Klassen + Jahrgänge 12), gesamt 0,69 s. Variante **„Lehrkraft-Tagesregeln“** umgestellt: auf der
+Schule ohne Bänder lagen schon ohne Regeln 9–12 Oberstufenkurse wegen dichter Konfliktmengen offen; je nach Gewicht „Fach an Folgetagen“ (0/3/4/6/8/10) schwankte
+das Ergebnis zwischen 12 und 19 – genau um die 1-%-Grenze (14), gemessen wurde vor allem das Rauschen der Konfliktmengen. Jetzt auf der Schule mit Schienen als
+Bänder (ohne Regeln 0–1 nicht gesetzt) und **strenger**: die 24 Lehrkräfte bis 22 Std. höchstens 6 am Tag, die **17** bis 21 Std. zusätzlich höchstens 4 Tage
+(vorher 3): **1 nicht gesetzt** (Grenze 12), Regeln eingehalten, Bewertung 3 397 (davon „Fach an Folgetagen“ 816), gesamt 0,75 s (Erkundung: mit der alten Regelmenge – 2 Lehrkräfte mit 4 Tagen – und Gewicht 0/4/6/8 je 0 nicht gesetzt). Grenzwert
+unverändert ≤ 1 %, der Test prüft zusätzlich, dass mindestens 20 bzw. 10 Lehrkräfte eine Regel haben.
+
+**Nachmessung SP2-09 (2026-10-21, Lehrauftrag mit Gültigkeit):** die Gültigkeit filtert nur die Eingabe (Lehraufträge am Stichtag) und begrenzt die
+Übernahme; der Solver-Kern ist unverändert – vor und nach der Änderung **dieselbe Lösung** (9 nicht gesetzt, Bewertung 2 163; gesamt 0,75 → 0,69 s;
+„geteilter Sport“ 10/2 395, Bänder 0/2 091, „Oberstufe mit Jahrgang“ 0/1 985, „Tagesgrenzen“ 9/2 156, „Lehrkraft-Tagesregeln“ 1/3 397 – je
+nicht gesetzt/Bewertung, Laufzeiten 0,67–0,79 s).
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:

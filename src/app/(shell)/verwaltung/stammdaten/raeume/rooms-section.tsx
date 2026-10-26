@@ -49,6 +49,9 @@ export async function RoomsSection({ db, q, art }: { db: Db; q?: string; art?: s
               <th>Ort</th>
               <th className="text-right">Plätze</th>
               <th>Ausstattung</th>
+              <th>
+                <span className="sr-only">Aktionen</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -68,6 +71,13 @@ export async function RoomsSection({ db, q, art }: { db: Db; q?: string; art?: s
                 </td>
                 <td className="text-right tabular-nums">{r.capacity ?? "–"}</td>
                 <td className="text-muted">{r.equipment.map((e) => ROOM_EQUIPMENT_LABELS[e as RoomEquipment] ?? e).join(", ")}</td>
+                <td className="text-right">
+                  <Button asChild size="sm" variant="ghost">
+                    <Link href={`/verwaltung/stammdaten/raeume/${encodeURIComponent(r.id)}`} aria-label={`Raum ${r.id} bearbeiten`}>
+                      Bearbeiten
+                    </Link>
+                  </Button>
+                </td>
               </tr>
             ))}
           </tbody>

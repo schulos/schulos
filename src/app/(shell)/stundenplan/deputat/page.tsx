@@ -4,6 +4,7 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { REDUCTION_LABELS, reductionKind } from "@/modules/stundenplan/deputate";
+import { teacherRuleSummary } from "@/modules/stundenplan/lehrkraftregeln";
 import { myDeputy, type OwnSubstitutions } from "@/modules/stundenplan/mein-deputat";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
@@ -70,6 +71,7 @@ export default async function MeinDeputatPage() {
                   value={data.account.balance === 0 ? "ausgeglichen" : `${data.account.balance > 0 ? "+" : "−"}${num.format(Math.abs(data.account.balance))} ${data.account.balance > 0 ? "über" : "unter"} Soll`}
                   strong
                 />
+                {data.account.dayRule && <Row label="Tagesregel für die Stundenplanung" value={teacherRuleSummary(data.account.dayRule)} />}
               </dl>
             )}
           </Card>

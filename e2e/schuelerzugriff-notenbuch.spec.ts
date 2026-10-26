@@ -45,10 +45,19 @@ async function setViews(browser: Browser, student: string, parents: string) {
   await admin.goto("/verwaltung/rechte");
   const region = () =>
     admin.getByRole("region", { name: "Einstellungen Notenbuch" });
-  await region().getByLabel(STUDENT_VIEW).selectOption(student);
-  await expect(region().getByLabel(STUDENT_VIEW)).toHaveValue(student);
-  await region().getByLabel(PARENTS_VIEW).selectOption(parents);
-  await expect(region().getByLabel(PARENTS_VIEW)).toHaveValue(parents);
+  // die Auswahl speichert per Server Action im Hintergrund (optimistische Anzeige) – erst nach deren Antwort weiter, sonst
+  // bricht das Neuladen die zweite Speicherung ab (Wackler im Einzellauf)
+  for (const [label, value] of [
+    [STUDENT_VIEW, student],
+    [PARENTS_VIEW, parents],
+  ] as const) {
+    const select = region().getByLabel(label);
+    if ((await select.inputValue()) === value) continue;
+    const saved = admin.waitForResponse((r) => r.request().method() === "POST" && !!r.request().headers()["next-action"]);
+    await select.selectOption(value);
+    await saved;
+    await expect(select).toHaveValue(value);
+  }
   await admin.reload();
   await expect(region().getByLabel(STUDENT_VIEW)).toHaveValue(student);
   await expect(region().getByLabel(PARENTS_VIEW)).toHaveValue(parents);

@@ -259,7 +259,9 @@ export async function classWeek(db: Db, groupId: string, monday: string, todayYm
   const byKey = new Map(entries.map((e) => [`${e.lessonId}:${e.date}`, e]));
   return slots.map((s) => {
     const e = byKey.get(`${s.lessonId}:${s.date}`);
-    const status: WeekCellStatus = s.change?.kind === "cancel" ? "cancelled" : e ? "done" : s.date > todayYmd ? "future" : "missing";
+    // SP2-07: die bisherige Stunde einer Verlegung und eine zusammengelegte Stunde brauchen keinen eigenen Eintrag
+    const off = s.change?.kind === "cancel" || s.change?.kind === "merge" || s.moved === "from";
+    const status: WeekCellStatus = off ? "cancelled" : e ? "done" : s.date > todayYmd ? "future" : "missing";
     return { ...s, status, entry: e ? { topic: e.topic, homework: e.homework } : null };
   });
 }

@@ -123,3 +123,25 @@ export function defaultTimeGrid(profile: Pick<SchoolProfile, "form">): TimeGridT
   const ganztag = profile.form === "gesamtschule" || profile.form === "sekundar" || maxWeeklyHours(profile.form) > 5 * halbtag.periods.length;
   return TIME_GRIDS.find((g) => g.id === (ganztag ? "ganztag-45" : "halbtag-45"))!;
 }
+
+/**
+ * SP2-03: Vorgaben für Tagesgrenzen und Ganztag je Jahrgang der Sek I (Oberstufe ohne Vorgabe) – Vorschlag Q-SP2-9, alles änderbar:
+ * höchstens 7 Stunden am Tag in 5/6, sonst 8 (nie mehr als das Zeitraster hat); Mittag nach der 6. Stunde, wenn das Raster mehr als
+ * 6 Stunden hat; Nachmittage höchstens 3 (Gesamt-/Sekundarschule, gebundener Ganztag) bzw. 2 (übrige Schulformen).
+ */
+export function gradeRulesTemplate(
+  form: SchoolForm,
+  grades: readonly number[],
+  periodCount: number,
+): { grade: number; maxPerDay: number | null; afternoonsPerWeek: number | null; lunchAfterPeriod: number | null }[] {
+  const ganztag = form === "gesamtschule" || form === "sekundar";
+  const lunch = periodCount > 6 ? 6 : null;
+  return grades
+    .filter((g) => g <= 10)
+    .map((grade) => ({
+      grade,
+      maxPerDay: Math.min(periodCount, grade <= 6 ? 7 : 8),
+      lunchAfterPeriod: lunch,
+      afternoonsPerWeek: lunch === null ? null : ganztag ? 3 : 2,
+    }));
+}

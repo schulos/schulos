@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { collectErrors, login, logoutForSwitch, publishIfDraft } from "./helpers";
+import { collectErrors, login, logoutForSwitch, pickTeacher, publishIfDraft } from "./helpers";
 
 // SP-11 (docs/STUNDENPLAN-UMBAU.md §5): E2E-Gesamtszenario „Stundenplaner:in“ für GATE SP. Frank Schulte (Lehrkraft, Funktionsgruppe
 // „Stundenplanung“) plant ohne Verwaltungszugang: Übersicht → Lauf mit Parametern → Abbruch → weitere Läufe → Vergleich → Übernahme
@@ -154,6 +154,115 @@ test("GATE SP: Stundenplaner:in – Übersicht → Lauf mit Parametern → Abbru
   expect(await plan.innerText()).toBe(before);
   await page.goto("/planung");
   await expect(page.locator("[data-kachel=solver]")).toContainText("fertig");
+  expect(errors).toEqual([]);
+});
+
+test("SP2-02: Band „Q1 GK-Schiene A“ liegt als Kopplung im Plan; die Setzhilfe setzt und verschiebt ein Band als Einheit", async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await login(page, "frank.schulte");
+
+  // Demo-Band: die drei Englisch-Stunden des Kurses sind je eine Kopplung mit dem Deutsch- und dem Biologie-Kurs (Raum je Teil)
+  await page.goto("/planung/stundenplan?gruppe=g-q1-e-gk1");
+  const q1 = page.getByRole("table", { name: "Stundenplan Q1 Englisch GK1" });
+  const english = q1.getByRole("link", { name: /^Englisch/ });
+  await expect(english).toHaveCount(3);
+  for (let i = 0; i < 3; i++) {
+    await expect(english.nth(i)).toContainText("Kopplung");
+    await expect(english.nth(i)).toContainText("Q1 Deutsch GK1");
+    await expect(english.nth(i)).toContainText("Q1 Biologie GK1");
+  }
+
+  // eigenes Band für zwei AGs (verschiedene Fächer, Lehrkräfte und Raumwünsche): Band anlegen, zwei Lehraufträge aufnehmen
+  const bandName = `GATE SP2 Band ${tag}`;
+  await page.goto("/planung/unterricht?ansicht=baender");
+  await page.getByRole("link", { name: "Band anlegen" }).click();
+  await page.getByLabel("Name des Bands").fill(bandName);
+  await page.getByLabel("Wochenstunden").fill("1");
+  await page.getByRole("button", { name: "Band speichern" }).click();
+  await expect(page.getByRole("heading", { name: `Band bearbeiten · ${bandName}` })).toBeVisible();
+  for (const [group, subject, teacher] of [
+    ["g-ag-robotik", "Informatik", "u-benedikt.lange"],
+    ["g-ag-schuelerzeitung", "Deutsch", "u-jana.brandt"],
+  ] as const) {
+    await page.goto(`/planung/unterricht?gruppe=${group}&neu=1`);
+    await page.getByLabel("Fach").selectOption({ label: subject });
+    await pickTeacher(page, "teacherId", teacher);
+    await page.getByLabel("Band", { exact: true }).selectOption({ label: `${bandName} (1 Std.)` });
+    await page.getByRole("button", { name: "Speichern" }).click();
+    await expect(page).not.toHaveURL(/neu=/);
+  }
+
+  // Setzhilfe in der AG Robotik: der Lehrauftrag ist als Band offen und wird mit dem Deutsch-Lehrauftrag der Schülerzeitung gesetzt
+  await page.goto("/planung/stundenplan?gruppe=g-ag-robotik");
+  const panel = page.getByRole("article", { name: "Offene Stunden" });
+  const open = panel.getByRole("link", { name: "Setzen: Informatik · LAN, 1 von 1 offen" });
+  await expect(open).toContainText(`Band ${bandName}`);
+  await expect(open).toContainText("AG Schülerzeitung Deutsch");
+  await open.click();
+  await expect(page).toHaveURL(/setzen=/);
+  // erster freier Slot ohne Raumhinweis („Raum IF1 belegt → …“) – welcher das ist, hängt vom Plan ab, nicht von früheren Specs (TD-07)
+  const setButton = page
+    .locator("form")
+    .filter({ has: page.getByRole("button", { name: /^Hier setzen: / }) })
+    .filter({ hasNot: page.locator("span.text-warn") })
+    .first()
+    .getByRole("button", { name: /^Hier setzen: / });
+  const setSlot = (await setButton.getAttribute("aria-label"))!.replace("Hier setzen: ", "");
+  await setButton.click();
+  await expect(page).not.toHaveURL(/setzen=/);
+  await expect(panel.getByText("Alle Lehraufträge sind im Stundenplan verplant.")).toBeVisible();
+  const robotik = page.getByRole("table", { name: "Stundenplan AG Robotik" });
+  const informatik = robotik.getByRole("link", { name: /^Informatik/ });
+  await expect(informatik).toHaveCount(1);
+  await expect(informatik).toContainText("Kopplung");
+  await expect(informatik).toContainText("AG Schülerzeitung");
+  await expect(informatik).toContainText("IF1"); // Fachraum je Teil
+  // … und in der Schülerzeitung liegt Deutsch im selben Slot, ebenfalls als Kopplung
+  await page.goto("/planung/stundenplan?gruppe=g-ag-schuelerzeitung");
+  const zeitung = page.getByRole("table", { name: "Stundenplan AG Schülerzeitung" });
+  const cellOf = (table: typeof zeitung, slot: string) => {
+    const m = /^(Mo|Di|Mi|Do|Fr) (\d+)\. Stunde$/.exec(slot)!;
+    return table.locator("tbody tr").nth(Number(m[2]) - 1).locator("td").nth(["Mo", "Di", "Mi", "Do", "Fr"].indexOf(m[1]!) + 1);
+  };
+  await expect(cellOf(zeitung, setSlot).getByRole("link", { name: /^Deutsch/ })).toContainText("Kopplung");
+  await expect(page.getByRole("article", { name: "Offene Stunden" }).getByText("Alle Lehraufträge sind im Stundenplan verplant.")).toBeVisible();
+
+  // Verschieben bewegt beide Teile
+  await page.goto("/planung/stundenplan?gruppe=g-ag-robotik");
+  await informatik.click();
+  await expect(page.getByRole("heading", { name: "Kopplung bearbeiten · AG Robotik" })).toBeVisible();
+  await page.getByRole("link", { name: "Verschieben oder tauschen" }).click();
+  await expect(page.getByText("hier liegt die Stunde")).toBeVisible();
+  const moveButton = page.getByRole("button", { name: /^Hierher verschieben: / }).first();
+  const moveSlot = (await moveButton.getAttribute("aria-label"))!.replace("Hierher verschieben: ", "");
+  expect(moveSlot).not.toBe(setSlot);
+  await moveButton.click();
+  await expect(page).not.toHaveURL(/verschieben=/);
+  await expect(cellOf(robotik, moveSlot).getByRole("link", { name: /^Informatik/ })).toBeVisible();
+  await page.goto("/planung/stundenplan?gruppe=g-ag-schuelerzeitung");
+  await expect(cellOf(zeitung, moveSlot).getByRole("link", { name: /^Deutsch/ })).toBeVisible();
+  await expect(cellOf(zeitung, setSlot).getByRole("link", { name: /^Deutsch/ })).toHaveCount(0);
+
+  // aufräumen: Kopplung, Band und beide Lehraufträge weg
+  await page.goto("/planung/stundenplan?gruppe=g-ag-robotik");
+  await informatik.click();
+  await page.getByRole("button", { name: "Kopplung löschen" }).click();
+  await expect(robotik.getByRole("link", { name: /^Informatik/ })).toHaveCount(0);
+  await page.goto("/planung/unterricht?ansicht=baender");
+  await page.getByRole("link", { name: bandName }).click();
+  await page.getByRole("button", { name: "Band löschen" }).click();
+  await expect(page.getByRole("link", { name: bandName })).toHaveCount(0);
+  for (const [group, subject] of [
+    ["g-ag-robotik", "Informatik"],
+    ["g-ag-schuelerzeitung", "Deutsch"],
+  ] as const) {
+    await page.goto(`/planung/unterricht?gruppe=${group}`);
+    await page.getByRole("row").filter({ hasText: subject }).getByRole("link", { name: subject }).click();
+    await page.getByRole("button", { name: "Lehrauftrag löschen" }).click();
+    await expect(page).not.toHaveURL(/auftrag=/);
+    await expect(page.getByRole("row").filter({ hasText: subject })).toHaveCount(0);
+  }
   expect(errors).toEqual([]);
 });
 

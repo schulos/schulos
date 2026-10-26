@@ -40,6 +40,7 @@ export const EXPORT_NOT_PERSONAL: Record<string, string> = {
   task_groups: "Gruppen einer Aufgabe",
   timetable_assignments: "Lehrauftrag; die Zuordnung zur Lehrkraft steht in der Auskunft",
   timetable_assignment_groups: "Gruppen eines Lehrauftrags",
+  timetable_bands: "Band der Unterrichtsverteilung (Name, Stunden – keine Personen)",
   umfragen_targets: "Zielgruppen einer Umfrage (Rollen und Gruppen, keine Personen)",
   gebaeude_maintenance_rooms: "Räume eines Wartungstermins (keine Personen)",
   gebaeude_inspections:

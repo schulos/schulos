@@ -17,6 +17,8 @@ const KIND = {
   cancel: { label: "Entfall", cls: "bg-danger-soft text-danger" },
   substitute: { label: "Vertretung", cls: "bg-warn-soft text-ink" },
   room: { label: "Raumänderung", cls: "bg-accent-soft text-accent-ink" },
+  move: { label: "Verlegung", cls: "bg-warn-soft text-ink" },
+  merge: { label: "Zusammenlegung", cls: "bg-warn-soft text-ink" },
 } as const;
 
 /** Uhr ohne Hydrierungs-Unterschied: Server rendert nichts, der Browser die aktuelle Minute */
@@ -206,9 +208,9 @@ function DayPanel({ date, today, entries, tick, staffRoom }: { date: string; tod
                 <td className="tabular-nums">{e.period}.</td>
                 <td>{e.subject}</td>
                 <td>
-                  <span className={cn("rounded-lg px-2 py-0.5 text-base font-semibold", KIND[e.kind].cls)}>{KIND[e.kind].label}</span>
+                  <span className={cn("rounded-lg px-2 py-0.5 text-base font-semibold", e.off ? KIND.cancel.cls : KIND[e.kind].cls)}>{e.label}</span>
                 </td>
-                <td>{e.kind === "cancel" ? "–" : e.room}</td>
+                <td>{e.room ?? "–"}</td>
                 {staffRoom && <td>{e.absent}</td>}
                 <td>{staffRoom && e.substituteName ? `${e.substitute} (${e.substituteName})` : e.substitute}</td>
                 <td className="text-muted">{e.note}</td>

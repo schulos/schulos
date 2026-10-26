@@ -1,0 +1,19 @@
+{
+  "minVersion": "0.5.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Vertretung: Statt Entfall kann eine spätere Stunde nach vorn rücken oder zwei Stunden tauschen – auch Band-Stunden mit allen Kursen" },
+    { "kind": "neu", "text": "Vertretung: Eine Klasse kann bei einer anderen Klasse mitbetreut werden; die betreuende Lehrkraft bekommt eine Nachricht" },
+    { "kind": "neu", "text": "Bereitschaften je Stunde: Wer Bereitschaft hat, steht bei den Vertretungsvorschlägen ganz oben" },
+    { "kind": "neu", "text": "Fehlt eine Lehrkraft länger, wird eine Vertretung einmal für alle Tage eingetragen; einzelne Tage lassen sich danach ändern" },
+    { "kind": "neu", "text": "Wochenblick auf der Vertretungsseite: Vertretungsbedarf der nächsten fünf Schultage auf einen Blick" },
+    { "kind": "neu", "text": "Tagesgrenzen und Ganztag je Jahrgang (höchstens Stunden am Tag, Nachmittage, Mittagspause) – der Solver, die Setzhilfe und die Diagnose halten sie ein; Vorgaben der Schulform per Knopfdruck" },
+    { "kind": "neu", "text": "Tagesregeln je Lehrkraft (höchstens Stunden am Tag, Anwesenheitstage) – gelten im Stundenplan und bei Vertretungen; sichtbar unter „Mein Deputat“" },
+    { "kind": "neu", "text": "Lehraufträge mit Gültigkeit (ab/bis): Unterrichtsverteilung zum Stichtag, Stunden enden mit dem Lehrauftrag" },
+    { "kind": "neu", "text": "Unterrichtsverteilung als CSV-Datei einlesen (UTF-8 oder Windows-1252) – mit Vorschau, übernommen wird nur eine fehlerfreie Datei" },
+    { "kind": "verbessert", "text": "Solver: weniger Hohlstunden in der Oberstufe, Fächer gleichmäßiger über die Woche (wählbar), Diagnose meldet belegte gesperrte Zeiten" },
+    { "kind": "verbessert", "text": "Übernahme eines Solver-Laufs zurücknehmen stellt entfallene Vertretungen wieder her; Fachtausch wird nur noch vorgeschlagen, wenn keine Lehrkraft mit demselben Fach frei ist" },
+    { "kind": "behoben", "text": "Offline-Notenbuch: Wurde die Seite direkt nach einer Offline-Eingabe verlassen, konnte die Note auf langsamen Geräten verloren gehen. Sie gilt jetzt erst als ausstehend, wenn sie sicher gespeichert ist, und der Browser fragt beim Verlassen nach, solange noch gespeichert wird" },
+    { "kind": "sicherheit", "text": "Datenschutz: Die nächtliche Kontolöschung räumt jetzt genauso gründlich auf wie die Löschung von Hand (Zeitwünsche, Protokoll, Lehrkraft-Kürzel in Solver-Läufen)" }
+  ]
+}

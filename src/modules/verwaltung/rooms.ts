@@ -106,6 +106,15 @@ export async function updateRoom(db: Db, actorId: string, id: string, input: Roo
   return values.id;
 }
 
+/** Legt einen Raum still (inaktiv) bzw. nimmt ihn wieder in Betrieb; Stundenplan-Verlauf bleibt erhalten. */
+export async function setRoomActive(db: Db, actorId: string, id: string, active: boolean): Promise<void> {
+  const room = await getRoom(db, id);
+  if (!room) throw new ValidationError({ code: `Raum ${id} gibt es nicht` });
+  if (room.active === active) return;
+  await db.update(rooms).set({ active }).where(eq(rooms.id, id));
+  await audit(db, actorId, active ? "verwaltung.room.activate" : "verwaltung.room.deactivate", id, {});
+}
+
 export async function deleteRoom(db: Db, actorId: string, id: string): Promise<void> {
   const used = (await roomUsage(db, id)).get(id) ?? 0;
   if (used) throw new ValidationError({ code: `Raum ${id} ist noch ${used}× verplant – stattdessen auf „inaktiv“ setzen` });

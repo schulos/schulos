@@ -11,6 +11,7 @@ import { substitutionStats } from "@/modules/stundenplan/vorschlaege";
 import { Button } from "@schulos/ui/button";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
+import { ExportMenu } from "@/ui/export-menu";
 
 export const metadata: Metadata = { title: "Vertretungsstatistik" };
 
@@ -35,7 +36,7 @@ export default async function VertretungsstatistikPage({ searchParams }: { searc
       <Link href="/planung/vertretungen" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
         <ArrowLeft aria-hidden className="size-4" /> Vertretungen
       </Link>
-      <PageHeader eyebrow="Stundenplanung" title="Vertretungsstatistik" />
+      <PageHeader eyebrow="Stundenplanung" title="Vertretungsstatistik" actions={<ExportMenu arts={["statistik-lehrkraefte", "statistik-klassen"]} perms={perms} zeitraum={sp.zeitraum} />} />
       <nav aria-label="Zeitraum" className="flex flex-wrap items-center gap-2">
         <Button asChild size="sm" variant={month ? "ghost" : "secondary"}>
           <Link href="/planung/vertretungen/statistik" aria-current={month ? undefined : "page"}>

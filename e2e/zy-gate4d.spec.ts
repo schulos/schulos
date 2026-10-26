@@ -22,7 +22,10 @@ test("Gate 4d: WP-I-Wahl 7b → Zuteilung → Gruppen → Kursraum", async ({ pa
   await expect(add.getByLabel("Titel")).toHaveValue("");
   await add.getByLabel("Titel").fill("Französisch G4d");
   await add.getByLabel("Fach").selectOption({ label: "Französisch" });
-  await add.getByLabel("Lehrkraft").selectOption({ label: "Jana Brandt (BRA)" });
+  // SP2-12b: fachfremd (Frau Brandt unterrichtet kein Französisch) → „alle anzeigen“ und „Trotzdem zuweisen“
+  await add.getByLabel("alle anzeigen").check();
+  await add.getByLabel("Lehrkraft").selectOption("u-jana.brandt");
+  await add.getByLabel("Trotzdem zuweisen").check();
   await add.getByLabel("Wochenstunden").fill("4");
   await add.getByRole("button", { name: "Angebot hinzufügen" }).click();
   await expect(page.getByRole("listitem").filter({ hasText: "Französisch G4d" })).toBeVisible();

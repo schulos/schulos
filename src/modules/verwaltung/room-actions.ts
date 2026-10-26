@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { requirePermission } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import type { FormState } from "./actions";
-import { createRoom, deleteRoom, updateRoom, type RoomInput } from "./rooms";
+import { createRoom, deleteRoom, setRoomActive, updateRoom, type RoomInput } from "./rooms";
 import { ValidationError } from "./users";
 
 const PERM = "verwaltung.school";
@@ -65,6 +65,14 @@ export async function deleteRoomAction(id: string, _prev: FormState, form: FormD
   } catch (err) {
     return fail(err, form);
   }
+  revalidatePath("/", "layout");
+  redirect(LIST);
+}
+
+/** Raum stilllegen (`active=false`) bzw. wieder in Betrieb nehmen – ohne die übrigen Felder anzufassen. */
+export async function setRoomActiveAction(id: string, active: boolean): Promise<void> {
+  const { user } = await requirePermission(PERM);
+  await setRoomActive(await getDb(), user.id, id, active);
   revalidatePath("/", "layout");
   redirect(LIST);
 }

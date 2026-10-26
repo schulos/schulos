@@ -218,7 +218,7 @@ Lauf ist danach wieder `done` (erneut übernehmbar), `appliedFrom/By/At` und `un
 Detailseite erklärt es vor der Rückfrage. **Löschsperre:** `canDeleteRun(run, heute)` – übernommene Läufe sind nicht löschbar, solange sie zurücknehmbar
 sind (Löschen nähme die Rücknahme-Daten mit); Nachtjob `solver-aufraeumen` leert `undo` ab dem Stichtag (`undoCleared`, Personenbezug: Lehrkraft-IDs an
 entfernten Stunden; DATENSCHUTZ §3.4, SICHERHEIT S79). Läufe, die vor SP-09 übernommen wurden, haben kein `undo` → nicht zurücknehmbar, löschbar wie
-bisher. Nicht zurückgeholt werden bewusst die bei der Übernahme entfernten Vertretungen (Q in §3.2; der Hinweis nennt die Zahl).
+bisher. ~~Nicht zurückgeholt werden bewusst die bei der Übernahme entfernten Vertretungen~~ → seit **SP-13** (Q-SP-9-1, Projektleitung 2026-10-20) stehen sie vollständig in `undo.substitutions` und kommen beim Zurücknehmen mit alter ID zurück, sofern ihre Stunde an dem Tag wieder gilt (wieder verlängert, wieder angelegt oder von Hand noch gültig); `undoPreview`/Rückfrage nennen `restoredSubstitutions` und `lostSubstitutions`. Bänder/Kopplungen: jede Vertretung hängt an einem Teil, die Teile kommen mit alter `coupling_id` zurück. Übernahmen vor SP-13 haben die Liste nicht – dort kommt keine zurück.
 **SP-G-02 Raum je Kopplungsteil:** `unitsFrom` erzeugt bei einem Lehrauftrag mit mehreren Lehrkräften **einen Teil je Lehrkraft** (geteilte Klasse:
 eigener Raum, Größe anteilig; die Gruppen bleiben in jedem Teil dieselben, die Einheit wird weiter als eine Kopplung gesetzt); `chooseRooms` vergibt
 je Teil einen eigenen freien Raum (Wunschraum → Raumart → Stammraum → Klassenraum, nie einen Raum, den ein anderer Teil derselben Einheit schon hat),
@@ -234,7 +234,7 @@ SEC-04, kein S28, ein Lauf gleichzeitig, Auskunft); `docs/STUNDENPLAN.md` neuer 
 Grenzen → SP2; §1 als „Ausgangslage“ gekennzeichnet); DATENSCHUTZ-Zeile Solver-Läufe um **Auskunft** und **Kontolöschung** ergänzt; `processing.note` nennt Läufe und
 Fachtausch. **Auskunfts-Test** (`auskunft.test.ts` „SP-10 …“): die planende Person bekommt zu Läufen nur die Handlung (nie `result`/`params`/`metrics`/`log`/`undo`/`label`),
 die vertretende Lehrkraft die Vertretung samt Fach, kein Entwurf wird einer Lehrkraft zugeordnet. Bewusst hingenommene Lücke: Lehrkraft-IDs in den JSON-Feldern der
-Läufe haben keinen Fremdschlüssel und werden bei Kontolöschung nicht bereinigt (LK-90, `undo` bis zum Stichtag; nach der Löschung nicht auflösbar). README/CLAUDE.md
+Läufe haben keinen Fremdschlüssel und werden bei Kontolöschung nicht bereinigt (LK-90, `undo` bis zum Stichtag; nach der Löschung nicht auflösbar) – **seit SP-14** (Q-SP-9-2) ersetzt die Kontolöschung (auf Antrag `deleteAccounts` wie im Löschlauf, je in der Transaktion vor dem Löschen) jede Kennung des Kontos in `params`/`result`/`undo`/`log` (als Wert oder Schlüssel) durch den Platzhalter „gelöschte Lehrkraft“ (`solverlauf-konto.ts`); die Vorschau zeigt ihn, Diagnose-Texte nennen ihn, die Übernahme legt diese Stunden ohne Lehrkraft an, das Zurücknehmen behandelt ihn wie eine gelöschte Lehrkraft (leer). Kürzel in Texten (Kostenposten, Gründe, Vorprüfung) bleiben stehen. README/CLAUDE.md
 (Demo-Login `frank.schulte`) waren seit SP-03 aktuell; INSTALLATION.md kennt keinen Stundenplan-Abschnitt (kein Handbuch im Repo) – Release-Hinweise zur Gruppe/2FA
 gehören in die Notes zu v0.6.0 (GATE SP).
 
@@ -308,7 +308,7 @@ Der Solver selbst (`solver.ts`) ist rein, deterministisch, schrittweise (`constr
 | **Ergebnis-Kennzahlen** | `metrics` JSONB beim Abschluss: `score`, `breakdown`, `unplaced`, `units`, `steps`, `improved`, `durationMs`, Diagnose-Zähler (`gaps`/`subjectDay`/`room`), Hohlstunden je Lehrkraft/Klasse (Summe und Maximum) |
 | **Vergleich** | `/planung/solver/vergleich?laeufe=a,b[,c]`: Kennzahlen nebeneinander, bester Wert je Zeile markiert, Delta zum ersten; darunter die Vorschau einer wählbaren Klasse **oder Lehrkraft** nebeneinander |
 | **Protokoll / Konflikte** | `log` JSONB (≤ 50 Einträge): Eingabe (Einheiten, fixiert, Räume, gesperrte Zeiten), Konstruktion fertig (nicht gesetzt mit Gründen), Verbesserung alle 10 % (Bewertung), Abbruch/Ende; Detailseite zeigt Protokoll, „nicht gesetzt“ vollständig (heute nur 10), Kostenposten vollständig mit Filter nach Kategorie |
-| **Übernahme als Entwurf / aktiver Plan** | wie heute **ab Stichtag** – ein Stichtag in der Zukunft **ist** der Entwurf (bis dahin gilt der alte Plan). Neu: `timetable_lessons.solver_run_id` (Herkunft, `on delete set null`), `undo` JSONB am Lauf (beendete Stunden mit altem `valid_until`, Anzahl gelöschter Vertretungen), Status `applied` mit `applied_by`/`applied_at`. **„Übernahme zurücknehmen“** solange der Stichtag in der Zukunft liegt: gesetzte Stunden des Laufs löschen, `valid_until` der beendeten wiederherstellen → Status `done`; gelöschte Vertretungen kommen **nicht** zurück (Hinweis vor der Übernahme nennt die Zahl). Stichtag muss ein Schultag sein (Ferien/Wochenende → Fehler mit Vorschlag `nextSchoolDay`) |
+| **Übernahme als Entwurf / aktiver Plan** | wie heute **ab Stichtag** – ein Stichtag in der Zukunft **ist** der Entwurf (bis dahin gilt der alte Plan). Neu: `timetable_lessons.solver_run_id` (Herkunft, `on delete set null`), `undo` JSONB am Lauf (beendete Stunden mit altem `valid_until`, Anzahl gelöschter Vertretungen), Status `applied` mit `applied_by`/`applied_at`. **„Übernahme zurücknehmen“** solange der Stichtag in der Zukunft liegt: gesetzte Stunden des Laufs löschen, `valid_until` der beendeten wiederherstellen → Status `done`; gelöschte Vertretungen kommen ~~nicht~~ seit SP-13 zurück, sofern ihre Stunde wieder gilt (Hinweis vor der Übernahme nennt die Zahl). Stichtag muss ein Schultag sein (Ferien/Wochenende → Fehler mit Vorschlag `nextSchoolDay`) |
 | **Aufräumen** | Löschklasse bleibt **LK-90** (90 Tage ab Anlage, DATENSCHUTZ §3.3). Zusätzlich Nachtjob `solver-aufraeumen`: `failed`/`cancelled` ohne Ergebnis nach 7 Tagen löschen; von `done`-Läufen je Schuljahr nur die **neuesten 20** mit vollem `result` behalten, ältere behalten nur `metrics`/`log` („Ergebnis entfernt“, nicht mehr übernehmbar). Manuelles Löschen je Lauf (`stundenplan.manage`, Audit `stundenplan.solver.delete`) |
 | **Validierung vor dem Start** | ohne Zeitraster, ohne Lehraufträge oder ohne aktive Räume: Hinweis statt leerer Lauf (L-02) |
 
@@ -399,7 +399,7 @@ Projektleitung.
 | 8 | Datenschutz/Veröffentlichung | ✅ `retention.test.ts`, Auskunftstest SP-10, VVT, `npm run veroeffentlichen:pruefen` 0 Fehler |
 | 9 | A11Y und Mobil | ✅ `a11y.spec.ts` (Planungsseiten je Rolle) und **neu** im Gesamtszenario: 12 Planungsseiten inkl. Läufe-Detail, Vergleich, Vertretungsstatistik, Diagnose hell **und** dunkel ohne axe-Befund; Vergleich auf 360 px ohne Seitenüberlauf (Tabellen scrollen im Rahmen); Vergleichsseite mobil hell/dunkel per `shot.mjs` gesichtet, ohne Umbruchfehler |
 | 10 | Volle Tests | ✅ `npm run check`: 2192 Vitest in 298 Dateien grün (2 bekannte Last-Flakes `solverlauf.latenz`, `boot-hardening` einzeln wiederholt grün; neuer Last-Fehler `disclaimer.test.ts` behoben, #48); Build grün; volle E2E (Port 3140): 294 bestanden, 1 übersprungen, ohne Ausfall; Backupserver-E2E 4; CI des SP-11-PRs grün |
-| 11 | Bekannte, bewusst hingenommene Lücken | ⏳ blockieren das Gate nicht: bei der Übernahme entfernte Vertretungen kommen beim Zurücknehmen nicht zurück (Hinweis nennt die Zahl); Lehrkraft-IDs in den JSON-Feldern der Läufe werden bei Kontolöschung nicht bereinigt (LK-90); `matchLessons` zählt geteilte Klassen mit zwei Lehrkräften doppelt („zu viel verplant“) → SP2-01/02 (Bänder) |
+| 11 | Bekannte, bewusst hingenommene Lücken | ⏳ blockieren das Gate nicht: bei der Übernahme entfernte Vertretungen kommen beim Zurücknehmen nicht zurück (Hinweis nennt die Zahl) – **behoben mit SP-13**; Lehrkraft-IDs in den JSON-Feldern der Läufe werden bei Kontolöschung nicht bereinigt (LK-90) – **behoben mit SP-14**; `matchLessons` zählt geteilte Klassen mit zwei Lehrkräften doppelt („zu viel verplant“) → SP2-01/02 (Bänder) |
 | 12 | Release | ⏳ Vorschlag **v0.6.0** nach dem Merge (Rechteänderung + Migrationen). Release-Notes: neue Funktionsgruppe **„Stundenplanung“** (Rechte `stundenplan.manage` + neu `stundenplan.substitute`; bestehende Rollen-Grants bleiben, Empfehlung: Planende in die Gruppe aufnehmen, Rollen-Grant entfernen); **2FA-Pflicht sofort** für alle mit Planungsrecht (vor dem Update Betroffene informieren, sonst sperrt die Pflicht sie bis zur Einrichtung); neuer Bereich `/planung` (alte Lesezeichen leiten weiter); Solver-Läufe (Parameter, Abbruch, Vergleich, Zurücknehmen); Vertretung mit abweichendem Fach |
 
 ---
@@ -480,7 +480,7 @@ kein Fach; alle Anzeigen nehmen das Fach der regulären Stunde.
 | Datenmodell | `timetable_substitutions.subject_id` nullable, FK `subjects.id`; leer = reguläres Fach; Check `subject_id is null or kind = 'substitute'` (bei Entfall/Raumänderung serverseitig `null`). Migration: nächste freie Nummer. Löschklasse folgt der Vertretung |
 | Speichern | `SubstitutionInput.subjectId`; Fach muss existieren, gleiches Fach wie die Stunde → `null`; bei Kopplungen für alle Teile derselben Lehrkraft; Audit nennt das Fach |
 | Formular | Feld „Fach“ (Vorgabe reguläres Fach) neben „Vertretung durch“, nur bei Vertretung aktiv; Hinweis, wenn die Gruppe an dem Tag eine Klausur im gewählten Fach hat |
-| Vorschläge | je Kandidat `suggestedSubjectId` = Fach, das die Lehrkraft regulär in dieser Gruppe gibt (bei mehreren das mit den meisten Wochenstunden); Grund „kann eigenes Fach geben: Mathe“ (+10) nur, wenn sie die Gruppe kennt, aber nicht das ausgefallene Fach unterrichtet. Rangfolge bleibt: frei durch Freisetzung > kennt Klasse > kennt Fach > Hohlstunde. Knopf „→ Mathe“ übernimmt Lehrkraft **und** Fach |
+| Vorschläge | je Kandidat `suggestedSubjectId` = Fach, das die Lehrkraft regulär in dieser Gruppe gibt (bei mehreren das mit den meisten Wochenstunden); Grund „kann eigenes Fach geben: Mathe“ (+10) nur, wenn sie die Gruppe kennt, aber nicht das ausgefallene Fach unterrichtet – und (**SP-15**, Q-SP-9-3, 2026-10-21) nur, wenn keine freie Lehrkraft das ausgefallene Fach unterrichtet (`scoreCandidates`: `sameSubjectFree`; das Formularfeld „Fach“ bleibt frei wählbar). Rangfolge bleibt: frei durch Freisetzung > kennt Klasse > kennt Fach > Hohlstunde. Knopf „→ Mathe“ übernimmt Lehrkraft **und** Fach |
 | Anzeige | Slot zeigt das abweichende Fach (Name/Farbe) mit „statt Sport“: Mein Stundenplan, Tagesleiste, Klassen-/Lehrkraft-/Raumplan, Druck, Vertretungsplan, Druck Vertretungsplan, Monitor („Mathe (statt Sport)“) |
 | Gong | „Vertretung Di, 3. Std: Mathe statt Sport (7b) …“, Eltern-Bündelung unverändert |
 | Klassenbuch | Eintrag der Vertretungsstunde trägt das tatsächliche Fach |
@@ -501,19 +501,213 @@ Reihenfolge nach Abhängigkeit, Feinplanung (Migrationen, Tests) beim Start des 
 
 | ID | Titel | Größe | Kern | hängt ab von | Quelle |
 |---|---|---|---|---|---|
-| **SP2-01** | Bänder – Datenmodell und Unterrichtsverteilung: `timetable_bands` (Schuljahr, Name, Wochenstunden, Doppelstunden) mit n Lehraufträgen als Mitglieder; Lehraufträge bleiben 1 Fach, 1 Gruppe, 1–2 Lehrkräfte; „Gekoppelt mit“ wird zum Band; Pflege-UI, Soll/verplant je Band | M | – | GATE SP | SP-G-01 |
-| **SP2-02** | Bänder im Solver, in Setzhilfe und Übernahme: Einheit = Band mit `parts[]` (eigene Lehrkraft/Fach/Raum je Teil), `chooseRoom` je Teil, eine `coupling_id` je Band-Stunde, Setzhilfe setzt/verschiebt das Band als Einheit; Kursband zählt für Klassen-Hohlstunden | L | **ja** | SP2-01 | SP-G-01 |
-| **SP2-03** | Tagesgrenzen und Ganztag je Jahrgangsstufe: `maxPerDay`, `afternoonsPerWeek`, `lunchAfterPeriod` (Mittagspause Pflicht bei Unterricht danach), Vorgaben aus dem Schulform-Katalog; hart im Solver, Diagnose-Kategorie | M | **ja** | GATE SP | SP-G-04b |
-| **SP2-04** | Lehrkraft-Tagesregeln und Fachverteilung: optional `maxPerDay`/`maxDays` je Lehrkraft (Deputats-Seite), weiche Kosten Anwesenheitstage; Kosten `subjectSpread` (nicht an Folgetagen geballt), Gewichte in den Voreinstellungen | S–M | **ja** | SP2-03 | SP-G-05, SP-G-06 |
-| **SP2-05** | Hohlstunden Oberstufe/Kursband im Solver (Jahrgang ohne Klasse) + Diagnose-Kategorie Zeitwünsche (gesperrt belegt = Fehler, −3/−2 = Warnung; Tausch in der Setzhilfe prüft Sperren) | S–M | **ja** | SP2-02 | SP-G-11, SP-G-12 |
-| **SP2-06** | CSV-Import der Unterrichtsverteilung (Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch]) mit Vorschau, Zuordnung über Kürzel, Fehlerliste und Trockenlauf; nur Lehraufträge, kein Plan | S | – | GATE SP | Q-SP-14 |
+| **SP2-01** ✅ | Bänder – Datenmodell und Unterrichtsverteilung: `timetable_bands` (Schuljahr, Name, Wochenstunden, Doppelstunden) mit n Lehraufträgen als Mitglieder; Lehraufträge bleiben 1 Fach, 1 Gruppe, 1–2 Lehrkräfte; „Gekoppelt mit“ wird zum Band; Pflege-UI, Soll/verplant je Band | M | – | GATE SP | SP-G-01 |
+| **SP2-02** ✅ | Bänder im Solver, in Setzhilfe und Übernahme: Einheit = Band mit `parts[]` (eigene Lehrkraft/Fach/Raum je Teil), `chooseRoom` je Teil, eine `coupling_id` je Band-Stunde, Setzhilfe setzt/verschiebt das Band als Einheit; Kursband zählt für Klassen-Hohlstunden | L | **ja** | SP2-01 | SP-G-01 |
+| **SP2-03** ✅ | Tagesgrenzen und Ganztag je Jahrgangsstufe: `maxPerDay`, `afternoonsPerWeek`, `lunchAfterPeriod` (Mittagspause Pflicht bei Unterricht danach), Vorgaben aus dem Schulform-Katalog; hart im Solver, Diagnose-Kategorie | M | **ja** | GATE SP | SP-G-04b |
+| **SP2-04** ✅ | Lehrkraft-Tagesregeln und Fachverteilung: optional `maxPerDay`/`maxDays` je Lehrkraft (Deputats-Seite), weiche Kosten Anwesenheitstage; Kosten `subjectSpread` (nicht an Folgetagen geballt), Gewichte in den Voreinstellungen | S–M | **ja** | SP2-03 | SP-G-05, SP-G-06 |
+| **SP2-05** ✅ | Hohlstunden Oberstufe/Kursband im Solver (Jahrgang ohne Klasse) + Diagnose-Kategorie Zeitwünsche (gesperrt belegt = Fehler, −3/−2 = Warnung; Tausch in der Setzhilfe prüft Sperren) | S–M | **ja** | SP2-02 | SP-G-11, SP-G-12 |
+| **SP2-06** ✅ | CSV-Import der Unterrichtsverteilung (Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch]) mit Vorschau, Zuordnung über Kürzel, Fehlerliste und Trockenlauf; nur Lehraufträge, kein Plan | S | – | GATE SP | Q-SP-14 |
 | **SP2-07** | Vertretung Stufe 2: Verlegung (Stunde auf einen Entfall-Slot vorziehen/tauschen), Zusammenlegung/Mitbetreuung (Gruppe geht zu Gruppe Y), Bereitschaft (Reserve je Slot, oben in den Vorschlägen); Anzeige/Gong/Monitor/Druck mitziehen | M | – | GATE SP | SP-G-08, Q-SP-15 |
 | **SP2-08** | Dauervertretung für den Zeitraum einer Abwesenheit (erzeugt Vertretungen für alle Tage) + Vertretungsbedarf im Wochenblick (nächste 5 Schultage) | S–M | – | SP2-07 | SP-G-09, SP-G-10 |
-| **SP2-09** | Lehrauftrag mit Gültigkeit (`valid_from/until`, Vorgabe Schuljahr; Verteilung und Solver am Stichtag, Übernahme bis `valid_until`) | M | teilw. | SP2-02 | SP-G-07 |
+| **SP2-09** ✅ | Lehrauftrag mit Gültigkeit (`valid_from/until`, Vorgabe Schuljahr; Verteilung und Solver am Stichtag, Übernahme bis `valid_until`) | M | teilw. | SP2-02 | SP-G-07 |
 | **SP2-10** | Drucke/Exporte: Gesamtübersicht alle Klassen/alle Lehrkräfte, Unterrichtsverteilung, Deputate, Aufsichtsplan, Vertretungsstatistik (Druck + CSV) | S–M | – | GATE SP | SP-G-14 |
 | **SP2-12** | **Fachbedarf & Vorsorge** (entschieden durch Projektleitung 19.10.2026): Reiter `/planung/bedarf` (Recht `stundenplan.manage`) + Kachel in der Übersicht `/planung`. Je Fach Bedarf (Wochenstunden aus Lehraufträgen/Stundentafel) gegen Versorgung (Deputatsstunden der Lehrkräfte mit diesem Lehrfach, abzüglich Anrechnungen) mit Ampel; Prognose nächstes Schuljahr (Jahrgänge rücken auf, Klassenzahl anpassbar, bekannte Abgänge/Zugänge – Ruhestand, Elternzeit, Befristung, Abordnung – nur als Datum + Stunden, **ohne Begründung**); Empfehlungstexte („Physik: −6 Std. … Einstellung/Abordnung prüfen“) + Hinweis auf Fächer, die nur eine Lehrkraft abdeckt. Neu: Lehrfächer (Fakultas) je Lehrkraft als Stammdatum; neues Leserecht „Fachbedarf einsehen“ (z. B. `stundenplan.forecast_view`) für die Schulleitung – nur aggregierte Zahlen je Fach, keine Personen/Namen; die Planung sieht Details. Datenschutz: Abgänge sind personenbezogen → Löschklasse/Löschfrist, nur mit `manage` sichtbar | M | – | GATE SP | Projektleitung 2026-10-19 |
-| **SP2-11** | E2E-Szenario „Gesamtschule“ (Band E/G Mathe 7 + WP + Tagesgrenze → Lauf → Übernahme; Verlegung/Bereitschaft; CSV-Import; Fachbedarf) + Review-PR **GATE SP2** | S | – | SP2-01 … SP2-10, SP2-12 | – |
+| **SP2-11** ✅ | E2E-Szenario „Gesamtschule“ (Band E/G Mathe 7 + WP + Tagesgrenze → Lauf → Übernahme; Verlegung/Bereitschaft; CSV-Import; Fachbedarf) + Review-PR **GATE SP2** | S | – | SP2-01 … SP2-10, SP2-12 | – |
 | **GATE SP2** | Review mit der Projektleitung – merged nur die Projektleitung | – | – | SP2-11 | – |
+
+**Umgesetzt (SP2-01, Migration 0100, 2026-10-20; Solver/Setzhilfe/Übernahme in SP2-02, s. u.):** Tabelle `timetable_bands` (Schuljahr, Name – eindeutig je Schuljahr –, Wochen-
+und Doppelstunden), Mitglieder = Lehraufträge mit `timetable_assignments.band_id` (`on delete set null`). Lehrauftrag: genau eine Gruppe
+(`AssignmentInput.groupId`), höchstens zwei Lehrkräfte, im Band übernimmt er Wochen-/Doppelstunden des Bands (`updateBand` schreibt sie an alle
+Mitglieder; Herausnehmen/Löschen lässt sie stehen). „Gekoppelt mit“ ist entfallen; Migration 0100 macht aus jedem Lehrauftrag mit mehreren
+Gruppen ein Band (id = alter Lehrauftrag, Name „Fach Gruppe/Gruppe“), einen Lehrauftrag je Gruppe (id `md5(alt|Gruppe)`) und biegt
+Notenbücher auf den Lehrauftrag ihrer Gruppe um. `distribution()` liefert `bands: BandStatus[]` (`planned` = schwächstes Mitglied,
+`together` = Slots, in denen alle Mitglieder liegen, `uniform` = gleiches Fach, gleiche Lehrkräfte, gleicher Raumwunsch); Lehrkräfte zählen
+ein Band einmal (`teacherAssigned`), „verplant“ zählt gekoppelte Stunden im selben Slot einmal (`teacherPlanned`). Pflege-UI: Ansicht
+„Bänder“ unter `/planung/unterricht?ansicht=baender` (Liste mit Soll/verplant, anlegen/ändern/löschen, Lehrauftrag aufnehmen/herausnehmen),
+Feld „Band“ im Lehrauftrag. Demo: Band „Q1 GK-Schiene A“ (Englisch/Deutsch/Biologie GK1). Audit `stundenplan.band.*`.
+Vorgaben (Q-SP2-1 … Q-SP2-6): Stunden gehören dem Band; Lehrauftrag ohne Lehrkraft bleibt erlaubt; Mitglieder mit gemeinsamen
+Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `collapseBands()` galt nur bis SP2-02.
+
+**Umgesetzt (SP2-02, ohne Migration, 2026-10-20) – Bänder in Solver, Setzhilfe und Übernahme:**
+- **Solver-Eingabe** (`solver-input.ts`): `unitsFrom()` baut je Band **eine Einheit je Wochenstunde** (Doppelstunden als Zweier-Block, ids
+  `<band-id>#d0/#e0`) mit einem `parts[]`-Eintrag je Mitglied – bei Teamteaching je Lehrkraft (SP-G-02). Jeder Teil hat eigenes Fach,
+  eigene Lehrkraft, eigenen Raumwunsch (Wunschraum, Raumart des Fachs, Stammraum der Klasse). Gruppen/Lehrkräfte der Einheit = alle Teile;
+  Mitglieder nach Gruppenname sortiert, `assignmentId` = erstes Mitglied, `label` = „Bandname: 7a Religion (RIC) + 7b Philosophie (NEU)“.
+  Fixierte Stunden zählen **je Mitglied**: geplant wird `band.hours − max(fixiert je Mitglied)` (kein Mitglied über Soll; weniger fixierte
+  Mitglieder bleiben offen und erscheinen in der Verteilung – Vorschlag Q-SP2-7). Band mit einem Mitglied = wie ein Lehrauftrag mit Band-id;
+  leeres Band/Mitglied ohne Gruppe → keine Einheit. `collapseBands()` ist entfallen, ebenso die Warnung „noch einzeln“.
+- **Solver-Kern** (`solver.ts`): Fachsperren (`blocked("subject")`), Zeitwünsche des Fachs und „Fach mehrfach am Tag“ gelten **je Teil**
+  (`unitSubjects()`, Paare Gruppe × Fach je Einheit einmal berechnet – `feasible` bleibt die heiße Schleife). `chooseRooms()` zählt Teile, die
+  sich eine Lehrkraft (und damit den Raum) teilen, zur Raumgröße zusammen. Gruppen derselben Einheit gelten nicht als Konflikt (Q-SP2-6).
+  Einheiten mit einem Teil verhalten sich exakt wie vorher – der Groß-Benchmark liefert dieselbe Lösung (LASTTEST.md).
+- **Setzhilfe** (`setzhilfe.ts`): `openAssignments()` meldet ein Band-Mitglied offen, solange das **Band** offen ist (schwächstes Mitglied), mit
+  `band: { id, name, members }`; `assignmentPlacement()` baut je Mitglied Zeilen (`UnitRow.subjectId` neu) mit Raumvorschlag je Teil und
+  sperrt bei Sperrzeiten aller Beteiligten; `placementCell()` vergibt Räume je Teil (gleiche Lehrkraft → gleicher Raum, sonst verschieden);
+  `placeAssignment()` legt eine Kopplung mit allen Teilen an (Fach je Teil). Verschieben/Tauschen bewegt die ganze Kopplung (wie bisher).
+- **Übernahme/Seed:** `withCouplingIds()` (rein) vergibt **eine `coupling_id` je Band-Stunde**; `applyRun` und der Demo-Seed nutzen es, der
+  Demo-Plan zeigt das Band „Q1 GK-Schiene A“ als Kopplung. `undo`/Zurücknehmen, Vergleich und Vorschau arbeiten über `proposedLessons()` je
+  Teil und bleiben unverändert korrekt (Tests in `solverlauf.test.ts`).
+- **Diagnose:** neue Kategorie **„Bänder“** (`band`, Ziel `kind: "band"` mit Link zur Band-Seite): „nur x von y Stunden zur selben Zeit“
+  (`together < planned`, warn), „A und B haben gemeinsame Schüler:innen“ (Q-SP2-6, warn; `bandsWithSharedStudents()` – dieselbe Prüfung
+  warnt in der Vorprüfung eines Laufs), „Band ohne Lehraufträge“ (info). Die Liste „Bänder“ zeigt weiter „nur x Std. zur selben Zeit“.
+- **Demo:** die drei Q1-Grundkurse der Schiene bekommen **getrennte Schüler:innen** (je Schüler:in genau einer, Q-SP2-6); der Zufallswurf
+  bleibt gezogen, damit die übrige Demo unverändert ist. `listAssignments()` sortiert zuletzt nach id (deterministisch bei gleichem Fach und
+  Anlagezeitpunkt). Der Demo-Plan hat sich dadurch geändert (Band gemeinsam, Kopplungen) – E2E-Tests nachgezogen (`seed.test`,
+  `klausurplan/service.test` prüft Überschneidung jetzt gegen den Mathe-LK, `unterricht.spec`, `zx-gate-sp.spec` mit Band-Schritt).
+
+**Umgesetzt (SP2-03, Migration 0101, 2026-10-21) – Tagesgrenzen und Ganztag je Jahrgangsstufe:**
+- **Daten:** `timetable_grade_rules` (Jahrgang als Schlüssel, `max_per_day`, `afternoons_per_week`, `lunch_after_period`; `null` = keine Grenze; gilt über
+  Schuljahre hinweg, ohne Personenbezug → `NO_PERSONAL_DATA`). Pflege und Laden in `jahrgangsregeln.ts` (`saveGradeRules` prüft gegen das Zeitraster,
+  Nachmittage brauchen „Mittag nach …“; `applyGradeRuleDefaults` aus `gradeRulesTemplate()` in `core/school/templates.ts`: Sek I 5/6 höchstens 7, sonst 8
+  Stunden, Mittag nach der 6. bei mehr als 6 Stunden im Raster, Nachmittage 3 an Gesamt-/Sekundarschulen, sonst 2; Oberstufe ohne Vorgabe – Q-SP2-9).
+  Audit `stundenplan.tagesgrenzen.save`. Demo: Katalog-Vorgaben der Gesamtschule; die Demo-Sperren im Seed halten sie ohnehin ein – Demo-Plan unverändert.
+- **Regeln** (rein, `tagesgrenzen.ts`): `dayRuleFor()` macht aus „Mittag nach N“ die wirksame Regel – liegt zwischen N und N+1 im Zeitraster schon eine Pause
+  ≥ 30 min (`LUNCH_MIN_MINUTES`), ist dort Mittag (keine Mittagsstunde, Nachmittag ab N+1); sonst ist N+1 die Mittagsstunde, die frei bleibt, sobald danach
+  Unterricht liegt (Nachmittag ab N+2). Gilt für die **Klassen** des Jahrgangs; Stunden der Kurse/Wahlpflicht-/Förderkurse desselben Jahrgangs zählen für die
+  Klasse mit (gleiche Sicht wie Hohlstunden, SP2-02). Alle Regeln sind monoton (wegnehmen verletzt nie) – Tauschen/Verschieben bleiben einfach.
+- **Solver:** `SolverInput.dayRules` (Klasse → Regel, aus `solverInputFromDb`); `feasible()` prüft zuletzt `dayBlocked()` für die betroffenen Klassen der Einheit
+  (`meta.dayClasses`: eigene Klassen + Klassen des Kurs-Jahrgangs, bei Bändern über alle Teile); Klassentage sind zwischengespeichert (`dayCache`, verworfen in
+  `addGroupDay`/`removeGroupDay`). `blockersAt()` gibt bei verletzter Tagesgrenze `null` (Verdrängen im selben Slot hilft nicht), `explain()` liefert je Klasse die
+  Ursache `kind: "day"` mit Label „Tagesgrenzen 7a (höchstens 7 Std./Tag · höchstens 3 Nachmittage …)“ – steht so im Grund „nicht gesetzt“. Vorprüfung:
+  Wochenstunden der Klasse gegen `weeklyCapacity()`. Das Protokoll nennt „Tagesgrenzen für n Klassen“.
+- **Setzhilfe:** `GridInput.dayLimits` (aus `loadDayLimits`) – ein Slot über einer Grenze ist gesperrt mit Grund „7a: höchstens 7 Stunden am Tag“; beim Tausch
+  wird auch der Partner-Tag geprüft („Tausch: …“).
+- **Diagnose:** neue Kategorie **„Tagesgrenzen“** (`day`): je Klasse und Tag zu viele Stunden bzw. Unterricht in der Mittagsstunde und danach (Fehler), zu viele
+  Nachmittage (Fehler), Wochenstunden laut Verteilung über dem Erlaubten (Warnung; ein Band zählt einmal). Auch in den Plan-Hinweisen der Klasse.
+- **Pflege-UI:** `/planung/unterricht?ansicht=tagesgrenzen` (Recht `stundenplan.manage`): Tabelle je Jahrgang mit Klassen, Wirkung im Zeitraster, „Vorgaben der
+  Schulform übernehmen“; E2E in `unterricht.spec.ts`.
+- **Benchmark:** ohne Regeln dieselbe Lösung; Variante „Tagesgrenzen“ (alle Klassen 7/3) 0,7 s allein, Grenzen eingehalten (LASTTEST.md).
+
+**Umgesetzt (SP2-04, Migration 0102, 2026-10-21) – Lehrkraft-Tagesregeln und Fachverteilung:**
+- **Daten:** `timetable_teacher_day_rules` (Schuljahr × Lehrkraft, `max_per_day` 1–20, `max_days` 1–7, `null` = keine Grenze; ohne Grenze entfällt die Zeile).
+  Personaldaten wie das Deputat: LK-SJ-1J ab Schuljahr, Fremdschlüssel aufs Konto (`deleteAccounts`/Löschlauf löschen mit, kein weicher Verweis), Pflege nur mit
+  `stundenplan.manage` (`saveTeacherDayRuleAction` → `saveTeacherRule` in `deputate.ts`, prüft 1 … Stunden im Raster bzw. 1–5 Tage, Audit
+  `stundenplan.deputy.day_rule`), sichtbar für die Lehrkraft selbst unter „Mein Deputat“. `DeputyAccount.dayRule`; Laden für die Setzhilfe `loadTeacherLimits()`.
+- **Regeln** (rein, `lehrkraftregeln.ts`): `teacherViolationsWith()` (Stunden am Tag – gekoppelte Stunden einer Lehrkraft zählen einmal –, neuer Anwesenheitstag über
+  `maxDays`), `teacherWeeklyCapacity()`, `teacherLimitReasons()`; monoton wie SP2-03.
+- **Solver:** `SolverInput.teacherRules` (aus `solverInputFromDb`, Schuljahr des Laufs); `feasible()` prüft nach den Tagesgrenzen `teacherBlocked()` für die Lehrkräfte
+  der Einheit mit Regel (`meta.ruleTeachers`, bei Bändern jede Teil-Lehrkraft) direkt auf `teacherDay` (kein eigener Zwischenspeicher nötig – Tage sind kurz).
+  `blockersAt()` gibt bei verletzter Regel `null`, `explain()` liefert `kind: "teacherDay"` mit Label „Tagesregel LIN (höchstens 3 Std./Tag · höchstens 2 Tage)“;
+  Vorprüfung: Bedarf der Lehrkraft gegen `teacherWeeklyCapacity()`. Protokoll „Tagesregeln für n Lehrkräfte“.
+- **Weiche Kosten:** `SolverWeights.teacherDays` (je Anwesenheitstag, in `teacherDayCost()`; Posten je Lehrkraft und Woche in `total()`) und `subjectSpread`
+  (`spreadCost(g, s)`: Paare benachbarter Schultage mit demselben Fach je Gruppe minus unvermeidbare `max(0, 2n − D − 1)`; in `localCost()` je berührtem Paar
+  Gruppe × Fach über `groupSubjectsOf()`, also bei Bändern je Teil-Fach). Beide **Vorgabe 0** (`DEFAULT_WEIGHTS`, „ausgewogen“, Demo-Seed) → Pläne ohne Regeln
+  bleiben gleich; „lehrkräfteschonend“ `teacherDays: 4`, „klassenkompakt“ `subjectSpread: 6`; Formularfelder „Anwesenheitstag Lehrkraft“/„Fach an Folgetagen“,
+  `COST_LABELS` „Anwesenheitstage Lehrkräfte“/„Fach an Folgetagen“ (Läufe vor SP2-04 zeigen 0).
+- **Setzhilfe:** `GridInput.teacherLimits` – Slot gesperrt mit „LIN: höchstens 5 Stunden am Tag“ bzw. „… Anwesenheitstage je Woche“, beim Tausch auch für den Partner.
+- **Diagnose:** Kategorie **„Tagesregeln Lehrkräfte“** (`teacherDay`, Ziel Lehrkraft): Tag über `maxPerDay` (Fehler), mehr Tage als `maxDays` (Fehler), Lehraufträge
+  über der Wochenkapazität (Warnung).
+- **Benchmark:** ohne Regeln dieselbe Lösung (Bewertung 2 163, 9 nicht gesetzt, 0,69 s); Variante „Lehrkraft-Tagesregeln“ (24 Lehrkräfte bis 22 Std. höchstens 6 am
+  Tag, 3 bis 20 Std. zusätzlich höchstens 4 Tage, `subjectSpread` 6) 14 nicht gesetzt (Grenzwert 1 %), Regeln eingehalten, 0,8 s allein (LASTTEST.md).
+  Befund: die synthetische Schule ist voll ausgelastet (~22–24 Std. je Lehrkraft) – „höchstens 4 Tage“ für alle Lehrkräfte bis 22 Std. ließ 27–32 Einheiten liegen;
+  ein Konstruktions-Aufschlag für neue Anwesenheitstage machte es schlechter (38) und ist verworfen.
+
+**Umgesetzt (SP2-05, ohne Migration, 2026-10-21) – Hohlstunden Oberstufe/Kursband, Diagnose Zeitwünsche:**
+- **Solver** (`solver.ts`): Jahrgänge, die nur aus Kursen bestehen (`gradeOf` ohne Klasse – Oberstufe), bekommen einen eigenen Kostenschlüssel
+  `@${grade}|${wd}`: Lücken zwischen den Kurs-Stunden des Jahrgangs am Tag (Vereinigung über alle Kurse, `gradeDay`) kosten wie Klassen-Hohlstunden
+  (`classGap`). `touchedDays()` nimmt den Jahrgangs-Tag mit (lokale Suche), `total()` weist den Posten als „Jahrgang 12 Mo: 1 Hohlstunde“ aus,
+  `gapStats()` zählt den Jahrgang wie eine Klasse. Hat der Jahrgang Klassen, zählen wie bisher die Klassen (SP2-02). Ohne `gradeOf` bzw. ohne
+  Kurs-Jahrgänge ändert sich nichts – der Groß-Benchmark liefert dieselbe Lösung (LASTTEST.md). Die Vereinigung ist die untere Schranke je
+  Schüler:in; Hohlstunden einzelner Schüler:innen kennt erst die Blockung aus Kurswahlen (SP-G-24).
+- **Tagesgrenzen für Kurs-Jahrgänge (Q-SP2-10, Vorschlag):** greifen **nicht** – die Vereinigung aller Kurse eines Oberstufen-Jahrgangs ist kein
+  Schülertag (höchstens 8 Stunden über alle Kurse würde zu viel sperren, die Mittagsstunde ebenso); die Pflege listet ohnehin nur Jahrgänge mit
+  Klassen, die Katalog-Vorgaben haben für die Oberstufe keine Werte (Q-SP2-9).
+- **Diagnose:** neue Kategorie **„Zeitwünsche“** (`prefs`): Stunden am Stichtag gegen `allPrefs()` – Lehrkraft (Ziel Lehrkraft), Gruppe, Raum und
+  Fach (Ziel Gruppe); gesperrt belegt = Fehler, −3/−2 = Warnung, −1 nichts; je Wunsch-Ziel und Schwere ein Hinweis mit Slots und Stunden, gekoppelte
+  Stunden und A/B-Wochen einmal je Slot. Auch in den Plan-Hinweisen der Gruppe.
+- **Setzhilfe:** `GridInput.blockedFor`/`MoveUnit.blockedFor` (Wunsch-Ziele beliebiger Stunden, `lessonPrefTargets()`); beim Tausch werden die
+  Sperrzeiten der Partner-Stunden am bisherigen Slot geprüft („Tausch: AAA: Zeit gesperrt“).
+- **Benchmark:** neue Variante „Oberstufe mit Jahrgang“ (Schienen als Bänder, Kurse mit Jahrgang 11–13): Jahrgangs-Hohlstunden 6 → 4, 0 nicht
+  gesetzt. Variante „Lehrkraft-Tagesregeln“ läuft jetzt auf der Schule mit Schienen als Bändern (ohne Bänder lagen schon ohne Regeln 9–12 Kurse
+  wegen Konfliktmengen offen, das Ergebnis schwankte je nach Gewicht zwischen 12 und 19 um die 1-%-Grenze) und ist dabei **strenger**: 17 statt 3
+  Lehrkräfte mit höchstens 4 Tagen – 1 nicht gesetzt (Grenze 12).
+
+**Umgesetzt (SP2-06, ohne Migration, 2026-10-21) – CSV-Import der Unterrichtsverteilung (Q-SP-14):**
+- **Seite** `/planung/unterricht/import` (Knopf „CSV-Import“ in der Unterrichtsverteilung, Recht `stundenplan.manage`), Vorlage unter
+  `/api/stundenplan/verteilung-vorlage` (Kopfzeile + zwei Beispielzeilen mit Kürzeln der Schule, ohne Personennamen).
+- **Format** (`verteilung-import.ts`, `parseAssignmentCsv`): Klasse/Kurs; Fach; Stunden; Lehrkraft[; Doppelstunden; Raumwunsch; Band] – Kopfzeile
+  optional (Spaltennamen in beliebiger Reihenfolge, ohne Kopfzeile die Reihenfolge der Vorlage), Semikolon oder Komma, höchstens 512 KB/5 000 Zeilen.
+  Kodierung: gültiges UTF-8 (mit/ohne BOM), sonst Windows-1252 – neuer Helfer `decodeCsvBytes()` in `core/csv.ts` (die anderen Importe lesen bisher nur
+  UTF-8 und können ihn übernehmen).
+- **Zuordnung** (`planAssignmentImport`): Gruppe über Name/Slug (Klassen/Kurse/AG/WP/Förderkurse des Schuljahrs, nicht archiviert), Fach über Kürzel/Name,
+  Lehrkraft über Kürzel/Namen (aktive Lehrkräfte, zwei mit „/“ oder „+“), Raum über Kürzel/Name (aktiv); mehrdeutige Namen sind ein Fehler.
+  Gleiche Prüfregeln wie beim Anlegen von Hand (1–12 Std., Doppelstunden ≤ Hälfte, ≤ 2 Lehrkräfte); doppelte Zeilen in der Datei sind ein Fehler.
+- **Vorhandene Lehraufträge**: passt Gruppe + Fach + eine Lehrkraft (bzw. beide ohne), wird der Auftrag geändert (Stunden, Lehrkräfte; Doppelstunden/Raum
+  nur, wenn die Spalte gefüllt ist) – Vorschau zeigt „ändern“ mit den Änderungen bzw. „unverändert“. Nichts wird gelöscht.
+- **Bänder**: Spalte „Band“ = Name eines vorhandenen Bands (Stunden/Doppelstunden müssen zum Band passen) oder eines neuen (alle Zeilen mit denselben
+  Stunden; wird angelegt). Ein Lehrauftrag im Band bleibt darin – ohne Band-Spalte müssen die Stunden zum Band passen, ein anderes Band ist ein Fehler.
+- **Übernehmen** plant serverseitig neu und schreibt nur ohne Fehler, alles in einer Transaktion; Audit `stundenplan.assignment.csv_import` mit Anzahlen.
+- Tests: `verteilung-import.test.ts`, `csv.test.ts`, E2E `unterricht-import.spec.ts` mit Beispieldatei `e2e/fixtures/unterrichtsverteilung.csv` (Windows-1252).
+
+**Umgesetzt (SP2-09, Migration 0103, 2026-10-21) – Lehrauftrag mit Gültigkeit (SP-G-07):**
+- **Daten:** `timetable_assignments.valid_from/valid_until` (`date`, `null` = Beginn/Ende des Schuljahrs, Prüfregel ab ≤ bis). Pflege im Lehrauftrag
+  („Gültig ab/bis“, im Schuljahr); „doppelt erfasst“ gilt nur bei sich überschneidender Gültigkeit (`validityOverlaps`), Physik bei derselben
+  Lehrkraft im 1. und im 2. Halbjahr darf getrennt stehen. Ohne Personenbezug über den Lehrauftrag hinaus – keine neue Löschklasse.
+- **Verteilung am Stichtag:** `distribution()` filtert mit `activeOn()` am Stichtag (`referenceDate`) – damit gilt der Stichtag für alles, was darauf
+  aufbaut (Soll/verplant, Bänder, Deputate, Diagnose, Setzhilfe, Solver-Eingabe); was dann nicht gilt, steht in `otherTime` und zählt nirgends. Die
+  Seite hat einen Stichtag-Wähler (`?stichtag=`), die Gruppe zeigt „Zu anderer Zeit gültig“ mit Sprung auf deren Stichtag, die Tabelle einen Hinweis
+  „ab …/bis …“.
+- **Solver-Läufe:** neuer Parameter „Lehraufträge am“ (`RunParams.refYmd`, optional – Läufe ohne rechnen wie bisher am Tag der Berechnung;
+  `StoredResult.refYmd` = Planungsstand); Detailseite und Vergleich zeigen ihn, das Protokoll nennt ihn.
+- **Übernahme:** jede Stunde trägt ihren Lehrauftrag (`ProposedLesson.assignmentId`, je Teil – Band-Mitglieder je eigene Gültigkeit) und gilt
+  bis `min(Schuljahresende, valid_until)`; endet der Lehrauftrag vor dem Stichtag, entfällt die Stunde (`expired`, im Protokoll). Beginnt ein
+  Lehrauftrag des Laufs erst nach dem Stichtag, lehnt die Übernahme ab („frühestens ab …“) – die Stunden beginnen so immer am Stichtag, das
+  Zurücknehmen bleibt unverändert. Ablauf Halbjahr: Lauf mit Stand 1. Hj. übernehmen (Halbjahres-Aufträge enden am 31.01.), Lauf mit
+  „Lehraufträge am 01.02.“ ab dem 01.02. übernehmen (ersetzt ab dann).
+- **Setzhilfe:** Stunden gelten höchstens so lange wie ihr Lehrauftrag (`clipValidity`); weichen Band-Mitglieder ab, bekommt die Kopplung den
+  Zeitraum der Setzhilfe (einfache Vorgabe; der Solver-Weg setzt je Teil).
+- **CSV-Import (SP2-06)** kennt keine Gültigkeit: neue Lehraufträge gelten das ganze Schuljahr, ein vorhandener mit Gültigkeit kann als „ändern“ zugeordnet werden.
+- **Benchmark:** der Solver-Kern ist unverändert – vor und nach der Änderung dieselbe Lösung (9 nicht gesetzt, Bewertung 2 163, 82 Verbesserungen,
+  Hohlstunden 169/13, gesamt 0,75 → 0,69 s; Varianten mit denselben Ergebnissen – geteilter Sport 10, Bänder 0, Oberstufe 0, Tagesgrenzen 9, Lehrkraft-Tagesregeln 1 nicht gesetzt). Ohne Gültigkeitsangaben ist die Solver-Eingabe unabhängig vom Stichtag (Test).
+- Tests: `gueltigkeit.test.ts` (rein + Demo: Pflege, Verteilung, Solver-Eingabe, Übernahme bis `valid_until`, Ablehnung, abgelaufene), E2E
+  `unterricht-gueltigkeit.spec.ts`.
+
+**Umgesetzt (SP2-07, Migration 0104, 2026-10-21) – Vertretung Stufe 2 (SP-G-08, Q-SP-15):**
+- **Daten:** `substitution_kind` + `move`/`merge`; `timetable_substitutions.target_period` (Verlegung: Stunde desselben Tages) und
+  `merge_lesson_id` (Zusammenlegung: aufnehmende Stunde, Fremdschlüssel mit `cascade`); neue Tabelle `timetable_standby` (Schuljahr × Wochentag ×
+  Stunde × Lehrkraft, LK-SJ-1J ab Schuljahr, Fremdschlüssel aufs Konto – `deleteAccounts` braucht nichts Eigenes).
+- **Belegung** (rein, `belegung.ts`): `ownTeacherPeriod`/`groupPeriod`/`roomUse` – Verlegung zählt in der neuen Stunde, Zusammenlegung gibt
+  Lehrkraft und Raum frei (die Gruppe ist bei der anderen Stunde beschäftigt). Genutzt von Vertretung (`busyTeachers/busyRooms/busyGroups`,
+  `roomLessonAt`), Vorschlägen, Raumbelegung, Raumsperren und Aufsichtsvertretung.
+- **Verlegung** (`saveSubstitution`, Art `move`): ganze Kopplung (bei Band-Stunden alle Teile, `couplingParts`), Zielstunde ≠ eigene; Gruppe,
+  Lehrkräfte, Räume (optional anderer Raum) frei, Raumsperre. „Tauschen“ (`swap`) legt den Unterricht der Gruppe aus der Zielstunde (mit seinen
+  Kopplungsteilen) in die bisherige Stunde – geprüft in beide Richtungen; Aufheben nimmt den Tauschpartner mit. Solange etwas in eine Stunde
+  verlegt ist, kann die dortige Stunde weder stattfinden (Vertretung/Raumänderung) noch ihr Entfall aufgehoben werden.
+- **Zusammenlegung** (Art `merge`): aufnehmende Stunde zur selben Zeit, andere Gruppe, findet wie geplant statt, Lehrkraft (bzw. deren Vertretung)
+  nicht abwesend; Auswahl `mergeOptions()`. Die aufnehmende Stunde kann nicht entfallen/verlegt/zusammengelegt werden, solange Gruppen dort sind.
+- **Bereitschaft** (`bereitschaft.ts`, Seite `/planung/vertretungen/bereitschaft`, Recht `stundenplan.substitute`): nicht zur eigenen Unterrichtszeit,
+  Audit `stundenplan.standby.*`; `suggestSubstitutes()` setzt Lehrkräfte mit Bereitschaft immer oben (Grund „Bereitschaft“ +40, keine Rand-/Frei-Abzüge).
+- **Tagesregeln (SP2-04) bei Vertretungen** (`vertretung-regeln.ts`): wer mit der zusätzlichen Stunde über „höchstens n Stunden am Tag“ bzw. einen
+  weiteren Anwesenheitstag käme, wird nicht vorgeschlagen; Speichern lehnt ab („Tagesregel: …“). Verlegung/Zusammenlegung ändern die Tageslast nicht.
+- **Anzeige:** `listSlots()` liefert die verlegte Stunde zweimal (`moved: "from"` in der bisherigen Stunde, „away“; `moved: "to"` mit neuen Zeiten),
+  `change.mergeWith` bzw. `joined` (Mitbetreuung bei der aufnehmenden Stunde); `substitutionsOn()` zwei Einträge je Verlegung (`movedFrom/movedTo`)
+  und `mergeWith`; Texte über `changeLabel/changeTeacher/changeRoom` in `display.ts` (Vertretungsplan, Planung, Druck, Monitor, Kursseite). Gong:
+  „Verlegung … – in der 1. Std“, „Zusammenlegung … – mit 7a · bei …“; die mitbetreuende Lehrkraft bekommt die Tagesnachricht.
+- **Zähler:** Verlegung zählt weder als Vertretung noch als Entfall; Zusammenlegung zählt als „vertreten“ der Gruppe und „abgegeben“ der Lehrkraft.
+- Solver nicht betroffen. Tests: `vertretung-stufe2.test.ts`, E2E `vertretung-stufe2.spec.ts` (Planungs-Login, A11Y hell/dunkel/360 px).
+
+**Umgesetzt (SP2-08, ohne Migration, 2026-10-21) – Dauervertretung und Wochenblick (SP-G-09, SP-G-10):**
+- **Dauervertretung** (`dauervertretung.ts`, `savePermanentSubstitution`): Option im Vertretungsformular, sobald die Lehrkraft der Stunde eine Abwesenheit
+  über den Tag hinaus hat. Legt für jeden Tag der Abwesenheit ab dem gewählten, an dem die Stunde stattfindet (Ferien/Feiertage, A/B-Woche, Gültigkeit,
+  stundenweise Abwesenheit beachtet), eine gewöhnliche Vertretung über `saveSubstitution` an – mit allen Prüfungen (frei, nicht abwesend, Tagesregel,
+  Raum) und je Tag dem Gong. Schon geregelte Tage bleiben unverändert; Tage, an denen es nicht geht, nennt die Rückmeldung („nicht am 07.10. (…)“).
+  Kein eigener Datensatz: einzeln überschreiben/aufheben wie jede Vertretung (einfache Vorgabe, Q-SP2-16).
+- **Wochenblick** (`weekNeeds`): oben auf `/planung/vertretungen` die nächsten fünf Schultage mit „n offen“/„m geregelt“, Link auf den Tag.
+- Tests: `dauervertretung.test.ts`, E2E `vertretung-dauer.spec.ts` (Planungs-Login, A11Y, dunkel/360 px).
+
+**Umgesetzt (SP2-11, ohne Migration, 2026-10-26) – E2E-Gesamtszenario „Gesamtschule“:** `e2e/zx-gate-sp2.spec.ts` (seriell, legt alles selbst an
+und räumt es weg – TD-07): Kurse Jahrgang 7 (Mathe E/G, zwei WP) → CSV-Import mit zwei Bändern → Bänder, Fachbedarf, CSV-Export ↔ Import →
+Tagesgrenze → Lauf → Übernahme ab Stichtag (Band-Stunden als Kopplung, Diagnose Tagesgrenzen/Bänder am Stichtag ohne Befund) → zurücknehmen;
+Bereitschaft oben in den Vorschlägen, Verlegung in eine freie Stunde, Vertretungsseite der 7b auf 360 px ohne seitliches Scrollen; A11Y der
+SP2-Seiten hell/dunkel. Fund: `Table` aus `@schulos/ui` ist jetzt `relative` (sonst ragten `sr-only`-Spaltenköpfe aus dem Scroll-Rahmen).
+
+**Übergabe für den Rest des Blocks (nach SP2-05):**
+- **SP2-09 (Lehrauftrag mit Gültigkeit):** `unitsFrom()`/`solverInputFromDb()` filtern Lehraufträge am Stichtag; `gradeOf` bleibt aus
+  `groups.gradeLevel` – Kurs-Jahrgänge (Oberstufe) zählen ohne weitere Eingabe.
+- **SP2-11 (E2E „Gesamtschule“):** Diagnose-Kategorie „Zeitwünsche“ per `?ansicht=diagnose&kategorie=prefs` erreichbar; Demo-Plan hält die
+  Demo-Sperren ein (keine Fehler in der Kategorie).
+- Offen/Vorschlag: Q-SP2-7 (fixierte Stunden im Band: `max` je Mitglied) und Q-SP2-8 (Band-Mitglied allein nachsetzen: die Setzhilfe
+  setzt immer das ganze Band; ein Mitglied mit mehr fixierten/eigenen Stunden lässt sich nur über die Stundenpflege einzeln ergänzen).
 
 Nur auf Nachfrage von Schulen (Kann): A/B-Wochen im Solver (SP-G-17), Lehrbefähigung (SP-G-18), Wertrechnung/Faktoren (SP-G-19),
 faire Aufsichtsverteilung (SP-G-20), ICS-Abo des Stundenplans (SP-G-21), Matrix Lehrkraft × Fach (SP-G-22). Oberstufen-Blockung

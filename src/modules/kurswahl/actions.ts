@@ -50,6 +50,7 @@ function readAngebot(form: FormData): AngebotInput {
     note: str(form, "note") || null,
     teacherId: str(form, "teacherId") || null,
     hours: num(form, "hours"),
+    offSubjectOk: form.get("offSubjectOk") === "1",
   };
 }
 
