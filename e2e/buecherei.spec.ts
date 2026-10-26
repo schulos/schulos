@@ -557,12 +557,23 @@ test.describe("Bücherei", () => {
     await claim.getByRole("button", { name: "Ersatz fordern" }).click();
     const open = page.getByRole("list", { name: "Offene Forderungen" }).getByRole("listitem").filter({ hasText: nr });
     await expect(open).toContainText("19,90 €");
+    // BU-17: Hinweis im Ersatzbrief
+    const hint = page.getByRole("form", { name: "Hinweis im Ersatzbrief" });
+    await hint.getByLabel("Hinweis").fill("Bitte im Sekretariat melden (E2E-Hinweis).");
+    await hint.getByRole("button", { name: "Hinweis speichern" }).click();
+    await expect(hint.getByRole("status")).toContainText("Gespeichert");
     await open.getByRole("link", { name: "Brief drucken" }).click();
     await expect(page).toHaveURL(/\/druck\/buecherei-ersatz\?id=/);
     const letter = page.getByRole("main", { name: "Brief Ersatzforderung" });
     await expect(letter).toContainText("Sehr geehrte Erziehungsberechtigte");
     await expect(letter).toContainText("Daniela Schäfer");
     await expect(letter).toContainText("19,90 €");
+    await expect(page.getByTestId("ersatz-hinweis")).toHaveText("Bitte im Sekretariat melden (E2E-Hinweis).");
+    // Hinweis wieder leeren, damit andere Läufe unverändert bleiben
+    await page.goto("/buecherei/ersatz");
+    await page.getByRole("form", { name: "Hinweis im Ersatzbrief" }).getByLabel("Hinweis").fill("");
+    await page.getByRole("form", { name: "Hinweis im Ersatzbrief" }).getByRole("button", { name: "Hinweis speichern" }).click();
+    await expect(page.getByRole("form", { name: "Hinweis im Ersatzbrief" }).getByRole("status")).toContainText("Gespeichert");
     expect(errors).toEqual([]);
     await logoutForSwitch(page);
 
@@ -577,6 +588,27 @@ test.describe("Bücherei", () => {
     await page.goto("/buecherei/ersatz");
     await page.getByRole("button", { name: `${MAT} (${nr}): bezahlt` }).click();
     await expect(page.getByRole("table", { name: "Abgeschlossene Forderungen" })).toContainText(nr);
+    expect(errors).toEqual([]);
+  });
+
+  test("BU-14: Rückgabetag der Schulbücher festlegen, Prüfung, zurück auf Schuljahresende", async ({ page }) => {
+    const errors = collectErrors(page);
+    await login(page, "sabine.kowalski");
+    await page.goto("/buecherei/ausgabe");
+    const card = page.getByRole("article", { name: /Rückgabetag/ });
+    await expect(card).toContainText("Schuljahresende");
+    const form = page.getByRole("form", { name: "Rückgabetag festlegen" });
+    await form.getByLabel("Rückgabetag").fill("2000-01-01");
+    await form.getByRole("button", { name: "Rückgabetag speichern" }).click();
+    await expect(form).toContainText("Vergangenheit");
+    await form.getByLabel("Rückgabetag").fill("2027-07-15");
+    await form.getByRole("button", { name: "Rückgabetag speichern" }).click();
+    await expect(page.getByRole("article", { name: /Rückgabetag/ })).toContainText("15.07.2027");
+    await expect(page.getByRole("article", { name: /Rückgabetag/ })).not.toContainText("Schuljahresende)");
+    // zurück auf leer = Schuljahresende
+    await page.getByRole("form", { name: "Rückgabetag festlegen" }).getByLabel("Rückgabetag").fill("");
+    await page.getByRole("form", { name: "Rückgabetag festlegen" }).getByRole("button", { name: "Rückgabetag speichern" }).click();
+    await expect(page.getByRole("article", { name: /Rückgabetag/ })).toContainText("(Schuljahresende)");
     expect(errors).toEqual([]);
   });
 

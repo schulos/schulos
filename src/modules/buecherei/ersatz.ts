@@ -1,7 +1,8 @@
 // Schulbücherei Stufe 2 – Ersatzforderungen (BU-12, docs/BUECHEREI.md, Entscheidung 6): Betrag und Grund für Schaden oder
 // Verlust erfassen, Status offen/bezahlt/erlassen vermerken, Brief an die Eltern (bzw. die volljährige Person) drucken – keine
 // Zahlungsabwicklung, keine Säumnisgebühren. Ausgangspunkt sind Rückgaben mit Befund (Stufe 1), Schulbuch-Rücknahmen mit
-// Befund und nicht zurückgegebene Schulbücher (Verlust). Nur mit Schalter `buecherei.lernmittel` und Recht `buecherei.materials`.
+// Befund und nicht zurückgegebene Schulbücher (Verlust). Recht `buecherei.materials`; die Schulbuch-Quellen gibt es nur mit dem
+// Schalter `buecherei.lernmittel`, Befunde der Bücherei (Stufe 1) unabhängig davon (BU-15).
 // Mit dem Abschluss (bezahlt/erlassen) ist der Befund erledigt – beide gehen dann nach LK-SJ-1J.
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { audit } from "@/core/audit";
@@ -20,6 +21,7 @@ import { ForbiddenError, type PermissionSet } from "@/core/permissions";
 import { childrenOf, parentLinks } from "@/core/school/majority";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { COMPENSATION_STATUSES, parseEuro, type CompensationStatus } from "./labels";
+import { compensationNote } from "./einstellungen";
 import { canMaterials, lernmittelEnabled } from "./lernmittel";
 import { classNamesOf } from "./loans";
 
@@ -27,8 +29,12 @@ export const MAX_COMPENSATION_REASON = 200;
 /** Grund bei einem nicht zurückgegebenen Schulbuch (Verlust), wenn nichts anderes eingetragen ist. */
 export const LOSS_REASON = "nicht zurückgegeben (Verlust)";
 
-async function requireComp(db: Db, p: PermissionSet) {
+async function requireComp(_db: Db, p: PermissionSet) {
   if (!canMaterials(p)) throw new ForbiddenError("buecherei.materials");
+}
+
+/** Schulbuch-Quellen (Ausgabe, Verlust) nur mit eingeschalteter Schulbuchausleihe (BU-15). */
+async function requireSchoolbooks(db: Db) {
   if (!(await lernmittelEnabled(db))) throw new ValidationError({ amount: "Die Schulbuchausleihe ist ausgeschaltet (Verwaltung → Rechte & Module → Bücherei)" });
 }
 
@@ -56,6 +62,7 @@ export interface CompensationCandidate {
  */
 export async function compensationCandidates(db: Db, viewer: PermissionSet, today: string): Promise<CompensationCandidate[]> {
   await requireComp(db, viewer);
+  const stage2 = await lernmittelEnabled(db);
   const [loans, findings, lost] = await Promise.all([
     db
       .select({ id: buechereiLoans.id, title: buechereiTitles.title, nr: buechereiCopies.barcode, reason: buechereiLoans.finding, since: buechereiLoans.returnedOn, userId: buechereiLoans.userId, name: users.name })
@@ -65,8 +72,8 @@ export async function compensationCandidates(db: Db, viewer: PermissionSet, toda
       .leftJoin(users, eq(users.id, buechereiLoans.userId))
       .where(and(isNotNull(buechereiLoans.returnedOn), isNull(buechereiLoans.findingResolvedOn), noComp("loan_id", sql`${buechereiLoans.id}`)))
       .orderBy(asc(buechereiLoans.returnedOn)),
-    issueRows(db, and(isNotNull(buechereiMaterialIssues.returnedOn), isNull(buechereiMaterialIssues.findingResolvedOn))),
-    issueRows(db, and(isNull(buechereiMaterialIssues.returnedOn), lt(buechereiMaterialIssues.dueOn, today))),
+    stage2 ? issueRows(db, and(isNotNull(buechereiMaterialIssues.returnedOn), isNull(buechereiMaterialIssues.findingResolvedOn))) : [],
+    stage2 ? issueRows(db, and(isNull(buechereiMaterialIssues.returnedOn), lt(buechereiMaterialIssues.dueOn, today))) : [],
   ]);
   const cls = await classNamesOf(db, [...loans, ...findings, ...lost].map((r) => r.userId).filter((x): x is string => !!x));
   const person = (r: { userId: string | null; name: string | null }) => ({ userId: r.userId, name: r.name, className: r.userId ? (cls.get(r.userId) ?? null) : null });
@@ -139,6 +146,7 @@ export async function createCompensation(db: Db, viewer: PermissionSet, src: { l
     if (!l) throw new ValidationError({ amount: "Befund gibt es nicht oder ist schon erledigt" });
     row = { userId: l.userId, item: `${l.title} (${l.nr})`, reason: l.finding ?? "", loanId: src.loanId };
   } else {
+    await requireSchoolbooks(db);
     const [i] = await db
       .select({
         userId: buechereiMaterialIssues.userId,
@@ -256,6 +264,8 @@ export interface CompensationLetter {
   amountCents: number;
   createdOn: string;
   status: CompensationStatus;
+  /** „Hinweis im Ersatzbrief“ der Schule (BU-17), null = keiner */
+  note: string | null;
 }
 
 /**
@@ -289,6 +299,7 @@ export async function compensationLetter(db: Db, viewer: PermissionSet, id: stri
     amountCents: c.c.amountCents,
     createdOn: c.c.createdOn,
     status: c.c.status,
+    note: await compensationNote(db),
   };
 }
 
@@ -303,7 +314,7 @@ export async function openCompensationsOf(db: Db, userId: string) {
 
 /** Eltern (lesend): offene Forderungen der Kinder, über die sie informiert werden. */
 export async function childrenCompensations(db: Db, viewer: PermissionSet) {
-  if (viewer.role !== "eltern" || viewer.locked || !(await lernmittelEnabled(db))) return new Map<string, Awaited<ReturnType<typeof openCompensationsOf>>>();
+  if (viewer.role !== "eltern" || viewer.locked) return new Map<string, Awaited<ReturnType<typeof openCompensationsOf>>>();
   const out = new Map<string, Awaited<ReturnType<typeof openCompensationsOf>>>();
   for (const k of await childrenOf(db, viewer.userId, "inform")) out.set(k.id, await openCompensationsOf(db, k.id));
   return out;

@@ -9,6 +9,7 @@ import { childrenSchoolbooks, schoolbooksOf, type IssuedBook } from "@/modules/b
 import { childrenCompensations, openCompensationsOf } from "@/modules/buecherei/ersatz";
 import { canUse, childrenLibrary, myLibrary, type Library } from "@/modules/buecherei/katalog";
 import { formatEuro } from "@/modules/buecherei/labels";
+import { currentReturnDay } from "@/modules/buecherei/einstellungen";
 import { lernmittelEnabled } from "@/modules/buecherei/lernmittel";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
@@ -181,12 +182,13 @@ export default async function MeinePage() {
   const db = await getDb();
   const today = toBerlinDate(new Date());
   const stage2 = await lernmittelEnabled(db);
+  const returnDay = stage2 ? await currentReturnDay(db) : null;
   const [mine, kids, myBooks, kidsBooks, myComps, kidsComps] = await Promise.all([
     own ? myLibrary(db, perms, today) : null,
     childrenLibrary(db, perms, today),
     own && stage2 ? schoolbooksOf(db, perms.userId, today) : [],
     childrenSchoolbooks(db, perms, today),
-    own && stage2 ? openCompensationsOf(db, perms.userId) : [],
+    own ? openCompensationsOf(db, perms.userId) : [],
     childrenCompensations(db, perms),
   ]);
   const booksOfKid = new Map(kidsBooks.map((k) => [k.id, k.books]));
@@ -208,6 +210,7 @@ export default async function MeinePage() {
       {myBooks.length > 0 && (
         <Card aria-labelledby="schulbuecher">
           <CardHeader title={<span id="schulbuecher">Meine Schulbücher</span>} />
+          {returnDay && <p className="text-sm text-muted">Rückgabetag der Schulbücher in diesem Schuljahr: {day(returnDay.day)}.</p>}
           <SchoolbookList books={myBooks} who="mir" />
         </Card>
       )}
@@ -229,6 +232,7 @@ export default async function MeinePage() {
               {(booksOfKid.get(k.id)?.length ?? 0) > 0 && (
                 <>
                   <h3 className="text-sm font-semibold">Schulbücher</h3>
+                  {returnDay && <p className="text-sm text-muted">Rückgabetag in diesem Schuljahr: {day(returnDay.day)}.</p>}
                   <SchoolbookList books={booksOfKid.get(k.id)!} who={k.name} />
                 </>
               )}

@@ -10,6 +10,7 @@ import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { resolveIssueFinding, scanIssue } from "./ausgabe";
 import { classMemberIds, ensureCards, replaceCard } from "./cards";
+import { setCompensationNote, setReturnDay } from "./einstellungen";
 import { createCompensation, setCompensationStatus, updateCompensation } from "./ersatz";
 import { markLabelsPrinted, markQueuePrinted, requeueLabel } from "./etiketten";
 import { lookupIsbn } from "./isbn";
@@ -498,6 +499,30 @@ export async function updateCompensationAction(id: string, _prev: FormState, for
   const { perms } = await requireUser();
   try {
     await updateCompensation(await getDb(), perms, id, { amount: String(form.get("amount") ?? ""), reason: String(form.get("reason") ?? "") });
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  return { ok: true, values: { result: "Gespeichert." } };
+}
+
+/** BU-17: „Hinweis im Ersatzbrief“ speichern (leer = kein Hinweis). */
+export async function saveCompensationNoteAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await setCompensationNote(await getDb(), perms, String(form.get("note") ?? ""));
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/buecherei", "layout");
+  return { ok: true, values: { result: "Gespeichert." } };
+}
+
+/** BU-14: Rückgabetag der Schulbücher im Schuljahr speichern (leer = Schuljahresende). */
+export async function saveReturnDayAction(yearId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await setReturnDay(await getDb(), perms, yearId, String(form.get("returnDay") ?? ""), today());
   } catch (err) {
     return fail(err, form);
   }

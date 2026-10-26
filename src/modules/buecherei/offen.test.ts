@@ -72,7 +72,7 @@ describe("BU-13 – offene Posten", () => {
     expect((await h.db.select({ s: users.status }).from(users).where(eq(users.id, LEA)))[0]!.s).toBe("locked");
 
     await writeModuleSetting(h.db, LERNMITTEL, "0");
-    expect((await openItemsOf(h.db, [LEA])).get(LEA)).toEqual({ loans: 1, schoolbooks: 0, compensations: 0 });
+    expect((await openItemsOf(h.db, [LEA])).get(LEA)).toEqual({ loans: 1, schoolbooks: 0, compensations: 1 });
     expect(await yearEndCheck(h.db, yearId, [])).toBeNull();
     await writeModuleSetting(h.db, LERNMITTEL, "1");
     await setModuleEnabled(h.db, buecherei, false);

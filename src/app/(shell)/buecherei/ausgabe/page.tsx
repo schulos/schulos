@@ -4,8 +4,9 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { toBerlinDate } from "@/core/time";
-import { resolveIssueFindingAction, scanIssueAction } from "@/modules/buecherei/actions";
+import { resolveIssueFindingAction, saveReturnDayAction, scanIssueAction } from "@/modules/buecherei/actions";
 import { issueFindings, issueGroup, issueGroups, issuePerson, issueSummary } from "@/modules/buecherei/ausgabe";
+import { currentReturnDay } from "@/modules/buecherei/einstellungen";
 import { COPY_CONDITIONS } from "@/modules/buecherei/labels";
 import { canMaterials, lernmittelEnabled } from "@/modules/buecherei/lernmittel";
 import { Badge } from "@schulos/ui/badge";
@@ -13,6 +14,7 @@ import { Button } from "@schulos/ui/button";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
+import { SpecForm } from "@/ui/spec-form";
 import { BuechereiNav } from "../ui";
 import { IssueScanForm } from "./issue-scan-form";
 
@@ -36,7 +38,8 @@ export default async function AusgabePage({ searchParams }: { searchParams: Prom
   if (!canMaterials(perms) || !(await lernmittelEnabled(db))) notFound();
   const sp = await searchParams;
   const today = toBerlinDate(new Date());
-  const [sum, groupList, group, person, findings] = await Promise.all([
+  const [returnDay, sum, groupList, group, person, findings] = await Promise.all([
+    currentReturnDay(db),
     issueSummary(db, perms, today),
     sp.gruppe ? null : issueGroups(db, perms),
     sp.gruppe ? issueGroup(db, perms, sp.gruppe, today) : null,
@@ -55,6 +58,32 @@ export default async function AusgabePage({ searchParams }: { searchParams: Prom
         {sum.overdue > 0 && ` · ${sum.overdue} nicht zurückgegeben (Frist abgelaufen)`}
         {sum.findings > 0 && ` · ${sum.findings} offene Befunde`}
       </p>
+
+      {returnDay && (
+        <Card aria-labelledby="rueckgabetag">
+          <CardHeader title={<span id="rueckgabetag">Rückgabetag {returnDay.yearName}</span>} />
+          <p className="text-sm text-muted">
+            Schulbücher sind bis zum <strong className="text-ink">{day(returnDay.day)}</strong> zurückzugeben{returnDay.custom ? "" : " (Schuljahresende)"}. Danach erscheint die Mahnung und das
+            Schulbuch wird als nicht zurückgegeben geführt. Das Datum erscheint bei der Ausgabe und unter „Meine Ausleihen“.
+          </p>
+          <SpecForm
+            action={saveReturnDayAction.bind(null, returnDay.yearId)}
+            label="Rückgabetag festlegen"
+            submit="Rückgabetag speichern"
+            variant="secondary"
+            columns={1}
+            fields={[
+              {
+                name: "returnDay",
+                label: "Rückgabetag",
+                type: "date",
+                defaultValue: returnDay.custom ? returnDay.day : "",
+                hint: `leer = Schuljahresende (${day(returnDay.endsOn)}); gilt auch für bereits ausgegebene Schulbücher dieses Schuljahres`,
+              },
+            ]}
+          />
+        </Card>
+      )}
 
       <Card aria-labelledby="scannen">
         <CardHeader title={<span id="scannen">{person ? `Ausgabe an ${person.name}` : "Rücknahme"}</span>} />

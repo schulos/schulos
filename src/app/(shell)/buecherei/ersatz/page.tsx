@@ -4,10 +4,11 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { toBerlinDate } from "@/core/time";
-import { compensationStatusAction, createCompensationAction, updateCompensationAction } from "@/modules/buecherei/actions";
+import { compensationStatusAction, createCompensationAction, saveCompensationNoteAction, updateCompensationAction } from "@/modules/buecherei/actions";
 import { MAX_COMPENSATION_REASON, compensationCandidates, listCompensations } from "@/modules/buecherei/ersatz";
+import { MAX_COMPENSATION_NOTE, compensationNote } from "@/modules/buecherei/einstellungen";
 import { formatEuro } from "@/modules/buecherei/labels";
-import { canMaterials, lernmittelEnabled } from "@/modules/buecherei/lernmittel";
+import { canMaterials } from "@/modules/buecherei/lernmittel";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card, CardHeader } from "@schulos/ui/card";
@@ -26,20 +27,25 @@ const KIND_LABEL = { ausleihe: "Bücherei, Befund", schulbuch: "Schulbuch, Befun
 const who = (r: { name: string | null; className: string | null }) => (r.name ? `${r.name}${r.className ? ` (${r.className})` : ""}` : "Konto gelöscht");
 
 /**
- * Ersatzforderungen (BU-12, Recht `buecherei.materials`, nur mit Schulbuchausleihe): aus Befunden und nicht zurückgegebenen
- * Schulbüchern Betrag und Grund erfassen, Brief drucken, als bezahlt oder erlassen vermerken. Keine Zahlungsabwicklung.
+ * Ersatzforderungen (BU-12, Recht `buecherei.materials`): aus Befunden der Bücherei – mit eingeschalteter Schulbuchausleihe (BU-15) auch aus
+ * Schulbuch-Befunden und nicht zurückgegebenen Schulbüchern – Betrag und Grund erfassen, Brief drucken, als bezahlt oder erlassen vermerken. Keine Zahlungsabwicklung.
  */
 export default async function ErsatzPage() {
   const { perms } = await requireUser();
   const db = await getDb();
-  if (!canMaterials(perms) || !(await lernmittelEnabled(db))) notFound();
+  if (!canMaterials(perms)) notFound();
   const today = toBerlinDate(new Date());
-  const [candidates, open, closed] = await Promise.all([compensationCandidates(db, perms, today), listCompensations(db, perms, { open: true }), listCompensations(db, perms, { open: false })]);
+  const [candidates, open, closed, note] = await Promise.all([
+    compensationCandidates(db, perms, today),
+    listCompensations(db, perms, { open: true }),
+    listCompensations(db, perms, { open: false }),
+    compensationNote(db),
+  ]);
   const openSum = open.reduce((s, c) => s + c.amountCents, 0);
 
   return (
     <main className="flex flex-col gap-6">
-      <PageHeader eyebrow="Bücherei · Schulbuchausleihe" title="Ersatzforderungen" />
+      <PageHeader eyebrow="Bücherei" title="Ersatzforderungen" />
       <BuechereiNav current="ersatz" perms={perms} />
       <p className="text-sm text-muted">
         {open.length} offen{open.length > 0 && ` · zusammen ${formatEuro(openSum)}`} · {candidates.length} zu klären. SchulOS wickelt keine Zahlungen ab – hier steht nur, was
@@ -48,7 +54,7 @@ export default async function ErsatzPage() {
 
       <Card aria-labelledby="zu-klaeren">
         <CardHeader title={<span id="zu-klaeren">Zu klären</span>} />
-        <p className="text-sm text-muted">Befunde aus Rückgaben und Schulbücher, deren Rückgabefrist abgelaufen ist. Beim Verlust wird das Schulbuch mit der Forderung ausgesondert.</p>
+        <p className="text-sm text-muted">Befunde aus Rückgaben und – mit Schulbuchausleihe – Schulbücher, deren Rückgabefrist abgelaufen ist. Beim Verlust wird das Schulbuch mit der Forderung ausgesondert.</p>
         {candidates.length === 0 ? (
           <EmptyState title="Nichts zu klären" />
         ) : (
@@ -131,6 +137,19 @@ export default async function ErsatzPage() {
             ))}
           </ul>
         )}
+      </Card>
+
+      <Card aria-labelledby="hinweis">
+        <CardHeader title={<span id="hinweis">Hinweis im Ersatzbrief</span>} />
+        <p className="text-sm text-muted">Ein Text der Schule (z. B. Zahlungsweg, Ansprechstelle), der im Brief unter Betrag und Grund steht. Leer = kein Hinweis. Nur die Sache, keine Namen.</p>
+        <SpecForm
+          action={saveCompensationNoteAction}
+          label="Hinweis im Ersatzbrief"
+          submit="Hinweis speichern"
+          variant="secondary"
+          columns={1}
+          fields={[{ name: "note", label: "Hinweis", type: "textarea", maxLength: MAX_COMPENSATION_NOTE, defaultValue: note ?? "" }]}
+        />
       </Card>
 
       <Card aria-labelledby="erledigt">
