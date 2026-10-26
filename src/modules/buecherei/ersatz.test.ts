@@ -26,6 +26,7 @@ import {
   setCompensationStatus,
   updateCompensation,
 } from "./ersatz";
+import { MAX_COMPENSATION_NOTE, compensationNote, setCompensationNote } from "./einstellungen";
 import { createMaterial } from "./lernmittel";
 import { checkin, checkout, listFindings } from "./loans";
 import { createTitle } from "./service";
@@ -56,19 +57,13 @@ describe("Ersatzforderungen", () => {
     await h.close();
   });
 
-  it("S83: nur mit `buecherei.materials` und eingeschalteter Schulbuchausleihe", async () => {
+  it("S83: nur mit `buecherei.materials`; Schulbuch-Quellen zusätzlich nur mit eingeschalteter Schulbuchausleihe", async () => {
     for (const who of [AYLIN, JANA, LEA, MUTTER]) {
       const v = await p(who);
       await expect(compensationCandidates(h.db, v, day)).rejects.toBeInstanceOf(ForbiddenError);
       await expect(createCompensation(h.db, v, { issueId: "x" }, { amount: "1" }, day)).rejects.toBeInstanceOf(ForbiddenError);
       await expect(setCompensationStatus(h.db, v, "x", "bezahlt", day)).rejects.toBeInstanceOf(ForbiddenError);
       await expect(compensationLetter(h.db, v, "x", day)).rejects.toBeInstanceOf(ForbiddenError);
-    }
-    await writeModuleSetting(h.db, LERNMITTEL, "0");
-    try {
-      await fails(listCompensations(h.db, await p(SABINE), { open: true }), /ausgeschaltet/);
-    } finally {
-      await writeModuleSetting(h.db, LERNMITTEL, "1");
     }
   });
 
@@ -171,5 +166,56 @@ describe("Ersatzforderungen", () => {
     await h.db.delete(users).where(eq(users.id, KIND));
     expect((await h.db.select().from(buechereiCompensations).where(eq(buechereiCompensations.id, id)))[0]).toMatchObject({ userId: null, status: "offen" });
     expect(await compensationLetter(h.db, s, id, day)).toBeNull();
+  });
+
+  it("BU-15: ohne Schulbuchausleihe nur Befunde der Bücherei – Seite, Forderung und Brief gehen trotzdem", async () => {
+    const s = await p(SABINE);
+    const { barcodes } = await createTitle(h.db, s, { title: "Ersatzprobe ohne Schalter", mediaType: "buch" }, { count: 1 });
+    await checkout(h.db, s, LEA, barcodes[0]!, day);
+    await checkin(h.db, s, barcodes[0]!, day, "Wasserflecken");
+    const [loan] = await h.db.select().from(buechereiLoans).where(eq(buechereiLoans.finding, "Wasserflecken"));
+    await writeModuleSetting(h.db, LERNMITTEL, "0");
+    try {
+      const cands = await compensationCandidates(h.db, s, day);
+      expect(cands.every((c) => c.kind === "ausleihe")).toBe(true);
+      expect(cands.some((c) => c.id === loan!.id)).toBe(true);
+      // Schulbuch-Quellen bleiben gesperrt
+      await fails(createCompensation(h.db, s, { issueId: "x" }, { amount: "5" }, day), /ausgeschaltet/);
+      const id = await createCompensation(h.db, s, { loanId: loan!.id }, { amount: "9,90" }, day);
+      expect((await listCompensations(h.db, s, { open: true })).some((c) => c.id === id)).toBe(true);
+      expect((await openCompensationsOf(h.db, LEA)).some((c) => c.id === id)).toBe(true);
+      expect((await childrenCompensations(h.db, await p(MUTTER))).get(LEA)!.some((c) => c.id === id)).toBe(true);
+      expect(await compensationLetter(h.db, s, id, day)).toMatchObject({ toParents: true, amountCents: 990, reason: "Wasserflecken" });
+      await updateCompensation(h.db, s, id, { amount: "10", reason: "Wasserflecken" });
+      await setCompensationStatus(h.db, s, id, "erlassen", day);
+      // ohne Recht weiterhin nichts
+      await expect(compensationCandidates(h.db, await p(AYLIN), day)).rejects.toBeInstanceOf(ForbiddenError);
+    } finally {
+      await writeModuleSetting(h.db, LERNMITTEL, "1");
+    }
+  });
+
+  it("BU-17: Hinweis im Ersatzbrief – leer = nichts, gespeichert erscheint er im Brief, Länge und Recht geprüft, Audit", async () => {
+    const s = await p(SABINE);
+    const { barcodes } = await createTitle(h.db, s, { title: "Ersatzprobe Hinweis", mediaType: "buch" }, { count: 1 });
+    await checkout(h.db, s, LEA, barcodes[0]!, day);
+    await checkin(h.db, s, barcodes[0]!, day, "Seite fehlt");
+    const [loan] = await h.db.select().from(buechereiLoans).where(eq(buechereiLoans.finding, "Seite fehlt"));
+    const id = await createCompensation(h.db, s, { loanId: loan!.id }, { amount: "6" }, day);
+    expect(await compensationNote(h.db)).toBeNull();
+    expect((await compensationLetter(h.db, s, id, day))!.note).toBeNull();
+
+    const NOTE = ["Bitte im Sekretariat melden.", "Öffnungszeiten: Mo–Fr"].join(String.fromCharCode(10));
+    await setCompensationNote(h.db, s, `  ${NOTE.replace(String.fromCharCode(10), String.fromCharCode(13, 10))}  `);
+    expect(await compensationNote(h.db)).toBe(NOTE);
+    expect((await compensationLetter(h.db, s, id, day))!.note).toBe(NOTE);
+
+    await expect(setCompensationNote(h.db, await p(AYLIN), "x")).rejects.toBeInstanceOf(ForbiddenError);
+    await fails(setCompensationNote(h.db, s, "x".repeat(MAX_COMPENSATION_NOTE + 1)), /Höchstens/);
+    expect(await compensationNote(h.db)).toBe(NOTE);
+
+    await setCompensationNote(h.db, s, "   ");
+    expect(await compensationNote(h.db)).toBeNull();
+    expect((await h.db.select().from(auditLog).where(eq(auditLog.action, "buecherei.compensation.note"))).length).toBe(2);
   });
 });

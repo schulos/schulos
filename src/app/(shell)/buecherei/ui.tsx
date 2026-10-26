@@ -20,7 +20,7 @@ const SECTIONS = [
   // Stufe 2 (BU-10): nur mit eingeschalteter Schulbuchausleihe
   { key: "lernmittel", href: "/buecherei/lernmittel", label: "Lernmittel", allowed: canMaterials, stage2: true },
   { key: "ausgabe", href: "/buecherei/ausgabe", label: "Schulbuchausgabe", allowed: canMaterials, stage2: true },
-  { key: "ersatz", href: "/buecherei/ersatz", label: "Ersatzforderungen", allowed: canMaterials, stage2: true },
+  { key: "ersatz", href: "/buecherei/ersatz", label: "Ersatzforderungen", allowed: canMaterials },
   { key: "buecherliste", href: "/buecherei/buecherliste", label: "Bücherliste", allowed: canReadBooklist, stage2: true },
 ] as const;
 

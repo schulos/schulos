@@ -8,7 +8,7 @@ import { getSchoolSettings } from "@/core/settings";
 import { toBerlinDate } from "@/core/time";
 import { compensationLetter } from "@/modules/buecherei/ersatz";
 import { formatEuro } from "@/modules/buecherei/labels";
-import { canMaterials, lernmittelEnabled } from "@/modules/buecherei/lernmittel";
+import { canMaterials } from "@/modules/buecherei/lernmittel";
 import { Button } from "@schulos/ui/button";
 import { PrintButton } from "@schulos/ui/print-button";
 
@@ -18,7 +18,7 @@ const dayFmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digi
 const day = (ymd: string) => dayFmt.format(new Date(`${ymd}T00:00:00Z`));
 
 /**
- * Brief zur Ersatzforderung (BU-12, Recht `buecherei.materials`, nur mit Schulbuchausleihe): an die Eltern Minderjähriger, sonst
+ * Brief zur Ersatzforderung (BU-12, Recht `buecherei.materials`, BU-15: unabhängig von der Schulbuchausleihe): an die Eltern Minderjähriger, sonst
  * an die Person. Druck über den Browser (auch „als PDF speichern“), kein PDF-Paket. Keine Bankverbindung, keine Zahlung in
  * SchulOS – wie bezahlt wird, sagt die Schule. Öffnen vermerkt „Brief gedruckt am“ (Audit).
  */
@@ -26,7 +26,7 @@ export default async function ErsatzDruckPage({ searchParams }: { searchParams: 
   await requireModulePage("buecherei");
   const { perms } = await requireUser();
   const db = await getDb();
-  if (!canMaterials(perms) || !(await lernmittelEnabled(db))) notFound();
+  if (!canMaterials(perms)) notFound();
   const id = (await searchParams).id;
   const today = toBerlinDate(new Date());
   const letter = id ? await compensationLetter(db, perms, id, today) : null;
@@ -79,6 +79,7 @@ export default async function ErsatzDruckPage({ searchParams }: { searchParams: 
             </tr>
           </tbody>
         </table>
+        {letter.note && <p className="whitespace-pre-line" data-testid="ersatz-hinweis">{letter.note}</p>}
         <p>
           Statt des Betrags kann auch ein gleichwertiges neues Exemplar (gleicher Titel und gleiche Auflage) abgegeben werden. Wie der Betrag bezahlt wird, teilt
           Ihnen das Sekretariat mit. Bei Fragen oder wenn der Schaden nicht verschuldet ist, sprechen Sie uns bitte an.

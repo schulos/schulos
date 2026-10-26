@@ -34,7 +34,7 @@ async function moduleOn(db: Db): Promise<boolean> {
   return isEnabled(buecherei, await loadModuleStates(db));
 }
 
-/** Offene Posten je Person (nur Zahlen); Modul aus → leere Map. Schulbücher/Forderungen nur mit Schulbuchausleihe. */
+/** Offene Posten je Person (nur Zahlen); Modul aus → leere Map. Schulbücher nur mit Schulbuchausleihe, Ersatzforderungen immer (BU-15). */
 export async function openItemsOf(db: Db, userIds: readonly string[]): Promise<Map<string, OpenItems>> {
   const out = new Map<string, OpenItems>();
   if (!userIds.length || !(await moduleOn(db))) return out;
@@ -53,13 +53,11 @@ export async function openItemsOf(db: Db, userIds: readonly string[]): Promise<M
           .where(and(inArray(buechereiMaterialIssues.userId, ids), isNull(buechereiMaterialIssues.returnedOn)))
           .groupBy(buechereiMaterialIssues.userId)
       : [],
-    stage2
-      ? db
-          .select({ userId: buechereiCompensations.userId, n: count() })
-          .from(buechereiCompensations)
-          .where(and(inArray(buechereiCompensations.userId, ids), eq(buechereiCompensations.status, "offen")))
-          .groupBy(buechereiCompensations.userId)
-      : [],
+    db
+      .select({ userId: buechereiCompensations.userId, n: count() })
+      .from(buechereiCompensations)
+      .where(and(inArray(buechereiCompensations.userId, ids), eq(buechereiCompensations.status, "offen")))
+      .groupBy(buechereiCompensations.userId),
   ]);
   const get = (id: string) => out.get(id) ?? out.set(id, { loans: 0, schoolbooks: 0, compensations: 0 }).get(id)!;
   for (const r of loans) get(r.userId!).loans = r.n;

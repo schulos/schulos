@@ -170,8 +170,15 @@ Datensparsam vorbelegt bei der Umsetzung; Abweichungen entscheidet die Projektle
   nimmt beides zurück. Offene Forderungen bleiben bis zum Abschluss und gehen spätestens mit dem Konto (Person geleert).
 - **Brief** (`/druck/buecherei-ersatz`): an die Eltern Minderjähriger (über „handelt für“, alle Elternteile mit Namen), sonst an
   die Person selbst; Browserdruck (auch als PDF). Das Öffnen vermerkt „Brief gedruckt am“ (und steht im Audit-Log).
-- **Sicht:** nur `buecherei.materials` mit eingeschalteter Schulbuchausleihe (auch für Bücherei-Befunde – eine Schule ohne
-  Stufe 2 erledigt Befunde wie bisher ohne Forderung); Person und Eltern sehen offene Forderungen unter „Meine Ausleihen“.
+- **Sicht:** nur `buecherei.materials`; Person und Eltern sehen offene Forderungen unter „Meine Ausleihen“. Seit BU-15
+  (2026-10-26) unabhängig von der Schulbuchausleihe: Befunde der Bücherei (Stufe 1) lassen sich auch ohne Stufe 2 fordern; die
+  Schulbuch-Quellen (Rücknahme mit Befund, Verlust) bleiben an den Schalter gebunden.
+- **Hinweis im Ersatzbrief** (BU-17): Freitext der Schule (bis 600 Zeichen, nur die Sache, keine Namen) auf `/buecherei/ersatz`;
+  steht im Brief unter Betrag und Grund, leer = nichts.
+- **Rückgabetag der Schulbücher** (BU-14): je Schuljahr auf `/buecherei/ausgabe` einstellbar (nicht vor heute, höchstens
+  Schuljahresende), leer = Schuljahresende. Fälligkeit neuer und bereits ausgegebener Schulbücher des Schuljahres und der
+  Mahnlauf folgen dem Tag; er steht bei der Ausgabe und unter „Meine Ausleihen“. Beide Einstellungen liegen ohne Migration in
+  `app_settings` und haben keinen Personenbezug.
 
 ## Stufe 2 – Schuljahreswechsel und Abgang (BU-13, 2026-10-20)
 

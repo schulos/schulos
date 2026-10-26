@@ -12,7 +12,7 @@ export default async function BuechereiPage() {
   if (canDesk(perms)) redirect("/buecherei/theke");
   if (canUse(perms)) redirect("/buecherei/katalog");
   if (canStock(perms)) redirect("/buecherei/bestand");
-  if (canMaterials(perms) && (await lernmittelEnabled(await getDb()))) redirect("/buecherei/lernmittel");
+  if (canMaterials(perms)) redirect((await lernmittelEnabled(await getDb())) ? "/buecherei/lernmittel" : "/buecherei/ersatz");
   if (perms.role === "eltern") redirect("/buecherei/meine");
   notFound();
 }

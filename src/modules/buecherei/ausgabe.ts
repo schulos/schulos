@@ -19,6 +19,7 @@ import { childrenOf, parentLinks } from "@/core/school/majority";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { verifiedEmails } from "@/modules/sprechtag/mails";
 import { cardOwner, isCardCode } from "./cards";
+import { returnDayOf } from "./einstellungen";
 import { isOpenDay } from "./dates";
 import { BORROWER_ROLES, COPY_CONDITIONS, MATERIAL_PREFIX, isValidCopyNumber, type CopyCondition } from "./labels";
 import { canMaterials, lernmittelEnabled } from "./lernmittel";
@@ -247,7 +248,7 @@ async function openIssueOfCopy(db: Db, copyId: string) {
 }
 
 /**
- * Schulbuch an eine Person ausgeben (laufendes Schuljahr, fällig zu dessen Ende). Nicht ausgesondert, nicht schon ausgegeben,
+ * Schulbuch an eine Person ausgeben (laufendes Schuljahr, fällig am Rückgabetag – eingestellt oder Schuljahresende, BU-14). Nicht ausgesondert, nicht schon ausgegeben,
  * und dieselbe Person hat dieses Lernmittel im Schuljahr noch nicht (Doppelscan). Audit nur mit Inventarnummer.
  */
 export async function issueCopy(db: Db, viewer: PermissionSet, userId: string, rawCode: string, today: string): Promise<{ title: string; inventoryNumber: string; dueOn: string }> {
@@ -260,6 +261,7 @@ export async function issueCopy(db: Db, viewer: PermissionSet, userId: string, r
   if (!u || !BORROWER_ROLES.includes(u.role)) throw new ValidationError({ code: "Diese Person bekommt keine Schulbücher" });
   if (u.status !== "active") throw new ValidationError({ code: "Konto gesperrt – keine neue Ausgabe" });
   const year = await requireYear(db);
+  const dueOn = await returnDayOf(db, year);
   const [dup] = await db
     .select({ nr: buechereiMaterialCopies.inventoryNumber })
     .from(buechereiMaterialIssues)
@@ -274,14 +276,14 @@ export async function issueCopy(db: Db, viewer: PermissionSet, userId: string, r
     );
   if (dup) throw new ValidationError({ code: `Hat „${copy.title}“ schon (${dup.nr}) – ${code} nicht ausgegeben` });
   try {
-    await db.insert(buechereiMaterialIssues).values({ copyId: copy.id, userId, schoolYearId: year.id, issuedOn: today, dueOn: year.endsOn });
+    await db.insert(buechereiMaterialIssues).values({ copyId: copy.id, userId, schoolYearId: year.id, issuedOn: today, dueOn });
   } catch (err) {
     // zwei Plätze scannen dasselbe Exemplar gleichzeitig – der eindeutige Index lässt nur eine Ausgabe zu
     if (isUniqueViolation(err)) throw new ValidationError({ code: `${code} wurde gerade ausgegeben – erst zurücknehmen` });
     throw err;
   }
   await audit(db, viewer.userId, "buecherei.material.issue", copy.materialId, { inventoryNumber: code });
-  return { title: copy.title, inventoryNumber: code, dueOn: year.endsOn };
+  return { title: copy.title, inventoryNumber: code, dueOn };
 }
 
 export interface TakeBackInput {
