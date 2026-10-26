@@ -300,8 +300,17 @@ export async function listSlots(
 export async function regularSlots(db: Db, target: PlanTarget, refYmd: string): Promise<LessonSlot[]> {
   const tc = await targetCondition(db, target);
   if (!tc) return [];
+  return regularSlotsWhere(db, tc.cond, refYmd);
+}
+
+/** SP2-10: Regelplan der ganzen Schule (alle Gruppen, alle Lehrkräfte) – Grundlage der Gesamtübersichten. */
+export async function allRegularSlots(db: Db, refYmd: string): Promise<LessonSlot[]> {
+  return regularSlotsWhere(db, undefined, refYmd);
+}
+
+async function regularSlotsWhere(db: Db, cond: SQL | undefined, refYmd: string): Promise<LessonSlot[]> {
   const valid = and(lte(timetableLessons.validFrom, refYmd), or(isNull(timetableLessons.validUntil), gte(timetableLessons.validUntil, refYmd)));
-  const rows = await lessonQuery(db).where(and(tc.cond, valid));
+  const rows = await lessonQuery(db).where(and(cond, valid));
   const monday = addDays(refYmd, -weekdayMon0(refYmd));
   return rows
     .map((r) => ({
