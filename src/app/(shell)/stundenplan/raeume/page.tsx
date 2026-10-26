@@ -77,6 +77,9 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
   const canBook = hasPermission(perms, "buchungen.book") && (await moduleOn("buchungen"));
   // „Mangel melden“ mit vorbelegtem Raum (Gebäude & Technik, P4-13)
   const canReportDefect = hasPermission(perms, "gebaeude.report") && (await moduleOn("gebaeude"));
+  // Raumdaten pflegen: Link nur mit Stammdaten-Recht (die Zielseite verlangt `verwaltung.school`)
+  const canEditRoom = hasPermission(perms, "verwaltung.school");
+  const editHref = (roomId: string) => `/verwaltung/stammdaten/raeume/${encodeURIComponent(roomId)}`;
   const reportHref = (roomId: string) => `/gebaeude/melden?raum=${encodeURIComponent(roomId)}`;
   const occupancyView = sp.ansicht === "belegung";
   const blocksView = canManage && sp.ansicht === "sperrungen";
@@ -285,6 +288,11 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
                         Mangel melden
                       </Link>
                     )}
+                    {canEditRoom && (
+                      <Link href={editHref(r.id)} className="block text-xs font-medium normal-case text-accent-ink hover:underline" aria-label={`Raum ${r.id} bearbeiten`}>
+                        Bearbeiten
+                      </Link>
+                    )}
                   </th>
                   <td className="text-right tabular-nums">{pct(r.id)} %</td>
                   {master.periods.map((p) => (
@@ -424,6 +432,13 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
                       {r.freePeriods} von {periodNrs.length} Std.
                     </td>
                     <td className="text-right whitespace-nowrap">
+                      {canEditRoom && (
+                        <Button asChild size="sm" variant="ghost">
+                          <Link href={editHref(r.id)} aria-label={`Raum ${r.id} bearbeiten`}>
+                            Bearbeiten
+                          </Link>
+                        </Button>
+                      )}
                       {canReportDefect && (
                         <Button asChild size="sm" variant="ghost">
                           <Link href={reportHref(r.id)} aria-label={`Mangel in Raum ${r.id} melden`}>

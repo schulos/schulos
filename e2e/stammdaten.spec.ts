@@ -141,7 +141,7 @@ test.describe("Verwaltung · Stammdaten", () => {
     await expect(row).toContainText("Werkraum");
     await expect(row.getByLabel("barrierefrei")).toBeVisible();
 
-    await row.getByRole("link", { name: "LW1" }).click();
+    await row.getByRole("link", { name: "LW1", exact: true }).click();
     await page.getByLabel("Kürzel", { exact: true }).fill("LW2");
     await page.getByRole("checkbox", { name: /^aktiv/ }).uncheck();
     await page.getByRole("button", { name: "Speichern" }).click();
@@ -150,11 +150,47 @@ test.describe("Verwaltung · Stammdaten", () => {
     await expect(row2).toContainText("inaktiv");
     await page.screenshot({ path: ".data/shots/e2e/verwaltung-raeume.png", fullPage: true });
 
-    await row2.getByRole("link", { name: "LW2" }).click();
+    await row2.getByRole("link", { name: "LW2", exact: true }).click();
     await page.getByRole("button", { name: "Löschen" }).click();
     await expect(page).toHaveURL(/bereich=raeume/);
-    await expect(page.getByRole("link", { name: "LW2" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "LW2", exact: true })).toHaveCount(0);
     expect(errors).toEqual([]);
+  });
+
+  test("Räume: Knopf Bearbeiten in der Liste, Stilllegen und Wiederinbetriebnahme", async ({ page }) => {
+    const errors = collectErrors(page);
+    await login(page, "sabine.kowalski");
+    await page.goto("/verwaltung/stammdaten?bereich=raeume");
+    await page.getByRole("link", { name: "Raum 101 bearbeiten" }).click();
+    await expect(page).toHaveURL(/raeume\/101$/);
+    await page.getByRole("button", { name: "Raum stilllegen" }).click();
+    await expect(page).toHaveURL(/bereich=raeume/);
+    await expect(page.getByRole("row").filter({ has: page.getByRole("link", { name: "101", exact: true }) })).toContainText("inaktiv");
+    await page.getByRole("link", { name: "Raum 101 bearbeiten" }).click();
+    await page.getByRole("button", { name: "Raum wieder in Betrieb nehmen" }).click();
+    await expect(page.getByRole("row").filter({ has: page.getByRole("link", { name: "101", exact: true }) })).not.toContainText("inaktiv");
+    expect(errors).toEqual([]);
+  });
+
+  test("Räume: Raumbelegung und Raumsuche verlinken auf die Bearbeitung – nur mit Stammdaten-Recht", async ({ page, browser }) => {
+    const errors = collectErrors(page);
+    await login(page, "sabine.kowalski");
+    await page.goto("/stundenplan/raeume?ansicht=belegung");
+    await page.getByRole("link", { name: "Raum 101 bearbeiten" }).click();
+    await expect(page).toHaveURL(/verwaltung\/stammdaten\/raeume\/101$/);
+    await page.goto("/stundenplan/raeume?von=1&bis=8");
+    await expect(page.getByRole("link", { name: /^Raum .+ bearbeiten$/ }).first()).toBeVisible();
+    expect(errors).toEqual([]);
+
+    const ctx = await browser.newContext();
+    const lehr = await ctx.newPage();
+    await login(lehr, "jana.brandt");
+    await lehr.goto("/stundenplan/raeume?ansicht=belegung");
+    await expect(lehr.getByRole("columnheader", { name: /Auslastung/ })).toBeVisible();
+    await expect(lehr.getByRole("link", { name: /^Raum .+ bearbeiten$/ })).toHaveCount(0);
+    await lehr.goto("/stundenplan/raeume?von=1&bis=8");
+    await expect(lehr.getByRole("link", { name: /^Raum .+ bearbeiten$/ })).toHaveCount(0);
+    await ctx.close();
   });
 
   test("Schuljahre: Folgejahr anlegen, Halbjahr prüfen, löschen", async ({ page }) => {
