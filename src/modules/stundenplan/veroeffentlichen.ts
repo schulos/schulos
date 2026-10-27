@@ -16,6 +16,7 @@ import {
   subjects,
   timetableAbsenceMaterials,
   timetableLessons,
+  timetableSubstitutionChanges,
   timetableSubstitutions,
   users,
   type TimetableLesson,
@@ -92,6 +93,18 @@ export interface PublishUndo {
 
 const lessonKey = (l: { groupId: string; subjectId: string; teacherId: string | null; roomId: string | null; weekday: number; periodNr: number; week: string; validFrom: string }) =>
   `${l.groupId}|${l.subjectId}|${l.teacherId ?? ""}|${l.roomId ?? ""}|${l.weekday}|${l.periodNr}|${l.week}|${l.validFrom}`;
+
+/** VT-01: Historie der Vertretungen ab `fromYmd` mitnehmen – nur für Stunden, die überhaupt Einträge haben (eine Abfrage statt je Stunde). */
+async function moveHistory(tx: Db, pairs: readonly (readonly [string, string])[], fromYmd: string): Promise<void> {
+  const to = new Map(pairs);
+  for (const part of chunks([...to.keys()])) {
+    const hit = await tx
+      .selectDistinct({ lessonId: timetableSubstitutionChanges.lessonId })
+      .from(timetableSubstitutionChanges)
+      .where(and(inArray(timetableSubstitutionChanges.lessonId, part), gte(timetableSubstitutionChanges.date, fromYmd)));
+    for (const { lessonId } of hit) if (lessonId) await moveChangeHistory(tx, lessonId, to.get(lessonId)!, fromYmd);
+  }
+}
 
 // ---------------------------------------------------------------- Laden
 
@@ -477,7 +490,7 @@ export async function publishVersion(db: Db, actorId: string, versionId: string,
       moved.push({ kind: "classbook", ...m });
     }
     // VT-01: die Historie zieht mit (je Stunde ab dem Stichtag)
-    for (const [fromId, succ] of c.plan.successor) await moveChangeHistory(tx, fromId, succ.id, from);
+    await moveHistory(tx, [...c.plan.successor].map(([fromId, succ]) => [fromId, succ.id] as const), from);
 
     // … sonst sichern und löschen (Vertretung, Material) bzw. vom Bezug lösen (Klassenbuch)
     const removedSubs: UndoSubstitution[] = [];
@@ -891,7 +904,7 @@ export async function undoPublish(db: Db, actorId: string, versionId: string, to
         .where(eq(timetableSubstitutions.id, sub.id));
     for (const m of s.matPlan) if (m.to && m.to !== m.lessonId) await tx.update(timetableAbsenceMaterials).set({ lessonId: m.to }).where(eq(timetableAbsenceMaterials.id, m.id));
     for (const b of s.bookPlan) if (b.to && b.to !== b.lessonId) await tx.update(classbookEntries).set({ lessonId: b.to }).where(eq(classbookEntries.id, b.id));
-    for (const c of s.undo.created) if (c.of) await moveChangeHistory(tx, c.id, c.of, s.from);
+    await moveHistory(tx, s.undo.created.flatMap((c) => (c.of ? [[c.id, c.of] as const] : [])), s.from);
 
     // 3. neue Stunden entfernen (verbliebene Vertretungen/Material per Cascade, in die Historie; Klassenbuch-Bezug wird leer)
     const ownIds = s.own.map((l) => l.id);

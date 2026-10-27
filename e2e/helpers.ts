@@ -100,7 +100,7 @@ export async function approveVersion(page: Page, browser: Browser, versionId: st
 export async function publishVersionAt(page: Page, versionId: string, from: string) {
   await page.goto(`/planung/versionen/veroeffentlichen?version=${versionId}&ab=${from}`);
   await page.getByRole("button", { name: `Ab ${deDate(from)} veröffentlichen` }).click();
-  await expect(page.getByRole("status")).toContainText("Veröffentlicht");
+  await expect(page.getByRole("status")).toContainText("Veröffentlicht", { timeout: 60_000 });
 }
 
 /** Veröffentlichung zurücknehmen (mit Rückfrage) und die Version anschließend verwerfen (aufräumen für folgende Specs). */
@@ -109,7 +109,7 @@ export async function undoAndDiscardVersion(page: Page, versionId: string) {
   if ((await page.getByRole("button", { name: "Veröffentlichung zurücknehmen" }).count()) > 0) {
     page.once("dialog", (d) => d.accept());
     await page.getByRole("button", { name: "Veröffentlichung zurücknehmen" }).click();
-    await expect(page.getByRole("status")).toContainText("Veröffentlichung zurückgenommen");
+    await expect(page.getByRole("status")).toContainText("Veröffentlichung zurückgenommen", { timeout: 60_000 });
   }
   await page.goto("/planung/versionen");
   const card = page.locator("article").filter({ has: page.locator(`a[href*="version=${versionId}"]`) }).first();

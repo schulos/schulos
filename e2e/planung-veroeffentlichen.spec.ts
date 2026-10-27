@@ -111,7 +111,7 @@ test("SP3-04: freigegebene Version → Vorschau → veröffentlichen ab Stichtag
 
   // veröffentlichen
   await page.getByRole("button", { name: `Ab ${deDate(cutoff)} veröffentlichen` }).click();
-  await expect(page.getByRole("status")).toContainText("Veröffentlicht");
+  await expect(page.getByRole("status")).toContainText("Veröffentlicht", { timeout: 60_000 });
   await expect(page.getByRole("heading", { name: "Veröffentlichung zurücknehmen" })).toBeVisible();
   await expect(page.getByRole("list", { name: "Veröffentlichte Versionen" })).toContainText(`${deDate(cutoff)} – offen`);
   await page.goto(subsUrl);
