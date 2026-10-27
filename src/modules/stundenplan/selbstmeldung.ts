@@ -2,11 +2,14 @@
 // Planung), Fortbildung und dienstliche Abwesenheit sind ein Antrag, den die Schulleitung genehmigt (I-26, Recht
 // `stundenplan.absence_approve`). Q5-12 (I-18): je betroffener Stunde Vertretungsmaterial (Text und/oder Datei) für die Vertretung,
 // die Planung und – nur mit Häkchen – die Schüler:innen der Gruppe. Der Grund steht nie in einem Gong (Gesundheitsbezug bei „krank“).
-import { and, asc, desc, eq, gte, inArray, lte, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
+import { dayOffOn } from "@/core/school/calendar";
 import {
   groupMembers,
+  groups,
+  subjects,
   timetableAbsenceMaterials,
   timetableAbsences,
   timetableLessons,
@@ -21,7 +24,7 @@ import { ForbiddenError, hasPermission, usersWithPermission, type PermissionSet 
 import { addDays, isCalendarDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { absenceCovers, ABSENCE_LABELS, createAbsence, flagAfterAbsenceEnd } from "./abwesenheit";
-import { listSlots, type LessonSlot } from "./service";
+import { lessonActiveOn, listSlots, type LessonSlot } from "./service";
 
 /** SP-02: Vertretungsplanung (Tagesgeschäft) – bekommt Selbstmeldungen und sieht/pflegt das Material */
 export const SUBSTITUTE = "stundenplan.substitute";
@@ -247,7 +250,8 @@ export async function pendingRequests(db: Db, perms: PermissionSet): Promise<Pen
 // ---------------------------------------------------------------- Material (Q5-12)
 
 export interface MaterialInput {
-  absenceId: string;
+  /** VT-01 (F-10-12): leer = Material ohne Abwesenheit an (Stunde, Tag) */
+  absenceId: string | null;
   lessonId: string;
   date: string;
   text: string;
@@ -267,12 +271,7 @@ const cleanFileName = (raw: string) =>
  * Ist schon eine Vertretung eingetragen, bekommt sie einen Gong „Material liegt vor“.
  */
 export async function saveMaterial(db: Db, storage: FileStorage, perms: PermissionSet, input: MaterialInput, now = new Date()): Promise<string | null> {
-  const [a] = await db.select().from(timetableAbsences).where(eq(timetableAbsences.id, input.absenceId));
-  if (!a || !a.teacherId) throw new ValidationError({ material: "Diese Abwesenheit gibt es nicht (mehr)" });
-  if (a.teacherId !== perms.userId && !hasPermission(perms, SUBSTITUTE)) throw new ForbiddenError(SUBSTITUTE);
-  if (a.status === "abgelehnt") throw new ValidationError({ material: "Der Antrag ist abgelehnt" });
-  const lesson = (await affectedLessons(db, a)).find((l) => l.lessonId === input.lessonId && l.date === input.date);
-  if (!lesson) throw new ValidationError({ material: "Diese Stunde gehört nicht zur Abwesenheit" });
+  const { ownerId, lesson } = input.absenceId ? await absenceMaterialTarget(db, perms, input.absenceId, input) : await lessonMaterialTarget(db, perms, input);
   const text = input.text.trim();
   if (text.length > MATERIAL_TEXT_MAX) throw new ValidationError({ text: `Höchstens ${MATERIAL_TEXT_MAX} Zeichen` });
   if (input.file && input.file.data.byteLength > MATERIAL_FILE_MAX) throw new ValidationError({ file: "Die Datei ist größer als 25 MB" });
@@ -281,7 +280,7 @@ export async function saveMaterial(db: Db, storage: FileStorage, perms: Permissi
     .from(timetableAbsenceMaterials)
     .where(
       and(
-        eq(timetableAbsenceMaterials.absenceId, a.id),
+        input.absenceId ? eq(timetableAbsenceMaterials.absenceId, input.absenceId) : isNull(timetableAbsenceMaterials.absenceId),
         eq(timetableAbsenceMaterials.lessonId, input.lessonId),
         eq(timetableAbsenceMaterials.date, input.date),
       ),
@@ -303,7 +302,7 @@ export async function saveMaterial(db: Db, storage: FileStorage, perms: Permissi
   // die alte Datei räumt der nächtliche Aufräumlauf weg (kein Verweis mehr)
   if (!text && !file.fileKey) {
     if (old) await db.delete(timetableAbsenceMaterials).where(eq(timetableAbsenceMaterials.id, old.id));
-    await audit(db, perms.userId, "stundenplan.material.delete", a.teacherId, { date: input.date });
+    await audit(db, perms.userId, "stundenplan.material.delete", ownerId, { date: input.date });
     return null;
   }
   const values = { text: text || null, ...file, forStudents: input.forStudents, updatedAt: now };
@@ -314,11 +313,11 @@ export async function saveMaterial(db: Db, storage: FileStorage, perms: Permissi
   } else {
     const [row] = await db
       .insert(timetableAbsenceMaterials)
-      .values({ absenceId: a.id, lessonId: input.lessonId, date: input.date, createdBy: perms.userId, ...values })
+      .values({ absenceId: input.absenceId, lessonId: input.lessonId, date: input.date, createdBy: perms.userId, ...values })
       .returning({ id: timetableAbsenceMaterials.id });
     id = row!.id;
   }
-  await audit(db, perms.userId, "stundenplan.material.save", a.teacherId, { date: input.date, file: Boolean(file.fileKey) });
+  await audit(db, perms.userId, "stundenplan.material.save", ownerId, { date: input.date, file: Boolean(file.fileKey), withoutAbsence: !input.absenceId || undefined });
   if (!old) {
     const [sub] = await db
       .select({ substituteId: timetableSubstitutions.substituteId })
@@ -335,6 +334,53 @@ export async function saveMaterial(db: Db, storage: FileStorage, perms: Permissi
       });
   }
   return id;
+}
+
+interface MaterialTarget {
+  /** Lehrkraft, deren Stunde es betrifft (Abwesenheit bzw. Lehrkraft der Stunde) */
+  ownerId: string | null;
+  lesson: { periodNr: number; groupName: string; subjectName: string };
+}
+
+/** Q5-12: Material zu einer Abwesenheit – Lehrkraft selbst oder Planung, nur betroffene Stunden. */
+async function absenceMaterialTarget(db: Db, perms: PermissionSet, absenceId: string, input: Pick<MaterialInput, "lessonId" | "date">): Promise<MaterialTarget> {
+  const [a] = await db.select().from(timetableAbsences).where(eq(timetableAbsences.id, absenceId));
+  if (!a || !a.teacherId) throw new ValidationError({ material: "Diese Abwesenheit gibt es nicht (mehr)" });
+  if (a.teacherId !== perms.userId && !hasPermission(perms, SUBSTITUTE)) throw new ForbiddenError(SUBSTITUTE);
+  if (a.status === "abgelehnt") throw new ValidationError({ material: "Der Antrag ist abgelehnt" });
+  const lesson = (await affectedLessons(db, a)).find((l) => l.lessonId === input.lessonId && l.date === input.date);
+  if (!lesson) throw new ValidationError({ material: "Diese Stunde gehört nicht zur Abwesenheit" });
+  return { ownerId: a.teacherId, lesson };
+}
+
+/**
+ * VT-01 (F-10-12): Material ohne Abwesenheit an (Stunde, Tag) – anlegen dürfen die Lehrkraft der Stunde, die Vertretungslehrkraft
+ * dieser Stunde an dem Tag und die Planung (`stundenplan.substitute`). Die Stunde muss an dem Tag stattfinden.
+ */
+async function lessonMaterialTarget(db: Db, perms: PermissionSet, input: Pick<MaterialInput, "lessonId" | "date">): Promise<MaterialTarget> {
+  if (!isCalendarDate(input.date)) throw new ValidationError({ date: "Datum angeben" });
+  const [row] = await db
+    .select({ l: timetableLessons, groupName: groups.name, subjectName: subjects.name })
+    .from(timetableLessons)
+    .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
+    .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
+    .where(eq(timetableLessons.id, input.lessonId));
+  if (!row || !lessonActiveOn(row.l, input.date) || (await dayOffOn(db, input.date))) throw new ValidationError({ material: "An diesem Tag findet die Stunde nicht statt" });
+  if (row.l.teacherId !== perms.userId && !hasPermission(perms, SUBSTITUTE)) {
+    const [sub] = await db
+      .select({ id: timetableSubstitutions.id })
+      .from(timetableSubstitutions)
+      .where(
+        and(
+          eq(timetableSubstitutions.lessonId, input.lessonId),
+          eq(timetableSubstitutions.date, input.date),
+          eq(timetableSubstitutions.kind, "substitute"),
+          eq(timetableSubstitutions.substituteId, perms.userId),
+        ),
+      );
+    if (!sub) throw new ForbiddenError(SUBSTITUTE);
+  }
+  return { ownerId: row.l.teacherId, lesson: { periodNr: row.l.periodNr, groupName: row.groupName, subjectName: row.subjectName } };
 }
 
 /** Darf `perms` dieses Material sehen? Lehrkraft selbst, Planung, Vertretung dieser Stunde, Schüler:innen der Gruppe (nur mit Häkchen). */
@@ -363,14 +409,20 @@ export interface MaterialView extends TimetableAbsenceMaterial {
 
 /** Ein Material für die Anzeige bzw. den Download – null, wenn es fehlt oder `perms` es nicht sehen darf. */
 export async function materialFor(db: Db, perms: PermissionSet, id: string): Promise<MaterialView | null> {
-  const [row] = await db
-    .select({ m: timetableAbsenceMaterials, teacherId: timetableAbsences.teacherId, status: timetableAbsences.status })
-    .from(timetableAbsenceMaterials)
-    .innerJoin(timetableAbsences, eq(timetableAbsences.id, timetableAbsenceMaterials.absenceId))
-    .where(eq(timetableAbsenceMaterials.id, id));
-  if (!row || row.status === "abgelehnt" || !(await mayView(db, perms, row.m, row.teacherId))) return null;
-  return { ...row.m, teacherName: row.teacherId ? await teacherLabel(db, row.teacherId) : "" };
+  const [row] = await materialRows(db).where(eq(timetableAbsenceMaterials.id, id));
+  if (!row || row.status === "abgelehnt") return null;
+  const teacherId = row.teacherId ?? row.lessonTeacherId;
+  if (!(await mayView(db, perms, row.m, teacherId))) return null;
+  return { ...row.m, teacherName: teacherId ? await teacherLabel(db, teacherId) : "" };
 }
+
+/** Material mit Lehrkraft (der Abwesenheit, VT-01: ohne Abwesenheit die der Stunde) und Stand der Abwesenheit. */
+const materialRows = (db: Db) =>
+  db
+    .select({ m: timetableAbsenceMaterials, teacherId: timetableAbsences.teacherId, status: timetableAbsences.status, lessonTeacherId: timetableLessons.teacherId })
+    .from(timetableAbsenceMaterials)
+    .innerJoin(timetableLessons, eq(timetableLessons.id, timetableAbsenceMaterials.lessonId))
+    .leftJoin(timetableAbsences, eq(timetableAbsences.id, timetableAbsenceMaterials.absenceId));
 
 /** Material zu diesen Stunden (Schlüssel `lessonId:date`), nur was `perms` sehen darf – für Tagesleiste, Klassenbuch, Planung. */
 export async function materialsFor(
@@ -381,11 +433,7 @@ export async function materialsFor(
   const out = new Map<string, TimetableAbsenceMaterial>();
   if (!keys.length) return out;
   const dates = [...new Set(keys.map((k) => k.date))];
-  const rows = await db
-    .select({ m: timetableAbsenceMaterials, teacherId: timetableAbsences.teacherId, status: timetableAbsences.status })
-    .from(timetableAbsenceMaterials)
-    .innerJoin(timetableAbsences, eq(timetableAbsences.id, timetableAbsenceMaterials.absenceId))
-    .where(
+  const rows = await materialRows(db).where(
       and(
         inArray(
           timetableAbsenceMaterials.lessonId,
@@ -398,7 +446,9 @@ export async function materialsFor(
   for (const r of rows) {
     const key = `${r.m.lessonId}:${r.m.date}`;
     if (!wanted.has(key) || r.status === "abgelehnt") continue;
-    if (await mayView(db, perms, r.m, r.teacherId)) out.set(key, r.m);
+    // VT-01: gibt es zur Stunde Material mit und ohne Abwesenheit, gilt das der Abwesenheit
+    if (out.get(key)?.absenceId) continue;
+    if (await mayView(db, perms, r.m, r.teacherId ?? r.lessonTeacherId)) out.set(key, r.m);
   }
   return out;
 }

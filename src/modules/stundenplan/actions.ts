@@ -17,7 +17,8 @@ import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
 import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenster";
 import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
 import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
-import { deleteSubstitution, keepReviewedSubstitution, publishDay, removeReviewedSubstitutions, saveSubstitution, type SubstitutionInput } from "./vertretung";
+import { acknowledgeSubstitution, deleteSubstitution, keepReviewedSubstitution, publishDay, removeReviewedSubstitutions, saveSubstitution, type SubstitutionInput } from "./vertretung";
+import { deleteDayNote, saveDayNote } from "./tagesmitteilungen";
 import { addReduction, defaultObligation, deleteReduction, saveTeacherRule, setDeputy } from "./deputate";
 import { readSchoolSettings } from "@/core/settings";
 import { applyGradeRuleDefaults, classGrades, saveGradeRules } from "./jahrgangsregeln";
@@ -200,6 +201,10 @@ export async function saveSubstitutionAction(_prev: FormState, form: FormData): 
     targetPeriod: str("targetPeriod") ? Number(str("targetPeriod")) : null,
     swap: str("swap") === "1",
     mergeLessonId: str("mergeLessonId") || null,
+    // VT-01: Grund-Kategorie (leer = Vorgabe aus Abwesenheit/Raumsperre), interner Hinweis, „nur Betreuung“
+    reason: (str("reason") || null) as SubstitutionInput["reason"],
+    internalNote: str("internalNote") || null,
+    supervisionOnly: str("supervisionOnly") === "1",
   };
   let message: string | undefined;
   try {
@@ -225,6 +230,37 @@ export async function deleteSubstitutionAction(id: string): Promise<void> {
     if (err instanceof ValidationError) redirect(`/planung/vertretungen?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
     throw err;
   }
+  revalidatePath("/", "layout");
+}
+
+/** VT-01 (F-10-10): Kenntnisnahme der eigenen Vertretung (Bedienung für Lehrkräfte folgt mit VT-02 in „Meine Vertretungen“/Gong). */
+export async function acknowledgeSubstitutionAction(id: string): Promise<void> {
+  const { user } = await requireUser();
+  try {
+    await acknowledgeSubstitution(await getDb(), user.id, id);
+  } catch (err) {
+    if (!(err instanceof ValidationError)) throw err;
+  }
+  revalidatePath("/", "layout");
+}
+
+/** VT-01: Tagesmitteilung anlegen (`id` leer) oder ändern. */
+export async function saveDayNoteAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  try {
+    await saveDayNote(await getDb(), user.id, id, { date: str("date"), body: str("body"), audience: str("audience") || "alle" });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function deleteDayNoteAction(id: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  await deleteDayNote(await getDb(), user.id, id);
   revalidatePath("/", "layout");
 }
 

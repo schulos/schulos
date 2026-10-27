@@ -1,5 +1,6 @@
 // Wie eine Stunde angezeigt wird – inkl. Vertretung, Entfall, Raumänderung (rein, testbar).
 import type { LessonSlot } from "./service";
+import type { SubstitutionReason } from "./schema";
 
 /** Wessen Plan: Schüler:in/Eltern, Lehrkraft, Gruppe oder Raum */
 export type PlanView = "student" | "teacher" | "group" | "room";
@@ -11,6 +12,19 @@ export interface SlotDisplay {
   note: string | null;
   struck: boolean;
 }
+
+/** VT-01 (F-10-8): Anzeige der öffentlichen Grund-Kategorie – grob, nie krank/Fortbildung/dienstlich. */
+export const SUBSTITUTION_REASON_LABELS: Record<SubstitutionReason, string> = {
+  lehrkraft_abwesend: "Lehrkraft abwesend",
+  klassenfahrt: "Klassenfahrt",
+  exkursion: "Exkursion",
+  praktikum: "Praktikum",
+  pruefung: "Prüfung",
+  veranstaltung: "Veranstaltung",
+  raum_gesperrt: "Raum gesperrt",
+  organisatorisch: "organisatorisch",
+  sonstiges: "sonstiger Grund",
+};
 
 const room = (id: string | null | undefined) => (id ? `R ${id}` : null);
 const join = (...parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(" · ");

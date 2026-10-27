@@ -378,10 +378,10 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
 <!-- dsb:sichtbarkeit -->
 | Punkt | |
 |---|---|
-| Was SchulOS tut | Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang und die Veröffentlichung des Vertretungsplans (Profilbilder im Sitzplan: §16). |
-| Vorgabe | Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort. |
+| Was SchulOS tut | Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang, die Veröffentlichung des Vertretungsplans und die Kenntnisnahme von Vertretungen durch die Vertretungslehrkraft (Profilbilder im Sitzplan: §16). |
+| Vorgabe | Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort, Kenntnisnahme an (freiwillig, ohne Eskalation). |
 | Die Schule entscheidet / dokumentiert | Entscheidet je Schalter nach pädagogischem Konzept und Erforderlichkeit und dokumentiert die Wahl. |
-| Einstellungen | „Direktchats unter Schüler:innen“ (Vorgabe: nur innerhalb der eigenen Klasse); „Eltern über Vertretungen und Entfall informieren“ (Vorgabe: bis Jahrgang 10); „Vertretungsplan veröffentlichen“ (Vorgabe: sofort); „Hausaufgaben für Eltern sichtbar“ (Vorgabe: aus) |
+| Einstellungen | „Direktchats unter Schüler:innen“ (Vorgabe: nur innerhalb der eigenen Klasse); „Eltern über Vertretungen und Entfall informieren“ (Vorgabe: bis Jahrgang 10); „Vertretungsplan veröffentlichen“ (Vorgabe: sofort); „Kenntnisnahme von Vertretungen“ (Vorgabe: an); „Hausaufgaben für Eltern sichtbar“ (Vorgabe: aus) |
 | In SchulOS | Verwaltung → Rechte & Module |
 <!-- /dsb -->
 

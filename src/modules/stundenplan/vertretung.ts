@@ -7,15 +7,27 @@ import { bookingResources, bookings, exams, groupMembers, groups, periods, rooms
 import { OPEN_CALENDAR, dayOffLabel, dayOffOn, type SchoolCalendar } from "@/core/school/calendar";
 import { addDays, weekdayMon0 } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { SUBSTITUTION_KINDS, type SubstitutionKind, type TimetableLesson, type TimetableSubstitution } from "./schema";
+import {
+  INTERNAL_NOTE_MAX,
+  SUBSTITUTION_KINDS,
+  SUBSTITUTION_REASONS,
+  type SubstitutionKind,
+  type SubstitutionReason,
+  type TimetableAbsenceReason,
+  type TimetableLesson,
+  type TimetableSubstitution,
+} from "./schema";
 import { groupPeriod, ownTeacherPeriod, roomUse, takesPlaceAsUsual } from "./belegung";
 import { dayRuleBlocks } from "./vertretung-regeln";
 import { mergeHosts, type MergeTarget } from "./vertretung-ziel";
-import { absencesBetween, absentGroups, absentTeachers } from "./abwesenheit";
+import { absenceCovers, absencesBetween, absentGroups, absentTeachers } from "./abwesenheit";
+import { deletedEntries, recordSubstitutionChanges, snapshotOf, type ChangeEntry } from "./vertretung-historie";
 import { blockLabel, roomBlockAt } from "./raumsperren";
 import { lessonActiveOn } from "./service";
 import { dayChanges, notifySubstitutionDay } from "./vertretung-gong";
 import { draftDays, startDraftIfNeeded } from "./freigabe";
+import { readModuleSetting } from "@/core/modules/settings";
+import { SUBSTITUTION_ACK } from "./settings";
 
 type ExamKind = (typeof exams.$inferSelect)["kind"];
 
@@ -39,6 +51,41 @@ export interface SubstitutionInput {
   swap?: boolean;
   /** SP2-07 (Zusammenlegung): Stunde zur selben Zeit, zu der die Gruppe geht */
   mergeLessonId?: string | null;
+  /**
+   * VT-01 (F-10-8): öffentliche Grund-Kategorie. `null` = Vorgabe aus Abwesenheit/Raumsperre (`defaultReason`); fehlt das Feld
+   * (`undefined`, z. B. „Vorschlag übernehmen“), bleibt eine schon gespeicherte Kategorie, sonst gilt die Vorgabe.
+   */
+  reason?: SubstitutionReason | null;
+  /** VT-01: interner Hinweis (≤ 300 Zeichen, nur Planung/Vertretungslehrkraft); fehlt das Feld, bleibt der gespeicherte */
+  internalNote?: string | null;
+  /** VT-01 (F-10-9): „nur Betreuung“ (nur bei `substitute`); fehlt das Feld, bleibt der gespeicherte Wert */
+  supervisionOnly?: boolean;
+}
+
+/** VT-01: Abwesenheitsgrund einer Gruppe → öffentliche Kategorie (Gruppengründe 1:1, sonst „sonstiges“). */
+const GROUP_REASON: Partial<Record<TimetableAbsenceReason, SubstitutionReason>> = {
+  klassenfahrt: "klassenfahrt",
+  exkursion: "exkursion",
+  praktikum: "praktikum",
+  pruefung: "pruefung",
+};
+
+/**
+ * VT-01 (F-10-8): Vorgabe der Grund-Kategorie für eine Stunde an einem Tag. Fehlt die Lehrkraft (gleich aus welchem Grund) →
+ * immer „Lehrkraft abwesend“; fehlt die Gruppe → ihr Grund 1:1 (sonst „sonstiges“); ist der Raum gesperrt → „Raum gesperrt“
+ * (bei Raumänderung und Verlegung zuerst). Sonst `null` (ohne Angabe).
+ */
+export async function defaultReason(db: Db, l: Pick<TimetableLesson, "teacherId" | "groupId" | "roomId" | "periodNr">, date: string, kind: SubstitutionKind): Promise<SubstitutionReason | null> {
+  const blocked = async () => (l.roomId && (await roomBlockAt(db, l.roomId, date, l.periodNr)) ? ("raum_gesperrt" as const) : null);
+  if (kind === "room" || kind === "move") {
+    const r = await blocked();
+    if (r) return r;
+  }
+  const absences = (await absencesBetween(db, date, date)).filter((a) => absenceCovers(a, date, l.periodNr));
+  if (l.teacherId && absences.some((a) => a.teacherId === l.teacherId)) return "lehrkraft_abwesend";
+  const group = absences.find((a) => a.groupId === l.groupId);
+  if (group) return GROUP_REASON[group.reason] ?? "sonstiges";
+  return blocked();
 }
 
 type DayRow = { l: TimetableLesson; s: TimetableSubstitution | undefined };
@@ -390,6 +437,10 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
     }
   }
   if (sub.kind === "room" && !sub.roomId && !fe.roomId) fe.roomId = "Der Raum ist derselbe wie sonst";
+  // VT-01: Grund-Kategorie, interner Hinweis, „nur Betreuung“ – fehlende Felder behalten den gespeicherten Stand
+  if (input.reason && !SUBSTITUTION_REASONS.includes(input.reason)) fe.reason = "Grund wählen";
+  const internalNote = input.internalNote === undefined ? undefined : input.internalNote?.trim() || null;
+  if (internalNote && internalNote.length > INTERNAL_NOTE_MAX) fe.internalNote = `Höchstens ${INTERNAL_NOTE_MAX} Zeichen`;
   // SP2-07: findet die Stunde zu ihrer Zeit statt, darf dort keine andere Stunde der Gruppe hinverlegt sein …
   if (takesPlaceAsUsual(sub) && !fe.kind) {
     const moved = await movedInto(db, sub.date, weekday, l.periodNr, unitGroups, except, load);
@@ -413,6 +464,13 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
     .from(timetableSubstitutions)
     .where(and(eq(timetableSubstitutions.date, sub.date), inArray(timetableSubstitutions.lessonId, touched)));
   const previousHosts = await hostTeachers(db, sub.date, previous.map((p) => p.mergeLessonId).filter((x): x is string => !!x));
+  // VT-01: bisheriger Stand der bearbeiteten Stunde – fehlende Felder (Grund, interner Hinweis, Betreuung) bleiben so
+  const [current] = await db
+    .select()
+    .from(timetableSubstitutions)
+    .where(and(eq(timetableSubstitutions.lessonId, l.id), eq(timetableSubstitutions.date, sub.date)));
+  const reason = input.reason === undefined && current?.reason ? current.reason : input.reason || (await defaultReason(db, l, sub.date, sub.kind));
+  const supervisionOnly = sub.kind === "substitute" && (input.supervisionOnly ?? (current?.kind === "substitute" && current.supervisionOnly));
   // gekoppelte Teile derselben Lehrkraft (bei Verlegung alle Teile) bekommen dieselbe Änderung
   const ids: string[] = [];
   // SP2-16b: erneutes Speichern bestätigt die Änderung („Abwesenheit beendet – prüfen“ fällt weg)
@@ -425,26 +483,57 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
     targetPeriod: sub.targetPeriod,
     mergeLessonId: sub.mergeLessonId,
     absenceEndedAt: null,
+    reason,
+    internalNote: internalNote === undefined ? (current?.internalNote ?? null) : internalNote,
+    supervisionOnly,
   };
   await db.transaction(async (tx) => {
     // Q5-11: im Modus „Freigabe“ wird ein neuer Tag zum Entwurf (dann gibt es unten keinen Gong) – in derselben Transaktion
     // wie die Änderung, damit ein gescheitertes Speichern keinen leeren Entwurf hinterlässt (GATE-4f C-11)
     await startDraftIfNeeded(tx as unknown as Db, actorId, sub.date);
+    // VT-01: Vorher-Stand aller betroffenen Zeilen für die Historie
+    const before = new Map(
+      (
+        await tx
+          .select()
+          .from(timetableSubstitutions)
+          .where(and(eq(timetableSubstitutions.date, sub.date), inArray(timetableSubstitutions.lessonId, touched)))
+      ).map((r) => [r.lessonId, r]),
+    );
+    const changes: ChangeEntry[] = [];
+    const now = new Date();
     const write = async (lessonId: string, values: typeof row) => {
+      const old = before.get(lessonId);
+      // VT-01: das Anlegen bleibt in `created_*`; Kenntnisnahme gilt nur, solange Vertretungslehrkraft und Art gleich bleiben
+      const keepAck = old && old.kind === values.kind && old.substituteId === values.substituteId;
       const [r] = await tx
         .insert(timetableSubstitutions)
         .values({ ...values, lessonId, date: sub.date, createdBy: actorId })
         .onConflictDoUpdate({
           target: [timetableSubstitutions.lessonId, timetableSubstitutions.date],
-          set: { ...values, createdBy: actorId, createdAt: new Date() },
+          set: { ...values, updatedBy: actorId, updatedAt: now, ...(keepAck ? {} : { acknowledgedAt: null }) },
         })
-        .returning({ id: timetableSubstitutions.id });
+        .returning();
+      changes.push({ action: old ? "update" : "create", date: sub.date, lessonId, substitutionId: r!.id, before: old ? snapshotOf(old) : null, after: snapshotOf(r!) });
       return r!.id;
     };
     for (const x of all) ids.push(await write(x.id, sub.kind === "move" ? { ...row, roomId: movesRoom(x) ? sub.roomId : null } : row));
     // SP2-07 Tausch: der Unterricht aus der Zielstunde rückt in diese Stunde (Raum wie sonst)
     for (const x of swapped)
-      await write(x.id, { kind: "move", substituteId: null, roomId: null, note: sub.note, subjectId: null, targetPeriod: l.periodNr, mergeLessonId: null, absenceEndedAt: null });
+      await write(x.id, {
+        kind: "move",
+        substituteId: null,
+        roomId: null,
+        note: sub.note,
+        subjectId: null,
+        targetPeriod: l.periodNr,
+        mergeLessonId: null,
+        absenceEndedAt: null,
+        reason,
+        internalNote: null,
+        supervisionOnly: false,
+      });
+    await recordSubstitutionChanges(tx as unknown as Db, actorId, changes);
   });
   await audit(db, actorId, "stundenplan.substitution.save", l.groupId, {
     lesson: l.id,
@@ -455,6 +544,9 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
     target: sub.targetPeriod ?? undefined,
     swapped: swapped.length || undefined,
     merge: sub.mergeLessonId ?? undefined,
+    // VT-01: Kategorie und Betreuung (der interne Hinweis steht nur in der Historie, nicht im Audit-Log)
+    reason: reason ?? undefined,
+    supervision: supervisionOnly || undefined,
   });
 
   // Gong an alle Betroffenen (Q5-03): eine Nachricht je Person und Tag – Schüler:innen, Lehrkraft, Vertretung (auch die
@@ -467,6 +559,32 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
       .filter((x): x is string => !!x),
   });
   return ids[0]!;
+}
+
+/**
+ * VT-01 (F-10-10): Kenntnisnahme – die Vertretungslehrkraft bestätigt „ihre“ Vertretung (bei Kopplungen alle Teile desselben Tags).
+ * Optional (Moduleinstellung, Vorgabe an), nur an veröffentlichten Tagen; ändert weder `updated_*` noch die Historie.
+ */
+export async function acknowledgeSubstitution(db: Db, userId: string, id: string, now = new Date()): Promise<void> {
+  if ((await readModuleSetting(db, SUBSTITUTION_ACK)) !== "an") throw new ValidationError({ acknowledge: "Die Kenntnisnahme ist ausgeschaltet" });
+  const [s] = await db.select().from(timetableSubstitutions).where(eq(timetableSubstitutions.id, id));
+  if (!s || s.kind !== "substitute" || s.substituteId !== userId || (await draftDays(db, [s.date])).has(s.date))
+    throw new ValidationError({ acknowledge: "Diese Vertretung gibt es nicht (mehr)" });
+  const [l] = await db.select().from(timetableLessons).where(eq(timetableLessons.id, s.lessonId));
+  const parts = l ? await couplingSiblings(db, l, s.date) : [];
+  await db
+    .update(timetableSubstitutions)
+    .set({ acknowledgedAt: now })
+    .where(
+      and(
+        eq(timetableSubstitutions.date, s.date),
+        inArray(timetableSubstitutions.lessonId, [s.lessonId, ...parts.map((p) => p.id)]),
+        eq(timetableSubstitutions.kind, "substitute"),
+        eq(timetableSubstitutions.substituteId, userId),
+        isNull(timetableSubstitutions.acknowledgedAt),
+      ),
+    );
+  await audit(db, userId, "stundenplan.substitution.acknowledge", l?.groupId ?? null, { lesson: s.lessonId, date: s.date });
 }
 
 /** R1b/A10: Zusammenlegung in eine Stunde, die gleich gelöscht wird (vorher ermitteln – danach ist `merge_lesson_id` leer). */
@@ -576,11 +694,18 @@ export async function deleteSubstitution(db: Db, actorId: string, id: string): P
       }
     siblings.push(...partners.filter((p) => !siblings.some((x) => x.id === p.id)));
   }
-  await db.delete(timetableSubstitutions).where(eq(timetableSubstitutions.id, id));
-  if (siblings.length)
-    await db
-      .delete(timetableSubstitutions)
-      .where(and(eq(timetableSubstitutions.date, old.date), inArray(timetableSubstitutions.lessonId, siblings.map((x) => x.id))));
+  await db.transaction(async (tx) => {
+    const gone = await tx.delete(timetableSubstitutions).where(eq(timetableSubstitutions.id, id)).returning();
+    if (siblings.length)
+      gone.push(
+        ...(await tx
+          .delete(timetableSubstitutions)
+          .where(and(eq(timetableSubstitutions.date, old.date), inArray(timetableSubstitutions.lessonId, siblings.map((x) => x.id))))
+          .returning()),
+      );
+    // VT-01: Aufheben steht mit dem Vorher-Stand in der Historie
+    await recordSubstitutionChanges(tx as unknown as Db, actorId, deletedEntries(gone));
+  });
   await audit(db, actorId, "stundenplan.substitution.delete", old.lessonId, { date: old.date, kind: old.kind });
   // Q5-03: Zurücknehmen ist auch eine Änderung (Entfall fällt weg → das Kind kommt doch nicht früher) – Tagesnachricht erneuern
   if (l)
@@ -668,13 +793,20 @@ export interface DaySubstitution {
   draft: boolean;
   /** SP2-16b: die Abwesenheit, wegen der die Änderung eingetragen ist, wurde verkürzt/aufgehoben – prüfen (nur Vertretungsplanung zeigt es) */
   absenceEnded: boolean;
+  /** VT-01 (F-10-8): öffentliche Grund-Kategorie (grob; nie krank/Fortbildung/dienstlich) */
+  reason: SubstitutionReason | null;
+  /** VT-01 (F-10-9): Vertretung nur als Betreuung */
+  supervisionOnly: boolean;
+  /** VT-01: interne Angaben – nur mit `internal: true` (Vertretungsplanung), sonst nicht vorhanden */
+  internal?: { note: string | null; acknowledgedAt: Date | null; updatedAt: Date | null };
 }
 
 /**
  * Alle Änderungen an einem oder mehreren Tagen (Vertretungsplan, Monitor, Verwaltung). Q5-11: Tage im Entwurf nur mit
- * `drafts: true` (Vertretungsplanung mit `stundenplan.substitute`) – alle anderen sehen den veröffentlichten Stand.
+ * `drafts: true` (Vertretungsplanung mit `stundenplan.substitute`) – alle anderen sehen den veröffentlichten Stand. VT-01: interner
+ * Hinweis und Kenntnisnahme nur mit `internal: true` (nur Vertretungsplanung; nie Schüler:innen, Eltern, Monitor, Druck).
  */
-export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: boolean } = {}): Promise<DaySubstitution[]> {
+export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: boolean; internal?: boolean } = {}): Promise<DaySubstitution[]> {
   if (dates.length === 0) return [];
   const drafts = await draftDays(db, dates);
   const visible = opts.drafts ? dates : dates.filter((d) => !drafts.has(d));
@@ -733,6 +865,9 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
         note: r.s.note,
         draft: drafts.has(r.s.date),
         absenceEnded: r.s.absenceEndedAt !== null,
+        reason: r.s.reason,
+        supervisionOnly: r.s.supervisionOnly,
+        ...(opts.internal ? { internal: { note: r.s.internalNote, acknowledgedAt: r.s.acknowledgedAt, updatedAt: r.s.updatedAt } } : {}),
       };
       // SP2-07: eine Verlegung steht zweimal im Plan – in der neuen Stunde und als „verlegt“ in der bisherigen
       if (r.s.kind === "move" && r.s.targetPeriod !== null)

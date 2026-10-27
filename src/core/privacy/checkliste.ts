@@ -158,10 +158,10 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     nr: 13,
     title: "Kommunikation unter Schüler:innen und Information der Eltern",
     schulos:
-      "Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang und die Veröffentlichung des Vertretungsplans (Profilbilder im Sitzplan: §16).",
-    vorgabe: "Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort.",
+      "Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang, die Veröffentlichung des Vertretungsplans und die Kenntnisnahme von Vertretungen durch die Vertretungslehrkraft (Profilbilder im Sitzplan: §16).",
+    vorgabe: "Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort, Kenntnisnahme an (freiwillig, ohne Eskalation).",
     schule: "Entscheidet je Schalter nach pädagogischem Konzept und Erforderlichkeit und dokumentiert die Wahl.",
-    settings: ["messenger.student_direct", "stundenplan.parents_substitution", "stundenplan.substitution_release", "klassenbuch.parents_homework"],
+    settings: ["messenger.student_direct", "stundenplan.parents_substitution", "stundenplan.substitution_release", "stundenplan.substitution_ack", "klassenbuch.parents_homework"],
     where: { label: "Verwaltung → Rechte & Module", href: "/verwaltung/rechte" },
   },
   {

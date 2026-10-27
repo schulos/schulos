@@ -9,6 +9,7 @@ import { PLANNED_GROUP_KINDS } from "./verteilung";
 import { de } from "@/core/db/sort";
 import { toBerlinDate } from "@/core/time";
 import { mergesInto, notifyReleasedMerges } from "./vertretung";
+import { recordLessonCascade } from "./vertretung-historie";
 
 export const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr"] as const;
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -146,7 +147,12 @@ export async function updateLesson(db: Db, actorId: string, id: string, input: L
 export async function deleteLesson(db: Db, actorId: string, id: string, today = toBerlinDate(new Date())): Promise<void> {
   // R1b/A10: Zusammenlegungen in diese Stunde bleiben ohne Ziel stehen (Bedarf wieder offen) – Betroffene erfahren es
   const released = await mergesInto(db, [id], today);
-  const [old] = await db.delete(timetableLessons).where(eq(timetableLessons.id, id)).returning();
+  const old = await db.transaction(async (tx) => {
+    // VT-01: Vertretungen der Stunde gehen per Kaskade mit – vorher in die Historie
+    await recordLessonCascade(tx as unknown as Db, actorId, [id], "delete");
+    const [row] = await tx.delete(timetableLessons).where(eq(timetableLessons.id, id)).returning();
+    return row;
+  });
   if (!old) return;
   if (old.couplingId) await dissolveIfSingle(db, old.couplingId);
   await audit(db, actorId, "stundenplan.lesson.delete", old.groupId, { weekday: old.weekday, period: old.periodNr, subject: old.subjectId, mergesReleased: released.length || undefined });
@@ -220,7 +226,10 @@ export async function saveCoupling(db: Db, actorId: string, couplingId: string |
   // R1b/A10: Zusammenlegungen in wegfallende Teile bleiben ohne Ziel stehen – Betroffene erfahren es
   const released = await mergesInto(db, gone, toBerlinDate(new Date()));
   await db.transaction(async (tx) => {
-    if (gone.length) await tx.delete(timetableLessons).where(inArray(timetableLessons.id, gone));
+    if (gone.length) {
+      await recordLessonCascade(tx as unknown as Db, actorId, gone, "delete");
+      await tx.delete(timetableLessons).where(inArray(timetableLessons.id, gone));
+    }
     for (const p of input.parts) {
       const v = { ...slot, groupId: p.groupId, subjectId: p.subjectId, teacherId: p.teacherId, roomId: p.roomId };
       if (p.id) await tx.update(timetableLessons).set(v).where(eq(timetableLessons.id, p.id));
@@ -242,7 +251,10 @@ export async function deleteCoupling(db: Db, actorId: string, couplingId: string
   const parts = await db.select({ id: timetableLessons.id }).from(timetableLessons).where(eq(timetableLessons.couplingId, couplingId));
   // R1b/A10: Zusammenlegungen in die Kopplung bleiben ohne Ziel stehen – Betroffene erfahren es
   const released = await mergesInto(db, parts.map((p) => p.id), toBerlinDate(new Date()));
-  const gone = await db.delete(timetableLessons).where(eq(timetableLessons.couplingId, couplingId)).returning();
+  const gone = await db.transaction(async (tx) => {
+    await recordLessonCascade(tx as unknown as Db, actorId, parts.map((p) => p.id), "delete");
+    return tx.delete(timetableLessons).where(eq(timetableLessons.couplingId, couplingId)).returning();
+  });
   if (gone.length) await audit(db, actorId, "stundenplan.coupling.delete", gone[0]!.groupId, { coupling: couplingId, parts: gone.length, mergesReleased: released.length || undefined });
   await notifyReleasedMerges(db, actorId, released);
 }

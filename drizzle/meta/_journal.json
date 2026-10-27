@@ -764,6 +764,13 @@
       "when": 1793081810137,
       "tag": "0108_sp3_la_class_map",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1793085805090,
+      "tag": "0109_vt01_vertretung_infos",
+      "breakpoints": true
     }
   ]
 }

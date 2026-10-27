@@ -62,6 +62,27 @@ export const SUBSTITUTION_KINDS = ["cancel", "substitute", "room", "move", "merg
 export type SubstitutionKind = (typeof SUBSTITUTION_KINDS)[number];
 export const substitutionKindEnum = pgEnum("substitution_kind", SUBSTITUTION_KINDS);
 
+/**
+ * VT-01 (F-10-8): öffentliche Grund-Kategorie einer Änderung – bewusst grob. Eine Lehrkraft-Abwesenheit heißt immer
+ * `lehrkraft_abwesend` (nie krank/Fortbildung/dienstlich unterscheidbar). Neue Kategorien nur hinten anfügen.
+ */
+export const SUBSTITUTION_REASONS = [
+  "lehrkraft_abwesend",
+  "klassenfahrt",
+  "exkursion",
+  "praktikum",
+  "pruefung",
+  "veranstaltung",
+  "raum_gesperrt",
+  "organisatorisch",
+  "sonstiges",
+] as const;
+export type SubstitutionReason = (typeof SUBSTITUTION_REASONS)[number];
+export const substitutionReasonEnum = pgEnum("substitution_reason", SUBSTITUTION_REASONS);
+
+/** VT-01: höchstens so viele Zeichen im internen Hinweis (nur Planung und Vertretungslehrkraft) und in Tagesmitteilungen */
+export const INTERNAL_NOTE_MAX = 300;
+
 /** Abweichung von einer regulären Stunde an einem bestimmten Tag. */
 export const timetableSubstitutions = pgTable(
   "timetable_substitutions",
@@ -94,19 +115,97 @@ export const timetableSubstitutions = pgTable(
      * stehen, die Vertretungsplanung prüft sie („Abwesenheit beendet – prüfen“). Erneutes Speichern oder „behalten“ leert es.
      */
     absenceEndedAt: timestamp("absence_ended_at", { withTimezone: true }),
+    /** VT-01 (F-10-8): öffentliche Grund-Kategorie (Schüler:innen, Eltern, Monitor); leer = ohne Angabe (Bestand vor VT-01) */
+    reason: substitutionReasonEnum("reason"),
+    /** VT-01: interner Hinweis – nur Planung (`stundenplan.substitute`) und die Vertretungslehrkraft, nie Schüler:innen/Eltern/Monitor */
+    internalNote: text("internal_note"),
+    /** VT-01 (F-10-9): Vertretung nur als Betreuung (Aufgaben/EVA, kein Fachunterricht); nur bei `substitute` */
+    supervisionOnly: boolean("supervision_only").notNull().default(false),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** VT-01: zuletzt geändert von/am (leer = seit dem Anlegen unverändert); das Anlegen bleibt in `created_*` */
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }),
+    /**
+     * VT-01 (F-10-10): Kenntnisnahme durch die Vertretungslehrkraft (optional). Wird leer, sobald die Vertretungslehrkraft oder die
+     * Art wechselt.
+     */
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
   },
   (t) => [
     index("timetable_substitutions_merge_idx").on(t.mergeLessonId),
     uniqueIndex("timetable_substitutions_lesson_date_uq").on(t.lessonId, t.date),
     check("timetable_substitutions_subject", sql`${t.subjectId} is null or ${t.kind} = 'substitute'`),
+    check("timetable_substitutions_supervision", sql`not ${t.supervisionOnly} or ${t.kind} = 'substitute'`),
+    check("timetable_substitutions_internal_note", sql`${t.internalNote} is null or char_length(${t.internalNote}) <= 300`),
     index("timetable_substitutions_date_idx").on(t.date),
     index("timetable_substitutions_substitute_idx").on(t.substituteId, t.date),
   ],
 );
 
 export type TimetableSubstitution = typeof timetableSubstitutions.$inferSelect;
+
+/** VT-01: Art eines Historien-Eintrags. `plan_publish`/`plan_undo` = Übernahme bzw. Rücknahme eines Plans (Solver, später SP3-04). */
+export const SUBSTITUTION_CHANGE_ACTIONS = ["create", "update", "delete", "plan_publish", "plan_undo"] as const;
+export type SubstitutionChangeAction = (typeof SUBSTITUTION_CHANGE_ACTIONS)[number];
+export const substitutionChangeActionEnum = pgEnum("substitution_change_action", SUBSTITUTION_CHANGE_ACTIONS);
+
+/**
+ * VT-01 (F-10-13): Historie der Vertretungen – je Schreibvorgang Vorher/Nachher als JSON (Felder der Vertretung mit Kennungen,
+ * `SubstitutionSnapshot`). Nur für die Planung sichtbar; speist später den Marker „neu/geändert seit …“ (VT-02). Die Kennung der
+ * Vertretungslehrkraft in `before/after` ersetzt die Kontolöschung durch einen Platzhalter (`scrubSubstitutionChanges`).
+ */
+export const timetableSubstitutionChanges = pgTable(
+  "timetable_substitution_changes",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    lessonId: text("lesson_id").references(() => timetableLessons.id, { onDelete: "set null" }),
+    date: date("date").notNull(),
+    substitutionId: text("substitution_id").references(() => timetableSubstitutions.id, { onDelete: "set null" }),
+    action: substitutionChangeActionEnum("action").notNull(),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("timetable_substitution_changes_date_idx").on(t.date, t.createdAt),
+    index("timetable_substitution_changes_lesson_idx").on(t.lessonId, t.date),
+    index("timetable_substitution_changes_substitution_idx").on(t.substitutionId),
+  ],
+);
+
+export type TimetableSubstitutionChange = typeof timetableSubstitutionChanges.$inferSelect;
+
+/** VT-01: Tagesmitteilung an alle bzw. nur an Beschäftigte */
+export const DAY_NOTE_AUDIENCES = ["alle", "beschaeftigte"] as const;
+export type DayNoteAudience = (typeof DAY_NOTE_AUDIENCES)[number];
+export const dayNoteAudienceEnum = pgEnum("day_note_audience", DAY_NOTE_AUDIENCES);
+
+/**
+ * VT-01: Tagesmitteilung im Vertretungsplan („Heute 6. Stunde Schulversammlung in der Aula“) – kurzer Text ohne Personen. Folgt der
+ * Tagesfreigabe: an einem Entwurfstag nur für die Planung sichtbar.
+ */
+export const timetableDayNotes = pgTable(
+  "timetable_day_notes",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    date: date("date").notNull(),
+    body: text("body").notNull(),
+    audience: dayNoteAudienceEnum("audience").notNull().default("alle"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("timetable_day_notes_date_idx").on(t.date), check("timetable_day_notes_body", sql`char_length(${t.body}) between 1 and 300`)],
+);
+
+export type TimetableDayNote = typeof timetableDayNotes.$inferSelect;
 
 /**
  * SP2-01: Band – Lehraufträge, die zur selben Zeit liegen (Religion/Philosophie, WP, E-/G-Kurse, Oberstufen-Schiene, eine
@@ -483,7 +582,8 @@ export type TimetableAbsence = typeof timetableAbsences.$inferSelect;
 /**
  * Q5-12 (I-18): Vertretungsmaterial der abwesenden Lehrkraft je betroffener Stunde (Text und/oder Datei). Sichtbar für die
  * Lehrkraft selbst, die Vertretung dieser Stunde, die Planung und – nur mit Häkchen – die Schüler:innen der Gruppe. Geht mit der
- * Abwesenheit (follows).
+ * Abwesenheit. VT-01 (F-10-12): auch ohne Abwesenheit (`absence_id` leer) an (Stunde, Tag) – anlegen dürfen die Lehrkraft der
+ * Stunde, die Vertretungslehrkraft und die Planung; Löschklasse LK-SJ-1J ab `date`.
  */
 export const timetableAbsenceMaterials = pgTable(
   "timetable_absence_materials",
@@ -491,9 +591,7 @@ export const timetableAbsenceMaterials = pgTable(
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
-    absenceId: text("absence_id")
-      .notNull()
-      .references(() => timetableAbsences.id, { onDelete: "cascade" }),
+    absenceId: text("absence_id").references(() => timetableAbsences.id, { onDelete: "cascade" }),
     lessonId: text("lesson_id")
       .notNull()
       .references(() => timetableLessons.id, { onDelete: "cascade" }),
@@ -511,7 +609,11 @@ export const timetableAbsenceMaterials = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("timetable_absence_materials_uq").on(t.absenceId, t.lessonId, t.date), index("timetable_absence_materials_lesson_idx").on(t.lessonId, t.date)],
+  (t) => [
+    // VT-01: je (Stunde, Tag) ein Material je Abwesenheit und eines ohne Abwesenheit
+    uniqueIndex("timetable_absence_materials_uq").on(t.lessonId, t.date, sql`coalesce(${t.absenceId}, '')`),
+    index("timetable_absence_materials_lesson_idx").on(t.lessonId, t.date),
+  ],
 );
 
 export type TimetableAbsenceMaterial = typeof timetableAbsenceMaterials.$inferSelect;

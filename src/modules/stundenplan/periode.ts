@@ -6,6 +6,7 @@ import { audit } from "@/core/audit";
 import { classbookEntries, timetableLessons, timetableSubstitutions } from "@/core/db/schema";
 import { addDays } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { moveChangeHistory } from "./vertretung-historie";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -67,6 +68,8 @@ export async function copyPeriod(db: Db, actorId: string, cutoff: string, todayY
     for (const { oldId, row } of copies) {
       await tx.update(timetableSubstitutions).set({ lessonId: row.id }).where(and(eq(timetableSubstitutions.lessonId, oldId), gte(timetableSubstitutions.date, cutoff)));
       await tx.update(classbookEntries).set({ lessonId: row.id }).where(and(eq(classbookEntries.lessonId, oldId), gte(classbookEntries.date, cutoff)));
+      // VT-01: die Historie der Vertretungen hängt mit um
+      await moveChangeHistory(tx as unknown as Db, oldId, row.id, cutoff);
     }
     return rows.length;
   });

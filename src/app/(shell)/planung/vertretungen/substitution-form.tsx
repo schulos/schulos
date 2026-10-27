@@ -27,6 +27,8 @@ export function SubstitutionForm({
   ownPeriod,
   mergeOptions,
   permanent,
+  reasons,
+  defaultReasonLabel,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   removeAction?: () => Promise<void>;
@@ -34,7 +36,22 @@ export function SubstitutionForm({
   date: string;
   /** z. B. „3. Std · Mathematik · Klasse 7b“ – für eindeutige Feldnamen */
   label: string;
-  initial: { kind: string; substituteId: string; roomId: string; note: string; subjectId: string; targetPeriod: string; mergeLessonId: string };
+  initial: {
+    kind: string;
+    substituteId: string;
+    roomId: string;
+    note: string;
+    subjectId: string;
+    targetPeriod: string;
+    mergeLessonId: string;
+    /** VT-01: gespeicherte Kategorie („“ = automatisch), interne Notiz, „1“ = nur Betreuung */
+    reason: string;
+    internalNote: string;
+    supervisionOnly: string;
+  };
+  /** VT-01: Grund-Kategorien zur Auswahl und die Vorgabe für diese Stunde (Anzeige bei „automatisch“) */
+  reasons: { value: string; label: string }[];
+  defaultReasonLabel?: string | null;
   teachers: Teacher[];
   rooms: { id: string; label: string }[];
   /** SP-12 (Fachtausch): alle Fächer; Vorgabe ist das reguläre Fach der Stunde */
@@ -121,7 +138,7 @@ export function SubstitutionForm({
           ))}
         </Select>
       </Field>
-      <Field label="Hinweis" error={fe.note} className="sm:col-span-3 lg:col-span-1">
+      <Field label="Hinweis für Schüler:innen" error={fe.note} className="sm:col-span-3 lg:col-span-1">
         <Input name="note" defaultValue={v.note} placeholder="z. B. Arbeitsheft S. 24" maxLength={200} />
       </Field>
       <div className="flex gap-2">
@@ -132,6 +149,28 @@ export function SubstitutionForm({
           <Button type="submit" formAction={removeAction} formNoValidate>
             Aufheben
           </Button>
+        )}
+      </div>
+      {/* VT-01: Grund-Kategorie (öffentlich, grob), interne Notiz, „nur Betreuung“ */}
+      <div className="flex flex-wrap items-end gap-3 sm:col-span-full">
+        <Field label="Grund (öffentlich)" error={fe.reason}>
+          <Select name="reason" defaultValue={v.reason}>
+            <option value="">{defaultReasonLabel ? `automatisch (${defaultReasonLabel})` : "automatisch"}</option>
+            {reasons.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Interne Notiz (nur Planung und Vertretung)" error={fe.internalNote} className="min-w-64 flex-1">
+          <Input name="internalNote" defaultValue={v.internalNote} placeholder="keine Gesundheitsangaben" maxLength={300} />
+        </Field>
+        {kind === "substitute" && (
+          <label className="flex items-center gap-2 pb-2 text-sm">
+            <input type="checkbox" name="supervisionOnly" value="1" defaultChecked={v.supervisionOnly === "1"} className="size-4 accent-[var(--accent)]" />
+            nur Betreuung (Aufgaben/EVA)
+          </label>
         )}
       </div>
       {kind === "substitute" && permanent && (
