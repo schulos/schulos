@@ -1,6 +1,6 @@
 # SP3-00: Lebenszyklus des Stundenplans und Vertretung mit mehr Infos – Architekturkonzept
 
-> Stand: 2026-10-26 · Status: **Entwurf zur Abnahme** (Fragebogen Runde 10 in §11) · Auftrag der Projektleitung 25.10.2026
+> Stand: 2026-10-26 · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
 > (Arbeitsplan ab 26.10., Phase B1; Vorgaben „Nachtrag 25.10.“, „Sicht eines Stundenplaners“ und „Antworten 25.10.“).
 > Hebt die Entscheidung Q-SP-12/Q-SP-16 („keine Plan-Versionen“) auf – ausdrücklich durch die Projektleitung 25.10.2026.
 > Aufgaben nach Abnahme: `BACKLOG.md`, Blöcke **VT** (Vertretung) und **SP3** (Lebenszyklus). Dieses Dokument ändert keinen Code
@@ -48,8 +48,7 @@ Ruhezeit. Die Freigabe je Tag (`timetable_substitution_days`) bleibt, wie sie is
 
 **Paketschnitt (Reihenfolge, Empfehlung – Frage F-10-14):** SP3-DEP + SP3-LA (unabhängig, Priorität 2 der Projektleitung) →
 VT-01 → VT-02 → VT-04 ‖ VT-03a → VT-03b → VT-05/GATE VT → Release → SP3-01 → SP3-02 → SP3-03 → SP3-04 → SP3-05 → SP3-06 →
-SP3-07 → SP3-08/GATE SP3 → Release. Zielmarke: SP3 bis Mitte Januar 2027, damit der Halbjahreswechsel (01.02.2027) schon über den
-Fahrplan läuft.
+SP3-07 → SP3-08/GATE SP3 → Release.
 
 ---
 
@@ -466,9 +465,8 @@ SP3-01 ──► SP3-02 ──► SP3-03 ──► SP3-04 ──► SP3-05 ─�
 ```
 
 Empfehlung (Frage F-10-14): nach v0.9.0 zuerst **SP3-DEP + SP3-LA** (unabhängig, Priorität 2 der Projektleitung, je ein Strang), dann
-**Block VT** (Tagesgeschäft, Daten fast komplett da, Release v0.10), dann **Block SP3** (Release v0.11) – Zielmarke Mitte Januar 2027 für den
-Halbjahreswechsel. Alternative: SP3-01…04 vor VT, wenn der Halbjahreswechsel 2027 unbedingt mit Versionen laufen soll; dann rutscht VT hinter
-den 01.02. Je Paket ein PR, Merge per `scripts/pr-merge.sh`, Gate-PRs nach Regel F3.
+**Block VT** (Tagesgeschäft, Daten fast komplett da, Release v0.10), dann **Block SP3** (Release v0.11). Alternative: SP3-01…04 vor VT, wenn Versionen früher gebraucht werden; dann rutscht VT nach hinten.
+Entschieden (F-10-14): Empfehlung. Je Paket ein PR, Merge per `scripts/pr-merge.sh`, Gate-PRs nach Regel F3.
 
 ### 7.4 Pflege nach Abnahme (B2)
 
@@ -489,7 +487,7 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 | R5 | **Generische Tabellen in Drizzle** (`lessonTable(source)`) – Typen von zwei `pgTable`-Definitionen sind nicht identisch | Typ-Verrenkungen, Duplikate | gemeinsame Spaltenfabrik `lessonColumns()`, Lader liefern eine gemeinsame Zeilenform (`PlanLessonRow`); Schreiber verzweigen explizit (zwei kleine Funktionen statt generischem SQL) |
 | R6 | **Umfang SP3-02/04** (je L) überschreitet einen Agentenlauf | halbe PRs | Zuschnitt: SP3-02 ohne Variantenvergleich (→ SP3-06), SP3-04 ohne Druck-Datumswähler (→ SP2-10-Nachzug), wenn nötig |
 | R7 | **Migrationsnummern** parallel zu SP2-12 (0105) und laufenden Bücherei-Paketen | Konflikt beim Merge | Nummer erst direkt vor dem PR auf aktuellem `main`; Daten-Migration „Bestand 1.0“ idempotent |
-| R8 | **Zeit**: Halbjahreswechsel 01.02.2027 – SP3 muss bis Mitte Januar auf der Testinstallation sein | Fahrplan kommt erst zum Schuljahr 2027/28 zum Einsatz | Reihenfolge F-10-14; Halbjahr 2027 notfalls über „Entwurf aus gültigem Plan“ (SP3-01) + Setzhilfe ohne Fahrplan |
+| R8 | **Reihenfolge**: SP3 kommt nach VT – ein Halbjahreswechsel vor GATE SP3 läuft noch ohne Fahrplan | Planung wie heute (Periode kopieren, Solver-Übernahme) | „Entwurf aus gültigem Plan“ (SP3-01) + Setzhilfe ohne Fahrplan als Zwischenlösung |
 | R9 | **Datenschutz**: Entwürfe und Historien enthalten Lehrkraft-ids in JSON (`undo`, `before/after`) | Kontolöschung unvollständig (wie Q-SP-9-4) | Scrub-Muster DS-21 von Anfang an, Querschnittstest in SP3-01/VT-01 |
 | R10 | **Lehrkräfte-Vorschau** zeigt Entwürfe, die sich noch ändern | Unruhe im Kollegium, „mein Plan war anders“ | Schalter je Version (Vorgabe aus), Banner „Entwurf – kann sich ändern“, Kommentare statt Mail; Veröffentlichung schickt den Diff |
 | R11 | **Gong-Flut** bei Veröffentlichung und Sendewarteschlange | viele Nachrichten, Ruhezeit verletzt | eine gebündelte Nachricht je Person (bestehendes Muster), Queue hält Ruhezeit auch für Plan-Diffs |
@@ -526,52 +524,55 @@ große Sperrzeiten-Erfassung (nur die bestehenden Zeitwünsche + Raumsperren), L
 
 ## 11. Fragebogen Runde 10 (Entscheidungen der Projektleitung)
 
+**Entschieden 2026-10-26 (Projektleitung): alle Empfehlungen angenommen** (F-10-1 … F-10-14). Die Alternativen bleiben zur
+Nachvollziehbarkeit stehen.
+
 Nur echte Entscheidungen; alles andere gilt wie oben beschrieben als Vorgabe. Antwortformat wie bisher („wie vorgeschlagen“ oder Abweichung).
 
-- [ ] **F-10-1 (SP3-02/04) – Direkte Solver-Übernahme in den gültigen Plan abschaffen?** Heute schreibt „Lauf übernehmen ab Stichtag“ sofort
+- [x] **F-10-1 (SP3-02/04) – Direkte Solver-Übernahme in den gültigen Plan abschaffen?** Heute schreibt „Lauf übernehmen ab Stichtag“ sofort
   live. Mit Versionen gäbe es zwei Wege (Lauf → live, Entwurf → live) mit doppelter Rücknahme-Logik. **Empfehlung: ja, nur noch über den
   Entwurf** – „Übernehmen“ füllt den Entwurf der Version und springt zu Fahrplan-Schritt 8; wer wie heute direkt veröffentlichen will,
   klickt dort „Veröffentlichen ab …“ (zwei Klicks statt einem). Alternative: beide Wege behalten (mehr Code, zwei `undo`-Pfade).
-- [ ] **F-10-2 (SP3-05) – Sofort-Korrekturen am gültigen Plan weiter erlauben?** **Empfehlung: ja für `manage`**, aber immer als Split ab
+- [x] **F-10-2 (SP3-05) – Sofort-Korrekturen am gültigen Plan weiter erlauben?** **Empfehlung: ja für `manage`**, aber immer als Split ab
   dem nächsten Schultag mit Protokoll (`timetable_plan_changes`) und Gong an betroffene Lehrkraft/Gruppe; ab 10 geänderten Stunden Hinweis
   „besser als Folgeversion“. Alternative: jede Änderung nur als Folgeversion mit Freigabe (sauberer, im Alltag zu schwerfällig – Raumtausch
   am Montagmorgen).
-- [ ] **F-10-3 (SP3-03) – Freigabe durch die Schulleitung: Recht `stundenplan.review` für die Gruppe Schulleitung; darf eine Person mit
+- [x] **F-10-3 (SP3-03) – Freigabe durch die Schulleitung: Recht `stundenplan.review` für die Gruppe Schulleitung; darf eine Person mit
   `manage` + `review` den eigenen Entwurf freigeben?** **Empfehlung: ja** (kleine Schulen, Schulleitung plant selbst), Audit zeigt es, kein
   technischer Vier-Augen-Zwang; Folgeversionen (1.x) brauchen **auch** die Freigabe (sonst wäre der Weg um die Freigabe herum offen).
   Alternative: Vier-Augen erzwingen (Freigabe nur durch eine andere Person) und/oder Folgeversionen ohne Freigabe.
-- [ ] **F-10-4 (SP3-03/04) – Lehrkräfte-Vorschau „Mein Plan ab …“ und Änderungsliste an Schüler:innen/Eltern?** **Empfehlung:** Vorschau als
+- [x] **F-10-4 (SP3-03/04) – Lehrkräfte-Vorschau „Mein Plan ab …“ und Änderungsliste an Schüler:innen/Eltern?** **Empfehlung:** Vorschau als
   Schalter je Version (Vorgabe aus), nur eigener Plan, Rückmeldung als Kommentar an die Planung; bei der Veröffentlichung Gong mit
   persönlichem Diff an Lehrkräfte **sofort**, an Schüler:innen (und Eltern bis Jahrgang wie Vertretungen) **zum Stichtag − 1 um die
   Vortags-Uhrzeit** über die Sendewarteschlange (VT-04). Alternative: Schüler:innen/Eltern gar nicht benachrichtigen (Plan ist ohnehin sichtbar).
-- [ ] **F-10-5 (SP3-01) – Lehraufträge, Zeitwünsche, Bänder und Deputate bleiben unversioniert; Varianten unterscheiden sich nur in der
+- [x] **F-10-5 (SP3-01) – Lehraufträge, Zeitwünsche, Bänder und Deputate bleiben unversioniert; Varianten unterscheiden sich nur in der
   Setzung?** **Empfehlung: ja** (hält SP3-01/02 beherrschbar; „Was-wäre-wenn“ in der Verteilung läuft nacheinander oder über Gültigkeit).
   Alternative: Verteilung je Version kopieren (verdoppelt Datenmodell und Matrix-Logik).
-- [ ] **F-10-6 (SP3-DEP) – Deputatsmodell:** Teilzeit als Anteil in Prozent (Rechenhilfe: Pflicht = Vorgabe × Anteil, gespeichert bleibt die
+- [x] **F-10-6 (SP3-DEP) – Deputatsmodell:** Teilzeit als Anteil in Prozent (Rechenhilfe: Pflicht = Vorgabe × Anteil, gespeichert bleibt die
   Pflichtstundenzahl), Pflicht fürs 2. Halbjahr getrennt, Anrechnungen mit „gültig ab/bis“? **Empfehlung: alle drei, minimal** (keine
   Faktoren/Wertrechnung, keine Mehrarbeitsabrechnung). Alternative: nur Anrechnungen mit Gültigkeit.
-- [ ] **F-10-7 (SP3-LA) – Übernahme aus dem Vorjahr: Klassen-Zuordnung (`class_map`) im Schuljahreswechsel speichern, „Lehrkraft folgt der
+- [x] **F-10-7 (SP3-LA) – Übernahme aus dem Vorjahr: Klassen-Zuordnung (`class_map`) im Schuljahreswechsel speichern, „Lehrkraft folgt der
   Klasse“ als Vorschlag je Zelle; Kurse und Bänder werden nicht übernommen?** **Empfehlung: ja**; für Übergänge vor SP3-LA Rekonstruktion
   über die Namensregel, sonst Vorschlag nur nach Fach. Alternative: Übernahme nur „gleicher Jahrgang, gleiches Fach, gleiche Lehrkraft“ ohne
   Hochstufung (einfacher, trifft Kontinuität nicht).
-- [ ] **F-10-8 (VT-01/02) – Öffentlicher Grund als grobe Kategorie für Schüler:innen und Monitor sichtbar?** **Empfehlung: ja**, Liste in
+- [x] **F-10-8 (VT-01/02) – Öffentlicher Grund als grobe Kategorie für Schüler:innen und Monitor sichtbar?** **Empfehlung: ja**, Liste in
   §3.2; bei Lehrkraft-Abwesenheit immer „Lehrkraft abwesend“ (nie krank/Fortbildung/dienstlich unterscheidbar); Gruppengründe wie heute;
   Eltern-Gong nennt die Kategorie ebenfalls. Alternative: Kategorie nur intern (dann entfällt der Nutzen für Schüler:innen – „warum fällt
   aus?“ bleibt unbeantwortet).
-- [ ] **F-10-9 (VT-01) – Art „Betreuung/EVA“?** **Empfehlung: ja, als Häkchen „nur Betreuung“ an `substitute`** (Anzeige „Betreuung“, eigener
+- [x] **F-10-9 (VT-01) – Art „Betreuung/EVA“?** **Empfehlung: ja, als Häkchen „nur Betreuung“ an `substitute`** (Anzeige „Betreuung“, eigener
   Zähler in der Statistik, zählt im Deputat der Vertretungslehrkraft wie Vertretung) statt neuer `kind`. Alternative: weglassen, Hinweis im
   Freitext.
-- [ ] **F-10-10 (VT-02) – Kenntnisnahme durch die Vertretungslehrkraft: Pflicht oder optional?** **Empfehlung: optional, Vorgabe an**
+- [x] **F-10-10 (VT-02) – Kenntnisnahme durch die Vertretungslehrkraft: Pflicht oder optional?** **Empfehlung: optional, Vorgabe an**
   (Lehrkraft bestätigt mit einem Klick im Gong/„Meine Vertretungen“, Planung sieht Unbestätigte, Erinnerung mit dem Vortags-Gong, keine
   Eskalation an die Schulleitung). Alternative: Pflicht mit Eskalation.
-- [ ] **F-10-11 (VT-04) – Sendezeiten:** Vortags-Uhrzeit 18:00, Ruhezeit 20:00–06:30, heute sofort (vor Stundenbeginn), getrennte
+- [x] **F-10-11 (VT-04) – Sendezeiten:** Vortags-Uhrzeit 18:00, Ruhezeit 20:00–06:30, heute sofort (vor Stundenbeginn), getrennte
   Einstellungen für Lehrkräfte und Lernende/Eltern (Vorgabe gleich); die Plananzeige ist sofort sichtbar, nur der Gong wartet.
   **Empfehlung: so.** Alternative: eine Einstellung für alle; oder auch die Anzeige bis zur Sendezeit zurückhalten (widerspricht „Plan
   veröffentlichen“ je Tag).
-- [ ] **F-10-12 (VT-01) – Material/Aufgaben ohne Abwesenheit: anlegen dürfen Lehrkraft der Stunde, Vertretungslehrkraft und Planung
+- [x] **F-10-12 (VT-01) – Material/Aufgaben ohne Abwesenheit: anlegen dürfen Lehrkraft der Stunde, Vertretungslehrkraft und Planung
   (`substitute`); Löschklasse LK-SJ-1J ab Datum statt „folgt der Abwesenheit“?** **Empfehlung: ja.** Alternative: nur Lehrkraft der Stunde.
-- [ ] **F-10-13 (VT-01/SP3-05) – Historien (`substitution_changes`, `plan_changes`) mit Vorher/Nachher als JSON, LK-SJ-1J, Lehrkraft-ids bei
+- [x] **F-10-13 (VT-01/SP3-05) – Historien (`substitution_changes`, `plan_changes`) mit Vorher/Nachher als JSON, LK-SJ-1J, Lehrkraft-ids bei
   Kontolöschung ersetzt; sichtbar nur für die Planung?** **Empfehlung: ja** (ohne Historie gibt es keinen „neu/geändert“-Marker).
   Alternative: nur `updated_at` ohne Vorher-Stand (Marker möglich, Verlauf nicht).
-- [ ] **F-10-14 (Reihenfolge nach v0.9.0, ersetzt F2):** **Empfehlung:** SP3-DEP + SP3-LA → Block VT (Release v0.10) → Block SP3 (Release
-  v0.11, Ziel Mitte Januar 2027). Alternative: SP3-01…04 vor VT, damit der Halbjahreswechsel 2027 sicher mit Versionen läuft.
+- [x] **F-10-14 (Reihenfolge nach v0.9.0, ersetzt F2):** **Empfehlung:** SP3-DEP + SP3-LA → Block VT (Release v0.10) → Block SP3 (Release
+  v0.11). Alternative: SP3-01…04 vor VT, wenn Versionen früher gebraucht werden.

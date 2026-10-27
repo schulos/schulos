@@ -453,7 +453,7 @@ Lücke: **ja** = fehlt · **teilw.** = vorhanden mit Einschränkung · **nein** 
 | Einstieg für Umsteiger | Lehraufträge aus Handplan | teilw. | SP2: CSV-Import der Unterrichtsverteilung (Q-SP-14) |
 | Lehrbefähigung, Wertrechnung/Faktoren, faire Aufsichtsverteilung, ICS-Abo, Matrix-Ansicht, Epochen | nein | Kann | nur auf Nachfrage (SP-G-17 … SP-G-23) |
 | Oberstufen-Blockung aus Kurswahlen | Kurswahl → Gruppen + Lehraufträge | ja | eigene Phase nach SP2 (SP-G-24, braucht Bänder) |
-| Mehrere Zeitraster/Minutenplan/Samstag · Standorte/Wegezeiten/Abteilungen · Mehrarbeits-Abrechnung · Import/Export im Austauschformat fremder Software · Plan-Versionen | nein | **bewusst** | nicht geplant (Q-SP-16) |
+| Mehrere Zeitraster/Minutenplan/Samstag · Standorte/Wegezeiten/Abteilungen · Mehrarbeits-Abrechnung · Import/Export im Austauschformat fremder Software | nein | **bewusst** (Plan-Versionen: aufgehoben 2026-10-25 → Block SP3, `STUNDENPLAN-LEBENSZYKLUS.md`) | nicht geplant (Q-SP-16) |
 
 ### 6.3 Ergänzungen vor GATE SP (in bestehende Runden, je klein)
 
