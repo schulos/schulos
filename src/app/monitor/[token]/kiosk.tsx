@@ -102,7 +102,7 @@ export function Kiosk({ token, initial, logo }: { token: string; initial: Monito
       ) : (
         <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-2">
           {data.days.map((d) => (
-            <DayPanel key={d.date} date={d.date} today={data.today} entries={d.entries} tick={tick} staffRoom={staffRoom} />
+            <DayPanel key={d.date} date={d.date} today={data.today} entries={d.entries} notes={d.notes} tick={tick} staffRoom={staffRoom} />
           ))}
         </div>
       )}
@@ -168,7 +168,7 @@ export function Kiosk({ token, initial, logo }: { token: string; initial: Monito
   );
 }
 
-function DayPanel({ date, today, entries, tick, staffRoom }: { date: string; today: string; entries: MonitorEntry[]; tick: number; staffRoom: boolean }) {
+function DayPanel({ date, today, entries, notes, tick, staffRoom }: { date: string; today: string; entries: MonitorEntry[]; notes: string[]; tick: number; staffRoom: boolean }) {
   const pages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
   const page = tick % pages;
   const rows = entries.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -185,6 +185,15 @@ function DayPanel({ date, today, entries, tick, staffRoom }: { date: string; tod
           </span>
         )}
       </div>
+      {notes.length > 0 && (
+        <ul aria-label="Tagesmitteilungen" className="flex flex-col gap-1.5">
+          {notes.map((n, i) => (
+            <li key={i} className="rounded-xl bg-accent-soft px-3 py-1.5 text-lg font-semibold text-accent-ink">
+              {n}
+            </li>
+          ))}
+        </ul>
+      )}
       {entries.length === 0 ? (
         <p className="text-xl text-muted">Keine Änderungen.</p>
       ) : (
@@ -209,11 +218,12 @@ function DayPanel({ date, today, entries, tick, staffRoom }: { date: string; tod
                 <td>{e.subject}</td>
                 <td>
                   <span className={cn("rounded-lg px-2 py-0.5 text-base font-semibold", e.off ? KIND.cancel.cls : KIND[e.kind].cls)}>{e.label}</span>
+                  {e.marker && <span className="ml-2 rounded-lg bg-accent px-2 py-0.5 text-sm font-semibold text-accent-fg">{e.marker === "neu" ? "neu" : "geändert"}</span>}
                 </td>
-                <td>{e.room ?? "–"}</td>
+                <td className="whitespace-nowrap">{e.roomShift ?? e.room ?? "–"}</td>
                 {staffRoom && <td>{e.absent}</td>}
                 <td>{staffRoom && e.substituteName ? `${e.substitute} (${e.substituteName})` : e.substitute}</td>
-                <td className="text-muted">{e.note}</td>
+                <td className="text-muted">{[e.reason, e.note].filter(Boolean).join(" · ")}</td>
               </tr>
             ))}
           </tbody>

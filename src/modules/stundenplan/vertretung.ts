@@ -21,7 +21,9 @@ import { groupPeriod, ownTeacherPeriod, roomUse, takesPlaceAsUsual } from "./bel
 import { dayRuleBlocks } from "./vertretung-regeln";
 import { mergeHosts, type MergeTarget } from "./vertretung-ziel";
 import { absenceCovers, absencesBetween, absentGroups, absentTeachers } from "./abwesenheit";
-import { deletedEntries, recordSubstitutionChanges, snapshotOf, type ChangeEntry } from "./vertretung-historie";
+import { changedSince, deletedEntries, recordSubstitutionChanges, snapshotOf, type ChangeEntry } from "./vertretung-historie";
+import type { ChangeMarker } from "./display";
+import { hasPermission, type PermissionSet } from "@/core/permissions";
 import { blockLabel, roomBlockAt } from "./raumsperren";
 import { lessonActiveOn } from "./service";
 import { dayChanges, notifySubstitutionDay } from "./vertretung-gong";
@@ -566,7 +568,7 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
  * Optional (Moduleinstellung, Vorgabe an), nur an veröffentlichten Tagen; ändert weder `updated_*` noch die Historie.
  */
 export async function acknowledgeSubstitution(db: Db, userId: string, id: string, now = new Date()): Promise<void> {
-  if ((await readModuleSetting(db, SUBSTITUTION_ACK)) !== "an") throw new ValidationError({ acknowledge: "Die Kenntnisnahme ist ausgeschaltet" });
+  if (!(await acknowledgeEnabled(db))) throw new ValidationError({ acknowledge: "Die Kenntnisnahme ist ausgeschaltet" });
   const [s] = await db.select().from(timetableSubstitutions).where(eq(timetableSubstitutions.id, id));
   if (!s || s.kind !== "substitute" || s.substituteId !== userId || (await draftDays(db, [s.date])).has(s.date))
     throw new ValidationError({ acknowledge: "Diese Vertretung gibt es nicht (mehr)" });
@@ -799,14 +801,19 @@ export interface DaySubstitution {
   supervisionOnly: boolean;
   /** VT-01: interne Angaben – nur mit `internal: true` (Vertretungsplanung), sonst nicht vorhanden */
   internal?: { note: string | null; acknowledgedAt: Date | null; updatedAt: Date | null };
+  /** VT-02: vertretende Lehrkraft (Kennung) – für „Meine Vertretungen“; Anzeigen nutzen Kürzel/Name */
+  substituteId: string | null;
+  /** VT-02: „neu“/„geändert“ seit `since` (nur mit `since`), sonst null */
+  marker: ChangeMarker | null;
 }
 
 /**
  * Alle Änderungen an einem oder mehreren Tagen (Vertretungsplan, Monitor, Verwaltung). Q5-11: Tage im Entwurf nur mit
  * `drafts: true` (Vertretungsplanung mit `stundenplan.substitute`) – alle anderen sehen den veröffentlichten Stand. VT-01: interner
  * Hinweis und Kenntnisnahme nur mit `internal: true` (nur Vertretungsplanung; nie Schüler:innen, Eltern, Monitor, Druck).
+ * VT-02: mit `since` trägt jeder Eintrag den Marker „neu“ (seit `since` angelegt) bzw. „geändert“ (sichtbar geändert laut Historie).
  */
-export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: boolean; internal?: boolean } = {}): Promise<DaySubstitution[]> {
+export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: boolean; internal?: boolean; since?: Date } = {}): Promise<DaySubstitution[]> {
   if (dates.length === 0) return [];
   const drafts = await draftDays(db, dates);
   const visible = opts.drafts ? dates : dates.filter((d) => !drafts.has(d));
@@ -840,6 +847,10 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
     db,
     rows.filter((r) => r.s.kind === "merge" && r.s.mergeLessonId).map((r) => ({ lessonId: r.s.mergeLessonId!, date: r.s.date })),
   );
+  const since = opts.since;
+  const changed = since ? await changedSince(db, rows.map((r) => ({ lessonId: r.s.lessonId, date: r.s.date })), since) : new Set<string>();
+  const markerOf = (s: TimetableSubstitution): ChangeMarker | null =>
+    !since ? null : s.createdAt >= since ? "neu" : changed.has(`${s.lessonId}:${s.date}`) ? "geaendert" : null;
   return rows
     .flatMap((r) => {
       const e: DaySubstitution = {
@@ -867,6 +878,8 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
         absenceEnded: r.s.absenceEndedAt !== null,
         reason: r.s.reason,
         supervisionOnly: r.s.supervisionOnly,
+        substituteId: r.s.substituteId,
+        marker: markerOf(r.s),
         ...(opts.internal ? { internal: { note: r.s.internalNote, acknowledgedAt: r.s.acknowledgedAt, updatedAt: r.s.updatedAt } } : {}),
       };
       // SP2-07: eine Verlegung steht zweimal im Plan – in der neuen Stunde und als „verlegt“ in der bisherigen
@@ -878,6 +891,40 @@ export async function substitutionsOn(db: Db, dates: string[], opts: { drafts?: 
       return [e];
     })
     .sort((a, b) => a.date.localeCompare(b.date) || (a.gradeLevel ?? 99) - (b.gradeLevel ?? 99) || a.groupName.localeCompare(b.groupName, "de", { numeric: true }) || a.periodNr - b.periodNr);
+}
+
+/** VT-02 (F-10-10): Ist die Kenntnisnahme eingeschaltet (Moduleinstellung, Vorgabe an)? */
+export async function acknowledgeEnabled(db: Db): Promise<boolean> {
+  return (await readModuleSetting(db, SUBSTITUTION_ACK)) === "an";
+}
+
+/**
+ * VT-02: „Meine Vertretungen“ – Stunden, die `userId` an den Tagen vertritt (nur veröffentlichte Tage), mit internem Hinweis und
+ * Kenntnisnahme. Der interne Hinweis geht nur an die vertretende Lehrkraft selbst (§5); Kopplungsteile erscheinen einzeln.
+ */
+export async function ownSubstitutions(db: Db, userId: string, dates: string[], since?: Date): Promise<DaySubstitution[]> {
+  return (await substitutionsOn(db, dates, { internal: true, since })).filter((e) => e.kind === "substitute" && e.substituteId === userId && e.movedFrom === null);
+}
+
+/**
+ * VT-02: Änderung einer Stunde an einem Tag (Klassenbuch-Hinweis) – nur veröffentlichte Tage. Den internen Hinweis bekommen nur
+ * die vertretende Lehrkraft dieser Stunde und die Vertretungsplanung (`stundenplan.substitute`), sonst fehlt `internal`.
+ */
+export async function lessonSubstitution(db: Db, perms: PermissionSet, lessonId: string, date: string): Promise<DaySubstitution | null> {
+  const find = async (internal: boolean) => (await substitutionsOn(db, [date], { internal })).find((x) => x.lessonId === lessonId && x.movedFrom === null) ?? null;
+  const e = await find(false);
+  if (!e) return null;
+  const insider = (e.kind === "substitute" && e.substituteId === perms.userId) || hasPermission(perms, "stundenplan.substitute");
+  return insider ? find(true) : e;
+}
+
+/**
+ * VT-02 (F-10-10): Vertretungen an veröffentlichten Tagen, die die Vertretungslehrkraft noch nicht bestätigt hat – nur für die
+ * Vertretungsplanung und nur, wenn die Kenntnisnahme eingeschaltet ist (sonst leer). Keine Eskalation, nur die Liste.
+ */
+export async function unacknowledgedSubstitutions(db: Db, perms: PermissionSet, dates: string[]): Promise<DaySubstitution[]> {
+  if (!hasPermission(perms, "stundenplan.substitute") || !(await acknowledgeEnabled(db))) return [];
+  return (await substitutionsOn(db, dates, { internal: true })).filter((e) => e.kind === "substitute" && e.movedFrom === null && !e.internal?.acknowledgedAt);
 }
 
 /**

@@ -11,7 +11,7 @@ import { addDays, isoWeek, weekdayMon0 } from "@/core/time";
 import { parentInformedSql } from "@/core/school/majority";
 import { de } from "@/core/db/sort";
 import { draftDaysBetween } from "./freigabe";
-import type { SubstitutionKind } from "./schema";
+import type { SubstitutionKind, SubstitutionReason } from "./schema";
 
 import { PLAN_MANAGE, PLAN_SUBSTITUTE } from "./rechte";
 
@@ -44,6 +44,10 @@ export interface SlotChange {
   /** SP2-07 Zusammenlegung: Gruppe, Lehrkraft (Kürzel) und Raum der Stunde, zu der die Gruppe geht */
   mergeWith?: { groupName: string; teacherCode: string | null; roomId: string | null } | null;
   mergeLessonId?: string | null;
+  /** VT-02 (F-10-8): öffentliche Grund-Kategorie (grob) */
+  reason?: SubstitutionReason | null;
+  /** VT-02 (F-10-9): Vertretung nur als Betreuung */
+  supervisionOnly?: boolean;
 }
 
 export interface LessonSlot {
@@ -270,6 +274,8 @@ export async function listSlots(
               targetPeriod: sub.s.kind === "move" ? sub.s.targetPeriod : null,
               mergeWith: sub.s.kind === "merge" && sub.s.mergeLessonId ? (hosts.get(`${sub.s.mergeLessonId}:${d}`) ?? null) : null,
               mergeLessonId: sub.s.mergeLessonId,
+              reason: sub.s.reason,
+              supervisionOnly: sub.s.supervisionOnly,
             }
           : undefined,
         perspective,

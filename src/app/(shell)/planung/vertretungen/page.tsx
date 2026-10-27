@@ -25,10 +25,13 @@ import { dayNotesOn, DAY_NOTE_AUDIENCE_LABELS } from "@/modules/stundenplan/tage
 import { DayNoteForm } from "./day-note-form";
 import { dayRelease, draftDays, openDrafts } from "@/modules/stundenplan/freigabe";
 import { ABSENCE_LABELS, endedAbsenceReviews, GROUP_REASONS, needsOn, TEACHER_REASONS } from "@/modules/stundenplan/abwesenheit";
-import { CHANGE_KIND_LABEL, changeLabel, changeOff, changeRoom, changeTeacher, slotDisplay, SUBSTITUTION_REASON_LABELS, subjectLabel } from "@/modules/stundenplan/display";
+import { CHANGE_KIND_LABEL, CHANGE_MARKER_LABEL, changeLabel, changeOff, changeRoomShift, changeTeacher, markerSince, slotDisplay, SUBSTITUTION_REASON_LABELS, subjectLabel } from "@/modules/stundenplan/display";
 import { plannableGroups, teacherOptions } from "@/modules/stundenplan/manage";
 import { listSlots, timetableMasterData, type PlanTarget } from "@/modules/stundenplan/service";
-import { defaultReason, examSubjectsOn, mergeOptions, planDays, substitutionsOn, teacherAvailability } from "@/modules/stundenplan/vertretung";
+import { acknowledgeEnabled, defaultReason, examSubjectsOn, mergeOptions, planDays, substitutionsOn, teacherAvailability, unacknowledgedSubstitutions } from "@/modules/stundenplan/vertretung";
+import { describeChange, substitutionHistory } from "@/modules/stundenplan/vertretung-historie";
+import { inArray } from "drizzle-orm";
+import { users } from "@/core/db/schema";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -47,6 +50,7 @@ export const metadata: Metadata = { title: "Vertretungen" };
 
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 const shortDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", timeZone: TZ });
+const stamp = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: TZ });
 
 export default async function VertretungenPage({ searchParams }: { searchParams: Promise<{ datum?: string; lehrkraft?: string; gruppe?: string; fehler?: string; veroeffentlicht?: string; verkuerzt?: string }> }) {
   const { perms } = await requireUser();
@@ -57,12 +61,13 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   const today = toBerlinDate(new Date());
   const shown = planDays(today, cal);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.datum ?? "") ? sp.datum! : shown[0];
-  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week, reviews, dayNotes] = await Promise.all([
+  const marker = markerSince(new Date());
+  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week, reviews, dayNotes, history, unconfirmed, ack] = await Promise.all([
     teacherOptions(db),
     plannableGroups(db),
     timetableMasterData(db),
     // VT-01: mit internem Hinweis und Kenntnisnahme (nur hier, Vertretungsplanung)
-    substitutionsOn(db, [date], { drafts: true, internal: true }),
+    substitutionsOn(db, [date], { drafts: true, internal: true, since: marker.since }),
     needsOn(db, date),
     dayRelease(db, date),
     openDrafts(db, today),
@@ -74,7 +79,17 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     endedAbsenceReviews(db, today),
     // VT-01: Tagesmitteilungen (alle Zielgruppen, auch an Entwurfstagen)
     dayNotesOn(db, [date], { drafts: true, staff: true }),
+    // VT-02 (F-10-13): Verlauf je Stunde – nur Vertretungsplanung
+    substitutionHistory(db, perms, date, date),
+    // VT-02 (F-10-10): Vertretungen der nächsten Tage, die noch niemand bestätigt hat (nur bei eingeschalteter Kenntnisnahme)
+    unacknowledgedSubstitutions(db, perms, [...new Set([...shown, date])].sort()),
+    acknowledgeEnabled(db),
   ]);
+  const actorIds = [...new Set(history.map((h) => h.actorId).filter((x): x is string => !!x))];
+  const actors = new Map(
+    actorIds.length ? (await db.select({ id: users.id, code: users.shortCode, name: users.name }).from(users).where(inArray(users.id, actorIds))).map((u) => [u.id, u.code ?? u.name]) : [],
+  );
+  const historyOf = (lessonId: string) => history.filter((h) => h.lessonId === lessonId);
   const notified = /^\d+$/.test(sp.veroeffentlicht ?? "") ? Number(sp.veroeffentlicht) : null;
   const shortened = /^\d+$/.test(sp.verkuerzt ?? "") ? Number(sp.verkuerzt) : null;
 
@@ -293,6 +308,30 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
               })}
             </tbody>
           </Table>
+        </Card>
+      )}
+      {unconfirmed.length > 0 && (
+        <Card aria-labelledby="unconfirmed-title" className="gap-3">
+          <h2 id="unconfirmed-title" className="flex flex-wrap items-center gap-2 text-base font-semibold">
+            Noch nicht bestätigt
+            <Badge tone="warn">{unconfirmed.length}</Badge>
+          </h2>
+          <p className="-mt-2 text-sm text-muted">Vertretungen an veröffentlichten Tagen, die die Vertretungslehrkraft noch nicht mit „Gesehen“ bestätigt hat.</p>
+          <ul className="flex flex-col gap-1 text-sm">
+            {unconfirmed.map((u) => (
+              <li key={`${u.id}-${u.periodNr}`} className="flex flex-wrap gap-x-2">
+                <Link href={`/planung/vertretungen?datum=${u.date}`} className="font-medium hover:underline">
+                  {shortDay.format(fromBerlinLocal(u.date))}
+                </Link>
+                <span>
+                  {u.periodNr}. Std · {u.groupName} · {subjectLabel(u.subjectName, u.insteadOf)}
+                </span>
+                <span className="text-muted">
+                  {changeLabel(u)} durch {u.substituteCode ?? u.substituteName ?? "–"}
+                </span>
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
       <Card aria-labelledby="absence-title" className="gap-3">
@@ -578,6 +617,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                 <th>Art</th>
                 <th>Vertretung · Raum</th>
                 <th>Hinweis</th>
+                {ack && <th>Gesehen</th>}
                 <th>
                   <span className="sr-only">Aktion</span>
                 </th>
@@ -593,17 +633,48 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                   </td>
                   <td>
                     <Badge tone={changeOff(c) ? "neutral" : "warn"}>{changeLabel(c)}</Badge>
+                    {c.marker && (
+                      <Badge tone="soft" className="ml-1" title={`${CHANGE_MARKER_LABEL[c.marker]} ${marker.label}`}>
+                        {CHANGE_MARKER_LABEL[c.marker]}
+                      </Badge>
+                    )}
                     {c.absenceEnded && (
                       <Badge tone="danger" className="ml-1">
                         Abwesenheit beendet – prüfen
                       </Badge>
                     )}
                   </td>
-                  <td className="whitespace-nowrap">{[changeTeacher(c), changeRoom(c) && changeRoom(c) !== c.roomId && `R ${changeRoom(c)}`].filter(Boolean).join(" · ") || "–"}</td>
+                  <td className="whitespace-nowrap">{[changeTeacher(c), changeRoomShift(c) && changeRoomShift(c) !== c.roomId && `R ${changeRoomShift(c)}`].filter(Boolean).join(" · ") || "–"}</td>
                   <td className="text-muted">
                     {[c.reason && SUBSTITUTION_REASON_LABELS[c.reason], c.supervisionOnly && "nur Betreuung", c.note].filter(Boolean).join(" · ")}
                     {c.internal?.note && <span className="block text-xs">intern: {c.internal.note}</span>}
+                    {c.movedFrom === null && historyOf(c.lessonId).length > 0 && (
+                      <details className="mt-1 text-xs">
+                        <summary className="cursor-pointer font-medium text-ink">Verlauf ({historyOf(c.lessonId).length})</summary>
+                        <ol aria-label={`Verlauf: ${c.groupName} ${c.periodNr}. Std`} className="mt-1 flex flex-col gap-0.5">
+                          {historyOf(c.lessonId).map((h) => (
+                            <li key={h.id}>
+                              {stamp.format(h.createdAt)} · {describeChange(h)}
+                              {h.actorId && ` · ${actors.get(h.actorId) ?? "–"}`}
+                            </li>
+                          ))}
+                        </ol>
+                      </details>
+                    )}
                   </td>
+                  {ack && (
+                    <td className="whitespace-nowrap">
+                      {c.kind === "substitute" && !c.draft ? (
+                        c.internal?.acknowledgedAt ? (
+                          <Badge tone="success">gesehen</Badge>
+                        ) : (
+                          <Badge tone="warn">offen</Badge>
+                        )
+                      ) : (
+                        <span className="text-muted">–</span>
+                      )}
+                    </td>
+                  )}
                   <td className="text-right">
                     <form action={deleteSubstitutionAction.bind(null, c.id)}>
                       <Button type="submit" size="sm" variant="ghost" aria-label={`Aufheben: ${c.groupName} ${c.periodNr}. Std`}>

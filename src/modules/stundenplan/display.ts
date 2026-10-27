@@ -1,6 +1,7 @@
 // Wie eine Stunde angezeigt wird – inkl. Vertretung, Entfall, Raumänderung (rein, testbar).
 import type { LessonSlot } from "./service";
 import type { SubstitutionReason } from "./schema";
+import { fromBerlinLocal, toBerlinLocal } from "@/core/time";
 
 /** Wessen Plan: Schüler:in/Eltern, Lehrkraft, Gruppe oder Raum */
 export type PlanView = "student" | "teacher" | "group" | "room";
@@ -11,6 +12,8 @@ export interface SlotDisplay {
   detail: string;
   note: string | null;
   struck: boolean;
+  /** VT-02 (F-10-8): öffentliche Grund-Kategorie der Änderung („Lehrkraft abwesend“), sonst null */
+  reason?: string | null;
 }
 
 /** VT-01 (F-10-8): Anzeige der öffentlichen Grund-Kategorie – grob, nie krank/Fortbildung/dienstlich. */
@@ -25,6 +28,48 @@ export const SUBSTITUTION_REASON_LABELS: Record<SubstitutionReason, string> = {
   organisatorisch: "organisatorisch",
   sonstiges: "sonstiger Grund",
 };
+
+/** VT-02: Anzeige der Kategorie (leer = ohne Angabe). */
+export function reasonLabel(reason: SubstitutionReason | null | undefined): string | null {
+  return reason ? SUBSTITUTION_REASON_LABELS[reason] : null;
+}
+
+/**
+ * VT-02: Raum einheitlich „alt → neu“ (Vertretungsplan, Monitor, Druck, Wochenplan, Planung). Gleicher oder fehlender neuer Raum →
+ * nur der Raum; ohne bisherigen Raum → nur der neue. Ohne Präfix (die Spalte heißt „Raum“), `prefix` z. B. „R “ im Wochenplan.
+ */
+export function roomShift(before: string | null | undefined, after: string | null | undefined, prefix = ""): string | null {
+  if (!after || after === before) return before ? `${prefix}${before}` : null;
+  return before ? `${prefix}${before} → ${after}` : `${prefix}${after}`;
+}
+
+/** VT-02: „neu“/„geändert“ seit dem letzten Stichzeitpunkt (Marker aus der Historie). */
+export type ChangeMarker = "neu" | "geaendert";
+export const CHANGE_MARKER_LABEL: Record<ChangeMarker, string> = { neu: "neu", geaendert: "geändert" };
+
+/** Uhrzeit, zu der am Vortag die Vertretungsnachricht rausgeht (bis VT-04 fest; dann Moduleinstellung `notify_eve_time`). */
+export const MARKER_HOUR = 18;
+
+/**
+ * VT-02: Stichzeitpunkt der Marker – der letzte Vortags-Versand (18:00 Berliner Zeit) vor `now`. Was danach angelegt oder geändert
+ * wurde, ist „neu“/„geändert“. Rein (Berliner Ortszeit wird vom Aufrufer als „YYYY-MM-DDTHH:MM“ übergeben).
+ */
+export function markerSinceLocal(nowLocal: string): string {
+  const day = nowLocal.slice(0, 10);
+  const hour = Number(nowLocal.slice(11, 13));
+  const at = `T${String(MARKER_HOUR).padStart(2, "0")}:00`;
+  if (hour >= MARKER_HOUR) return `${day}${at}`;
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return `${d.toISOString().slice(0, 10)}${at}`;
+}
+
+/** VT-02: Stichzeitpunkt der Marker zu `now` und der Text dazu („seit gestern, 18:00 Uhr“). */
+export function markerSince(now: Date): { since: Date; label: string } {
+  const nowLocal = toBerlinLocal(now);
+  const local = markerSinceLocal(nowLocal);
+  return { since: fromBerlinLocal(local), label: `seit ${local.slice(0, 10) === nowLocal.slice(0, 10) ? "heute" : "gestern"}, ${local.slice(11)} Uhr` };
+}
 
 const room = (id: string | null | undefined) => (id ? `R ${id}` : null);
 const join = (...parts: (string | null | undefined | false)[]) => parts.filter(Boolean).join(" · ");
@@ -47,17 +92,29 @@ export interface ChangeEntry {
   substituteName?: string | null;
   roomId: string | null;
   newRoomId: string | null;
+  /** VT-01 (F-10-9): Vertretung nur als Betreuung */
+  supervisionOnly?: boolean;
 }
 
 /** SP2-07: fällt die Stunde hier aus (Entfall, verlegt in eine andere Stunde)? */
 export const changeOff = (e: Pick<ChangeEntry, "kind" | "movedTo">) => e.kind === "cancel" || (e.kind === "move" && e.movedTo !== null);
 
-/** SP2-07: Art mit Einzelheiten – „Verlegung aus der 3. Std.“, „verlegt in die 1. Std.“, „Zusammenlegung mit 7b“. */
-export function changeLabel(e: Pick<ChangeEntry, "kind" | "movedFrom" | "movedTo" | "mergeWith">): string {
+/**
+ * SP2-07: Art mit Einzelheiten – „Verlegung aus der 3. Std.“, „verlegt in die 1. Std.“, „Zusammenlegung mit 7b“; VT-02: „Betreuung“
+ * statt „Vertretung“, wenn die Vertretung nur betreut (F-10-9).
+ */
+export function changeLabel(e: Pick<ChangeEntry, "kind" | "movedFrom" | "movedTo" | "mergeWith" | "supervisionOnly">): string {
   if (e.kind === "move" && e.movedTo !== null) return `verlegt in die ${e.movedTo}. Std.`;
   if (e.kind === "move" && e.movedFrom !== null) return `Verlegung aus der ${e.movedFrom}. Std.`;
   if (e.kind === "merge") return e.mergeWith ? `Zusammenlegung mit ${e.mergeWith.groupName.replace(/^Klasse /, "")}` : "Zusammenlegung aufgehoben";
+  if (e.kind === "substitute" && e.supervisionOnly) return "Betreuung";
   return CHANGE_KIND_LABEL[e.kind];
+}
+
+/** VT-02: Raum der Änderung einheitlich „alt → neu“ (Zusammenlegung: Raum der anderen Stunde); null, wenn die Stunde hier ausfällt. */
+export function changeRoomShift(e: ChangeEntry): string | null {
+  if (changeOff(e)) return null;
+  return roomShift(e.roomId, changeRoom(e));
 }
 
 /** Lehrkraft, die die Stunde hält: Vertretung bzw. Mitbetreuung (SP2-07); sonst null. */
@@ -74,12 +131,25 @@ export function changeRoom(e: ChangeEntry): string | null {
   return e.newRoomId ?? e.roomId;
 }
 
-/** `long`: ausgeschriebene Namen statt Kürzel (Tagesleiste). */
+/**
+ * `long`: ausgeschriebene Namen statt Kürzel (Tagesleiste). VT-02: Grund-Kategorie und „Betreuung“ aus der Änderung; ein anderer
+ * Raum steht „alt → neu“.
+ */
 export function slotDisplay(s: LessonSlot, view: PlanView, long = false): SlotDisplay {
+  const d = slotDisplayBase(s, view, long);
+  const c = s.change;
+  if (!c) return d;
+  const tag = c.kind === "substitute" && c.supervisionOnly && (d.tag === "Vertretung" || d.tag === "Vertreten") ? (d.tag === "Vertreten" ? "Betreut" : "Betreuung") : d.tag;
+  return { ...d, tag, reason: reasonLabel(c.reason) };
+}
+
+function slotDisplayBase(s: LessonSlot, view: PlanView, long: boolean): SlotDisplay {
   const teacher = long ? (s.teacherName ?? s.teacherCode) : (s.teacherCode ?? s.teacherName);
   const c = s.change;
   const substitute = c ? (long ? (c.substituteName ?? c.substituteCode) : (c.substituteCode ?? c.substituteName)) : null;
   const effRoom = c?.roomId ?? s.roomId;
+  // VT-02: anderer Raum „R 106 → 105“ (eigener Raum ohne Änderung bleibt „R 106“)
+  const shifted = c && c.kind !== "cancel" ? roomShift(s.roomId, c.roomId, "R ") : room(s.roomId);
   const note = c?.note ?? null;
   // SP-12: Fachtausch – der Slot trägt schon das tatsächliche Fach, die Zeile darunter nennt das reguläre
   const instead = c?.kind === "substitute" && c.insteadOf ? `statt ${c.insteadOf}` : null;
@@ -106,14 +176,14 @@ export function slotDisplay(s: LessonSlot, view: PlanView, long = false): SlotDi
   if (s.perspective === "covering") {
     return view === "room"
       ? { tone: "sub", tag: "Verlegt hierher", detail: join(instead, s.groupName, c?.kind === "substitute" ? substitute : teacher), note, struck: false }
-      : { tone: "sub", tag: "Vertretung", detail: join(instead, s.groupName, room(effRoom), teacher && `für ${s.teacherCode ?? teacher}`), note, struck: false };
+      : { tone: "sub", tag: "Vertretung", detail: join(instead, s.groupName, shifted, teacher && `für ${s.teacherCode ?? teacher}`), note, struck: false };
   }
   if (c?.kind === "substitute") {
     const who = view === "teacher" || view === "room" ? s.groupName : substitute;
-    return { tone: "sub", tag: "Vertretung", detail: join(instead, who, room(effRoom)), note, struck: false };
+    return { tone: "sub", tag: "Vertretung", detail: join(instead, who, view === "room" ? room(effRoom) : shifted), note, struck: false };
   }
   if (c?.kind === "room") {
-    return { tone: "sub", tag: "Raumänderung", detail: view === "teacher" ? join(s.groupName, room(effRoom)) : join(teacher, room(effRoom)), note, struck: false };
+    return { tone: "sub", tag: "Raumänderung", detail: view === "teacher" ? join(s.groupName, shifted) : join(teacher, view === "room" ? room(effRoom) : shifted), note, struck: false };
   }
   // SP2-07: Gruppen, die zu dieser Stunde zusammengelegt sind (Mitbetreuung)
   if (s.joined?.length) return { tone: "sub", tag: "Mitbetreuung", detail: join(regular, `+ ${coupledGroupLabel(s.joined)}`), note: null, struck: false };

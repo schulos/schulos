@@ -5,7 +5,9 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { changeLabel, changeOff, changeRoom, changeTeacher, subjectLabel } from "@/modules/stundenplan/display";
+import { isStaffRole } from "@/core/roles";
+import { changeLabel, changeOff, changeRoomShift, changeTeacher, reasonLabel, subjectLabel } from "@/modules/stundenplan/display";
+import { dayNotesOn, type DayNote } from "@/modules/stundenplan/tagesmitteilungen";
 import { planDays, substitutionsOn, type DaySubstitution } from "@/modules/stundenplan/vertretung";
 import { Button } from "@schulos/ui/button";
 import { cn } from "@schulos/ui/cn";
@@ -17,11 +19,19 @@ export const metadata: Metadata = { title: "Vertretungsplan drucken" };
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: TZ });
 const shortDate = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TZ });
 
-function DayTable({ date, entries }: { date: string; entries: DaySubstitution[] }) {
+function DayTable({ date, entries, notes }: { date: string; entries: DaySubstitution[]; notes: DayNote[] }) {
   const label = longDay.format(fromBerlinLocal(date));
   return (
     <section aria-label={label} className="flex break-inside-avoid flex-col gap-2">
       <h2 className="font-display text-lg font-bold">{label}</h2>
+      {/* VT-02: Tagesmitteilungen oben */}
+      {notes.length > 0 && (
+        <ul aria-label="Tagesmitteilungen" className="flex list-disc flex-col gap-0.5 pl-5 text-sm font-semibold">
+          {notes.map((n) => (
+            <li key={n.id}>{n.body}</li>
+          ))}
+        </ul>
+      )}
       {entries.length === 0 ? (
         <p className="text-sm">Keine Änderungen.</p>
       ) : (
@@ -29,7 +39,7 @@ function DayTable({ date, entries }: { date: string; entries: DaySubstitution[] 
           <caption className="sr-only">Vertretungsplan {label}</caption>
           <thead>
             <tr>
-              {["Klasse", "Std.", "Fach", "Lehrkraft", "Art", "Vertretung", "Raum", "Hinweis"].map((h) => (
+              {["Klasse", "Std.", "Fach", "Lehrkraft", "Art", "Vertretung", "Raum", "Grund", "Hinweis"].map((h) => (
                 <th key={h} className="border border-border-strong px-2 py-1 text-left">
                   {h}
                 </th>
@@ -45,7 +55,8 @@ function DayTable({ date, entries }: { date: string; entries: DaySubstitution[] 
                 <td className="border border-border-strong px-2 py-1">{e.teacherCode ?? "–"}</td>
                 <td className="border border-border-strong px-2 py-1 font-semibold">{changeLabel(e)}</td>
                 <td className="border border-border-strong px-2 py-1">{changeTeacher(e) ?? ""}</td>
-                <td className="border border-border-strong px-2 py-1">{changeRoom(e) ?? ""}</td>
+                <td className="border border-border-strong px-2 py-1 whitespace-nowrap">{changeRoomShift(e) ?? ""}</td>
+                <td className="border border-border-strong px-2 py-1">{reasonLabel(e.reason) ?? ""}</td>
                 <td className="border border-border-strong px-2 py-1">{e.note ?? ""}</td>
               </tr>
             ))}
@@ -59,11 +70,11 @@ function DayTable({ date, entries }: { date: string; entries: DaySubstitution[] 
 /** Druckansicht des Vertretungsplans: heute bzw. nächster Schultag und der Tag danach, nach Klassen sortiert. */
 export default async function VertretungsplanDruckPage() {
   await requireModulePage("stundenplan");
-  await requireUser();
+  const { user } = await requireUser();
   const db = await getDb();
   const today = toBerlinDate(new Date());
   const days = planDays(today, await loadSchoolCalendar(db));
-  const entries = await substitutionsOn(db, days);
+  const [entries, notes] = await Promise.all([substitutionsOn(db, days), dayNotesOn(db, days, { staff: isStaffRole(user.role) })]);
   const sorted = [...entries].sort(
     (a, b) => (a.gradeLevel ?? 99) - (b.gradeLevel ?? 99) || a.groupName.localeCompare(b.groupName, "de", { numeric: true }) || a.periodNr - b.periodNr,
   );
@@ -81,7 +92,7 @@ export default async function VertretungsplanDruckPage() {
           stamp={`Stand ${shortDate.format(new Date())}, ${new Intl.DateTimeFormat("de-DE", { timeStyle: "short", timeZone: TZ }).format(new Date())} Uhr`}
         />
         {days.map((d) => (
-          <DayTable key={d} date={d} entries={sorted.filter((e) => e.date === d)} />
+          <DayTable key={d} date={d} entries={sorted.filter((e) => e.date === d)} notes={notes.filter((n) => n.date === d)} />
         ))}
       </main>
     </div>

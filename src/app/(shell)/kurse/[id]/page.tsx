@@ -14,7 +14,7 @@ import { ownBookLinks, type OwnBookLink } from "@/modules/notenbuch/links";
 import sitzplanModule from "@/modules/sitzplan/manifest";
 import { canUseGroup, plansByGroup } from "@/modules/sitzplan/service";
 import { courseHub, type CourseHub } from "@/modules/kurse/service";
-import { CHANGE_KIND_LABEL, slotDisplay } from "@/modules/stundenplan/display";
+import { CHANGE_KIND_LABEL, reasonLabel, roomShift, slotDisplay } from "@/modules/stundenplan/display";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader, SubjectBar } from "@schulos/ui/misc";
@@ -51,8 +51,12 @@ function Lessons({ hub }: { hub: CourseHub }) {
                 <span className={s.change?.kind === "cancel" || s.moved === "from" ? "text-sm text-muted line-through" : "text-sm text-muted"}>
                   {s.subjectName} · {s.startsAt}–{s.endsAt}
                   {s.teacherCode && ` · ${s.change?.kind === "substitute" && s.change.substituteCode ? s.change.substituteCode : s.teacherCode}`}
-                  {(s.change?.roomId ?? s.roomId) && ` · ${s.change?.roomId ?? s.roomId}`}
+                  {(s.change?.roomId ?? s.roomId) && ` · ${roomShift(s.roomId, s.change?.kind === "cancel" ? null : s.change?.roomId)}`}
                 </span>
+                {/* VT-02: Grund-Kategorie und Hinweis für Schüler:innen (nie der interne Hinweis) */}
+                {s.change && (s.change.reason || s.change.note) && (
+                  <span className="text-xs text-muted [overflow-wrap:anywhere]">{[reasonLabel(s.change.reason), s.change.note].filter(Boolean).join(" · ")}</span>
+                )}
               </span>
               {s.change && <Badge tone={s.change.kind === "cancel" || s.moved === "from" ? "danger" : "warn"}>{slotDisplay(s, "group").tag ?? CHANGE_KIND_LABEL[s.change.kind]}</Badge>}
             </li>
