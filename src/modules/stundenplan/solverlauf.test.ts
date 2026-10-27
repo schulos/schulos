@@ -547,7 +547,7 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     expect(await cleanupRuns(h.db, now)).toEqual({ deleted: 0, trimmed: 0, undoCleared: 0 });
     const job = SCHEDULED_JOBS.find((j) => j.name === "solver-aufraeumen")!;
     expect(job).toMatchObject({ at: "03:00", until: "06:00" });
-    expect(await job.run(h.db, now)).toEqual({ deleted: 0, trimmed: 0, undoCleared: 0 });
+    expect(await job.run(h.db, now)).toMatchObject({ deleted: 0, trimmed: 0, undoCleared: 0, versions: { undoCleared: 0, discarded: 0 } });
     // Läufe vor SP-06 (ohne Teile, ohne Parameter) bleiben lesbar
     const legacy = (await getRun(h.db, "done-00"))!;
     expect(legacy).toMatchObject({ params: null, log: [], label: null, cancelRequested: false });

@@ -48,6 +48,28 @@ export default defineModule({
       note: "zählt ab dem letzten Gültigkeitstag",
     },
     {
+      // SP3-01: Hülle einer Planversion (Entwurf, Prüfung, Freigabe, gültig, archiviert, verworfen) – Personen nur als Handelnde
+      table: "timetable_plan_versions",
+      purpose: "Stundenplan in Versionen planen (Entwürfe, Varianten, gültige und archivierte Versionen)",
+      categories: [
+        "Nummer, Name (ohne Personen), Status, Stichtag",
+        "Angelegt, zur Prüfung gegeben, freigegeben, veröffentlicht, verworfen – von und am",
+        "Fahrplan-Häkchen und Quittierungen",
+        "Rücknahme-Daten der Veröffentlichung (Stunden mit Lehrkraft, nur bis zum Stichtag)",
+      ],
+      class: "LK-SJ-1J",
+      start: "school_year_id",
+      note: "nur für die Planung (`stundenplan.manage`) sichtbar; offene Entwürfe eines abgelaufenen Schuljahrs verwirft der Nachtjob, Rücknahme-Daten leert er ab dem Stichtag; bei Kontolöschung werden die Handelnden leer",
+    },
+    {
+      // SP3-01: Stunden eines Entwurfs – Entwurf ohne Außenwirkung, gehen mit der Version
+      table: "timetable_draft_lessons",
+      purpose: "Stundenplan in Versionen planen (Stunden eines Entwurfs)",
+      categories: ["Gruppe", "Fach", "Lehrkraft", "Raum", "Zeit", "Herkunft im gültigen Plan"],
+      follows: "timetable_plan_versions",
+      note: "Entwurf ohne Außenwirkung: nur die Planung sieht ihn (kein Stundenplan, Vertretungsplan, Monitor oder Export liest ihn), bis er veröffentlicht wird; bei Kontolöschung wird die Lehrkraft leer",
+    },
+    {
       table: "timetable_substitutions",
       purpose: "Vertretungen und Ausfälle bekanntgeben",
       categories: [

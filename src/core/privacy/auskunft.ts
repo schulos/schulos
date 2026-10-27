@@ -53,6 +53,15 @@ export const EXPORT_NOT_PERSONAL: Record<string, string> = {
 };
 
 /**
+ * Verweise, über die die Auskunft eine Person bewusst **nicht** sucht – mit Begründung. SP3-01 (docs/STUNDENPLAN-LEBENSZYKLUS.md §5):
+ * Stunden eines Planentwurfs sind wie Solver-Vorschläge ein Entwurf ohne Außenwirkung (SICHERHEIT S80); die Lehrkraft erscheint mit dem
+ * gültigen Plan (`timetable_lessons`), sobald der Entwurf veröffentlicht ist. Kontolöschung leert den Verweis trotzdem (refs.ts).
+ */
+export const EXPORT_SKIP_REFS: Record<string, string> = {
+  "timetable_draft_lessons.teacher_id": "Entwurf ohne Außenwirkung – nur die Planung sieht ihn, bis er veröffentlicht ist",
+};
+
+/**
  * Verweise, in denen die Person nur als Handelnde steht (SEC-05): wer eingewilligt, entschieden, ausgeblendet,
  * protokolliert hat – oder wem etwas zugewiesen wurde (Meldungen anderer, S19). Solche Zeilen gehören meist anderen
  * (Fotos und Krankmeldungen von Kindern, Meldungstexte, Audit-Ziele) – die Auskunft enthält davon nur die Tatsache der
@@ -168,6 +177,7 @@ export async function collectPersonalData(db: Db, userId: string, opts: CollectO
   };
   add("users", [u as unknown as Record<string, unknown>], "id");
   for (const r of userRefs()) {
+    if (`${r.table}.${r.column}` in EXPORT_SKIP_REFS) continue;
     const res = await db.execute(sql`select * from ${qid(r.table)} where ${refWhere(r, userId)}`);
     const rows = rowsOf<Record<string, unknown>>(res);
     if (rows.length) add(r.table, rows, r.column);

@@ -8,10 +8,13 @@ import { groups, periods, rooms, schoolYears, subjects } from "../../core/db/sch
 export const LESSON_WEEKS = ["all", "A", "B"] as const;
 export const lessonWeekEnum = pgEnum("lesson_week", LESSON_WEEKS);
 
-/** Eine regelmäßige Unterrichtsstunde: Gruppe × Wochentag × Stunde, gültig in einem Zeitraum. */
-export const timetableLessons = pgTable(
-  "timetable_lessons",
-  {
+/**
+ * SP3-01: gemeinsame Spalten von `timetable_lessons` (gültiger Plan) und `timetable_draft_lessons` (Entwurf einer Planversion) –
+ * beide Tabellen haben so dieselbe Zeilenform, und Lader/Prüfungen laufen über `lessonTable(source)` (plan-quelle.ts).
+ * Jeder Aufruf erzeugt neue Spalten-Builder (eine Spalte gehört genau einer Tabelle).
+ */
+function lessonColumns() {
+  return {
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
@@ -42,6 +45,19 @@ export const timetableLessons = pgTable(
     /** SP-06: Herkunft – aus welchem Solver-Lauf die Stunde übernommen wurde (fällt mit dem Lauf weg, die Stunde bleibt) */
     solverRunId: text("solver_run_id").references((): AnyPgColumn => timetableSolverRuns.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  };
+}
+
+/** Eine regelmäßige Unterrichtsstunde: Gruppe × Wochentag × Stunde, gültig in einem Zeitraum. */
+export const timetableLessons = pgTable(
+  "timetable_lessons",
+  {
+    ...lessonColumns(),
+    /**
+     * SP3-01: Herkunft – mit welcher Planversion die Stunde gültig wurde („Bestand 1.0“ bzw. Veröffentlichung ab SP3-04). Nur für
+     * Archiv-Anzeige und Diff; **kein Leser filtert danach** (der gültige Plan bleibt `valid_from`/`valid_until`).
+     */
+    planVersionId: text("plan_version_id").references((): AnyPgColumn => timetablePlanVersions.id, { onDelete: "set null" }),
   },
   (t) => [
     index("timetable_lessons_coupling_idx").on(t.couplingId),
@@ -51,6 +67,7 @@ export const timetableLessons = pgTable(
     index("timetable_lessons_group_idx").on(t.groupId, t.weekday),
     index("timetable_lessons_teacher_idx").on(t.teacherId, t.weekday),
     index("timetable_lessons_room_idx").on(t.roomId, t.weekday),
+    index("timetable_lessons_plan_version_idx").on(t.planVersionId),
   ],
 );
 
@@ -859,3 +876,110 @@ export const timetableNotificationQueue = pgTable(
 );
 
 export type TimetableNotificationQueueRow = typeof timetableNotificationQueue.$inferSelect;
+
+// ---------------------------------------------------------------- SP3-01: Planversionen + Entwurfsbereich
+
+/**
+ * Lebenszyklus einer Planversion (docs/STUNDENPLAN-LEBENSZYKLUS.md §2.1): entwurf → pruefung → freigegeben → gueltig → archiviert;
+ * verworfen = Variante/Entwurf, der nicht veröffentlicht wird. Neue Werte nur hinten anfügen.
+ */
+export const PLAN_VERSION_STATUS = ["entwurf", "pruefung", "freigegeben", "gueltig", "archiviert", "verworfen"] as const;
+export type PlanVersionStatus = (typeof PLAN_VERSION_STATUS)[number];
+export const planVersionStatusEnum = pgEnum("plan_version_status", PLAN_VERSION_STATUS);
+
+/** Ausgangsbasis eines Entwurfs (§2.2); `bestand` = der Plan vor SP3-01 („Bestand 1.0“, Daten-Migration). Neue Werte nur hinten anfügen. */
+export const PLAN_VERSION_SOURCES = ["live_copy", "solver_run", "previous_version", "variant_of", "empty", "bestand"] as const;
+export type PlanVersionSource = (typeof PLAN_VERSION_SOURCES)[number];
+export const planVersionSourceEnum = pgEnum("plan_version_source", PLAN_VERSION_SOURCES);
+
+/**
+ * SP3-01: Hülle einer Planversion je Schuljahr. Der gültige Plan bleibt `timetable_lessons`; Entwürfe liegen in
+ * `timetable_draft_lessons` und wirken erst mit dem Veröffentlichen (SP3-04). Nummer `major.minor`: neue Planung zählt `major`,
+ * Folgeversion `minor` hoch; Entwürfe tragen die Nummer, die sie beim Veröffentlichen bekämen (Varianten dieselbe) – eindeutig
+ * ist sie nur unter veröffentlichten Versionen (`gueltig`/`archiviert`).
+ */
+export const timetablePlanVersions = pgTable(
+  "timetable_plan_versions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    schoolYearId: text("school_year_id")
+      .notNull()
+      .references(() => schoolYears.id, { onDelete: "cascade" }),
+    major: integer("major").notNull(),
+    minor: integer("minor").notNull().default(0),
+    /** freie Bezeichnung („2. Halbjahr“, „Variante Mo frei“) – keine Personen nennen */
+    name: text("name").notNull(),
+    status: planVersionStatusEnum("status").notNull().default("entwurf"),
+    source: planVersionSourceEnum("source").notNull(),
+    /** Variante von / Folgeversion von / Kopie von */
+    parentVersionId: text("parent_version_id").references((): AnyPgColumn => timetablePlanVersions.id, { onDelete: "set null" }),
+    sourceRunId: text("source_run_id").references(() => timetableSolverRuns.id, { onDelete: "set null" }),
+    /** gültig ab (Stichtag) – bei Entwürfen vorgemerkt, bei `gueltig`/`archiviert` tatsächlich */
+    validFrom: date("valid_from"),
+    /** einschließlich; bei archivierten Versionen der letzte Tag */
+    validUntil: date("valid_until"),
+    /** Lehrkräfte-Vorschau „Mein Plan ab …“ (SP3-03) */
+    teacherPreview: boolean("teacher_preview").notNull().default(false),
+    /** Planungsfahrplan: manuelle Häkchen, Termine, Quittierungen (SP3-06) */
+    checklist: jsonb("checklist"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    submittedBy: text("submitted_by").references(() => users.id, { onDelete: "set null" }),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    approvedBy: text("approved_by").references(() => users.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    publishedBy: text("published_by").references(() => users.id, { onDelete: "set null" }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    /** verworfen von/am */
+    discardedBy: text("discarded_by").references(() => users.id, { onDelete: "set null" }),
+    discardedAt: timestamp("discarded_at", { withTimezone: true }),
+    /** Rücknahme-Daten der Veröffentlichung (SP3-04) – nur bis zum Stichtag, der Nachtjob leert sie */
+    undo: jsonb("undo"),
+  },
+  (t) => [
+    check("timetable_plan_versions_valid", sql`${t.validUntil} is null or ${t.validFrom} is null or ${t.validUntil} >= ${t.validFrom}`),
+    check("timetable_plan_versions_number", sql`${t.major} >= 1 and ${t.minor} >= 0`),
+    check("timetable_plan_versions_name", sql`char_length(${t.name}) between 1 and 80`),
+    index("timetable_plan_versions_year_idx").on(t.schoolYearId, t.status),
+    // Nummern sind eindeutig unter veröffentlichten Versionen (Entwürfe tragen die vorgesehene Nummer, Varianten dieselbe)
+    uniqueIndex("timetable_plan_versions_number_uq")
+      .on(t.schoolYearId, t.major, t.minor)
+      .where(sql`${t.status} in ('gueltig', 'archiviert')`),
+    // höchstens eine gültige Version je Schuljahr (Zeitraum-Eindeutigkeit prüft der Service über valid_from/valid_until)
+    uniqueIndex("timetable_plan_versions_valid_uq").on(t.schoolYearId).where(sql`${t.status} = 'gueltig'`),
+    // „Bestand 1.0“ höchstens einmal je Schuljahr (Daten-Migration und `ensureBaseVersions` sind idempotent)
+    uniqueIndex("timetable_plan_versions_bestand_uq").on(t.schoolYearId).where(sql`${t.source} = 'bestand'`),
+  ],
+);
+
+export type TimetablePlanVersion = typeof timetablePlanVersions.$inferSelect;
+
+/**
+ * SP3-01: Stunden eines Entwurfs – Spalten wie `timetable_lessons` (gemeinsame Spaltenfabrik) plus Version, Herkunft im gültigen Plan
+ * (`origin_lesson_id`, für den Diff beim Veröffentlichen) und Lehrauftrag. **Nur das Modul Stundenplan liest diese Tabelle**
+ * (Test `planversionen.test.ts` „kein fremder Leser“) – kein Plan-Leser außerhalb der Planung sieht Entwürfe.
+ */
+export const timetableDraftLessons = pgTable(
+  "timetable_draft_lessons",
+  {
+    ...lessonColumns(),
+    versionId: text("version_id")
+      .notNull()
+      .references(() => timetablePlanVersions.id, { onDelete: "cascade" }),
+    originLessonId: text("origin_lesson_id").references(() => timetableLessons.id, { onDelete: "set null" }),
+    assignmentId: text("assignment_id").references(() => timetableAssignments.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    index("timetable_draft_lessons_version_idx").on(t.versionId, t.groupId, t.weekday),
+    index("timetable_draft_lessons_teacher_idx").on(t.versionId, t.teacherId, t.weekday),
+    index("timetable_draft_lessons_room_idx").on(t.versionId, t.roomId, t.weekday),
+    index("timetable_draft_lessons_coupling_idx").on(t.versionId, t.couplingId),
+    index("timetable_draft_lessons_origin_idx").on(t.originLessonId),
+    check("timetable_draft_lessons_weekday", sql`${t.weekday} between 0 and 4`),
+    check("timetable_draft_lessons_valid", sql`${t.validUntil} is null or ${t.validUntil} >= ${t.validFrom}`),
+  ],
+);
+
+export type TimetableDraftLesson = typeof timetableDraftLessons.$inferSelect;
