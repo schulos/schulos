@@ -59,6 +59,9 @@ export const EXPORT_NOT_PERSONAL: Record<string, string> = {
  */
 export const EXPORT_SKIP_REFS: Record<string, string> = {
   "timetable_draft_lessons.teacher_id": "Entwurf ohne Außenwirkung – nur die Planung sieht ihn, bis er veröffentlicht ist",
+  // SP3-03: Prüfkommentare mit Bezug auf eine Lehrkraft gehören zum Entwurf (Abstimmung Planung/Schulleitung); eigene Kommentare erscheinen
+  // über `author_id` mit Text, auch die aus der Lehrkräfte-Vorschau
+  "timetable_plan_comments.teacher_id": "Prüfnotiz zu einem Entwurf ohne Außenwirkung – eigene Kommentare erscheinen über die Verfasserschaft",
 };
 
 /**

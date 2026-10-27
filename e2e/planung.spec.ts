@@ -63,11 +63,12 @@ test("SP-03: Schulleitung (nur Vertretungen planen) sieht Vertretungen und Aufsi
   await login(page, "petra.lindner");
   await page.goto("/planung");
   const tabs = page.getByRole("navigation", { name: "Stundenplanung" });
-  // SP2-12: dazu „Fachbedarf einsehen“ (nur Summen je Fach)
-  await expect(tabs.getByRole("link")).toHaveText(["Übersicht", "Fachbedarf", "Vertretungen", "Aufsichten"]);
+  // SP2-12: dazu „Fachbedarf einsehen“ (nur Summen je Fach); SP3-03: „Planentwurf prüfen und freigeben“ → Versionen (ab „in Prüfung“)
+  await expect(tabs.getByRole("link")).toHaveText(["Übersicht", "Versionen", "Fachbedarf", "Vertretungen", "Aufsichten"]);
   expect((await page.goto("/planung/stundenplan"))?.status()).toBe(404);
   expect((await page.goto("/planung/solver"))?.status()).toBe(404);
-  expect((await page.goto("/planung/versionen"))?.status()).toBe(404);
+  expect((await page.goto("/planung/versionen"))?.status()).toBe(200);
+  await expect(page.getByRole("form", { name: "Entwurf anlegen" })).toHaveCount(0);
   expect((await page.goto("/planung/vertretungen"))?.status()).toBe(200);
 });
 

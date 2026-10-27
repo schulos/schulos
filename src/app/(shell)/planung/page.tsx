@@ -5,7 +5,8 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { hasPermission } from "@/core/permissions";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { PLAN_FORECAST, PLAN_MANAGE, PLAN_SUBSTITUTE, PLANNING_GROUP } from "@/modules/stundenplan/rechte";
+import { PLAN_FORECAST, PLAN_MANAGE, PLAN_REVIEW, PLAN_SUBSTITUTE, PLANNING_GROUP } from "@/modules/stundenplan/rechte";
+import { reviewQueue } from "@/modules/stundenplan/planpruefung";
 import { loadFachbedarf, type Fachbedarf } from "@/modules/stundenplan/fachbedarf";
 import { planningOverview, type SubstituteFigures, type YearPlanningFigures } from "@/modules/stundenplan/uebersicht";
 import { distribution, planningYear } from "@/modules/stundenplan/verteilung";
@@ -33,6 +34,22 @@ const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const day = (ymd: string) => dayFmt.format(fromBerlinLocal(ymd));
 const date = (ymd: string) => dateFmt.format(fromBerlinLocal(ymd));
 const plural = (n: number, one: string, many: string) => `${num.format(n)} ${n === 1 ? one : many}`;
+
+/** SP3-03: Planversionen in Prüfung bzw. freigegeben (Schulleitung, `stundenplan.review`). */
+function reviewTile(q: Awaited<ReturnType<typeof reviewQueue>>): Tile {
+  const waiting = q.filter((v) => v.status === "pruefung").length;
+  const approved = q.length - waiting;
+  return {
+    key: "planpruefung",
+    title: "Planentwürfe zur Prüfung",
+    value: num.format(waiting),
+    status: waiting > 0 ? { label: "warten", tone: "warn" } : { label: "nichts offen", tone: "success" },
+    detail: [waiting === 0 ? "Kein Entwurf wartet auf die Prüfung" : null, approved > 0 ? `${plural(approved, "Version", "Versionen")} freigegeben, noch nicht veröffentlicht` : null]
+      .filter(Boolean)
+      .join(" · ") || "Prüfen, kommentieren, freigeben oder zurück an die Planung",
+    href: "/planung/versionen",
+  };
+}
 
 function yearTiles(m: YearPlanningFigures): Tile[] {
   const a = m.assignments;
@@ -213,15 +230,17 @@ export default async function PlanungPage() {
   const manage = hasPermission(perms, PLAN_MANAGE);
   const substitute = hasPermission(perms, PLAN_SUBSTITUTE);
   const forecast = hasPermission(perms, PLAN_FORECAST);
+  const review = hasPermission(perms, PLAN_REVIEW);
   const schoolData = hasPermission(perms, "verwaltung.school");
   const db = await getDb();
   const today = toBerlinDate(new Date());
   // R2-P12: die Unterrichtsverteilung nur einmal rechnen – Kennzahlen und Fachbedarf teilen sie
   const year = manage || forecast ? await planningYear(db) : null;
   const dist = year ? await distribution(db, year, today) : undefined;
-  const [o, need] = await Promise.all([
+  const [o, need, queue] = await Promise.all([
     planningOverview(db, today, { manage, substitute }, dist),
     manage || forecast ? loadFachbedarf(db, today, { details: false, distribution: dist }) : null,
+    review ? reviewQueue(db) : null,
   ]);
   const yearLine = o.year
     ? `Schuljahr ${o.year.name} · ${date(o.year.startsOn)} – ${date(o.year.endsOn)}${o.year.isCurrent ? "" : " (nicht als aktuell markiert)"}`
@@ -255,6 +274,7 @@ export default async function PlanungPage() {
           </section>
         ))}
       {!manage && need && <TileSection id="fachbedarf" title="Fachbedarf" tiles={[needTile(need)]} />}
+      {queue && <TileSection id="planpruefung" title="Planprüfung" tiles={[reviewTile(queue)]} />}
       {o.substitute && <TileSection id="tagesgeschaeft" title="Tagesgeschäft" tiles={substituteTiles(o.substitute)} />}
       <p className="text-sm">
         <Link href="/stundenplan/raeume" className="font-medium text-accent-ink hover:underline">

@@ -983,3 +983,53 @@ export const timetableDraftLessons = pgTable(
 );
 
 export type TimetableDraftLesson = typeof timetableDraftLessons.$inferSelect;
+
+// ---------------------------------------------------------------- SP3-03: Prüfung & Freigabe
+
+/** Bezug eines Prüfkommentars (§3.1): ganze Version, Lehrkraft, Klasse/Kurs oder Stunde (Wochentag + Stunde). Neue Werte nur hinten anfügen. */
+export const PLAN_COMMENT_TARGETS = ["version", "teacher", "group", "slot"] as const;
+export type PlanCommentTarget = (typeof PLAN_COMMENT_TARGETS)[number];
+export const planCommentTargetEnum = pgEnum("plan_comment_target", PLAN_COMMENT_TARGETS);
+
+/**
+ * SP3-03: Kommentare zu einer Planversion (Prüfung durch die Schulleitung, Rückmeldung von Lehrkräften aus der Vorschau „Mein Plan ab …“).
+ * Der Bezug steht in eigenen Spalten statt als JSON (§3.1 „target jsonb“), damit Kontolöschung und gelöschte Gruppen ihn per
+ * Fremdschlüssel leeren. Sichtbar für `stundenplan.manage` (alle, erledigen) und `stundenplan.review` (ab Prüfung); eine Lehrkraft sieht nur
+ * eigene Kommentare. **Nur das Modul Stundenplan liest diese Tabelle** (Querschnittstest) – nie Schülersicht, Monitor oder Gong.
+ */
+export const timetablePlanComments = pgTable(
+  "timetable_plan_comments",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    versionId: text("version_id")
+      .notNull()
+      .references(() => timetablePlanVersions.id, { onDelete: "cascade" }),
+    authorId: text("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** aus der Lehrkräfte-Vorschau geschrieben (Rückmeldung an die Planung) */
+    fromPreview: boolean("from_preview").notNull().default(false),
+    targetKind: planCommentTargetEnum("target_kind").notNull().default("version"),
+    /** Bezug Lehrkraft (bzw. bei einer Stunde aus der Vorschau: die eigene) */
+    teacherId: text("teacher_id").references(() => users.id, { onDelete: "set null" }),
+    /** Bezug Klasse/Kurs (bzw. bei einer Stunde: optional die Gruppe) */
+    groupId: text("group_id").references(() => groups.id, { onDelete: "set null" }),
+    /** nur Bezug Stunde: 0 = Montag … 4 = Freitag */
+    weekday: integer("weekday"),
+    periodNr: integer("period_nr"),
+    /** ≤ 500 Zeichen, keine Gesundheitsangaben */
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedBy: text("resolved_by").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("timetable_plan_comments_version_idx").on(t.versionId, t.createdAt),
+    index("timetable_plan_comments_author_idx").on(t.authorId),
+    check("timetable_plan_comments_body", sql`char_length(${t.body}) between 1 and 500`),
+    check("timetable_plan_comments_slot", sql`(${t.targetKind} = 'slot') = (${t.weekday} is not null and ${t.periodNr} is not null)`),
+    check("timetable_plan_comments_weekday", sql`${t.weekday} is null or ${t.weekday} between 0 and 4`),
+  ],
+);
+
+export type TimetablePlanComment = typeof timetablePlanComments.$inferSelect;

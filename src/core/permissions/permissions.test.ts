@@ -66,6 +66,12 @@ describe("requiresTwoFactor (Rolle Personal, P4-10)", () => {
     expect(twoFactorDuty("lehrkraft", ["stundenplan.substitute"], "2099-01-01", "2026-10-19")).toEqual({ required: true, dueOn: null, outsideOnly: false });
   });
 
+  it("SP3-03: Planentwurf prüfen (`stundenplan.review`) verlangt 2FA sofort wie die Planungsrechte; Fachbedarf lesen nicht", () => {
+    expect(requiresTwoFactor("lehrkraft", ["stundenplan.review"])).toBe(true);
+    expect(twoFactorDuty("lehrkraft", ["stundenplan.review"], "2099-01-01", "2026-10-27")).toEqual({ required: true, dueOn: null, outsideOnly: false });
+    expect(requiresTwoFactor("lehrkraft", ["stundenplan.forecast_view"])).toBe(false);
+  });
+
   it("Beratung (Schulsozialarbeit, Q5-17): Pflicht sofort, ohne Verwaltungsrechte", () => {
     expect(requiresTwoFactor("beratung", [])).toBe(true);
   });

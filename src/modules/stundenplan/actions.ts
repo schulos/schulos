@@ -23,7 +23,7 @@ import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
 import { acknowledgeSubstitution, deleteSubstitution, keepReviewedSubstitution, publishDay, removeReviewedSubstitutions, saveSubstitution, type SubstitutionInput } from "./vertretung";
 import { deleteDayNote, saveDayNote } from "./tagesmitteilungen";
 import { sendNow } from "./benachrichtigung";
-import type { NotifyAudience } from "./schema";
+import type { NotifyAudience, PlanCommentTarget, TimetablePlanVersion } from "./schema";
 import { addReduction, defaultObligation, deleteReduction, saveTeacherRule, setDeputy } from "./deputate";
 import { readSchoolSettings } from "@/core/settings";
 import { applyGradeRuleDefaults, classGrades, saveGradeRules } from "./jahrgangsregeln";
@@ -47,6 +47,19 @@ import { permanentMessage, savePermanentSubstitution } from "./dauervertretung";
 import { audit } from "@/core/audit";
 import { checkSubjectFit, executeTeacherSubjectImport, offSubjectConfirmed, MAX_TEACHER_SUBJECT_CSV_BYTES, planTeacherSubjectImport, setTeacherSubjects, type TeacherSubjectPreview } from "./lehrfaecher";
 import { addStaffChange, deleteStaffChange, saveForecastGrades } from "./fachbedarf";
+import { ForbiddenError, hasPermission } from "@/core/permissions";
+import { PLAN_MANAGE, PLAN_REVIEW } from "./rechte";
+import {
+  addComment as addPlanComment,
+  addPreviewComment,
+  approveVersion,
+  canSeeVersion,
+  resolveComment as resolvePlanComment,
+  returnToPlanning,
+  setTeacherPreview,
+  submitForReview,
+  type Viewer,
+} from "./planpruefung";
 import { parseEdits, saveMatrixEdits, type MatrixSaveResult } from "./matrix";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
@@ -1209,4 +1222,108 @@ export async function discardVersionAction(versionId: string): Promise<void> {
   }
   revalidatePath(VERSIONS_PAGE);
   redirect(versionsPage(v.schoolYearId, "verworfen", v.id));
+}
+
+// ---------------------------------------------------------------- Prüfung & Freigabe (SP3-03)
+
+const reviewPage = (versionId: string, key?: string, value?: string) => {
+  const q = new URLSearchParams({ version: versionId });
+  if (key && value !== undefined) q.set(key, value);
+  return `${VERSIONS_PAGE}/pruefung?${q.toString()}`;
+};
+
+/** Planung (`manage`) und/oder Prüfung (`review`) der angemeldeten Person – mindestens eins, sonst Abbruch. */
+async function reviewViewer(): Promise<Viewer> {
+  const { user, perms } = await requireUser();
+  const viewer = { userId: user.id, manage: hasPermission(perms, PLAN_MANAGE), review: hasPermission(perms, PLAN_REVIEW) };
+  if (!viewer.manage && !viewer.review) throw new ForbiddenError(`${PLAN_MANAGE} | ${PLAN_REVIEW}`);
+  return viewer;
+}
+
+/**
+ * Statuswechsel einer Version (Knopf) – Fehler als Hinweis auf der Prüfseite. Sieht die Person die Version danach nicht mehr (die Prüfung,
+ * nachdem sie zurück an die Planung ging), geht es zur Versionsliste.
+ */
+async function versionStep(
+  versionId: string,
+  ok: string,
+  step: (db: Awaited<ReturnType<typeof getDb>>, viewer: Viewer) => Promise<unknown>,
+): Promise<void> {
+  const viewer = await reviewViewer();
+  const db = await getDb();
+  let after: unknown;
+  try {
+    after = await step(db, viewer);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(reviewPage(versionId, "fehler", firstError(err)));
+    throw err;
+  }
+  revalidatePath(VERSIONS_PAGE);
+  const v = after && typeof after === "object" && "status" in after ? (after as TimetablePlanVersion) : null;
+  if (v && !canSeeVersion(viewer, v)) redirect(versionsPage(v.schoolYearId, "zurueck", "1"));
+  redirect(reviewPage(versionId, "ok", ok));
+}
+
+/** Planung: Entwurf zur Prüfung geben (danach nur lesbar). */
+export async function submitVersionAction(versionId: string): Promise<void> {
+  await versionStep(versionId, "eingereicht", (db, viewer) => submitForReview(db, viewer, versionId));
+}
+
+/** Prüfung (Schulleitung): Version freigeben – ohne Vier-Augen-Zwang (F-10-3). */
+export async function approveVersionAction(versionId: string): Promise<void> {
+  await versionStep(versionId, "freigegeben", (db, viewer) => approveVersion(db, viewer, versionId));
+}
+
+/** Zurück an die Planung (Prüfung gibt zurück bzw. nimmt die Freigabe zurück; Planung holt die Version zurück), optional mit Kommentar. */
+export async function returnVersionAction(versionId: string, form: FormData): Promise<void> {
+  const note = String(form.get("note") ?? "");
+  await versionStep(versionId, "zurueck", (db, viewer) => returnToPlanning(db, viewer, versionId, note));
+}
+
+/** Planung: Lehrkräfte-Vorschau „Mein Plan ab …“ ein-/ausschalten. */
+export async function setPreviewAction(versionId: string, on: boolean): Promise<void> {
+  await versionStep(versionId, on ? "vorschau-an" : "vorschau-aus", (db, viewer) => setTeacherPreview(db, viewer, versionId, on));
+}
+
+/** Kommentar der Planung/Prüfung an eine Version (Bezug: Version, Lehrkraft, Klasse/Kurs, Stunde). */
+export async function addPlanCommentAction(versionId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const viewer = await reviewViewer();
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  const kind = str("targetKind") as PlanCommentTarget;
+  try {
+    await addPlanComment(await getDb(), viewer, versionId, {
+      targetKind: kind,
+      teacherId: str("teacherId") || null,
+      groupId: str("groupId") || null,
+      weekday: kind === "slot" && str("weekday") !== "" ? Number(str("weekday")) : null,
+      periodNr: kind === "slot" && str("periodNr") !== "" ? Number(str("periodNr")) : null,
+      body: String(form.get("body") ?? ""),
+    });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: firstError(err), fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath(VERSIONS_PAGE);
+  redirect(`${reviewPage(versionId, "ok", "kommentiert")}#kommentare`);
+}
+
+/** Planung: Kommentar erledigen bzw. wieder öffnen. */
+export async function resolvePlanCommentAction(commentId: string, versionId: string, resolved: boolean): Promise<void> {
+  await versionStep(versionId, resolved ? "erledigt" : "wieder-offen", (db, viewer) => resolvePlanComment(db, viewer, commentId, resolved));
+}
+
+/** Lehrkraft: Rückmeldung aus der Vorschau „Mein Plan ab …“ an die Planung (nur bei freigeschalteter Vorschau, nur zum eigenen Plan). */
+export async function addPreviewCommentAction(versionId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requireUser();
+  if (user.role !== "lehrkraft") throw new ForbiddenError("lehrkraft");
+  const slot = String(form.get("slot") ?? "").trim();
+  const m = /^(\d)-(\d{1,2})$/.exec(slot);
+  try {
+    await addPreviewComment(await getDb(), user.id, versionId, { weekday: m ? Number(m[1]) : null, periodNr: m ? Number(m[2]) : null, body: String(form.get("body") ?? "") });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: firstError(err), fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath("/stundenplan/vorschau");
+  redirect(`/stundenplan/vorschau?version=${encodeURIComponent(versionId)}&gesendet=1`);
 }
