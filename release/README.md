@@ -45,7 +45,10 @@ Projektleitung 2026-10-27; Release-Tags legen nur Admins an): Warnung + Zusammen
 vx.y.(z+1) fällig“ mit dem fertigen Befehl. Ein Admin setzt dann den Tag **auf den Commit des letzten Releases**
 (`git fetch --tags && git tag -a vx.y.(z+1) <commit> -m "SchulOS x.y.(z+1)" && git push origin vx.y.(z+1)`). Der Workflow
 erkennt den Patch-Tag (genau nächste Patch-Nummer + genau dieser Commit; sonst Abbruch wegen `package.json`), baut mit frischen
-Fremd-Images, schreibt die Notizen selbst (Änderung „sicherheit“, `betaDays` 3) und baut keine ISO. Ein eigenes Patch-Release
+Fremd-Images, schreibt die Notizen selbst (Änderung „sicherheit“, `betaDays` 3) und baut keine ISO. Hinweis: Ein Tag-Push startet die
+`release.yml` **aus dem getaggten Commit** – Release-Commits bis v0.9.x kennen den Patch-Pfad noch nicht (der Lauf bricht mit
+„passt nicht zu package.json“ ab). Dann bzw. zum Wiederholen: `gh workflow run release.yml -f patch_tag=vx.y.(z+1)` (läuft mit
+der Workflow-Version von `main`, nimmt den vorhandenen Tag). Ein eigenes Patch-Release
 mit Code-Änderungen läuft dagegen normal über `package.json` + Notizen – vorher `git fetch --tags` und die nächste freie
 Nummer nehmen.
 Die Fremd-Images werden beim Bauen per Digest gepinnt und im Manifest festgehalten – `schulosctl` zieht genau diese.
