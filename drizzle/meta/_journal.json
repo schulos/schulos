@@ -778,6 +778,13 @@
       "when": 1793096141330,
       "tag": "0110_vt04_benachrichtigung",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1793119402473,
+      "tag": "0111_sp3_01_planversionen",
+      "breakpoints": true
     }
   ]
 }

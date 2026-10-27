@@ -12,6 +12,7 @@ import { createLesson, deleteCoupling, deleteLesson, saveCoupling, updateLesson,
 import { ABSENCE_LABELS, createAbsence, deleteAbsence, needsOn, shortenAbsence } from "./abwesenheit";
 import { addDuty, clearDutyChange, createArea, deleteArea, removeDuty, setDutyChange } from "./aufsichten";
 import { copyPeriod } from "./periode";
+import { createDraft as createPlanDraft, createVariant as createPlanVariant, discardVersion as discardPlanVersion, getVersion as getPlanVersion, type DraftSource } from "./planversionen";
 import { applyRun, cancelRun, createRun, deleteRun, executeQueued, setFixed, undoApply } from "./solverlauf";
 import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
 import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenster";
@@ -1079,4 +1080,73 @@ export async function applyGradeRuleDefaultsAction(): Promise<void> {
   await applyGradeRuleDefaults(await getDb(), user.id);
   revalidatePath("/planung/unterricht");
   redirect(limitsPage("vorgaben"));
+}
+
+// ---------------------------------------------------------------- Planversionen (SP3-01)
+
+const VERSIONS_PAGE = "/planung/versionen";
+const versionsPage = (yearId: string | null, key?: string, value?: string) => {
+  const q = new URLSearchParams();
+  if (yearId) q.set("jahr", yearId);
+  if (key && value !== undefined) q.set(key, value);
+  const s = q.toString();
+  return s ? `${VERSIONS_PAGE}?${s}` : VERSIONS_PAGE;
+};
+
+/** Neuen Entwurf anlegen: aus dem gültigen Plan ab Stichtag, leer oder aus einer Vorversion (nur `stundenplan.manage`). */
+export async function createDraftAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  let v: { id: string; schoolYearId: string };
+  try {
+    v = await createPlanDraft(
+      await getDb(),
+      user.id,
+      {
+        schoolYearId: str("schoolYearId"),
+        source: str("source") as DraftSource,
+        validFrom: str("validFrom"),
+        numbering: str("numbering") === "minor" ? "minor" : "major",
+        name: str("name") || null,
+        previousVersionId: str("previousVersionId") || null,
+        withFixed: form.get("withFixed") === "on",
+      },
+      toBerlinDate(new Date()),
+    );
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: firstError(err), fieldErrors: err.fieldErrors, values: formValues(form) };
+    throw err;
+  }
+  revalidatePath(VERSIONS_PAGE);
+  redirect(versionsPage(v.schoolYearId, "angelegt", v.id));
+}
+
+/** Variante eines Entwurfs anlegen (gleiche Stunden, eigener Name). */
+export async function createVariantAction(versionId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  let v: { id: string; schoolYearId: string };
+  try {
+    v = await createPlanVariant(db, user.id, versionId);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(versionsPage((await getPlanVersion(db, versionId))?.schoolYearId ?? null, "fehler", firstError(err)));
+    throw err;
+  }
+  revalidatePath(VERSIONS_PAGE);
+  redirect(versionsPage(v.schoolYearId, "angelegt", v.id));
+}
+
+/** Entwurf verwerfen (bleibt als „verworfen“ in der Liste; gültige/archivierte Versionen nicht). */
+export async function discardVersionAction(versionId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  let v: { id: string; schoolYearId: string };
+  try {
+    v = await discardPlanVersion(db, user.id, versionId);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(versionsPage((await getPlanVersion(db, versionId))?.schoolYearId ?? null, "fehler", firstError(err)));
+    throw err;
+  }
+  revalidatePath(VERSIONS_PAGE);
+  redirect(versionsPage(v.schoolYearId, "verworfen", v.id));
 }

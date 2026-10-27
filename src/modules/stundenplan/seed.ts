@@ -32,6 +32,7 @@ import { solve, validate } from "./solver";
 import { solverInputFromDb } from "./solver-input";
 import { proposedLessons, withCouplingIds } from "./solverlauf";
 import { planningYear } from "./verteilung";
+import { ensureBaseVersions } from "./planversionen";
 import { classGrades } from "./jahrgangsregeln";
 import { gradeRulesTemplate } from "@/core/school/templates";
 
@@ -166,6 +167,8 @@ export async function seedStundenplan(db: Db, now = new Date()) {
       validUntil: year.endsOn,
     })),
   );
+  // SP3-01: der Demo-Plan ist „Bestand 1.0“ (wie nach der Daten-Migration einer Bestandsinstallation)
+  await ensureBaseVersions(db, toBerlinDate(now));
   await seedDeputate(db, year.id);
   await seedAufsichten(db, year.id);
   await seedVertretungen(db, now);

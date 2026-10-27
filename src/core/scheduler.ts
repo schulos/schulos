@@ -23,6 +23,7 @@ import { runReservations } from "@/modules/buecherei/reservations";
 import { runSchoolbookDunning } from "@/modules/buecherei/ausgabe";
 import { runDunning } from "@/modules/buecherei/mahnungen";
 import { cleanupRuns, executeQueued } from "@/modules/stundenplan/solverlauf";
+import { cleanupVersions } from "@/modules/stundenplan/planversionen";
 import { runSubstitutionQueue } from "@/modules/stundenplan/benachrichtigung";
 
 export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
@@ -122,12 +123,13 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   },
   {
     // SP-06 (Q-SP-11): Solver-Läufe aufräumen – fehlgeschlagene/abgebrochene ohne Ergebnis nach 7 Tagen weg, je Schuljahr nur
-    // die neuesten 20 fertigen Läufe mit vollem Ergebnis (ältere behalten Kennzahlen und Protokoll); LK-90 macht der Löschlauf
+    // die neuesten 20 fertigen Läufe mit vollem Ergebnis (ältere behalten Kennzahlen und Protokoll); LK-90 macht der Löschlauf.
+    // SP3-01: dazu Planversionen – Rücknahme-Daten ab dem Stichtag leeren, offene Entwürfe abgelaufener Schuljahre verwerfen, „Bestand 1.0“
     name: "solver-aufraeumen",
     at: "03:00",
     until: "06:00",
     ttlMs: 10 * 60_000,
-    run: (db, now) => cleanupRuns(db, now),
+    run: async (db, now) => ({ ...(await cleanupRuns(db, now)), versions: await cleanupVersions(db, now) }),
   },
   {
     // BU-03: verfallene Abholfristen von Vormerkungen löschen, nächste Vormerkung nachrücken lassen (Gong)

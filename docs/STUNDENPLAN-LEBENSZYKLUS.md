@@ -1,6 +1,6 @@
 # SP3-00: Lebenszyklus des Stundenplans und Vertretung mit mehr Infos – Architekturkonzept
 
-> Stand: 2026-10-27 (VT-03a umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
+> Stand: 2026-10-27 (SP3-01 umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
 > (Arbeitsplan ab 26.10., Phase B1; Vorgaben „Nachtrag 25.10.“, „Sicht eines Stundenplaners“ und „Antworten 25.10.“).
 > Hebt die Entscheidung Q-SP-12/Q-SP-16 („keine Plan-Versionen“) auf – ausdrücklich durch die Projektleitung 25.10.2026.
 > Aufgaben nach Abnahme: `BACKLOG.md`, Blöcke **VT** (Vertretung) und **SP3** (Lebenszyklus). Dieses Dokument ändert keinen Code
@@ -330,6 +330,46 @@ gespeichert bleibt `obligation`) · `timetable_deputies.obligation_term2 numeric
   Zuordnung kein Vorschlag (kein „nur nach Fach“, R13).
 - Keine Personendaten in `class_map` (nur Gruppen-ids); Löschklasse der Tabelle unverändert.
 
+**Umgesetzt (SP3-01, 2026-10-27, Migration 0111)** – Vorgaben für offene Detailfragen (Projektleitung kann sie ändern):
+- **Bestand 1.0** bekommen nur **begonnene** Schuljahre mit Stunden: das laufende `gueltig` ab Schuljahresbeginn, abgelaufene `archiviert` bis
+  Schuljahresende. Künftige Schuljahre bekommen keine (unbefristete Stunden reichen zwar hinein, dort wird aber neu geplant – der erste Entwurf
+  ist 1.0). `plan_version_id` tragen nur die Stunden, die am Migrationstag gelten. Dieselbe Regel läuft zur Laufzeit als `ensureBaseVersions()`
+  (neue Installationen, deren Migration auf einer leeren Datenbank lief, Demo-Seed, Versionsliste, Entwurf anlegen, Nachtjob); idempotent über
+  den Teilindex „höchstens ein Bestand je Schuljahr“. Test `planversionen.migration.test` (Stunden Zeile für Zeile und Regelplan unverändert).
+- **Nummern:** ein Entwurf trägt die Nummer, die er beim Veröffentlichen bekäme; eindeutig ist sie nur unter `gueltig`/`archiviert` (Teilindex),
+  Varianten teilen die Nummer ihres Entwurfs. „Neue Planung“ = höchste nicht verworfene Hauptnummer + 1 (`x.0`), „Folgeversion“ = Hauptnummer
+  der gültigen Version, höchste Unternummer + 1 – nur, wenn es eine gültige Version gibt. Die endgültige Nummer prüft SP3-04 beim Veröffentlichen.
+- **Stichtag** („gültig ab“, vorgemerkt) wie bei der Solver-Übernahme: Schultag, nach heute, im Schuljahr. Vorschlag: Beginn des 2. Halbjahrs,
+  wenn er noch kommt, sonst der nächste Schultag.
+- **Aus dem gültigen Plan (`live_copy`):** alle Stunden, die ab dem Stichtag im Schuljahr gelten – auch solche, die erst später beginnen; Beginn =
+  später von Stundenbeginn und Stichtag, Ende unverändert. `origin_lesson_id` = Live-Stunde, `parent_version_id` = gültige Version. Die
+  Kopplungs-id bleibt (der Diff vergleicht „Kopplung gleich“; neue ids vergibt erst das Veröffentlichen). `assignment_id` bleibt leer, bis die
+  Setzhilfe im Entwurf setzt (SP3-02). Der gültige Plan wird **nicht** angefasst – anders als „Periode kopieren“.
+- **„Periode kopieren“ bleibt** bis SP3-04/SP3-05 auf `/planung/stundenplan` (sonst gäbe es vor dem Veröffentlichen keinen Weg in den gültigen
+  Plan); fachlich ersetzt es `live_copy`, die Oberfläche entfällt mit SP3-05 (§7.2).
+- **Leer (`empty`):** optional mit den fixierten Stunden des gültigen Plans ab dem Stichtag (mit Herkunft).
+- **Aus Vorversion (`previous_version`):** nur archivierte oder verworfene Versionen **desselben** Schuljahrs (gültige → „aus dem gültigen
+  Plan“, offene Entwürfe → „Variante“, Vorjahr hochgestuft → SP3-07). Verworfen: deren Entwurfsstunden ohne die, die vor dem Stichtag enden;
+  archiviert: der gültige Plan an ihrem ersten Tag, ab dem Stichtag, ein Ende nur, wenn es danach liegt.
+- **Variante:** von offenen Entwürfen (`entwurf`, `pruefung`, `freigegeben`); neue Version im Status `entwurf` mit gleicher Nummer, gleichem
+  Stichtag und denselben Stunden (neue ids, gleiche Herkunft), Name „<Name> – Variante“.
+- **Verwerfen:** nur offene Entwürfe; ergänzt um `discarded_by/discarded_at`. Die Stunden bleiben (für „aus Vorversion“) und gehen mit der
+  Version (Löschklasse LK-SJ-1J ab Schuljahr). Gültige und archivierte Versionen lassen sich nicht verwerfen.
+- **Nachtjob** `solver-aufraeumen`: leert `undo` veröffentlichter Versionen ab ihrem Stichtag, verwirft offene Entwürfe abgelaufener
+  Schuljahre und zieht „Bestand 1.0“ nach. Die gültige Version eines abgelaufenen Schuljahrs bleibt `gueltig` (Archivieren: SP3-07).
+- **Versionsliste** `/planung/versionen` (Reiter „Versionen“, nur `stundenplan.manage`; `substitute` sieht erst mit SP3-04 „ab wann welche
+  Version gilt“): Schuljahr wählbar, Karte je Version mit Nummer, Name, Status, Stichtag, Quelle, Zahlen (Wochenstunden, Lerngruppen,
+  Lehrkräfte, Räume, ohne Lehrkraft – veröffentlichte Versionen am Stichtag heute bzw. ihrem letzten Tag, Entwürfe alle Stunden), „Variante
+  anlegen“ und „Verwerfen“ (mit Rückfrage); offene und gültige Versionen oben, verworfene unten. Audit `stundenplan.plan.create/variant/discard`
+  mit Nummer und Zahlen, ohne Personen.
+- **Planquelle** (`plan-quelle.ts`): `PlanSource`, `lessonTable()` (einziger Zugang für die Wahl gültig/Entwurf), `sourceWhere()`,
+  `planLessons()` (gemeinsame Zeilenform), `lessonFields()`. Die Spalten beider Tabellen kommen aus `lessonColumns()` in `schema.ts`. Die Lader
+  von Setzhilfe, Diagnose, Verteilung und Solver-Eingabe stellt SP3-02 um; bis dahin lesen alle Leser unverändert den gültigen Plan.
+- **Datenschutz:** Löschklassen im Manifest (Versionen LK-SJ-1J ab Schuljahr, Entwurfsstunden folgen der Version), DATENSCHUTZ §3.4. Die Auskunft
+  sucht eine Lehrkraft nicht in Entwurfsstunden (`EXPORT_SKIP_REFS`, Entwurf ohne Außenwirkung wie Solver-Vorschläge); Planende erscheinen bei
+  Versionen nur als Handelnde. Kontolöschung leert die Lehrkraft der Entwurfsstunden (Fremdschlüssel). Querschnittstest (b) „kein fremder
+  Leser“ in `planversionen.test.ts`.
+
 **Recht `stundenplan.review`** („Planentwurf prüfen und freigeben“, SP3-03): Daten-Migration gibt es der Gruppe `g-schulleitung` (wie
 0088 `substitute`); 2FA-Pflicht wie die anderen Planungsrechte (Deputate/Namen im Entwurf). Keine Rollen-Vorgabe.
 
@@ -485,7 +525,7 @@ an die Queue andocken (DSB-Votum offen).
 | 0110 ✅ | VT-04 | `timetable_notify_audience`, `timetable_notification_queue` (eine offene Zeile je Person und Tag; tatsächlich 0110) |
 | 0107 ✅ | SP3-DEP | `employment_percent`, `obligation_term2`, `obligation` nullable, `timetable_reductions.valid_from/valid_until` (tatsächlich 0107, vor VT-01) |
 | 0108 ✅ | SP3-LA | `school_year_transitions.class_map` (tatsächlich 0108; nur die Spalte – Übergänge ohne Zuordnung rekonstruiert die Übernahme zur Laufzeit per Namensregel `promotedName()`, soweit eindeutig) |
-| 0111 (nächste freie) | SP3-01 | `plan_version_status`, `plan_version_source`, `timetable_plan_versions`, `timetable_draft_lessons`, `timetable_lessons.plan_version_id`, Daten-Migration „Bestand 1.0“ |
+| 0111 ✅ | SP3-01 | `plan_version_status`, `plan_version_source`, `timetable_plan_versions` (inkl. `discarded_by/at`), `timetable_draft_lessons`, `timetable_lessons.plan_version_id`, Daten-Migration „Bestand 1.0“ |
 | 0112 | SP3-03 | Recht `stundenplan.review` (Grant an `g-schulleitung`, `grants.synced`), `timetable_plan_comments` |
 | 0113 | SP3-05 | `timetable_plan_changes` |
 | – | SP3-02/04/06/07/08, VT-02/03/05 | ohne Migration (SP3-06 nutzt `checklist jsonb`; SP3-07 nutzt `class_map`) |
@@ -662,7 +702,7 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 
 **Stand: GATE VT erledigt (VT-05, Belege je Punkt) / GATE SP3 offen.** Ein Punkt ist erst abgehakt, wenn sein Test existiert und grün läuft; Punkte, die nur SP3 betreffen, bleiben offen. Gemischte Punkte tragen den VT-Anteil als Beleg und den SP3-Anteil als offenen Rest.
 
-- [ ] Kein Leser außerhalb `src/modules/stundenplan` liest `timetable_draft_lessons`; `timetable_lessons`-Leser unverändert (Grep-Test)
+- [x] **SP3-01** Kein Leser außerhalb `src/modules/stundenplan` liest `timetable_draft_lessons`; `timetable_lessons`-Leser unverändert (Grep-Test) – Belege: `planversionen.test.ts` „Querschnitt: kein fremder Leser des Entwurfs“ (außerhalb nur die Auskunft, die sie auslässt; im Modul nur Schema, Manifest, Planquelle, Versionen; keine Seite; `timetable_lessons`-Leser ohne Planquelle), „Entwurf aus dem gültigen Plan …“ (gültiger Plan und Regelplan unverändert), `planversionen.migration.test.ts`
 - [x] **GATE VT** Schülersicht/Eltern-Gong/Monitor/Druck ohne `internal_note` und Abwesenheitsgrund – Belege: `vertretung-infos.test.ts` „Querschnitt: interner Hinweis nie im Vertretungsplan, Schüler-/Lehrkraftplan, Monitor oder Gong“ und „Querschnitt (GATE VT): Grund und Notiz der Abwesenheit …“, Grep-Test „nur erlaubte Dateien lesen …“ (Druck/Exporte lesen die Felder nicht), `vertretung-gong.test.ts` „GATE-031 S-05“ (Eltern ohne Hinweis), `e2e/zx-gate-vt.spec.ts` (Schülerin, Gong, Monitor). **Offen für GATE SP3:** Kommentare, Entwurfsstunden
 - [ ] Veröffentlichen: unveränderte Stunden behalten ihre id; Klassenbuch-Einträge vor und nach dem Stichtag bleiben zugeordnet; Vertretungen/Material ziehen um oder werden gezählt
 - [ ] Zurücknehmen bis Stichtag stellt Stunden, Vertretungen und Material wieder her (SP-13-Niveau)

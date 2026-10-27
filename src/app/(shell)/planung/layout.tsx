@@ -23,6 +23,8 @@ export default async function PlanungLayout({ children }: { children: React.Reac
     manage && { href: "/planung/unterricht", label: "Unterrichtsverteilung" },
     manage && { href: "/planung/zeitwuensche", label: "Zeitwünsche" },
     manage && { href: "/planung/solver", label: "Automatisch planen" },
+    // SP3-01: Planversionen (Entwürfe, Varianten, gültige und archivierte Versionen)
+    manage && { href: "/planung/versionen", label: "Versionen" },
     (manage || forecast) && { href: "/planung/bedarf", label: "Fachbedarf" },
     substitute && { href: "/planung/vertretungen", label: "Vertretungen" },
     (manage || substitute) && { href: "/planung/aufsichten", label: "Aufsichten" },
