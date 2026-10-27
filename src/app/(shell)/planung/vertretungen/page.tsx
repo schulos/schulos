@@ -32,6 +32,7 @@ import { plannableGroups, teacherOptions } from "@/modules/stundenplan/manage";
 import { listSlots, timetableMasterData, type PlanTarget } from "@/modules/stundenplan/service";
 import { acknowledgeEnabled, defaultReason, examSubjectsOn, mergeOptions, planDays, substitutionsOn, teacherAvailability, unacknowledgedSubstitutions } from "@/modules/stundenplan/vertretung";
 import { describeChange, substitutionHistory } from "@/modules/stundenplan/vertretung-historie";
+import { classDay, gongSummary, lessonGroup, needUrgency, removedSubstitutions, stepSchoolDay, teacherDayContext, URGENCY } from "@/modules/stundenplan/arbeitsplatz";
 import { inArray } from "drizzle-orm";
 import { users } from "@/core/db/schema";
 import { Badge } from "@schulos/ui/badge";
@@ -46,6 +47,7 @@ import { weekNeeds } from "@/modules/stundenplan/dauervertretung";
 import { KIND_LABEL as EXAM_KIND } from "@/modules/klausurplan/service";
 import { materialsFor } from "@/modules/stundenplan/selbstmeldung";
 import { AbsenceForm } from "./absence-form";
+import { ContextColumn } from "./kontext";
 import { SubstitutionForm } from "./substitution-form";
 
 export const metadata: Metadata = { title: "Vertretungen" };
@@ -55,16 +57,38 @@ const shortDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "nume
 const plannedAt = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TZ });
 const stamp = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: TZ });
 
-export default async function VertretungenPage({ searchParams }: { searchParams: Promise<{ datum?: string; lehrkraft?: string; gruppe?: string; fehler?: string; veroeffentlicht?: string; verkuerzt?: string; gesendet?: string }> }) {
+type Search = {
+  datum?: string;
+  lehrkraft?: string;
+  gruppe?: string;
+  /** VT-03a: gewählte Stunde (lessonId) – Deeplink, Zurück-Taste */
+  stunde?: string;
+  /** VT-03a: markierte (vorgeschlagene) Lehrkraft für den Kontext */
+  vorschlag?: string;
+  fehler?: string;
+  veroeffentlicht?: string;
+  verkuerzt?: string;
+  gesendet?: string;
+};
+
+/** Adresse des Arbeitsplatzes; leere Werte entfallen. `#lessons-title` springt mobil zur gewählten Stunde. */
+function workplaceHref(p: Partial<Record<"datum" | "lehrkraft" | "gruppe" | "stunde" | "vorschlag", string | null | undefined>>, hash = ""): string {
+  const q = new URLSearchParams();
+  for (const k of ["datum", "lehrkraft", "gruppe", "stunde", "vorschlag"] as const) if (p[k]) q.set(k, p[k]!);
+  return `/planung/vertretungen?${q.toString()}${hash}`;
+}
+
+export default async function VertretungenPage({ searchParams }: { searchParams: Promise<Search> }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.substitute")) notFound();
   const sp = await searchParams;
   const db = await getDb();
   const cal = await loadSchoolCalendar(db);
-  const today = toBerlinDate(new Date());
+  const now = new Date();
+  const today = toBerlinDate(now);
   const shown = planDays(today, cal);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.datum ?? "") ? sp.datum! : shown[0];
-  const marker = await markerSinceDb(db, new Date());
+  const marker = await markerSinceDb(db, now);
   const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week, reviews, dayNotes, history, unconfirmed, ack, planned] = await Promise.all([
     teacherOptions(db),
     plannableGroups(db),
@@ -90,7 +114,9 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     // VT-04: eingeplante Vertretungsnachrichten („geplant für …“, „jetzt senden“)
     plannedNotifications(db),
   ]);
-  const actorIds = [...new Set(history.map((h) => h.actorId).filter((x): x is string => !!x))];
+  // VT-03a: aufgehobene Vertretungen des Tages – die Zeile fehlt in „Alle Änderungen“, der Verlauf bleibt über die Stunde erreichbar
+  const removed = await removedSubstitutions(db, history, new Set(changes.map((c) => c.lessonId)));
+  const actorIds = [...new Set([...history.map((h) => h.actorId), ...removed.map((r) => r.actorId)].filter((x): x is string => !!x))];
   const actors = new Map(
     actorIds.length ? (await db.select({ id: users.id, code: users.shortCode, name: users.name }).from(users).where(inArray(users.id, actorIds))).map((u) => [u.id, u.code ?? u.name]) : [],
   );
@@ -99,10 +125,28 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   const shortened = /^\d+$/.test(sp.verkuerzt ?? "") ? Number(sp.verkuerzt) : null;
   const sentNow = /^\d+$/.test(sp.gesendet ?? "") ? Number(sp.gesendet) : null;
 
-  const target: PlanTarget | null = sp.lehrkraft ? { kind: "teacher", id: sp.lehrkraft } : sp.gruppe ? { kind: "group", id: sp.gruppe } : null;
+  // VT-03a: gewählte Stunde – ohne Lehrkraft/Gruppe im Link gilt die Gruppe der Stunde
+  const stunde = sp.stunde || null;
+  let target: PlanTarget | null = sp.lehrkraft ? { kind: "teacher", id: sp.lehrkraft } : sp.gruppe ? { kind: "group", id: sp.gruppe } : null;
+  if (stunde && !target) {
+    const g = await lessonGroup(db, stunde);
+    if (g) target = { kind: "group", id: g };
+  }
   // nur eigene Stunden der Lehrkraft/Gruppe – übernommene Vertretungen werden bei der Original-Stunde gepflegt
   // SP2-07: eine verlegte Stunde wird bei ihrer bisherigen Stunde gepflegt (nicht zusätzlich in der neuen)
-  const lessons = target ? (await listSlots(db, target, date, addDays(date, 1), { drafts: true })).filter((s) => s.perspective !== "covering" && s.moved !== "to") : [];
+  const slotsOf = async (t: PlanTarget) => (await listSlots(db, t, date, addDays(date, 1), { drafts: true })).filter((s) => s.perspective !== "covering" && s.moved !== "to");
+  let targetLessons = target ? await slotsOf(target) : [];
+  let chosen = stunde ? targetLessons.find((l) => l.lessonId === stunde) : undefined;
+  if (stunde && !chosen && target?.kind === "teacher") {
+    // Stunde gehört nicht (mehr) zur Lehrkraft – über die Gruppe öffnen
+    const g = await lessonGroup(db, stunde);
+    if (g) {
+      target = { kind: "group", id: g };
+      targetLessons = await slotsOf(target);
+      chosen = targetLessons.find((l) => l.lessonId === stunde);
+    }
+  }
+  const lessons = chosen ? [chosen] : targetLessons;
   const [availability, suggestions, examsByGroup, merges, reasonDefaults] = await Promise.all([
     Promise.all(lessons.map((l) => teacherAvailability(db, l.lessonId, date))),
     Promise.all(lessons.map((l) => (l.change && l.change.kind !== "room" ? Promise.resolve([]) : suggestSubstitutes(db, l.lessonId, date)))),
@@ -112,6 +156,24 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     // VT-01: Vorgabe der Grund-Kategorie je Stunde (Anzeige bei „automatisch“)
     Promise.all(lessons.map((l) => defaultReason(db, l, date, l.change?.kind ?? "substitute"))),
   ]);
+  const targetParams = { datum: date, lehrkraft: target?.kind === "teacher" ? target.id : null, gruppe: target?.kind === "group" ? target.id : null };
+  const lessonHref = (lessonId: string, extra: { vorschlag?: string } = {}) => workplaceHref({ ...targetParams, stunde: lessonId, ...extra }, "#lessons-title");
+  // VT-03a: Kontext – markiert ist die gewählte Lehrkraft (`vorschlag`), sonst die eingetragene Vertretung, sonst der beste Vorschlag
+  const chosenSuggestions = chosen ? suggestions[0]! : [];
+  const markedId = chosen ? sp.vorschlag || chosen.change?.substituteId || chosenSuggestions[0]?.id || null : null;
+  const [classPlan, teacherCtx] = chosen
+    ? await Promise.all([classDay(db, chosen.groupId, date), markedId ? teacherDayContext(db, markedId, date, chosen.periodNr, master.periods) : Promise.resolve(null)])
+    : [[], null];
+  const markOptions = chosen
+    ? [
+        ...(chosen.change?.substituteId && !chosenSuggestions.slice(0, 3).some((c) => c.id === chosen!.change!.substituteId)
+          ? [{ id: chosen.change.substituteId, code: chosen.change.substituteCode, name: chosen.change.substituteName ?? "" }]
+          : []),
+        ...chosenSuggestions.slice(0, 3),
+        ...(teacherCtx && !chosenSuggestions.slice(0, 3).some((c) => c.id === teacherCtx.id) && teacherCtx.id !== chosen.change?.substituteId ? [{ id: teacherCtx.id, code: teacherCtx.code, name: teacherCtx.name }] : []),
+      ].map((c) => ({ id: c.id, code: c.code, name: c.name, href: lessonHref(chosen!.lessonId, { vorschlag: c.id }).replace("#lessons-title", "#context-title") }))
+    : [];
+
   const reasonOptions = SUBSTITUTION_REASONS.map((r) => ({ value: r, label: SUBSTITUTION_REASON_LABELS[r] }));
   // SP2-08: mehrtägige Abwesenheit der Lehrkraft einer Stunde → Dauervertretung anbieten
   const permanentFor = (teacherId: string | null) => {
@@ -120,11 +182,25 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   };
   const periodOptions = master.periods.map((p) => ({ nr: p.nr, label: `${p.nr}. Stunde (${p.startsAt.slice(0, 5)})` }));
   const subjectOptions = master.subjects.map((x) => ({ id: x.id, label: x.name }));
-  const here = `/planung/vertretungen?datum=${date}${sp.lehrkraft ? `&lehrkraft=${sp.lehrkraft}` : ""}${sp.gruppe ? `&gruppe=${sp.gruppe}` : ""}`;
+  const here = workplaceHref({ ...targetParams, stunde: chosen?.lessonId });
+  // VT-03a: Ampel – dringend (rot) zuerst, dann heute/noch Zeit (gelb), geregelt (grün), vorbei
+  const periodOf = new Map(master.periods.map((p) => [p.nr, p]));
+  const openRows = needs.open
+    .map((o) => {
+      const p = periodOf.get(o.periodNr);
+      const urgency = p ? needUrgency({ date, startsAt: p.startsAt, endsAt: p.endsAt, open: o.status === "open" }, now) : o.status === "open" ? "heute" : "geregelt";
+      return { ...o, urgency };
+    })
+    .sort((a, b) => URGENCY[a.urgency].order - URGENCY[b.urgency].order || a.periodNr - b.periodNr || a.groupName.localeCompare(b.groupName, "de", { numeric: true }));
   const openCount = needs.open.filter((o) => o.status === "open").length;
+  const urgentCount = openRows.filter((o) => o.urgency === "dringend").length;
   // Q5-12: „Material liegt vor“ je offener Stunde
   const materials = await materialsFor(db, perms, needs.open.map((o) => ({ lessonId: o.lessonId, date })));
   const roomOptions = master.rooms.map((r) => ({ id: r.id, label: r.id === r.name ? r.id : `${r.id} – ${r.name}` }));
+  const gong = gongSummary(planned, now);
+  const prevDay = stepSchoolDay(cal, date, -1);
+  const nextDay = stepSchoolDay(cal, date, 1);
+  const releaseLabel = release.draft ? "Entwurf" : release.mode === "freigabe" ? (changes.length > 0 || release.publishedAt ? "veröffentlicht" : "ohne Änderungen") : "gilt sofort";
 
   return (
     <main className="flex flex-col gap-6">
@@ -147,25 +223,6 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           {sp.fehler}
         </p>
       )}
-      <nav aria-label="Tage im Vertretungsplan" className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted">Im Vertretungsplan:</span>
-        {[...new Set([...shown, ...drafts])].sort().map((d) => {
-          const n = shownChanges.filter((c) => c.date === d).length;
-          const draft = shownDrafts.has(d) || drafts.includes(d);
-          return (
-            <Link
-              key={d}
-              href={`/planung/vertretungen?datum=${d}`}
-              aria-current={d === date ? "date" : undefined}
-              className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-1.5 hover:border-border-strong aria-[current=date]:border-accent"
-            >
-              <span className="font-medium">{shortDay.format(fromBerlinLocal(d))}</span>
-              {shown.includes(d) && <span className="text-muted">{n === 0 ? "keine Änderungen" : n === 1 ? "1 Änderung" : `${n} Änderungen`}</span>}
-              {draft && <Badge tone="warn">Entwurf</Badge>}
-            </Link>
-          );
-        })}
-      </nav>
       {notified !== null && (
         <p role="status" className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
           Veröffentlicht{notified > 0 ? ` – Nachricht an ${notified === 1 ? "1 Person" : `${notified} Personen`} eingeplant (siehe „Nachrichten“).` : "."}
@@ -176,29 +233,6 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           {sentNow === 0 ? "Gesendet – es gab nichts Neues zu melden." : `Gesendet – ${sentNow === 1 ? "1 Nachricht" : `${sentNow} Nachrichten`}.`}
         </p>
       )}
-      {planned.length > 0 && (
-        <section aria-labelledby="planned-title" className="flex flex-col gap-2">
-          <h2 id="planned-title" className="text-base font-semibold">
-            Nachrichten
-          </h2>
-          <ul aria-label="Geplante Nachrichten" className="flex flex-col gap-1.5 text-sm">
-            {planned.map((p) => (
-              <li key={`${p.date}-${p.audience}`} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span>
-                  <span className="font-medium">{shortDay.format(fromBerlinLocal(p.date))}</span> · {NOTIFY_AUDIENCE_LABELS[p.audience]} ·{" "}
-                  {p.people === 1 ? "1 Person" : `${p.people} Personen`}
-                </span>
-                <span className="text-muted">geplant für {plannedAt.format(p.dueAt)} Uhr</span>
-                <form action={sendNotificationsNowAction.bind(null, p.date, p.audience, here)}>
-                  <Button type="submit" size="sm" aria-label={`Jetzt senden: ${shortDay.format(fromBerlinLocal(p.date))}, ${NOTIFY_AUDIENCE_LABELS[p.audience]}`}>
-                    jetzt senden
-                  </Button>
-                </form>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
       {shortened !== null && (
         <p role="status" className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
           Abwesenheit verkürzt
@@ -207,54 +241,186 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
             : "."}
         </p>
       )}
-      {release.draft ? (
-        <Card aria-label="Entwurf" className="gap-3 border-warn">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-base font-semibold">Entwurf – noch nicht veröffentlicht</h2>
-              <p className="text-sm text-muted">
-                Schüler:innen, Eltern, Lehrkräfte und die Monitore sehen die Änderungen vom {longDay.format(fromBerlinLocal(date))} erst nach dem
-                Veröffentlichen. Dann bekommt jede betroffene Person eine Nachricht mit allen Änderungen des Tages – zur eingestellten Zeit am
-                Vortag, für heute sofort; spätere Änderungen gelten sofort.
-              </p>
-            </div>
-            <form action={publishDayAction.bind(null, date)}>
-              <Button type="submit" variant="primary">
-                Tag veröffentlichen
+
+      {/* VT-03a: Kopfleiste – Tag, Tagwechsel, Freigabe, Zähler, Nachrichten, Unbestätigte, Tagesmitteilungen */}
+      <section aria-labelledby="day-head-title" className="flex flex-col gap-4 rounded-card border border-border bg-surface p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <nav aria-label="Tagwechsel" className="flex flex-wrap items-center gap-2">
+            <Button asChild size="sm" variant="ghost">
+              <Link href={workplaceHref({ datum: prevDay })} aria-label={`Vortag: ${longDay.format(fromBerlinLocal(prevDay))}`}>
+                <span aria-hidden>‹</span> Vortag
+              </Link>
+            </Button>
+            <h2 id="day-head-title" className="font-display text-xl font-bold">
+              {longDay.format(fromBerlinLocal(date))}
+            </h2>
+            <Button asChild size="sm" variant="ghost">
+              <Link href={workplaceHref({ datum: nextDay })} aria-label={`Nächster Tag: ${longDay.format(fromBerlinLocal(nextDay))}`}>
+                Nächster Tag <span aria-hidden>›</span>
+              </Link>
+            </Button>
+            {date !== shown[0] && (
+              <Button asChild size="sm" variant="ghost">
+                <Link href="/planung/vertretungen">Heute</Link>
               </Button>
-            </form>
-          </div>
-        </Card>
-      ) : (
-        release.mode === "freigabe" && (
-          <p aria-label="Freigabe" className="text-sm text-muted">
-            {changes.length > 0 || release.publishedAt
-              ? "Dieser Tag ist veröffentlicht – weitere Änderungen gelten sofort und melden sich bei den Betroffenen."
-              : "Vertretungsplan mit Freigabe: Die erste Änderung an diesem Tag legt einen Entwurf an, den du danach veröffentlichst."}
-          </p>
-        )
-      )}
-      <section aria-labelledby="day-notes-title" className="flex flex-col gap-2">
-        <h2 id="day-notes-title" className="text-base font-semibold">
-          Tagesmitteilungen am {longDay.format(fromBerlinLocal(date))}
-        </h2>
-        {dayNotes.length > 0 && (
-          <ul className="flex flex-col gap-1.5 text-sm">
-            {dayNotes.map((n) => (
-              <li key={n.id} className="flex flex-wrap items-center gap-2">
-                <span>{n.body}</span>
-                {n.audience !== "alle" && <Badge tone="neutral">{DAY_NOTE_AUDIENCE_LABELS[n.audience]}</Badge>}
-                <form action={deleteDayNoteAction.bind(null, n.id)}>
-                  <Button type="submit" size="sm" variant="ghost" aria-label={`Tagesmitteilung löschen: ${n.body}`}>
-                    Löschen
-                  </Button>
-                </form>
+            )}
+          </nav>
+          <ul aria-label="Tagesstand" className="flex flex-wrap gap-2 text-sm">
+            <li>
+              <Badge tone={release.draft ? "warn" : "neutral"}>Freigabe: {releaseLabel}</Badge>
+            </li>
+            <li>
+              <a href="#needs-title" className="hover:underline">
+                <Badge tone="neutral">{needs.absences.length === 1 ? "1 Abwesenheit" : `${needs.absences.length} Abwesenheiten`}</Badge>
+              </a>
+            </li>
+            <li>
+              <a href="#needs-title" className="hover:underline">
+                <Badge tone={urgentCount > 0 ? "danger" : openCount > 0 ? "warn" : "success"}>
+                  {openCount} offen{urgentCount > 0 ? ` · ${urgentCount} dringend` : ""}
+                </Badge>
+              </a>
+            </li>
+            {ack && (
+              <li>
+                <a href="#unconfirmed-title" className="hover:underline">
+                  <Badge tone={unconfirmed.length > 0 ? "warn" : "neutral"}>{unconfirmed.length} unbestätigt</Badge>
+                </a>
               </li>
-            ))}
+            )}
+            {gong && (
+              <li>
+                <a href="#planned-title" className="hover:underline">
+                  <Badge tone="soft">{gong}</Badge>
+                </a>
+              </li>
+            )}
+            <li>
+              <a href="#day-notes-title" className="hover:underline">
+                <Badge tone="neutral">{dayNotes.length === 1 ? "1 Tagesmitteilung" : `${dayNotes.length} Tagesmitteilungen`}</Badge>
+              </a>
+            </li>
           </ul>
+        </div>
+        <nav aria-label="Tage im Vertretungsplan" className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted">Im Vertretungsplan:</span>
+          {[...new Set([...shown, ...drafts])].sort().map((d) => {
+            const n = shownChanges.filter((c) => c.date === d).length;
+            const draft = shownDrafts.has(d) || drafts.includes(d);
+            return (
+              <Link
+                key={d}
+                href={`/planung/vertretungen?datum=${d}`}
+                aria-current={d === date ? "date" : undefined}
+                className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-1.5 hover:border-border-strong aria-[current=date]:border-accent"
+              >
+                <span className="font-medium">{shortDay.format(fromBerlinLocal(d))}</span>
+                {shown.includes(d) && <span className="text-muted">{n === 0 ? "keine Änderungen" : n === 1 ? "1 Änderung" : `${n} Änderungen`}</span>}
+                {draft && <Badge tone="warn">Entwurf</Badge>}
+              </Link>
+            );
+          })}
+        </nav>
+        {release.draft ? (
+          <Card aria-label="Entwurf" className="gap-3 border-warn">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-col gap-1">
+                <h3 className="text-base font-semibold">Entwurf – noch nicht veröffentlicht</h3>
+                <p className="text-sm text-muted">
+                  Schüler:innen, Eltern, Lehrkräfte und die Monitore sehen die Änderungen vom {longDay.format(fromBerlinLocal(date))} erst nach dem
+                  Veröffentlichen. Dann bekommt jede betroffene Person eine Nachricht mit allen Änderungen des Tages – zur eingestellten Zeit am
+                  Vortag, für heute sofort; spätere Änderungen gelten sofort.
+                </p>
+              </div>
+              <form action={publishDayAction.bind(null, date)}>
+                <Button type="submit" variant="primary">
+                  Tag veröffentlichen
+                </Button>
+              </form>
+            </div>
+          </Card>
+        ) : (
+          release.mode === "freigabe" && (
+            <p aria-label="Freigabe" className="text-sm text-muted">
+              {changes.length > 0 || release.publishedAt
+                ? "Dieser Tag ist veröffentlicht – weitere Änderungen gelten sofort und melden sich bei den Betroffenen."
+                : "Vertretungsplan mit Freigabe: Die erste Änderung an diesem Tag legt einen Entwurf an, den du danach veröffentlichst."}
+            </p>
+          )
         )}
-        <DayNoteForm action={saveDayNoteAction.bind(null, null)} date={date} />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {planned.length > 0 && (
+            <section aria-labelledby="planned-title" className="flex min-w-0 flex-col gap-2">
+              <h3 id="planned-title" className="flex flex-wrap items-center gap-2 font-semibold">
+                Nachrichten
+                {gong && <Badge tone="soft">{gong}</Badge>}
+              </h3>
+              <ul aria-label="Geplante Nachrichten" className="flex flex-col gap-1.5 text-sm">
+                {planned.map((p) => (
+                  <li key={`${p.date}-${p.audience}`} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span>
+                      <span className="font-medium">{shortDay.format(fromBerlinLocal(p.date))}</span> · {NOTIFY_AUDIENCE_LABELS[p.audience]} ·{" "}
+                      {p.people === 1 ? "1 Person" : `${p.people} Personen`}
+                    </span>
+                    <span className="text-muted">geplant für {plannedAt.format(p.dueAt)} Uhr</span>
+                    <form action={sendNotificationsNowAction.bind(null, p.date, p.audience, here)}>
+                      <Button type="submit" size="sm" aria-label={`Jetzt senden: ${shortDay.format(fromBerlinLocal(p.date))}, ${NOTIFY_AUDIENCE_LABELS[p.audience]}`}>
+                        jetzt senden
+                      </Button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {unconfirmed.length > 0 && (
+            <Card aria-labelledby="unconfirmed-title" className="min-w-0 gap-2 border-0 p-0">
+              <h3 id="unconfirmed-title" className="flex flex-wrap items-center gap-2 font-semibold">
+                Noch nicht bestätigt
+                <Badge tone="warn">{unconfirmed.length}</Badge>
+              </h3>
+              <p className="text-sm text-muted">Vertretungen an veröffentlichten Tagen, die die Vertretungslehrkraft noch nicht mit „Gesehen“ bestätigt hat.</p>
+              <ul className="flex flex-col gap-1 text-sm">
+                {unconfirmed.map((u) => (
+                  <li key={`${u.id}-${u.periodNr}`} className="flex flex-wrap gap-x-2">
+                    <Link href={workplaceHref({ datum: u.date, stunde: u.lessonId }, "#lessons-title")} className="font-medium hover:underline">
+                      {shortDay.format(fromBerlinLocal(u.date))}
+                    </Link>
+                    <span>
+                      {u.periodNr}. Std · {u.groupName} · {subjectLabel(u.subjectName, u.insteadOf)}
+                    </span>
+                    <span className="text-muted">
+                      {changeLabel(u)} durch {u.substituteCode ?? u.substituteName ?? "–"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+          <section aria-labelledby="day-notes-title" className="flex min-w-0 flex-col gap-2">
+            <h3 id="day-notes-title" className="font-semibold">
+              Tagesmitteilungen am {longDay.format(fromBerlinLocal(date))}
+            </h3>
+            {dayNotes.length > 0 && (
+              <ul className="flex flex-col gap-1.5 text-sm">
+                {dayNotes.map((n) => (
+                  <li key={n.id} className="flex flex-wrap items-center gap-2">
+                    <span>{n.body}</span>
+                    {n.audience !== "alle" && <Badge tone="neutral">{DAY_NOTE_AUDIENCE_LABELS[n.audience]}</Badge>}
+                    <form action={deleteDayNoteAction.bind(null, n.id)}>
+                      <Button type="submit" size="sm" variant="ghost" aria-label={`Tagesmitteilung löschen: ${n.body}`}>
+                        Löschen
+                      </Button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <DayNoteForm action={saveDayNoteAction.bind(null, null)} date={date} />
+          </section>
+        </div>
       </section>
+
       <section aria-labelledby="week-title" className="flex flex-col gap-2">
         <h2 id="week-title" className="text-base font-semibold">
           Vertretungsbedarf der nächsten Schultage
@@ -345,296 +511,368 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           </Table>
         </Card>
       )}
-      {unconfirmed.length > 0 && (
-        <Card aria-labelledby="unconfirmed-title" className="gap-3">
-          <h2 id="unconfirmed-title" className="flex flex-wrap items-center gap-2 text-base font-semibold">
-            Noch nicht bestätigt
-            <Badge tone="warn">{unconfirmed.length}</Badge>
-          </h2>
-          <p className="-mt-2 text-sm text-muted">Vertretungen an veröffentlichten Tagen, die die Vertretungslehrkraft noch nicht mit „Gesehen“ bestätigt hat.</p>
-          <ul className="flex flex-col gap-1 text-sm">
-            {unconfirmed.map((u) => (
-              <li key={`${u.id}-${u.periodNr}`} className="flex flex-wrap gap-x-2">
-                <Link href={`/planung/vertretungen?datum=${u.date}`} className="font-medium hover:underline">
-                  {shortDay.format(fromBerlinLocal(u.date))}
-                </Link>
-                <span>
-                  {u.periodNr}. Std · {u.groupName} · {subjectLabel(u.subjectName, u.insteadOf)}
-                </span>
-                <span className="text-muted">
-                  {changeLabel(u)} durch {u.substituteCode ?? u.substituteName ?? "–"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-      <Card aria-labelledby="absence-title" className="gap-3">
-        <h2 id="absence-title" className="text-base font-semibold">
-          Abwesenheit eintragen
-        </h2>
-        <p className="-mt-2 text-sm text-muted">
-          Fehlt eine Lehrkraft, werden ihre Stunden offen. Fehlt eine Klasse (Exkursion, Praktikum), entfallen ihre Stunden und die Lehrkräfte sind frei für Vertretungen.
-        </p>
-        <AbsenceForm
-          action={createAbsenceAction}
-          date={date}
-          teachers={teachers.map((t) => ({ value: t.id, label: `${t.code} – ${t.name}` }))}
-          groups={groupList.map((g) => ({ value: g.id, label: g.name }))}
-          periods={master.periods.map((p) => ({ value: String(p.nr), label: `${p.nr}. Stunde` }))}
-          teacherReasons={TEACHER_REASONS.map((r) => ({ value: r, label: ABSENCE_LABELS[r] }))}
-          groupReasons={GROUP_REASONS.map((r) => ({ value: r, label: ABSENCE_LABELS[r] }))}
-        />
-      </Card>
-      <form className="grid gap-3 rounded-card border border-border bg-surface p-4 sm:grid-cols-[11rem_1fr_1fr_auto]" aria-label="Stunden wählen">
-        <Input type="date" name="datum" defaultValue={date} aria-label="Datum" required />
-        <Select name="lehrkraft" defaultValue={sp.lehrkraft ?? ""} aria-label="Lehrkraft (z. B. erkrankt)">
-          <option value="">Lehrkraft (z. B. erkrankt) …</option>
-          {teachers.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.code} – {t.name}
-            </option>
-          ))}
-        </Select>
-        <Select name="gruppe" defaultValue={sp.gruppe ?? ""} aria-label="oder Klasse/Kurs">
-          <option value="">oder Klasse/Kurs …</option>
-          {(["klasse", "kurs", "ag"] as const).map((kind) => (
-            <optgroup key={kind} label={GROUP_KIND_LABELS[kind]}>
-              {groupList
-                .filter((g) => g.kind === kind)
-                .map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </Select>
-        <Button type="submit">Anzeigen</Button>
-      </form>
 
-      <section aria-labelledby="needs-title" className="flex flex-col gap-3">
-        <h2 id="needs-title" className="flex flex-wrap items-center gap-2 font-display text-xl font-bold">
-          Vertretungsbedarf am {longDay.format(fromBerlinLocal(date))}
-          {openCount > 0 && <Badge tone="warn">{openCount} offen</Badge>}
-        </h2>
-        {needs.absences.length === 0 ? (
-          <p className="text-sm text-muted">Für diesen Tag ist keine Abwesenheit eingetragen.</p>
-        ) : (
-          <>
-            <ul aria-label="Abwesenheiten" className="flex flex-wrap gap-2">
-              {needs.absences.map((a) => (
-                <li key={a.id} className="flex items-center gap-2 rounded-xl border border-border bg-surface py-1 pr-1 pl-3 text-sm">
-                  <span className="font-semibold">{a.label}</span>
-                  <span className="text-muted">
-                    {ABSENCE_LABELS[a.reason]}
-                    {a.fromPeriod !== null && ` · ${a.fromPeriod === a.toPeriod ? `${a.fromPeriod}.` : `${a.fromPeriod}.–${a.toPeriod}.`} Std.`}
-                    {a.startsOn !== a.endsOn && ` · bis ${a.endsOn.slice(8)}.${a.endsOn.slice(5, 7)}.`}
-                    {a.note && ` · ${a.note}`}
-                    {a.selfReported && " · selbst gemeldet"}
-                  </span>
-                  {/* SP2-16b: früher zurück – Ende vorziehen; Vertretungen danach werden zur Prüfung markiert */}
-                  {a.startsOn !== a.endsOn && (
-                    <form action={shortenAbsenceAction.bind(null, a.id, date)} className="flex items-center gap-1">
-                      <Input
-                        type="date"
-                        name="endsOn"
-                        required
-                        min={a.startsOn}
-                        max={addDays(a.endsOn, -1)}
-                        defaultValue={date < a.endsOn && date >= a.startsOn ? date : a.startsOn}
-                        aria-label={`Neues Ende: Abwesenheit ${a.label}`}
-                        className="h-8 w-36 px-2 text-sm"
-                      />
-                      <Button type="submit" size="sm" variant="ghost" aria-label={`Abwesenheit ${a.label} verkürzen`}>
-                        Verkürzen
-                      </Button>
-                    </form>
-                  )}
-                  <form action={deleteAbsenceAction.bind(null, a.id, date)}>
-                    <Button type="submit" size="sm" variant="ghost" aria-label={`Abwesenheit ${a.label} aufheben`}>
-                      Aufheben
-                    </Button>
-                  </form>
-                </li>
-              ))}
-            </ul>
-            {needs.open.length > 0 && (
-              <Table>
-                <caption className="sr-only">Offene Stunden abwesender Lehrkräfte</caption>
-                <thead>
-                  <tr>
-                    <th>Std.</th>
-                    <th>Klasse</th>
-                    <th>Fach</th>
-                    <th>Lehrkraft</th>
-                    <th>Status</th>
-                    <th>
-                      <span className="sr-only">Aktion</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {needs.open.map((o) => (
-                    <tr key={o.lessonId}>
-                      <td className="tabular-nums">{o.periodNr}.</td>
-                      <td className="font-medium">{o.groupName}</td>
-                      <td>{o.subjectName}</td>
-                      <td>{o.teacherCode}</td>
-                      <td>
-                        <Badge tone={o.status === "open" ? "warn" : "success"}>{o.status === "open" ? "offen" : CHANGE_KIND_LABEL[o.status]}</Badge>
-                        {o.substituteAbsent && <span className="ml-2 text-xs text-muted">Vertretung durch {o.substituteAbsent} fällt aus</span>}
-                        {materials.has(`${o.lessonId}:${date}`) && (
-                          <Link href={`/stundenplan/material/${materials.get(`${o.lessonId}:${date}`)!.id}`} className="ml-2 text-xs font-medium text-accent-ink hover:underline">
-                            Material liegt vor
-                          </Link>
-                        )}
-                      </td>
-                      <td className="text-right">
-                        <Button asChild size="sm">
-                          <a href={`/planung/vertretungen?datum=${date}&lehrkraft=${o.teacherId}#lessons-title`}>{o.status === "open" ? "Vertretung eintragen" : "Ändern"}</a>
+      {/* VT-03a: dreiteilig – offene Stunden · gewählte Stunde · Kontext; schmal untereinander */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)_minmax(0,22rem)]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <section aria-labelledby="needs-title" className="flex flex-col gap-3">
+            <h2 id="needs-title" className="flex flex-wrap items-center gap-2 font-display text-xl font-bold">
+              Vertretungsbedarf am {longDay.format(fromBerlinLocal(date))}
+              {openCount > 0 && <Badge tone="warn">{openCount} offen</Badge>}
+            </h2>
+            {needs.absences.length === 0 ? (
+              <p className="text-sm text-muted">Für diesen Tag ist keine Abwesenheit eingetragen.</p>
+            ) : (
+              <>
+                <ul aria-label="Abwesenheiten" className="flex flex-wrap gap-2">
+                  {needs.absences.map((a) => (
+                    <li key={a.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface py-1 pr-1 pl-3 text-sm">
+                      <span className="font-semibold">{a.label}</span>
+                      <span className="text-muted">
+                        {ABSENCE_LABELS[a.reason]}
+                        {a.fromPeriod !== null && ` · ${a.fromPeriod === a.toPeriod ? `${a.fromPeriod}.` : `${a.fromPeriod}.–${a.toPeriod}.`} Std.`}
+                        {a.startsOn !== a.endsOn && ` · bis ${a.endsOn.slice(8)}.${a.endsOn.slice(5, 7)}.`}
+                        {a.note && ` · ${a.note}`}
+                        {a.selfReported && " · selbst gemeldet"}
+                      </span>
+                      {/* SP2-16b: früher zurück – Ende vorziehen; Vertretungen danach werden zur Prüfung markiert */}
+                      {a.startsOn !== a.endsOn && (
+                        <form action={shortenAbsenceAction.bind(null, a.id, date)} className="flex items-center gap-1">
+                          <Input
+                            type="date"
+                            name="endsOn"
+                            required
+                            min={a.startsOn}
+                            max={addDays(a.endsOn, -1)}
+                            defaultValue={date < a.endsOn && date >= a.startsOn ? date : a.startsOn}
+                            aria-label={`Neues Ende: Abwesenheit ${a.label}`}
+                            className="h-8 w-36 px-2 text-sm"
+                          />
+                          <Button type="submit" size="sm" variant="ghost" aria-label={`Abwesenheit ${a.label} verkürzen`}>
+                            Verkürzen
+                          </Button>
+                        </form>
+                      )}
+                      <form action={deleteAbsenceAction.bind(null, a.id, date)}>
+                        <Button type="submit" size="sm" variant="ghost" aria-label={`Abwesenheit ${a.label} aufheben`}>
+                          Aufheben
                         </Button>
-                      </td>
-                    </tr>
+                      </form>
+                    </li>
                   ))}
-                </tbody>
-              </Table>
-            )}
-            {needs.released.length > 0 && (
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-semibold">Freisetzungen (Klasse abwesend, Lehrkraft frei)</h3>
-                  {needs.released.some((r) => !r.cancelled) && (
-                    <form action={cancelReleasedAction.bind(null, date)}>
-                      <Button type="submit" size="sm">
-                        Entfall für alle eintragen
-                      </Button>
-                    </form>
-                  )}
-                </div>
-                <Table>
-                  <caption className="sr-only">Freisetzungen</caption>
-                  <thead>
-                    <tr>
-                      <th>Std.</th>
-                      <th>Klasse</th>
-                      <th>Fach</th>
-                      <th>frei</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {needs.released.map((r) => (
-                      <tr key={r.lessonId}>
-                        <td className="tabular-nums">{r.periodNr}.</td>
-                        <td className="font-medium">{r.groupName}</td>
-                        <td>{r.subjectName}</td>
-                        <td>{r.teacherCode ?? "–"}</td>
-                        <td>
-                          <Badge tone={r.cancelled ? "neutral" : "warn"}>{r.cancelled ? "Entfall eingetragen" : "Entfall fehlt"}</Badge>
-                        </td>
+                </ul>
+                {openRows.length > 0 && (
+                  <Table className="[&_td]:px-2! [&_th]:px-2!">
+                    <caption className="sr-only">Offene Stunden abwesender Lehrkräfte</caption>
+                    <thead>
+                      <tr>
+                        <th>Std.</th>
+                        <th>Klasse</th>
+                        <th>Fach</th>
+                        <th>Status</th>
+                        <th>
+                          <span className="sr-only">Aktion</span>
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {openRows.map((o) => (
+                        <tr key={o.lessonId} aria-current={o.lessonId === chosen?.lessonId ? "true" : undefined} className="aria-[current=true]:bg-accent-soft">
+                          <td className="tabular-nums">{o.periodNr}.</td>
+                          <td className="font-medium whitespace-nowrap">{o.groupName}</td>
+                          <td>
+                            {o.subjectName} <span className="block text-xs text-muted">{o.teacherCode}</span>
+                          </td>
+                          <td>
+                            <span className="flex flex-wrap items-center gap-1">
+                              <Badge tone={o.status === "open" ? "warn" : "success"}>{o.status === "open" ? "offen" : CHANGE_KIND_LABEL[o.status]}</Badge>
+                              {o.status === "open" && (
+                                <Badge tone={URGENCY[o.urgency].tone} title="Dringlichkeit">
+                                  <span aria-hidden>●</span> {URGENCY[o.urgency].label}
+                                </Badge>
+                              )}
+                            </span>
+                            {o.substituteAbsent && <span className="block text-xs text-muted">Vertretung durch {o.substituteAbsent} fällt aus</span>}
+                            {materials.has(`${o.lessonId}:${date}`) && (
+                              <Link href={`/stundenplan/material/${materials.get(`${o.lessonId}:${date}`)!.id}`} className="block text-xs font-medium text-accent-ink hover:underline">
+                                Material liegt vor
+                              </Link>
+                            )}
+                          </td>
+                          <td className="text-right">
+                            <Button asChild size="sm" variant={o.lessonId === chosen?.lessonId ? "primary" : undefined} className="h-auto py-1 text-center whitespace-normal">
+                              <Link href={workplaceHref({ datum: date, lehrkraft: o.teacherId, stunde: o.lessonId }, "#lessons-title")}>{o.status === "open" ? "Vertretung eintragen" : "Ändern"}</Link>
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
+                {needs.released.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="font-semibold">Freisetzungen (Klasse abwesend, Lehrkraft frei)</h3>
+                      {needs.released.some((r) => !r.cancelled) && (
+                        <form action={cancelReleasedAction.bind(null, date)}>
+                          <Button type="submit" size="sm">
+                            Entfall für alle eintragen
+                          </Button>
+                        </form>
+                      )}
+                    </div>
+                    <Table>
+                      <caption className="sr-only">Freisetzungen</caption>
+                      <thead>
+                        <tr>
+                          <th>Std.</th>
+                          <th>Klasse</th>
+                          <th>Fach</th>
+                          <th>frei</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {needs.released.map((r) => (
+                          <tr key={r.lessonId}>
+                            <td className="tabular-nums">{r.periodNr}.</td>
+                            <td className="font-medium">{r.groupName}</td>
+                            <td>{r.subjectName}</td>
+                            <td>{r.teacherCode ?? "–"}</td>
+                            <td>
+                              <Badge tone={r.cancelled ? "neutral" : "warn"}>{r.cancelled ? "Entfall eingetragen" : "Entfall fehlt"}</Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  </div>
+                )}
+              </>
             )}
-          </>
-        )}
-      </section>
+          </section>
+          <form className="grid gap-3 rounded-card border border-border bg-surface p-4 sm:grid-cols-2" aria-label="Stunden wählen">
+            <Input type="date" name="datum" defaultValue={date} aria-label="Datum" required className="sm:col-span-2" />
+            <Select name="lehrkraft" defaultValue={target?.kind === "teacher" ? target.id : ""} aria-label="Lehrkraft (z. B. erkrankt)">
+              <option value="">Lehrkraft (z. B. erkrankt) …</option>
+              {teachers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.code} – {t.name}
+                </option>
+              ))}
+            </Select>
+            <Select name="gruppe" defaultValue={target?.kind === "group" ? target.id : ""} aria-label="oder Klasse/Kurs">
+              <option value="">oder Klasse/Kurs …</option>
+              {(["klasse", "kurs", "ag"] as const).map((kind) => (
+                <optgroup key={kind} label={GROUP_KIND_LABELS[kind]}>
+                  {groupList
+                    .filter((g) => g.kind === kind)
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </Select>
+            <Button type="submit" className="sm:col-span-2">
+              Anzeigen
+            </Button>
+          </form>
+          <Card aria-labelledby="absence-title" className="@container gap-3">
+            <h2 id="absence-title" className="text-base font-semibold">
+              Abwesenheit eintragen
+            </h2>
+            <p className="-mt-2 text-sm text-muted">
+              Fehlt eine Lehrkraft, werden ihre Stunden offen. Fehlt eine Klasse (Exkursion, Praktikum), entfallen ihre Stunden und die Lehrkräfte sind frei für Vertretungen.
+            </p>
+            <AbsenceForm
+              action={createAbsenceAction}
+              date={date}
+              teachers={teachers.map((t) => ({ value: t.id, label: `${t.code} – ${t.name}` }))}
+              groups={groupList.map((g) => ({ value: g.id, label: g.name }))}
+              periods={master.periods.map((p) => ({ value: String(p.nr), label: `${p.nr}. Stunde` }))}
+              teacherReasons={TEACHER_REASONS.map((r) => ({ value: r, label: ABSENCE_LABELS[r] }))}
+              groupReasons={GROUP_REASONS.map((r) => ({ value: r, label: ABSENCE_LABELS[r] }))}
+            />
+          </Card>
+        </div>
 
-      {target && (
-        <section aria-labelledby="lessons-title" className="flex flex-col gap-3">
+        <section aria-labelledby="lessons-title" className="flex min-w-0 scroll-mt-4 flex-col gap-3">
           <h2 id="lessons-title" className="font-display text-xl font-bold">
             Stunden am {longDay.format(fromBerlinLocal(date))}
           </h2>
-          {lessons.length === 0 ? (
+          {!target ? (
+            <EmptyState title="Keine Stunde gewählt">Wähle eine offene Stunde aus dem Vertretungsbedarf oder eine Lehrkraft bzw. Klasse unter „Anzeigen“.</EmptyState>
+          ) : targetLessons.length === 0 ? (
             <EmptyState title="An diesem Tag keine Stunden" />
           ) : (
-            lessons.map((l, i) => {
-              const d = slotDisplay(l, target.kind === "teacher" ? "teacher" : "group");
-              const existing = changes.find((c) => c.lessonId === l.lessonId);
-              // SP-12: Kopf und Feldnamen mit dem regulären Fach; bei Fachtausch steht das neue daneben
-              const regularSubject = l.change?.insteadOf ?? l.subjectName;
-              const regularSubjectId = l.change?.insteadOfId ?? l.subjectId;
-              const label = `${l.periodNr}. Std · ${regularSubject} · ${l.groupName}`;
-              return (
-                <Card key={l.lessonId} className="gap-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <span aria-hidden className="h-9 w-1.5 rounded-full" style={{ background: l.color }} />
-                      <span className="flex flex-col leading-tight">
-                        <span className="font-semibold">
-                          {l.periodNr}. Std · {regularSubject}
-                          {l.change?.subjectName && <span className="font-normal text-warn"> → {l.change.subjectName}</span>}
+            <>
+              {chosen && targetLessons.length > 1 && (
+                <nav aria-label="Weitere Stunden" className="flex flex-wrap items-center gap-1.5 text-sm">
+                  <span className="text-muted">{target.kind === "teacher" ? "Stunden der Lehrkraft:" : `Stunden ${chosen.groupName}:`}</span>
+                  {targetLessons.map((l) => (
+                    <Link
+                      key={l.lessonId}
+                      href={lessonHref(l.lessonId)}
+                      aria-current={l.lessonId === chosen!.lessonId ? "true" : undefined}
+                      className="rounded-full border border-border bg-surface px-2.5 py-0.5 hover:border-border-strong aria-[current=true]:border-accent aria-[current=true]:bg-accent-soft aria-[current=true]:text-accent-ink"
+                    >
+                      {l.periodNr}. {l.change?.insteadOf ?? l.subjectName}
+                    </Link>
+                  ))}
+                  <Link href={workplaceHref(targetParams, "#lessons-title")} className="font-medium text-accent-ink hover:underline">
+                    alle zeigen
+                  </Link>
+                </nav>
+              )}
+              {lessons.map((l, i) => {
+                const d = slotDisplay(l, target!.kind === "teacher" ? "teacher" : "group");
+                const existing = changes.find((c) => c.lessonId === l.lessonId);
+                // SP-12: Kopf und Feldnamen mit dem regulären Fach; bei Fachtausch steht das neue daneben
+                const regularSubject = l.change?.insteadOf ?? l.subjectName;
+                const regularSubjectId = l.change?.insteadOfId ?? l.subjectId;
+                const label = `${l.periodNr}. Std · ${regularSubject} · ${l.groupName}`;
+                const lessonHistory = historyOf(l.lessonId);
+                const isChosen = l.lessonId === chosen?.lessonId;
+                return (
+                  <Card key={l.lessonId} aria-label={isChosen ? `Gewählte Stunde: ${label}` : undefined} className={`@container gap-3${isChosen ? " border-accent" : ""}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-3">
+                        <span aria-hidden className="h-9 w-1.5 rounded-full" style={{ background: l.color }} />
+                        <span className="flex flex-col leading-tight">
+                          <span className="font-semibold">
+                            {l.periodNr}. Std · {regularSubject}
+                            {l.change?.subjectName && <span className="font-normal text-warn"> → {l.change.subjectName}</span>}
+                          </span>
+                          <span className="text-sm text-muted">{[l.groupName, l.teacherCode, l.roomId && `R ${l.roomId}`].filter(Boolean).join(" · ")}</span>
                         </span>
-                        <span className="text-sm text-muted">{[l.groupName, l.teacherCode, l.roomId && `R ${l.roomId}`].filter(Boolean).join(" · ")}</span>
-                      </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {d.tag && <Badge tone={d.tone === "sub" ? "warn" : "neutral"}>{d.tag}</Badge>}
+                        {!isChosen && (
+                          <Button asChild size="sm" variant="ghost">
+                            <Link href={lessonHref(l.lessonId)} aria-label={`Stunde wählen: ${label}`}>
+                              Wählen
+                            </Link>
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    {d.tag && <Badge tone={d.tone === "sub" ? "warn" : "neutral"}>{d.tag}</Badge>}
-                  </div>
-                  {suggestions[i]!.length > 0 && (
-                    <div aria-label={`Vorschläge: ${label}`} role="group" className="flex flex-col gap-1.5 rounded-xl bg-surface-2 p-3">
-                      <span className="text-xs font-semibold tracking-wide text-muted uppercase">Vorschläge</span>
-                      <ol className="flex flex-col gap-1.5">
-                        {suggestions[i]!.slice(0, 3).map((c) => (
-                          <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
-                            <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, here, null)}>
-                              <Button type="submit" size="sm" aria-label={`${c.code ?? c.name} übernehmen: ${label}`}>
-                                {c.code ?? c.name} übernehmen
-                              </Button>
-                            </form>
-                            {c.suggestedSubject && (
-                              <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, here, c.suggestedSubject.id)}>
-                                <Button type="submit" size="sm" aria-label={`${c.code ?? c.name} mit ${c.suggestedSubject.name} übernehmen: ${label}`} title="Lehrkraft und Fach übernehmen">
-                                  → {c.suggestedSubject.name}
+                    {/* VT-03a: Kenntnisnahme und Verlauf der Stunde (vorher Spalte/Aufklapper in „Alle Änderungen“) */}
+                    {(existing || lessonHistory.length > 0) && (
+                      <div className="flex flex-col gap-1 text-sm">
+                        {ack && existing?.kind === "substitute" && (
+                          <p className="flex flex-wrap items-center gap-2">
+                            <span className="text-muted">Gesehen:</span>
+                            {existing.draft ? (
+                              <span className="text-muted">nach dem Veröffentlichen</span>
+                            ) : existing.internal?.acknowledgedAt ? (
+                              <>
+                                <Badge tone="success">gesehen</Badge>
+                                <span className="text-muted">{stamp.format(existing.internal.acknowledgedAt)}</span>
+                              </>
+                            ) : (
+                              <Badge tone="warn">offen</Badge>
+                            )}
+                          </p>
+                        )}
+                        {lessonHistory.length > 0 && (
+                          <details open={isChosen} className="text-xs">
+                            <summary className="cursor-pointer font-medium">Verlauf ({lessonHistory.length})</summary>
+                            <ol aria-label={`Verlauf: ${l.groupName} ${l.periodNr}. Std`} className="mt-1 flex flex-col gap-0.5">
+                              {lessonHistory.map((h) => (
+                                <li key={h.id}>
+                                  {stamp.format(h.createdAt)} · {describeChange(h)}
+                                  {h.actorId && ` · ${actors.get(h.actorId) ?? "–"}`}
+                                </li>
+                              ))}
+                            </ol>
+                          </details>
+                        )}
+                      </div>
+                    )}
+                    {suggestions[i]!.length > 0 && (
+                      <div aria-label={`Vorschläge: ${label}`} role="group" className="flex flex-col gap-1.5 rounded-xl bg-surface-2 p-3">
+                        <span className="text-xs font-semibold tracking-wide text-muted uppercase">Vorschläge</span>
+                        <ol className="flex flex-col gap-1.5">
+                          {suggestions[i]!.slice(0, 3).map((c) => (
+                            <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
+                              <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, here, null)}>
+                                <Button type="submit" size="sm" aria-label={`${c.code ?? c.name} übernehmen: ${label}`}>
+                                  {c.code ?? c.name} übernehmen
                                 </Button>
                               </form>
-                            )}
-                            {c.standby && <Badge tone="soft">Bereitschaft</Badge>}
-                            <Badge tone={c.score > 0 ? "success" : "neutral"}>{c.score > 0 ? `+${c.score}` : c.score} Punkte</Badge>
-                            <span className="text-muted">{c.reasons.map((r) => `${r.label} (${r.points > 0 ? "+" : ""}${r.points})`).join(" · ")}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-                  <SubstitutionForm
-                    action={saveSubstitutionAction}
-                    removeAction={existing ? deleteSubstitutionAction.bind(null, existing.id) : undefined}
-                    lessonId={l.lessonId}
-                    date={date}
-                    label={label}
-                    initial={{
-                      kind: existing?.kind ?? "substitute",
-                      substituteId: l.change?.substituteId ?? "",
-                      roomId: l.change?.roomId ?? "",
-                      note: l.change?.note ?? "",
-                      subjectId: l.change?.subjectId ?? regularSubjectId,
-                      targetPeriod: l.change?.targetPeriod ? String(l.change.targetPeriod) : "",
-                      mergeLessonId: l.change?.mergeLessonId ?? "",
-                      reason: existing?.reason ?? "",
-                      internalNote: existing?.internal?.note ?? "",
-                      supervisionOnly: existing?.supervisionOnly ? "1" : "",
-                    }}
-                    reasons={reasonOptions}
-                    defaultReasonLabel={reasonDefaults[i] ? SUBSTITUTION_REASON_LABELS[reasonDefaults[i]!] : null}
-                    periods={periodOptions}
-                    ownPeriod={l.periodNr}
-                    mergeOptions={merges[i]!}
-                    permanent={permanentFor(l.teacherId)}
-                    regularSubjectId={regularSubjectId}
-                    subjects={subjectOptions}
-                    exams={(examsByGroup.get(l.groupId) ?? []).map((e) => ({ subjectId: e.subjectId, label: `${EXAM_KIND[e.kind]} in ${e.subjectName}` }))}
-                    teachers={availability[i]!.map((t) => ({ id: t.id, label: `${t.code} – ${t.name}`, free: t.free }))}
-                    rooms={roomOptions}
-                  />
-                </Card>
-              );
-            })
+                              {c.suggestedSubject && (
+                                <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, here, c.suggestedSubject.id)}>
+                                  <Button type="submit" size="sm" aria-label={`${c.code ?? c.name} mit ${c.suggestedSubject.name} übernehmen: ${label}`} title="Lehrkraft und Fach übernehmen">
+                                    → {c.suggestedSubject.name}
+                                  </Button>
+                                </form>
+                              )}
+                              {c.standby && <Badge tone="soft">Bereitschaft</Badge>}
+                              <Badge tone={c.score > 0 ? "success" : "neutral"}>{c.score > 0 ? `+${c.score}` : c.score} Punkte</Badge>
+                              <span className="text-muted">{c.reasons.map((r) => `${r.label} (${r.points > 0 ? "+" : ""}${r.points})`).join(" · ")}</span>
+                              <Link
+                                href={lessonHref(l.lessonId, { vorschlag: c.id }).replace("#lessons-title", "#context-title")}
+                                aria-current={isChosen && c.id === markedId ? "true" : undefined}
+                                className="font-medium text-accent-ink hover:underline aria-[current=true]:underline"
+                              >
+                                Tag von {c.code ?? c.name}
+                              </Link>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                    <SubstitutionForm
+                      action={saveSubstitutionAction}
+                      removeAction={existing ? deleteSubstitutionAction.bind(null, existing.id) : undefined}
+                      lessonId={l.lessonId}
+                      date={date}
+                      label={label}
+                      initial={{
+                        kind: existing?.kind ?? "substitute",
+                        substituteId: l.change?.substituteId ?? "",
+                        roomId: l.change?.roomId ?? "",
+                        note: l.change?.note ?? "",
+                        subjectId: l.change?.subjectId ?? regularSubjectId,
+                        targetPeriod: l.change?.targetPeriod ? String(l.change.targetPeriod) : "",
+                        mergeLessonId: l.change?.mergeLessonId ?? "",
+                        reason: existing?.reason ?? "",
+                        internalNote: existing?.internal?.note ?? "",
+                        supervisionOnly: existing?.supervisionOnly ? "1" : "",
+                      }}
+                      reasons={reasonOptions}
+                      defaultReasonLabel={reasonDefaults[i] ? SUBSTITUTION_REASON_LABELS[reasonDefaults[i]!] : null}
+                      periods={periodOptions}
+                      ownPeriod={l.periodNr}
+                      mergeOptions={merges[i]!}
+                      permanent={permanentFor(l.teacherId)}
+                      regularSubjectId={regularSubjectId}
+                      subjects={subjectOptions}
+                      exams={(examsByGroup.get(l.groupId) ?? []).map((e) => ({ subjectId: e.subjectId, label: `${EXAM_KIND[e.kind]} in ${e.subjectName}` }))}
+                      teachers={availability[i]!.map((t) => ({ id: t.id, label: `${t.code} – ${t.name}`, free: t.free }))}
+                      rooms={roomOptions}
+                    />
+                  </Card>
+                );
+              })}
+            </>
           )}
         </section>
-      )}
+
+        <section aria-labelledby="context-title" className="flex min-w-0 scroll-mt-4 flex-col gap-3 xl:col-start-2 2xl:col-start-3 2xl:row-start-1">
+          <h2 id="context-title" className="font-display text-xl font-bold">
+            Kontext
+          </h2>
+          {chosen ? (
+            <ContextColumn chosen={chosen} classPlan={classPlan} teacher={teacherCtx} options={markOptions} markedId={markedId} lessonHref={(id) => lessonHref(id)} />
+          ) : (
+            <p className="text-sm text-muted">Wähle eine Stunde – dann stehen hier der Tagesplan der Klasse und der Tag der vorgeschlagenen Lehrkraft.</p>
+          )}
+        </section>
+      </div>
 
       <section aria-labelledby="day-title" className="flex flex-col gap-3">
         <h2 id="day-title" className="font-display text-xl font-bold">
@@ -652,7 +890,6 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                 <th>Art</th>
                 <th>Vertretung · Raum</th>
                 <th>Hinweis</th>
-                {ack && <th>Gesehen</th>}
                 <th>
                   <span className="sr-only">Aktion</span>
                 </th>
@@ -683,35 +920,14 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                   <td className="text-muted">
                     {[c.reason && SUBSTITUTION_REASON_LABELS[c.reason], c.supervisionOnly && "nur Betreuung", c.note].filter(Boolean).join(" · ")}
                     {c.internal?.note && <span className="block text-xs">intern: {c.internal.note}</span>}
-                    {c.movedFrom === null && historyOf(c.lessonId).length > 0 && (
-                      <details className="mt-1 text-xs">
-                        <summary className="cursor-pointer font-medium text-ink">Verlauf ({historyOf(c.lessonId).length})</summary>
-                        <ol aria-label={`Verlauf: ${c.groupName} ${c.periodNr}. Std`} className="mt-1 flex flex-col gap-0.5">
-                          {historyOf(c.lessonId).map((h) => (
-                            <li key={h.id}>
-                              {stamp.format(h.createdAt)} · {describeChange(h)}
-                              {h.actorId && ` · ${actors.get(h.actorId) ?? "–"}`}
-                            </li>
-                          ))}
-                        </ol>
-                      </details>
-                    )}
                   </td>
-                  {ack && (
-                    <td className="whitespace-nowrap">
-                      {c.kind === "substitute" && !c.draft ? (
-                        c.internal?.acknowledgedAt ? (
-                          <Badge tone="success">gesehen</Badge>
-                        ) : (
-                          <Badge tone="warn">offen</Badge>
-                        )
-                      ) : (
-                        <span className="text-muted">–</span>
-                      )}
-                    </td>
-                  )}
-                  <td className="text-right">
-                    <form action={deleteSubstitutionAction.bind(null, c.id)}>
+                  <td className="text-right whitespace-nowrap">
+                    <Button asChild size="sm" variant="ghost">
+                      <Link href={workplaceHref({ datum: date, stunde: c.lessonId }, "#lessons-title")} aria-label={`Stunde öffnen: ${c.groupName} ${c.periodNr}. Std`}>
+                        Öffnen
+                      </Link>
+                    </Button>
+                    <form action={deleteSubstitutionAction.bind(null, c.id)} className="inline">
                       <Button type="submit" size="sm" variant="ghost" aria-label={`Aufheben: ${c.groupName} ${c.periodNr}. Std`}>
                         Aufheben
                       </Button>
@@ -721,6 +937,27 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
               ))}
             </tbody>
           </Table>
+        )}
+        {removed.length > 0 && (
+          <div className="flex flex-col gap-1.5 text-sm">
+            <h3 className="font-semibold">Aufgehoben</h3>
+            <ul aria-label="Aufgehobene Änderungen" className="flex flex-col gap-1">
+              {removed.map((r) => (
+                <li key={r.lessonId} className="flex flex-wrap gap-x-2">
+                  <span>
+                    {r.periodNr}. Std · {r.groupName} · {r.subjectName}
+                  </span>
+                  <span className="text-muted">
+                    aufgehoben {stamp.format(r.removedAt)}
+                    {r.actorId && ` · ${actors.get(r.actorId) ?? "–"}`}
+                  </span>
+                  <Link href={workplaceHref({ datum: date, stunde: r.lessonId }, "#lessons-title")} className="font-medium text-accent-ink hover:underline" aria-label={`Verlauf ansehen: ${r.groupName} ${r.periodNr}. Std`}>
+                    Verlauf ansehen
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </section>
     </main>

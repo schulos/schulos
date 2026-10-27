@@ -4,7 +4,7 @@ import { collectErrors, login, publishIfDraft } from "./helpers";
 
 // VT-02: Anzeige überall – „nur Betreuung“ mit Grund und internem Hinweis eintragen (Planung), Monitor zeigt „Betreuung“ und den
 // Grund, nie den internen Hinweis; die Vertretungslehrkraft sieht ihn in „Meine Vertretungen“ und bestätigt mit „Gesehen“, die
-// Planung sieht „offen“ → „gesehen“ und den Verlauf je Stunde. Dazu 360 px ohne seitliches Scrollen und axe hell/dunkel.
+// Planung sieht in der gewählten Stunde (VT-03a) „offen“ → „gesehen“ und den Verlauf. Dazu 360 px ohne seitliches Scrollen und axe hell/dunkel.
 // Räumt am Ende auf (Klasse 10a, nächster Schultag).
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"];
@@ -51,11 +51,13 @@ test("VT-02: Betreuung mit Grund, interner Hinweis nur für Vertretung und Planu
   const row = day.getByRole("row").filter({ hasText: NOTE });
   await expect(row).toContainText("Betreuung");
   await expect(row).toContainText("organisatorisch");
-  await expect(row.getByText("offen", { exact: true })).toBeVisible();
   await expect(page.getByRole("article", { name: /^Noch nicht bestätigt/ })).toContainText("durch BRA");
-  // Verlauf je Stunde (nur Planung)
-  await row.getByText(/^Verlauf \(\d+\)$/).click();
-  await expect(row.getByRole("list", { name: /^Verlauf:/ })).toContainText("angelegt");
+  // VT-03a: Kenntnisnahme und Verlauf je Stunde (nur Planung) stehen in der gewählten Stunde
+  await row.getByRole("link", { name: /^Stunde öffnen:/ }).click();
+  await expect(page).toHaveURL(/stunde=/);
+  const chosen = page.getByRole("article", { name: /^Gewählte Stunde:/ });
+  await expect(chosen.getByText("offen", { exact: true })).toBeVisible();
+  await expect(chosen.getByRole("list", { name: /^Verlauf:/ })).toContainText("angelegt");
 
   // Monitor: Betreuung und Grund ja, interner Hinweis nie
   const mctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
@@ -89,7 +91,7 @@ test("VT-02: Betreuung mit Grund, interner Hinweis nur für Vertretung und Planu
 
   // Planung: jetzt „gesehen“
   await page.reload();
-  await expect(day.getByRole("row").filter({ hasText: NOTE }).getByText("gesehen", { exact: true })).toBeVisible();
+  await expect(chosen.getByText("gesehen", { exact: true })).toBeVisible();
 
   // aufräumen
   await day.getByRole("row").filter({ hasText: NOTE }).getByRole("button", { name: /^Aufheben:/ }).click();

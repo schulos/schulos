@@ -84,7 +84,7 @@ export function SubstitutionForm({
   const exam = kind === "substitute" ? exams.find((e) => e.subjectId === subjectId) : undefined;
   const fe = state.fieldErrors ?? {};
   return (
-    <form key={formKey} action={formAction} aria-label={label} className="grid gap-3 sm:grid-cols-[10rem_1fr_11rem_9rem] lg:grid-cols-[10rem_1fr_11rem_9rem_1fr_auto] lg:items-end">
+    <form key={formKey} action={formAction} aria-label={label} className="grid gap-3 @xl:grid-cols-[10rem_1fr_11rem_9rem] @5xl:grid-cols-[10rem_1fr_11rem_9rem_1fr_auto] @5xl:items-end">
       <input type="hidden" name="lessonId" value={lessonId} />
       <input type="hidden" name="date" value={date} />
       <Field label="Art" error={fe.kind}>
@@ -138,7 +138,7 @@ export function SubstitutionForm({
           ))}
         </Select>
       </Field>
-      <Field label="Hinweis für Schüler:innen" error={fe.note} className="sm:col-span-3 lg:col-span-1">
+      <Field label="Hinweis für Schüler:innen" error={fe.note} className="@xl:col-span-3 @5xl:col-span-1">
         <Input name="note" defaultValue={v.note} placeholder="z. B. Arbeitsheft S. 24" maxLength={200} />
       </Field>
       <div className="flex gap-2">
@@ -152,7 +152,7 @@ export function SubstitutionForm({
         )}
       </div>
       {/* VT-01: Grund-Kategorie (öffentlich, grob), interne Notiz, „nur Betreuung“ */}
-      <div className="flex flex-wrap items-end gap-3 sm:col-span-full">
+      <div className="flex flex-wrap items-end gap-3 @xl:col-span-full">
         <Field label="Grund (öffentlich)" error={fe.reason}>
           <Select name="reason" defaultValue={v.reason}>
             <option value="">{defaultReasonLabel ? `automatisch (${defaultReasonLabel})` : "automatisch"}</option>
@@ -174,13 +174,13 @@ export function SubstitutionForm({
         )}
       </div>
       {kind === "substitute" && permanent && (
-        <label className="flex items-center gap-2 text-sm sm:col-span-full">
+        <label className="flex items-center gap-2 text-sm @xl:col-span-full">
           <input type="checkbox" name="permanent" value={permanent.absenceId} className="size-4 accent-[var(--accent)]" />
           Dauervertretung: für alle Tage der Abwesenheit (bis {permanent.until}) – einzelne Tage lassen sich danach ändern
         </label>
       )}
       {kind === "move" && (
-        <div className="flex flex-wrap items-end gap-3 sm:col-span-full">
+        <div className="flex flex-wrap items-end gap-3 @xl:col-span-full">
           <Field label="Verlegen in" error={fe.targetPeriod}>
             <Select name="targetPeriod" defaultValue={v.targetPeriod}>
               <option value="">Stunde wählen</option>
@@ -200,7 +200,7 @@ export function SubstitutionForm({
         </div>
       )}
       {kind === "merge" && (
-        <Field label="Zusammenlegen mit" error={fe.mergeLessonId} className="sm:col-span-full">
+        <Field label="Zusammenlegen mit" error={fe.mergeLessonId} className="@xl:col-span-full">
           <Select name="mergeLessonId" defaultValue={v.mergeLessonId}>
             <option value="">Stunde zur selben Zeit wählen</option>
             {mergeOptions.map((o) => (
@@ -212,17 +212,17 @@ export function SubstitutionForm({
         </Field>
       )}
       {exam && (
-        <p role="note" className="text-sm font-medium text-warn sm:col-span-full">
+        <p role="note" className="text-sm font-medium text-warn @xl:col-span-full">
           Achtung: An diesem Tag steht für die Gruppe eine {exam.label} an.
         </p>
       )}
       {state.error && (
-        <p role="alert" className="text-sm text-danger sm:col-span-full">
+        <p role="alert" className="text-sm text-danger @xl:col-span-full">
           {state.error}
         </p>
       )}
       {state.ok && (
-        <p role="status" className="text-sm text-success sm:col-span-full">
+        <p role="status" className="text-sm text-success @xl:col-span-full">
           {state.message ?? "Gespeichert – Betroffene sind benachrichtigt."}
         </p>
       )}
