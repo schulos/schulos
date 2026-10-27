@@ -37,12 +37,12 @@ test("VT-02: Betreuung mit Grund, interner Hinweis nur für Vertretung und Planu
   }
   expect(label, "Stunde der 10a mit freier Lehrkraft BRA").not.toBeNull();
   const form = page.getByRole("form", { name: label! });
-  await form.getByLabel("Art").selectOption("substitute");
+  await form.getByRole("radio", { name: "Vertretung", exact: true }).check();
   await form.getByLabel("Vertretung durch").selectOption({ label: (await form.locator('optgroup[label="Frei"] option').filter({ hasText: /^BRA – / }).first().textContent())! });
   await form.getByLabel("Grund (öffentlich)").selectOption({ label: "organisatorisch" });
   await form.getByLabel("Hinweis für Schüler:innen").fill(NOTE);
   await form.getByLabel("Interne Notiz (nur Planung und Vertretung)").fill(SECRET);
-  await form.getByLabel(/nur Betreuung/).check();
+  await form.getByRole("radio", { name: "Nur Betreuung" }).check();
   await form.getByRole("button", { name: "Speichern" }).click();
   await expect(form.getByRole("status")).toContainText("Gespeichert");
   await publishIfDraft(page);

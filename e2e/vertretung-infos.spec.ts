@@ -15,7 +15,7 @@ test("Vertretung mit Grund und interner Notiz, Tagesmitteilung; Monitor ohne int
   const form = page.getByRole("form", { name: /^\d+\. Std · .+ · Klasse 10a$/ }).first();
   await expect(form).toBeVisible();
   const label = (await form.getAttribute("aria-label"))!;
-  await form.getByLabel("Art").selectOption("cancel");
+  await form.getByRole("radio", { name: "Entfall" }).check();
   await form.getByLabel("Grund (öffentlich)").selectOption({ label: "Veranstaltung" });
   await form.getByLabel("Hinweis für Schüler:innen").fill(NOTE);
   await form.getByLabel("Interne Notiz (nur Planung und Vertretung)").fill(SECRET);

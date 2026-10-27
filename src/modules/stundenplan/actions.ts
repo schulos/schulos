@@ -812,7 +812,11 @@ export async function applySuggestionAction(lessonId: string, date: string, teac
   try {
     await saveSubstitution(await getDb(), user.id, { lessonId, date, kind: "substitute", substituteId: teacherId, roomId: null, note: null, subjectId });
   } catch (err) {
-    if (err instanceof ValidationError) redirect(`${back}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    if (err instanceof ValidationError) {
+      // VT-03b: `back` kann einen Sprung (#…) tragen – die Meldung gehört davor
+      const [path, hash] = back.split("#");
+      redirect(`${path}${path!.includes("?") ? "&" : "?"}fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}${hash ? `#${hash}` : ""}`);
+    }
     throw err;
   }
   revalidatePath("/", "layout");

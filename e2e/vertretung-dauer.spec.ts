@@ -35,7 +35,7 @@ test("Dauervertretung: Lehrkraft eine Woche krank → Vertretung einmal für all
   await page.goto(`/planung/vertretungen?datum=${date}&lehrkraft=u-jana.brandt`);
   const lesson = page.getByRole("form", { name: /^\d+\. Std · / }).first();
   await expect(lesson).toBeVisible();
-  await lesson.getByLabel("Art").selectOption("substitute");
+  await lesson.getByRole("radio", { name: "Vertretung", exact: true }).check();
   const substitute = lesson.getByLabel("Vertretung durch");
   await substitute.selectOption({ index: 1 });
   const code = ((await substitute.locator("option:checked").innerText()) ?? "").split(" – ")[0]!;

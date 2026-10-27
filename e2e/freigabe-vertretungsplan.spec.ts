@@ -17,7 +17,7 @@ test("Vertretungsplan mit Freigabe: Monitor und Schülerin sehen keinen Entwurf,
   await page.getByLabel("oder Klasse/Kurs").selectOption({ label: "Klasse 7b" });
   await page.getByRole("button", { name: "Anzeigen" }).click();
   const form = page.getByRole("form", { name: /^\d+\. Std · / }).first();
-  await form.getByLabel("Art").selectOption("cancel");
+  await form.getByRole("radio", { name: "Entfall" }).check();
   await form.getByLabel("Hinweis").fill(NOTE);
   await form.getByRole("button", { name: "Speichern" }).click();
   await expect(form.getByRole("status")).toContainText("Gespeichert");

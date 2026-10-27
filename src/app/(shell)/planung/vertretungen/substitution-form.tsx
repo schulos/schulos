@@ -1,15 +1,28 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useState } from "react";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
-import { Field, Input, Select } from "@schulos/ui/field";
+import { Field, Input, Segmented, Select } from "@schulos/ui/field";
 
 interface Teacher {
   id: string;
   label: string;
   free: boolean;
 }
+
+/** VT-03b: Art als Segment-Schalter; „Betreuung“ ist eine Vertretung mit dem Merkmal „nur Betreuung“ (F-10-9). */
+type Art = "substitute" | "supervision" | "cancel" | "room" | "move" | "merge";
+const ARTS: { value: Art; label: string }[] = [
+  { value: "substitute", label: "Vertretung" },
+  { value: "supervision", label: "Nur Betreuung" },
+  { value: "cancel", label: "Entfall" },
+  { value: "room", label: "Raumänderung" },
+  { value: "move", label: "Verlegung" },
+  { value: "merge", label: "Zusammenlegung" },
+];
+const artOf = (kind: string, supervisionOnly: string): Art => (kind === "substitute" && supervisionOnly === "1" ? "supervision" : ((kind || "substitute") as Art));
 
 export function SubstitutionForm({
   action,
@@ -29,6 +42,7 @@ export function SubstitutionForm({
   permanent,
   reasons,
   defaultReasonLabel,
+  nextHref,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   removeAction?: () => Promise<void>;
@@ -66,10 +80,13 @@ export function SubstitutionForm({
   mergeOptions: { lessonId: string; label: string }[];
   /** SP2-08 Dauervertretung: mehrtägige Abwesenheit der Lehrkraft – „bis“ als Anzeige (TT.MM.) */
   permanent?: { absenceId: string; until: string };
+  /** VT-03b: Ziel nach dem Speichern (nächste offene Stunde); leer = in der Stunde bleiben */
+  nextHref?: string | null;
 }) {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(action, {});
   const v = { ...initial, ...state.values };
-  const [kind, setKind] = useState(v.kind || "substitute");
+  const [art, setArt] = useState<Art>(artOf(v.kind, v.supervisionOnly));
   const [subjectId, setSubjectId] = useState(v.subjectId || regularSubjectId);
   // key: nach dem Speichern liefert der Server neue Werte → Formular neu aufbauen (React setzt es sonst auf alte Vorgaben zurück).
   // Art und Fach sind Zustand dieser Komponente, nicht des Formulars – die setzt der key nicht zurück; z. B. stand nach
@@ -78,81 +95,113 @@ export function SubstitutionForm({
   const [seenKey, setSeenKey] = useState(formKey);
   if (seenKey !== formKey) {
     setSeenKey(formKey);
-    setKind(v.kind || "substitute");
+    setArt(artOf(v.kind, v.supervisionOnly));
     setSubjectId(v.subjectId || regularSubjectId);
   }
-  const exam = kind === "substitute" ? exams.find((e) => e.subjectId === subjectId) : undefined;
+  // VT-03b: nach dem Speichern weiter zur nächsten offenen Stunde (ohne weitere offene bleibt die Stunde stehen)
+  useEffect(() => {
+    if (state.ok && nextHref) router.push(nextHref);
+  }, [state, nextHref, router]);
+  const kind = art === "supervision" ? "substitute" : art;
+  const withTeacher = kind === "substitute";
+  const exam = art === "substitute" ? exams.find((e) => e.subjectId === subjectId) : undefined;
   const fe = state.fieldErrors ?? {};
   return (
-    <form key={formKey} action={formAction} aria-label={label} className="grid gap-3 @xl:grid-cols-[10rem_1fr_11rem_9rem] @5xl:grid-cols-[10rem_1fr_11rem_9rem_1fr_auto] @5xl:items-end">
+    <form key={formKey} action={formAction} aria-label={label} className="flex flex-col gap-3">
       <input type="hidden" name="lessonId" value={lessonId} />
       <input type="hidden" name="date" value={date} />
-      <Field label="Art" error={fe.kind}>
-        <Select name="kind" value={kind} onChange={(e) => setKind(e.target.value)}>
-          <option value="substitute">Vertretung</option>
-          <option value="cancel">Entfall</option>
-          <option value="room">Raumänderung</option>
-          <option value="move">Verlegung</option>
-          <option value="merge">Zusammenlegung</option>
-        </Select>
-      </Field>
-      <Field label="Vertretung durch" error={fe.substituteId}>
-        <Select name="substituteId" defaultValue={v.substituteId} disabled={kind !== "substitute"}>
-          <option value="">Lehrkraft wählen</option>
-          <optgroup label="Frei">
-            {teachers
-              .filter((t) => t.free)
-              .map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label}
+      <input type="hidden" name="kind" value={kind} />
+      {art === "supervision" && <input type="hidden" name="supervisionOnly" value="1" />}
+      <Segmented legend="Art" name="art" value={art} onChange={setArt} options={ARTS} />
+      {fe.kind && (
+        <p role="alert" className="-mt-2 text-xs text-danger">
+          {fe.kind}
+        </p>
+      )}
+      <div className="grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">
+        {withTeacher && (
+          <Field label="Vertretung durch" error={fe.substituteId}>
+            <Select name="substituteId" defaultValue={v.substituteId}>
+              <option value="">Lehrkraft wählen</option>
+              <optgroup label="Frei">
+                {teachers
+                  .filter((t) => t.free)
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="Hat selbst Unterricht">
+                {teachers
+                  .filter((t) => !t.free)
+                  .map((t) => (
+                    <option key={t.id} value={t.id} disabled>
+                      {t.label}
+                    </option>
+                  ))}
+              </optgroup>
+            </Select>
+          </Field>
+        )}
+        {art === "substitute" && (
+          <Field label="Fach" error={fe.subjectId}>
+            <Select name="subjectId" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+              {subjects.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.id === regularSubjectId ? `${x.label} (regulär)` : x.label}
                 </option>
               ))}
-          </optgroup>
-          <optgroup label="Hat selbst Unterricht">
-            {teachers
-              .filter((t) => !t.free)
-              .map((t) => (
-                <option key={t.id} value={t.id} disabled>
-                  {t.label}
+            </Select>
+          </Field>
+        )}
+        {kind !== "cancel" && kind !== "merge" && (
+          <Field label="Raum" error={fe.roomId}>
+            <Select name="roomId" defaultValue={v.roomId}>
+              <option value="">wie sonst</option>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
                 </option>
               ))}
-          </optgroup>
-        </Select>
-      </Field>
-      <Field label="Fach" error={fe.subjectId}>
-        <Select name="subjectId" value={subjectId} onChange={(e) => setSubjectId(e.target.value)} disabled={kind !== "substitute"}>
-          {subjects.map((x) => (
-            <option key={x.id} value={x.id}>
-              {x.id === regularSubjectId ? `${x.label} (regulär)` : x.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Raum" error={fe.roomId}>
-        <Select name="roomId" defaultValue={v.roomId} disabled={kind === "cancel" || kind === "merge"}>
-          <option value="">wie sonst</option>
-          {rooms.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Hinweis für Schüler:innen" error={fe.note} className="@xl:col-span-3 @5xl:col-span-1">
-        <Input name="note" defaultValue={v.note} placeholder="z. B. Arbeitsheft S. 24" maxLength={200} />
-      </Field>
-      <div className="flex gap-2">
-        <Button type="submit" variant="primary" disabled={pending}>
-          {pending ? "Speichern …" : "Speichern"}
-        </Button>
-        {removeAction && (
-          <Button type="submit" formAction={removeAction} formNoValidate>
-            Aufheben
-          </Button>
+            </Select>
+          </Field>
+        )}
+        {kind === "move" && (
+          <>
+            <Field label="Verlegen in" error={fe.targetPeriod}>
+              <Select name="targetPeriod" defaultValue={v.targetPeriod}>
+                <option value="">Stunde wählen</option>
+                {periods
+                  .filter((p) => p.nr !== ownPeriod)
+                  .map((p) => (
+                    <option key={p.nr} value={p.nr}>
+                      {p.label}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+            <label className="flex min-h-11 items-center gap-2 self-end text-sm">
+              <input type="checkbox" name="swap" value="1" className="size-4 accent-[var(--accent)]" />
+              Tauschen: Unterricht der Gruppe aus der Zielstunde rückt hierher
+            </label>
+          </>
+        )}
+        {kind === "merge" && (
+          <Field label="Zusammenlegen mit" error={fe.mergeLessonId} className="@xl:col-span-2">
+            <Select name="mergeLessonId" defaultValue={v.mergeLessonId}>
+              <option value="">Stunde zur selben Zeit wählen</option>
+              {mergeOptions.map((o) => (
+                <option key={o.lessonId} value={o.lessonId}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
         )}
       </div>
-      {/* VT-01: Grund-Kategorie (öffentlich, grob), interne Notiz, „nur Betreuung“ */}
-      <div className="flex flex-wrap items-end gap-3 @xl:col-span-full">
+      {/* öffentlicher Grund (grob), Hinweis für Schüler:innen, interner Hinweis (nur Planung und Vertretung) */}
+      <div className="grid gap-3 @xl:grid-cols-2 @4xl:grid-cols-3">
         <Field label="Grund (öffentlich)" error={fe.reason}>
           <Select name="reason" defaultValue={v.reason}>
             <option value="">{defaultReasonLabel ? `automatisch (${defaultReasonLabel})` : "automatisch"}</option>
@@ -163,66 +212,42 @@ export function SubstitutionForm({
             ))}
           </Select>
         </Field>
-        <Field label="Interne Notiz (nur Planung und Vertretung)" error={fe.internalNote} className="min-w-64 flex-1">
+        <Field label="Hinweis für Schüler:innen" error={fe.note}>
+          <Input name="note" defaultValue={v.note} placeholder="z. B. Arbeitsheft S. 24" maxLength={200} />
+        </Field>
+        <Field label="Interne Notiz (nur Planung und Vertretung)" error={fe.internalNote}>
           <Input name="internalNote" defaultValue={v.internalNote} placeholder="keine Gesundheitsangaben" maxLength={300} />
         </Field>
-        {kind === "substitute" && (
-          <label className="flex items-center gap-2 pb-2 text-sm">
-            <input type="checkbox" name="supervisionOnly" value="1" defaultChecked={v.supervisionOnly === "1"} className="size-4 accent-[var(--accent)]" />
-            nur Betreuung (Aufgaben/EVA)
-          </label>
-        )}
       </div>
-      {kind === "substitute" && permanent && (
-        <label className="flex items-center gap-2 text-sm @xl:col-span-full">
+      {withTeacher && permanent && (
+        <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="permanent" value={permanent.absenceId} className="size-4 accent-[var(--accent)]" />
           Dauervertretung: für alle Tage der Abwesenheit (bis {permanent.until}) – einzelne Tage lassen sich danach ändern
         </label>
       )}
-      {kind === "move" && (
-        <div className="flex flex-wrap items-end gap-3 @xl:col-span-full">
-          <Field label="Verlegen in" error={fe.targetPeriod}>
-            <Select name="targetPeriod" defaultValue={v.targetPeriod}>
-              <option value="">Stunde wählen</option>
-              {periods
-                .filter((p) => p.nr !== ownPeriod)
-                .map((p) => (
-                  <option key={p.nr} value={p.nr}>
-                    {p.label}
-                  </option>
-                ))}
-            </Select>
-          </Field>
-          <label className="flex items-center gap-2 pb-2 text-sm">
-            <input type="checkbox" name="swap" value="1" className="size-4 accent-[var(--accent)]" />
-            Tauschen: Unterricht der Gruppe aus der Zielstunde rückt hierher
-          </label>
-        </div>
-      )}
-      {kind === "merge" && (
-        <Field label="Zusammenlegen mit" error={fe.mergeLessonId} className="@xl:col-span-full">
-          <Select name="mergeLessonId" defaultValue={v.mergeLessonId}>
-            <option value="">Stunde zur selben Zeit wählen</option>
-            {mergeOptions.map((o) => (
-              <option key={o.lessonId} value={o.lessonId}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      )}
       {exam && (
-        <p role="note" className="text-sm font-medium text-warn @xl:col-span-full">
+        <p role="note" className="text-sm font-medium text-warn">
           Achtung: An diesem Tag steht für die Gruppe eine {exam.label} an.
         </p>
       )}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="submit" variant="primary" disabled={pending}>
+          {pending ? "Speichern …" : "Speichern"}
+        </Button>
+        {removeAction && (
+          <Button type="submit" formAction={removeAction} formNoValidate>
+            Aufheben
+          </Button>
+        )}
+        {nextHref && <span className="text-xs text-muted">Danach geht es mit der nächsten offenen Stunde weiter.</span>}
+      </div>
       {state.error && (
-        <p role="alert" className="text-sm text-danger @xl:col-span-full">
+        <p role="alert" className="text-sm text-danger">
           {state.error}
         </p>
       )}
       {state.ok && (
-        <p role="status" className="text-sm text-success @xl:col-span-full">
+        <p role="status" className="text-sm text-success">
           {state.message ?? "Gespeichert – Betroffene sind benachrichtigt."}
         </p>
       )}

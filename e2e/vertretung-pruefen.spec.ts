@@ -36,7 +36,7 @@ test("Abwesenheit verkürzt: Vertretungen danach markiert, behalten bzw. alle en
     await page.goto(`/planung/vertretungen?datum=${date}&lehrkraft=u-tobias.kleine`);
     const lesson = page.getByRole("form", { name: /^\d+\. Std · / }).nth(i);
     if (!(await lesson.isVisible())) break;
-    await lesson.getByLabel("Art").selectOption("substitute");
+    await lesson.getByRole("radio", { name: "Vertretung", exact: true }).check();
     const substitute = lesson.getByLabel("Vertretung durch");
     await substitute.selectOption({ index: 1 });
     codes.push(((await substitute.locator("option:checked").innerText()) ?? "").split(" – ")[0]!);

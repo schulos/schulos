@@ -33,7 +33,7 @@ test("VT-04: Veröffentlichen plant die Nachricht für den Vortag 18:00 ein, „
   await page.goto(`/planung/vertretungen?datum=${date}&gruppe=g-7b`);
   const form = page.getByRole("form", { name: /^\d+\. Std · / }).first();
   await expect(form).toBeVisible();
-  await form.getByLabel("Art").selectOption("cancel");
+  await form.getByRole("radio", { name: "Entfall" }).check();
   await form.getByLabel("Hinweis für Schüler:innen").fill(NOTE);
   await form.getByRole("button", { name: "Speichern" }).click();
   await expect(form.getByRole("status")).toContainText("Gespeichert");

@@ -28,7 +28,7 @@ test.describe("Stundenplanung · Vertretung Stufe 2 (SP2-07)", () => {
     const firstRoom = /· R (\S+)/.exec((await first.locator("xpath=..").innerText()) ?? "")?.[1] ?? "";
 
     // 1. Stunde des Tages entfällt …
-    await first.getByLabel("Art").selectOption("cancel");
+    await first.getByRole("radio", { name: "Entfall" }).check();
     await first.getByRole("button", { name: "Speichern" }).click();
     await expect(lessonForms(page).first().getByRole("status")).toContainText("Gespeichert");
 
@@ -36,9 +36,9 @@ test.describe("Stundenplanung · Vertretung Stufe 2 (SP2-07)", () => {
     let moved = "";
     for (let i = count - 1; i > 0 && !moved; i--) {
       const f = lessonForms(page).nth(i);
-      await f.getByLabel("Art").selectOption("move");
+      await f.getByRole("radio", { name: "Verlegung" }).check();
       await f.getByLabel("Verlegen in").selectOption(String(firstPeriod));
-      if (firstRoom) await f.getByLabel("Raum").selectOption(firstRoom);
+      if (firstRoom) await f.getByLabel("Raum", { exact: true }).selectOption(firstRoom);
       await f.getByRole("button", { name: "Speichern" }).click();
       const done = f.getByRole("status").or(f.getByRole("alert"));
       await expect(done).toBeVisible();
@@ -51,7 +51,7 @@ test.describe("Stundenplanung · Vertretung Stufe 2 (SP2-07)", () => {
     await expect(day.getByText(`verlegt in die ${firstPeriod}. Std.`)).toBeVisible();
     // die ausgefallene Stunde kann nicht mehr einfach stattfinden
     const firstAgain = lessonForms(page).first();
-    await firstAgain.getByLabel("Art").selectOption("substitute");
+    await firstAgain.getByRole("radio", { name: "Vertretung", exact: true }).check();
     await firstAgain.getByLabel("Vertretung durch").selectOption({ index: 1 });
     await firstAgain.getByRole("button", { name: "Speichern" }).click();
     await expect(firstAgain.getByText(/erst die Verlegung aufheben/).first()).toBeVisible();
@@ -59,7 +59,7 @@ test.describe("Stundenplanung · Vertretung Stufe 2 (SP2-07)", () => {
 
     // A11Y: Seite mit offenen Verlegungs-/Zusammenlegungsfeldern, hell und dunkel
     await page.reload();
-    await lessonForms(page).nth(1).getByLabel("Art").selectOption("merge");
+    await lessonForms(page).nth(1).getByRole("radio", { name: "Zusammenlegung" }).check();
     for (const scheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: scheme });
       await axe(page, `Vertretungen (${scheme})`);
@@ -72,7 +72,7 @@ test.describe("Stundenplanung · Vertretung Stufe 2 (SP2-07)", () => {
       const f = lessonForms(page).nth(i);
       const label = (await f.getAttribute("aria-label")) ?? "";
       if (label === moved) continue;
-      await f.getByLabel("Art").selectOption("merge");
+      await f.getByRole("radio", { name: "Zusammenlegung" }).check();
       const options = await f.getByLabel("Zusammenlegen mit").locator("option").count();
       if (options < 2) continue;
       await f.getByLabel("Zusammenlegen mit").selectOption({ index: 1 });

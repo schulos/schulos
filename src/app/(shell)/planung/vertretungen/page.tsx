@@ -32,7 +32,7 @@ import { plannableGroups, teacherOptions } from "@/modules/stundenplan/manage";
 import { listSlots, timetableMasterData, type PlanTarget } from "@/modules/stundenplan/service";
 import { acknowledgeEnabled, defaultReason, examSubjectsOn, mergeOptions, planDays, substitutionsOn, teacherAvailability, unacknowledgedSubstitutions } from "@/modules/stundenplan/vertretung";
 import { describeChange, substitutionHistory } from "@/modules/stundenplan/vertretung-historie";
-import { classDay, gongSummary, lessonGroup, needUrgency, removedSubstitutions, stepSchoolDay, teacherDayContext, URGENCY } from "@/modules/stundenplan/arbeitsplatz";
+import { classDay, gongSummary, lessonGroup, needUrgency, openNeighbours, removedSubstitutions, stepSchoolDay, teacherDayContext, URGENCY } from "@/modules/stundenplan/arbeitsplatz";
 import { inArray } from "drizzle-orm";
 import { users } from "@/core/db/schema";
 import { Badge } from "@schulos/ui/badge";
@@ -42,6 +42,7 @@ import { Input, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import Link from "next/link";
+import type { ComponentProps } from "react";
 import { suggestSubstitutes } from "@/modules/stundenplan/vorschlaege";
 import { weekNeeds } from "@/modules/stundenplan/dauervertretung";
 import { KIND_LABEL as EXAM_KIND } from "@/modules/klausurplan/service";
@@ -49,6 +50,10 @@ import { materialsFor } from "@/modules/stundenplan/selbstmeldung";
 import { AbsenceForm } from "./absence-form";
 import { ContextColumn } from "./kontext";
 import { SubstitutionForm } from "./substitution-form";
+import { ArbeitsplatzTasten } from "./arbeitsplatz-tasten";
+import { MaterialPanel } from "./material-panel";
+import { MaterialForm } from "../../stundenplan/abwesenheit/forms";
+import { saveMaterialAction } from "@/modules/stundenplan/selbstmeldung-actions";
 
 export const metadata: Metadata = { title: "Vertretungen" };
 
@@ -69,13 +74,33 @@ type Search = {
   veroeffentlicht?: string;
   verkuerzt?: string;
   gesendet?: string;
+  /** VT-03b: „1“ = die vorige Stunde ist gespeichert, diese ist die nächste offene */
+  gespeichert?: string;
 };
 
 /** Adresse des Arbeitsplatzes; leere Werte entfallen. `#lessons-title` springt mobil zur gewählten Stunde. */
-function workplaceHref(p: Partial<Record<"datum" | "lehrkraft" | "gruppe" | "stunde" | "vorschlag", string | null | undefined>>, hash = ""): string {
+function workplaceHref(p: Partial<Record<"datum" | "lehrkraft" | "gruppe" | "stunde" | "vorschlag" | "gespeichert", string | null | undefined>>, hash = ""): string {
   const q = new URLSearchParams();
-  for (const k of ["datum", "lehrkraft", "gruppe", "stunde", "vorschlag"] as const) if (p[k]) q.set(k, p[k]!);
+  for (const k of ["datum", "lehrkraft", "gruppe", "stunde", "vorschlag", "gespeichert"] as const) if (p[k]) q.set(k, p[k]!);
   return `/planung/vertretungen?${q.toString()}${hash}`;
+}
+
+/** VT-03b: Material zur Stunde – mit der Abwesenheit der Lehrkraft, sonst ohne Abwesenheit (F-10-12); eigenes Formular wegen der Datei. */
+function MaterialSection({
+  label,
+  material,
+  action,
+}: {
+  label: string;
+  material: { text: string | null; fileName: string | null; forStudents: boolean } | null;
+  action: ComponentProps<typeof MaterialForm>["action"];
+}) {
+  return (
+    <MaterialPanel title={`Material für die Vertretung${material ? " (liegt vor)" : ""}`} initialOpen={material !== null}>
+      <p className="text-xs text-muted">Arbeitsauftrag oder Datei für die Vertretungslehrkraft – auch ohne eingetragene Abwesenheit.</p>
+      <MaterialForm action={action} label={label} initial={{ text: material?.text ?? "", fileName: material?.fileName ?? null, forStudents: material?.forStudents ?? false }} />
+    </MaterialPanel>
+  );
 }
 
 export default async function VertretungenPage({ searchParams }: { searchParams: Promise<Search> }) {
@@ -195,7 +220,22 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   const openCount = needs.open.filter((o) => o.status === "open").length;
   const urgentCount = openRows.filter((o) => o.urgency === "dringend").length;
   // Q5-12: „Material liegt vor“ je offener Stunde
-  const materials = await materialsFor(db, perms, needs.open.map((o) => ({ lessonId: o.lessonId, date })));
+  // VT-03b: dazu das Material der gewählten Stunde (auch ohne Abwesenheit)
+  const materials = await materialsFor(db, perms, [...needs.open.map((o) => ({ lessonId: o.lessonId, date })), ...(chosen ? [{ lessonId: chosen.lessonId, date }] : [])]);
+  // VT-03b: ↑/↓ und „nach dem Speichern“ laufen über die offenen Stunden in der Reihenfolge der Ampel
+  const openList = openRows.filter((o) => o.status === "open");
+  const openById = new Map(openList.map((o) => [o.lessonId, o]));
+  const openHref = (id: string | null, saved = false) => {
+    const o = id ? openById.get(id) : undefined;
+    return o ? workplaceHref({ datum: date, lehrkraft: o.teacherId, stunde: o.lessonId, gespeichert: saved ? "1" : null }, "#lessons-title") : null;
+  };
+  const nb = openNeighbours(
+    openList.map((o) => o.lessonId),
+    chosen?.lessonId ?? null,
+  );
+  const closeHref = chosen ? workplaceHref({ datum: date }, "#needs-title") : null;
+  const afterSaveHref = openHref(nb.afterSave, true);
+  const stayHref = workplaceHref({ ...targetParams, stunde: chosen?.lessonId, gespeichert: "1" }, "#lessons-title");
   const roomOptions = master.rooms.map((r) => ({ id: r.id, label: r.id === r.name ? r.id : `${r.id} – ${r.name}` }));
   const gong = gongSummary(planned, now);
   const prevDay = stepSchoolDay(cal, date, -1);
@@ -702,6 +742,35 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           <h2 id="lessons-title" className="font-display text-xl font-bold">
             Stunden am {longDay.format(fromBerlinLocal(date))}
           </h2>
+          {sp.gespeichert === "1" && (
+            <p role="status" className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
+              {chosen ? "Gespeichert – das ist die nächste offene Stunde." : "Gespeichert."}
+            </p>
+          )}
+          {chosen && (
+            <>
+              <nav aria-label="Offene Stunden" className="flex flex-wrap items-center gap-2">
+                {[
+                  { href: openHref(nb.prev), text: "Vorherige offene Stunde", arrow: "↑", key: "ArrowUp" },
+                  { href: openHref(nb.next), text: "Nächste offene Stunde", arrow: "↓", key: "ArrowDown" },
+                ].map((x) =>
+                  x.href ? (
+                    <Button key={x.key} asChild size="sm">
+                      <Link href={x.href} aria-keyshortcuts={x.key}>
+                        <span aria-hidden>{x.arrow}</span> {x.text}
+                      </Link>
+                    </Button>
+                  ) : null,
+                )}
+                <Button asChild size="sm" variant="ghost">
+                  <Link href={closeHref!} aria-keyshortcuts="Escape">
+                    Stunde schließen
+                  </Link>
+                </Button>
+              </nav>
+              <ArbeitsplatzTasten prev={openHref(nb.prev)} next={openHref(nb.next)} close={closeHref} suggestions={Math.min(3, chosenSuggestions.length)} />
+            </>
+          )}
           {!target ? (
             <EmptyState title="Keine Stunde gewählt">Wähle eine offene Stunde aus dem Vertretungsbedarf oder eine Lehrkraft bzw. Klasse unter „Anzeigen“.</EmptyState>
           ) : targetLessons.length === 0 ? (
@@ -793,35 +862,73 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                       </div>
                     )}
                     {suggestions[i]!.length > 0 && (
-                      <div aria-label={`Vorschläge: ${label}`} role="group" className="flex flex-col gap-1.5 rounded-xl bg-surface-2 p-3">
+                      <div aria-label={`Vorschläge: ${label}`} role="group" className="flex flex-col gap-2 rounded-xl bg-surface-2 p-3">
                         <span className="text-xs font-semibold tracking-wide text-muted uppercase">Vorschläge</span>
-                        <ol className="flex flex-col gap-1.5">
-                          {suggestions[i]!.slice(0, 3).map((c) => (
-                            <li key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
-                              <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, here, null)}>
-                                <Button type="submit" size="sm" aria-label={`${c.code ?? c.name} übernehmen: ${label}`}>
-                                  {c.code ?? c.name} übernehmen
-                                </Button>
-                              </form>
-                              {c.suggestedSubject && (
-                                <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, here, c.suggestedSubject.id)}>
-                                  <Button type="submit" size="sm" aria-label={`${c.code ?? c.name} mit ${c.suggestedSubject.name} übernehmen: ${label}`} title="Lehrkraft und Fach übernehmen">
-                                    → {c.suggestedSubject.name}
-                                  </Button>
-                                </form>
-                              )}
-                              {c.standby && <Badge tone="soft">Bereitschaft</Badge>}
-                              <Badge tone={c.score > 0 ? "success" : "neutral"}>{c.score > 0 ? `+${c.score}` : c.score} Punkte</Badge>
-                              <span className="text-muted">{c.reasons.map((r) => `${r.label} (${r.points > 0 ? "+" : ""}${r.points})`).join(" · ")}</span>
-                              <Link
-                                href={lessonHref(l.lessonId, { vorschlag: c.id }).replace("#lessons-title", "#context-title")}
-                                aria-current={isChosen && c.id === markedId ? "true" : undefined}
-                                className="font-medium text-accent-ink hover:underline aria-[current=true]:underline"
-                              >
-                                Tag von {c.code ?? c.name}
-                              </Link>
-                            </li>
-                          ))}
+                        <ol className="grid gap-2 @2xl:grid-cols-3">
+                          {suggestions[i]!.slice(0, 3).map((c, n) => {
+                            const who = c.code ?? c.name;
+                            // VT-03b: Hauptknopf „übernehmen“ (bei Fachtausch mit dem eigenen Fach der Lehrkraft), daneben „nur Lehrkraft“
+                            const swap = c.suggestedSubject;
+                            // nach dem Übernehmen weiter zur nächsten offenen Stunde (nur in der gewählten Stunde, sonst bleibt der Stand)
+                            const back = isChosen ? (afterSaveHref ?? stayHref) : here;
+                            return (
+                              <li key={c.id} className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-surface p-3 text-sm">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span aria-hidden className="grid size-6 place-items-center rounded-full bg-surface-2 text-xs font-semibold">
+                                    {n + 1}
+                                  </span>
+                                  <span className="font-semibold">{c.name}</span>
+                                  {c.code && <span className="text-muted">{c.code}</span>}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {c.standby && <Badge tone="soft">Bereitschaft</Badge>}
+                                  {swap && <Badge tone="warn">Fachtausch: {swap.name}</Badge>}
+                                  <Badge tone={c.score > 0 ? "success" : "neutral"}>{c.score > 0 ? `+${c.score}` : c.score} Punkte</Badge>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, back, swap?.id ?? null)}>
+                                    <Button
+                                      type="submit"
+                                      size="sm"
+                                      variant="primary"
+                                      aria-label={`${who}${swap ? ` mit ${swap.name}` : ""} übernehmen: ${label}`}
+                                      aria-keyshortcuts={isChosen ? String(n + 1) : undefined}
+                                      data-suggest-key={isChosen ? n + 1 : undefined}
+                                      title={swap ? "Lehrkraft und Fach übernehmen" : "Lehrkraft übernehmen"}
+                                    >
+                                      {who}
+                                      {swap ? ` mit ${swap.name}` : ""} übernehmen
+                                    </Button>
+                                  </form>
+                                  {swap && (
+                                    <form action={applySuggestionAction.bind(null, l.lessonId, date, c.id, back, null)}>
+                                      <Button type="submit" size="sm" aria-label={`nur Lehrkraft ${who} übernehmen: ${label}`} title="Nur die Lehrkraft übernehmen, das Fach bleibt">
+                                        nur Lehrkraft
+                                      </Button>
+                                    </form>
+                                  )}
+                                </div>
+                                <details className="text-xs">
+                                  <summary className="cursor-pointer font-medium">Gründe ({c.reasons.length})</summary>
+                                  <ul aria-label={`Gründe: ${who}`} className="mt-1 flex flex-col gap-0.5 text-muted">
+                                    {c.reasons.map((r) => (
+                                      <li key={r.label}>
+                                        {r.label} ({r.points > 0 ? "+" : ""}
+                                        {r.points})
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </details>
+                                <Link
+                                  href={lessonHref(l.lessonId, { vorschlag: c.id }).replace("#lessons-title", "#context-title")}
+                                  aria-current={isChosen && c.id === markedId ? "true" : undefined}
+                                  className="text-xs font-medium text-accent-ink hover:underline aria-[current=true]:underline"
+                                >
+                                  Tag von {who}
+                                </Link>
+                              </li>
+                            );
+                          })}
                         </ol>
                       </div>
                     )}
@@ -854,7 +961,15 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                       exams={(examsByGroup.get(l.groupId) ?? []).map((e) => ({ subjectId: e.subjectId, label: `${EXAM_KIND[e.kind]} in ${e.subjectName}` }))}
                       teachers={availability[i]!.map((t) => ({ id: t.id, label: `${t.code} – ${t.name}`, free: t.free }))}
                       rooms={roomOptions}
+                      nextHref={isChosen ? afterSaveHref : null}
                     />
+                    {isChosen && (
+                      <MaterialSection
+                        label={label}
+                        material={materials.get(`${l.lessonId}:${date}`) ?? null}
+                        action={saveMaterialAction.bind(null, needs.open.find((o) => o.lessonId === l.lessonId && o.absence.teacherId === l.teacherId)?.absence.id ?? null, l.lessonId, date)}
+                      />
+                    )}
                   </Card>
                 );
               })}

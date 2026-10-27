@@ -287,7 +287,7 @@ test("GATE SP: Vertretung mit Fachtausch – „Mathematik statt Sport“ bei de
   }
   expect(label, "Sport-Stunde der 7b in den nächsten zwei Wochen").not.toBe("");
   const form = lessons.getByRole("form", { name: label, exact: true });
-  await form.getByLabel("Art").selectOption("substitute");
+  await form.getByRole("radio", { name: "Vertretung", exact: true }).check();
   const teacher = form.getByLabel("Vertretung durch");
   await teacher.selectOption((await teacher.locator('optgroup[label="Frei"] option').first().getAttribute("value"))!);
   await expect(form.getByLabel("Fach").locator("option:checked")).toHaveText("Sport (regulär)");
