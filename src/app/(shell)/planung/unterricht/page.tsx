@@ -38,7 +38,8 @@ import { distribution, planningYear, PLANNED_GROUP_KINDS, type Assignment, type 
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
-import { Input } from "@schulos/ui/field";
+import { Input, Select } from "@schulos/ui/field";
+import { QUELLE_LIVE, resolveQuelle } from "@/modules/stundenplan/quelle";
 import { EmptyState, PageHeader, SubjectBar } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { ExportMenu } from "@/ui/export-menu";
@@ -54,7 +55,7 @@ import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 
 export const metadata: Metadata = { title: "Unterrichtsverteilung" };
 
-type Search = { jahrgang?: string; vorschlag?: string; ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string; stichtag?: string };
+type Search = { jahrgang?: string; vorschlag?: string; ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string; stichtag?: string; quelle?: string };
 
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "UTC" });
@@ -94,8 +95,12 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   const today = toBerlinDate(new Date());
   // SP2-09: Verteilung an einem wählbaren Stichtag (Lehraufträge mit Gültigkeit, z. B. 2. Halbjahr)
   const stichtag = sp.stichtag && /^\d{4}-\d{2}-\d{2}$/.test(sp.stichtag) ? sp.stichtag : undefined;
+  // SP3-02: „verplant“, Deputat-Ist und Diagnose wahlweise gegen einen Entwurf (Vorgabe-Stichtag: der des Entwurfs)
+  const q = await resolveQuelle(db, sp.quelle, year.id);
+  const quelle = q.value === QUELLE_LIVE ? undefined : q.value;
+  const ref = stichtag ?? q.version?.validFrom ?? today;
   const [d, master, school, fakultas, active] = await Promise.all([
-    distribution(db, year, stichtag ?? today),
+    distribution(db, year, ref, { source: q.source }),
     timetableMasterData(db),
     readSchoolSettings(db),
     teacherSubjectMap(db),
@@ -110,12 +115,12 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   const limitsView = sp.ansicht === "tagesgrenzen";
   const matrixView = sp.ansicht === "matrix";
   const otherView = teachersView || diagnoseView || bandsView || limitsView || matrixView;
-  const report = diagnoseView ? await diagnoseYear(db, year, stichtag ?? today, fallback, d) : null;
+  const report = diagnoseView ? await diagnoseYear(db, year, ref, fallback, d, { source: q.source }) : null;
   const category = DIAGNOSIS_CATEGORIES.find((c): c is DiagnosisCategory => c === sp.kategorie);
   const group = d.groups.find((g) => g.id === sp.gruppe);
   const teacher = teachersView ? d.teachers.find((t) => t.id === sp.lehrkraft) : undefined;
   // Review R3 N5: auch die Tagesgrenzen-Ansicht bleibt bei Stichtag „Anzeigen“, „Heute“ und „Lehrauftrag anlegen“ erhalten
-  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : bandsView ? "baender" : limitsView ? "tagesgrenzen" : matrixView ? "matrix" : undefined, jahrgang: matrixView ? sp.jahrgang : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id, stichtag };
+  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : bandsView ? "baender" : limitsView ? "tagesgrenzen" : matrixView ? "matrix" : undefined, jahrgang: matrixView ? sp.jahrgang : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id, stichtag, quelle };
   const back = href(current);
 
   // ------------------------------------------------------------ Formular
@@ -163,7 +168,8 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
     );
   }
 
-  const unmatchedCount = d.unmatched.length;
+  // „Aus Stundenplan übernehmen“ liest den gültigen Plan – im Entwurf ausgeblendet
+  const unmatchedCount = q.version ? 0 : d.unmatched.length;
   return (
     <main className="flex flex-col gap-6">
       <PageHeader
@@ -193,12 +199,12 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         }
       />
       <p className="-mt-3 text-sm text-muted">
-        Schuljahr {year.name} · Lehraufträge und „verplant“ (Stunden im Stundenplan, A-/B-Wochen halb) am {dateFmt.format(new Date(`${d.refYmd}T00:00:00Z`))}
+        Schuljahr {year.name} · Lehraufträge und „verplant“ (Stunden {q.version ? `im ${q.label}` : "im Stundenplan"}, A-/B-Wochen halb) am {dateFmt.format(new Date(`${d.refYmd}T00:00:00Z`))}
         {d.otherTime.length > 0 && ` · ${d.otherTime.length} ${d.otherTime.length === 1 ? "Lehrauftrag gilt" : "Lehraufträge gelten"} an diesem Tag nicht`}
       </p>
       <form method="get" aria-label="Stichtag wählen" className="-mt-3 flex flex-wrap items-end gap-2">
         {Object.entries(current)
-          .filter((e): e is [string, string] => Boolean(e[1]) && e[0] !== "stichtag")
+          .filter((e): e is [string, string] => Boolean(e[1]) && e[0] !== "stichtag" && e[0] !== "quelle")
           .map(([k, v]) => (
             <input key={k} type="hidden" name={k} value={v} />
           ))}
@@ -206,6 +212,18 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
           <span className="font-medium">Stichtag</span>
           <Input type="date" name="stichtag" min={year.startsOn} max={year.endsOn} defaultValue={d.refYmd} />
         </label>
+        {q.options.length > 1 && (
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Plan</span>
+            <Select name="quelle" defaultValue={q.value} className="w-72">
+              {q.options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </label>
+        )}
         <Button type="submit" size="sm">
           Anzeigen
         </Button>
@@ -222,32 +240,32 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
       )}
       <nav aria-label="Ansicht" className="flex flex-wrap gap-2">
         <Button asChild size="sm" variant={otherView ? "ghost" : "secondary"}>
-          <Link href={href({ stichtag })} aria-current={otherView ? undefined : "page"}>
+          <Link href={href({ stichtag, quelle })} aria-current={otherView ? undefined : "page"}>
             Klassen & Kurse
           </Link>
         </Button>
         <Button asChild size="sm" variant={matrixView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "matrix", stichtag })} aria-current={matrixView ? "page" : undefined}>
+          <Link href={href({ ansicht: "matrix", stichtag, quelle })} aria-current={matrixView ? "page" : undefined}>
             Matrix
           </Link>
         </Button>
         <Button asChild size="sm" variant={teachersView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "lehrkraefte", stichtag })} aria-current={teachersView ? "page" : undefined}>
+          <Link href={href({ ansicht: "lehrkraefte", stichtag, quelle })} aria-current={teachersView ? "page" : undefined}>
             Lehrkräfte
           </Link>
         </Button>
         <Button asChild size="sm" variant={bandsView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "baender", stichtag })} aria-current={bandsView ? "page" : undefined}>
+          <Link href={href({ ansicht: "baender", stichtag, quelle })} aria-current={bandsView ? "page" : undefined}>
             Bänder
           </Link>
         </Button>
         <Button asChild size="sm" variant={limitsView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "tagesgrenzen", stichtag })} aria-current={limitsView ? "page" : undefined}>
+          <Link href={href({ ansicht: "tagesgrenzen", stichtag, quelle })} aria-current={limitsView ? "page" : undefined}>
             Tagesgrenzen
           </Link>
         </Button>
         <Button asChild size="sm" variant={diagnoseView ? "secondary" : "ghost"}>
-          <Link href={href({ ansicht: "diagnose", stichtag })} aria-current={diagnoseView ? "page" : undefined}>
+          <Link href={href({ ansicht: "diagnose", stichtag, quelle })} aria-current={diagnoseView ? "page" : undefined}>
             Diagnose
           </Link>
         </Button>
@@ -271,7 +289,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
       ) : teachersView ? (
         <TeacherOverview accounts={accounts} fakultas={fakultas} />
       ) : (
-        <GroupOverview d={d} art={sp.art} stichtag={stichtag} />
+        <GroupOverview d={d} art={sp.art} stichtag={stichtag} quelle={quelle} />
       )}
     </main>
   );
@@ -279,7 +297,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
 
 type Current = Record<string, string | undefined>;
 
-function GroupOverview({ d, art, stichtag }: { d: Distribution; art?: string; stichtag?: string }) {
+function GroupOverview({ d, art, stichtag, quelle }: { d: Distribution; art?: string; stichtag?: string; quelle?: string }) {
   const kinds = PLANNED_GROUP_KINDS.filter((k) => d.groups.some((g) => g.kind === k));
   const kind = kinds.find((k) => k === art) ?? "klasse";
   const list = d.groups.filter((g) => g.kind === kind);
@@ -292,7 +310,7 @@ function GroupOverview({ d, art, stichtag }: { d: Distribution; art?: string; st
         <div className="flex flex-wrap gap-1">
           {kinds.map((k) => (
             <Button key={k} asChild size="sm" variant={k === kind ? "secondary" : "ghost"}>
-              <Link href={href({ art: k, stichtag })} aria-current={k === kind ? "page" : undefined}>
+              <Link href={href({ art: k, stichtag, quelle })} aria-current={k === kind ? "page" : undefined}>
                 {GROUP_KIND_LABELS[k]}
               </Link>
             </Button>
@@ -312,7 +330,7 @@ function GroupOverview({ d, art, stichtag }: { d: Distribution; art?: string; st
           {list.map((g) => (
             <tr key={g.id}>
               <td>
-                <Link href={href({ art: kind === "klasse" ? undefined : kind, gruppe: g.id, stichtag })} className="font-medium hover:underline">
+                <Link href={href({ art: kind === "klasse" ? undefined : kind, gruppe: g.id, stichtag, quelle })} className="font-medium hover:underline">
                   {g.name}
                 </Link>
               </td>
@@ -551,7 +569,7 @@ function GroupDetail({ d, groupId, current }: { d: Distribution; groupId: string
     : [];
   return (
     <section aria-labelledby="gd" className="flex flex-col gap-4">
-      <BackLink to={href({ art: current.art, stichtag: current.stichtag })} label="Alle Gruppen" />
+      <BackLink to={href({ art: current.art, stichtag: current.stichtag, quelle: current.quelle })} label="Alle Gruppen" />
       <div className="flex flex-wrap items-center gap-3">
         <h2 id="gd" className="font-display text-xl font-bold">
           {g.name}

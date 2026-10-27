@@ -9,14 +9,15 @@ import { users } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { applySolverAction, cancelSolverAction } from "@/modules/stundenplan/actions";
+import { applySolverAction, applySolverToDraftAction, cancelSolverAction } from "@/modules/stundenplan/actions";
 import { DIAGNOSIS_LABELS } from "@/modules/stundenplan/diagnose";
 import { COST_LABELS, type CostItem } from "@/modules/stundenplan/solver";
-import { applyPreview, canDeleteRun, EFFORT_LABELS, getRun, isUndoable, precheckOf, PRESET_LABELS, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
+import { applyPreview, canDeleteRun, draftTargets, EFFORT_LABELS, getRun, isUndoable, precheckOf, PRESET_LABELS, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
+import { getVersion, versionNumber } from "@/modules/stundenplan/planversionen";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
-import { Field, Input } from "@schulos/ui/field";
+import { Field, Input, Select } from "@schulos/ui/field";
 import { PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { DeleteRun } from "../delete-run";
@@ -64,7 +65,7 @@ export default async function SolverRunPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ vorschau?: string; kategorie?: string; fehler?: string; uebernommen?: string; entfallen?: string; zurueckgenommen?: string; wiederhergestellt?: string; vertretungen?: string }>;
+  searchParams: Promise<{ vorschau?: string; kategorie?: string; fehler?: string; uebernommen?: string; entfallen?: string; zurueckgenommen?: string; wiederhergestellt?: string; vertretungen?: string; entwurf?: string; gesetzt?: string; ersetzt?: string }>;
 }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
@@ -109,6 +110,14 @@ export default async function SolverRunPage({
   const defaultFrom = cal?.nextSchoolDay(addDays(today, 1)) ?? addDays(today, 1);
   // SP-09: was die Übernahme ab dem vorgeschlagenen Stichtag ändert bzw. was das Zurücknehmen tun würde – nur in dem jeweiligen Zustand
   const [applyHint, undo] = await Promise.all([run.status === "done" && stored ? applyPreview(db, run, defaultFrom) : null, undoable ? undoPreview(db, run, today) : null]);
+  // SP3-02 (F-10-1): Übernahme in einen Entwurf – offene Entwürfe des Schuljahrs, der Entwurf, in dem gerechnet wurde, und der zuletzt gefüllte
+  const [targets, runDraft, filled] = await Promise.all([
+    run.status === "done" && stored ? draftTargets(db, run.schoolYearId) : Promise.resolve([]),
+    stored?.versionId ? getVersion(db, stored.versionId) : Promise.resolve(null),
+    sp.entwurf ? getVersion(db, sp.entwurf) : Promise.resolve(null),
+  ]);
+  const targetLabel = (v: { major: number; minor: number; name: string; validFrom: string | null }) =>
+    `Entwurf ${versionNumber(v)} „${v.name}“${v.validFrom ? ` ab ${dayFmt.format(fromBerlinLocal(v.validFrom))}` : ""}`;
   const liveInitial = active
     ? [{ id: run.id, status: run.status, progress: run.progress, cancelRequested: run.cancelRequested, heartbeatAt: run.heartbeatAt?.toISOString() ?? null, note: run.log.at(-1)?.text ?? null }]
     : [];
@@ -147,6 +156,19 @@ export default async function SolverRunPage({
         {sp.fehler && (
           <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
             {sp.fehler}
+          </p>
+        )}
+        {filled && (
+          <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
+            {n(Number(sp.gesetzt ?? 0), "Stunde", "Stunden")} in den {targetLabel(filled)} übernommen
+            {Number(sp.ersetzt ?? 0) > 0 ? ` (${n(Number(sp.ersetzt), "Entwurfsstunde ersetzt", "Entwurfsstunden ersetzt")})` : ""}. Der gültige Plan ist unverändert.{" "}
+            <Link href={`/planung/stundenplan?quelle=${encodeURIComponent(filled.id)}`} className="font-medium underline">
+              Im Entwurf weiterarbeiten
+            </Link>{" "}
+            ·{" "}
+            <Link href={`/planung/versionen/aenderungen?version=${encodeURIComponent(filled.id)}`} className="font-medium underline">
+              Änderungen zum gültigen Plan
+            </Link>
           </p>
         )}
         {sp.uebernommen && (
@@ -465,9 +487,37 @@ export default async function SolverRunPage({
               Übernehmen
             </h2>
             <p className="text-sm text-muted">
-              Ab dem Stichtag (ein Schultag) gilt der Vorschlag; der bisherige Plan endet am Vortag (Klassenbuch und Vertretungen davor bleiben). Vertretungen ab dem
-              Stichtag an ersetzten Stunden entfallen. Bis zum Stichtag lässt sich die Übernahme zurücknehmen – die entfallenen Vertretungen kommen dabei zurück, sofern ihre Stunde dann wieder gilt.
+              Der Vorschlag kommt in einen Entwurf: ab dessen Stichtag ersetzt er dort die Stunden mit Lehrauftrag – fixierte Stunden und Stunden ohne Lehrauftrag
+              bleiben. Der gültige Plan, Vertretungen und Klassenbuch ändern sich erst, wenn der Entwurf veröffentlicht wird. Den alten Stand sichert vorher eine Variante
+              des Entwurfs.
+              {runDraft ? ` Gerechnet im ${targetLabel(runDraft)}.` : ""}
             </p>
+            <form action={applySolverToDraftAction.bind(null, run.id)} aria-label="In den Entwurf übernehmen" className="flex flex-wrap items-end gap-3">
+              <Field label="Entwurf" className="w-full sm:w-96">
+                <Select name="ziel" defaultValue={runDraft && targets.some((t) => t.id === runDraft.id) ? runDraft.id : (targets[0]?.id ?? "neu")}>
+                  {targets.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {targetLabel(t)}
+                    </option>
+                  ))}
+                  <option value="neu">Neuer Entwurf aus dem gültigen Plan ab Stichtag</option>
+                </Select>
+              </Field>
+              <Field label="Stichtag (nur neuer Entwurf)" className="w-56">
+                <Input type="date" name="from" defaultValue={defaultFrom} />
+              </Field>
+              <Button type="submit" variant="primary">
+                In den Entwurf übernehmen
+              </Button>
+            </form>
+            {!stored.versionId && (
+              <details className="flex flex-col gap-3 rounded-card border border-border p-3 text-sm">
+                <summary className="cursor-pointer font-medium">Übergang bis zum Veröffentlichen: direkt in den gültigen Plan</summary>
+                <p className="mt-2 text-muted">
+                  Nur bis Entwürfe veröffentlicht werden können (danach entfällt dieser Weg). Ab dem Stichtag (ein Schultag) gilt der Vorschlag; der bisherige Plan
+                  endet am Vortag (Klassenbuch und Vertretungen davor bleiben). Vertretungen ab dem Stichtag an ersetzten Stunden entfallen. Bis zum Stichtag lässt
+                  sich die Übernahme zurücknehmen – die entfallenen Vertretungen kommen dabei zurück, sofern ihre Stunde dann wieder gilt.
+                </p>
             {applyHint && (
               <p className="text-sm" data-testid="apply-preview">
                 Ab {dayFmt.format(fromBerlinLocal(applyHint.from))}: {n(applyHint.ended, "Stunde endet am Vortag", "Stunden enden am Vortag")}
@@ -483,10 +533,12 @@ export default async function SolverRunPage({
               <Field label="ab Stichtag" className="w-48">
                 <Input type="date" name="from" defaultValue={defaultFrom} required />
               </Field>
-              <Button type="submit" variant="primary">
+              <Button type="submit">
                 Ab Stichtag übernehmen
               </Button>
             </form>
+              </details>
+            )}
           </Card>
         )}
 

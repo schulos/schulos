@@ -200,12 +200,25 @@ describe("Querschnitt: kein fremder Leser des Entwurfs (SP3-01, §5 b)", () => {
     expect(files.find((f) => f.path === "src/core/privacy/auskunft.ts")!.text).toMatch(/EXPORT_SKIP_REFS[\s\S]*"timetable_draft_lessons\.teacher_id"/);
   });
 
-  it("im Modul nur Schema, Manifest (Löschklasse), Planquelle und Versionen – Plan-Leser (Wochenplan, Vertretung, Monitor, Druck …) bleiben beim gültigen Plan", () => {
+  it("im Modul nur Schema, Manifest (Löschklasse), Planquelle, Versionen und die Übernahme in den Entwurf (SP3-02) – Plan-Leser (Wochenplan, Vertretung, Monitor, Druck …) bleiben beim gültigen Plan", () => {
     const hits = files.filter((f) => /timetableDraftLessons|timetable_draft_lessons/.test(f.text) && f.path.startsWith("src/modules/stundenplan/")).map((f) => f.path).sort();
-    expect(hits).toEqual(["src/modules/stundenplan/manifest.ts", "src/modules/stundenplan/plan-quelle.ts", "src/modules/stundenplan/planversionen.ts", "src/modules/stundenplan/schema.ts"]);
-    // Seiten lesen Entwürfe nur über den Service der Versionsliste
+    expect(hits).toEqual([
+      "src/modules/stundenplan/manifest.ts",
+      "src/modules/stundenplan/plan-quelle.ts",
+      "src/modules/stundenplan/planversionen.ts",
+      "src/modules/stundenplan/schema.ts",
+      "src/modules/stundenplan/solverlauf.ts",
+    ]);
+    // Seiten lesen Entwürfe nur über Services des Moduls (Quelle als URL-Wert)
     const pages = files.filter((f) => f.path.startsWith("src/app/") && DRAFT.test(f.text)).map((f) => f.path);
     expect(pages).toEqual([]);
+  });
+
+  it("SP3-02: nur die Planung arbeitet mit der Planquelle – Vertretung, Wochenplan, Heute, Anzeige, Freigabe, Gong, Exporte, Periode lesen nur den gültigen Plan", () => {
+    const planners = files.filter((f) => f.path.startsWith("src/modules/stundenplan/") && /lessonCols\(|lessonTable\(|PlanSource|plan-quelle/.test(f.text)).map((f) => f.path.replace("src/modules/stundenplan/", "")).sort();
+    expect(planners).toEqual(["actions.ts", "diagnose.ts", "manage.ts", "plan-diff.ts", "plan-quelle.ts", "planversionen.ts", "quelle.ts", "schema.ts", "setzhilfe.ts", "solver-input.ts", "solverlauf.ts", "verteilung.ts"]);
+    for (const reader of ["service.ts", "vertretung.ts", "today.ts", "display.ts", "widgets.tsx", "freigabe.ts", "vertretung-gong.ts", "abwesenheit.ts", "raumsperren.ts", "exporte.ts", "periode.ts", "arbeitsplatz.ts", "vorschlaege.ts"])
+      expect(planners).not.toContain(reader);
   });
 
   it("`timetable_lessons`-Leser außerhalb des Moduls lesen weiter nur den gültigen Plan (keine Planquelle)", () => {

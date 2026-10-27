@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { collectErrors, login, logoutForSwitch, pickTeacher, publishIfDraft } from "./helpers";
+import { collectErrors, login, logoutForSwitch, openDirectApply, pickTeacher, publishIfDraft } from "./helpers";
 
 // SP-11 (docs/STUNDENPLAN-UMBAU.md §5): E2E-Gesamtszenario „Stundenplaner:in“ für GATE SP. Frank Schulte (Lehrkraft, Funktionsgruppe
 // „Stundenplanung“) plant ohne Verwaltungszugang: Übersicht → Lauf mit Parametern → Abbruch → weitere Läufe → Vergleich → Übernahme
@@ -118,7 +118,10 @@ test("GATE SP: Stundenplaner:in – Übersicht → Lauf mit Parametern → Abbru
   await expect(page.getByRole("table", { name: /Parameter der verglichenen Läufe/ }).getByRole("row", { name: /^Gewichtung/ })).toContainText("abweichend");
 
   // 4. Übernahme des letzten Laufs ab Stichtag (Schultag) → Plan ab Stichtag neu, Übersicht „übernommen“
+  // SP3-02 (F-10-1): „Übernehmen“ füllt einen Entwurf; die direkte Übernahme ist bis SP3-04 der eingeklappte Übergangsweg (hier geprüft)
   await page.goto(runs.C);
+  await expect(page.getByRole("form", { name: "In den Entwurf übernehmen" })).toBeVisible();
+  await openDirectApply(page);
   const applyForm = page.getByRole("form", { name: "Vorschlag übernehmen" });
   await expect(page.getByTestId("apply-preview")).toBeVisible();
   await applyForm.getByLabel("ab Stichtag").fill(sundayIn(6));
@@ -132,6 +135,7 @@ test("GATE SP: Stundenplaner:in – Übersicht → Lauf mit Parametern → Abbru
   const before = await plan.innerText();
 
   await page.goto(runs.C);
+  await openDirectApply(page);
   await applyForm.getByLabel("ab Stichtag").fill(from);
   await applyForm.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
   await expect(page).toHaveURL(/uebernommen=\d+/);

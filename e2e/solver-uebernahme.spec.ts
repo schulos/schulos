@@ -1,10 +1,12 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { collectErrors, login } from "./helpers";
+import { collectErrors, login, openDirectApply } from "./helpers";
 
 // SP-09 (docs/STUNDENPLAN-UMBAU.md §3.2, „Umsetzungsstand SP-09“): Lauf ab einem Stichtag (Schultag) übernehmen → der Plan zeigt ab dem
 // Stichtag die neuen Stunden → der Lauf ist bis zum Stichtag nicht löschbar → Übernahme zurücknehmen → alter Stand.
 // SP-13: eine Vertretung (Entfall) am Stichtag entfällt mit der Übernahme und ist nach dem Zurücknehmen wieder da.
+// SP3-02 (F-10-1): „Übernehmen“ füllt einen Entwurf; die direkte Übernahme bleibt bis SP3-04 als eingeklappter Übergangsweg – diese
+// Spec prüft ihn samt Rücknahme (`openDirectApply`), der Weg in den Entwurf steht in `planung-entwurf.spec.ts`.
 
 const tag = Date.now().toString(36);
 const LABEL = `E2E Übernahme ${tag}`;
@@ -36,7 +38,8 @@ test("SP-09/SP-13: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nic
     await page.reload();
     await expect(page.getByRole("heading", { name: "Übernehmen" })).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 90_000 });
-  // Hinweis, was die Übernahme ab dem vorgeschlagenen Stichtag ändert
+  // Hinweis, was die Übernahme ab dem vorgeschlagenen Stichtag ändert (Übergangsweg aufgeklappt)
+  await openDirectApply(page);
   await expect(page.getByTestId("apply-preview")).toContainText(/Stunden? end(et|en) am Vortag/);
 
   // Stichtag muss ein Schultag sein: ein Sonntag wird abgelehnt, der Fehler nennt den nächsten Schultag
@@ -69,6 +72,7 @@ test("SP-09/SP-13: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nic
 
   // übernehmen
   await page.goto(url);
+  await openDirectApply(page);
   await applyForm.getByLabel("ab Stichtag").fill(from);
   await applyForm.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
   await expect(page).toHaveURL(/uebernommen=\d+/);

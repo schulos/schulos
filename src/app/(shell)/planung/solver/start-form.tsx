@@ -13,6 +13,8 @@ export function SolverStartForm({
   efforts,
   defaultSeed,
   busy,
+  sources = [],
+  defaultSource,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   presets: Record<string, Record<WeightKey, number>>;
@@ -21,6 +23,9 @@ export function SolverStartForm({
   defaultSeed: number;
   /** es wartet oder rechnet schon ein Lauf */
   busy: boolean;
+  /** SP3-02: Plan, gegen den gerechnet wird – „Gültiger Plan“ und offene Entwürfe (Wert = Versions-id) */
+  sources?: { value: string; label: string }[];
+  defaultSource?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const fe = state.fieldErrors ?? {};
@@ -68,9 +73,20 @@ export function SolverStartForm({
             ))}
           </Select>
         </Field>
-        <Field label="Lehraufträge am" hint="leer = heute; z. B. Beginn des 2. Halbjahrs" error={fe.refYmd}>
+        <Field label="Lehraufträge am" hint="leer = heute, im Entwurf sein Stichtag; z. B. Beginn des 2. Halbjahrs" error={fe.refYmd}>
           <Input type="date" name="refYmd" defaultValue={v.refYmd ?? ""} />
         </Field>
+        {sources.length > 1 && (
+          <Field label="Planen im" hint="fixierte Stunden und Stunden ohne Lehrauftrag kommen aus diesem Plan" error={fe.versionId} className="sm:col-span-2">
+            <Select name="versionId" defaultValue={v.versionId ?? defaultSource ?? sources[0]!.value}>
+              {sources.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <FieldActions className="sm:col-span-2">
           <Button type="submit" variant="primary" disabled={pending}>
             {pending ? "Wird angelegt …" : "Plan berechnen"}

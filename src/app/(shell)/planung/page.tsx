@@ -76,7 +76,7 @@ function yearTiles(m: YearPlanningFigures): Tile[] {
   const r = m.lastRun;
   tiles.push(
     !r
-      ? { key: "solver", title: "Automatisch planen", value: "–", detail: "Noch kein Lauf – Planvorschlag berechnen und ab Stichtag übernehmen.", href: "/planung/solver" }
+      ? { key: "solver", title: "Automatisch planen", value: "–", detail: "Noch kein Lauf – Planvorschlag berechnen und in einen Entwurf übernehmen.", href: "/planung/solver" }
       : r.status === "running" || r.status === "queued"
         ? { key: "solver", title: "Letzter Solver-Lauf", value: r.status === "queued" ? "–" : `${r.progress} %`, status: r.status === "queued" ? { label: "wartet", tone: "neutral" } : { label: "rechnet", tone: "warn" }, detail: `gestartet ${dateTimeFmt.format(r.createdAt)} Uhr`, href: `/planung/solver/${r.id}` }
         : r.status === "failed" || r.status === "cancelled"

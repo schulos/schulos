@@ -57,6 +57,18 @@ export async function publishIfDraft(page: Page) {
 }
 
 /**
+ * SP3-02 (F-10-1): „Übernehmen“ füllt einen Entwurf; die direkte Übernahme in den gültigen Plan ist bis zum Veröffentlichen (SP3-04) nur
+ * noch ein eingeklappter Übergangsweg auf der Seite eines Laufs. Klappt ihn auf (falls zu), damit Formular „Vorschlag übernehmen“ und
+ * Hinweis `apply-preview` bedienbar sind.
+ */
+export async function openDirectApply(page: Page) {
+  const details = page.locator("details").filter({ hasText: "direkt in den gültigen Plan" });
+  await expect(details).toHaveCount(1);
+  if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator("summary").click();
+  await expect(page.getByRole("form", { name: "Vorschlag übernehmen" })).toBeVisible();
+}
+
+/**
  * VT-04: Vertretungsnachrichten gehen zur geplanten Zeit raus (Vortag 18:00, heute sofort, nicht in der Ruhezeit). Auf Stundenplanung →
  * Vertretungen alle eingeplanten Nachrichten „jetzt senden“, damit Tests nicht von der Uhrzeit abhängen.
  */

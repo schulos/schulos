@@ -1,12 +1,15 @@
 // Setzhilfe (P2b-12): offene Stunden aus der Unterrichtsverteilung setzen, Freiraster mit Gründen, Verschieben/Tauschen.
 // SP2-02: ein Lehrauftrag im Band wird mit allen Mitgliedern des Bands als eine Kopplung gesetzt (Fach, Lehrkraft, Raum je Teil);
 // Verschieben/Tauschen bewegt die ganze Kopplung.
-import { and, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+// SP3-02: alles wahlweise im gültigen Plan oder im Entwurf einer Planversion (`PlanSource`); im Entwurf tragen gesetzte Stunden ihren
+// Lehrauftrag (`assignment_id`), offene Stunden zählen gegen den Entwurf.
+import { eq, inArray } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
-import { groups, rooms, subjects, timetableLessons, users } from "@/core/db/schema";
+import { groups, rooms, subjects, users } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { createLesson, defaultValidity, saveCoupling, slotsOverlap, suggestRoom, updateLesson } from "./manage";
+import { idWhere, lessonCols, LIVE, overlapWhere, requireWritable, type PlanSource } from "./plan-quelle";
 import type { LESSON_WEEKS } from "./schema";
 import { distribution, planningYear, type Assignment } from "./verteilung";
 import { allPrefs, blockedReasons } from "./zeitwuensche";
@@ -218,32 +221,33 @@ export function placementCell(input: GridInput, weekday: number, periodNr: numbe
 
 // ---------------------------------------------------------------- Daten
 
-/** Alle Stunden, die sich mit dem Zeitraum überschneiden, mit Namen fürs Raster. */
-export async function gridLessons(db: Db, validFrom: string, validUntil: string | null): Promise<GridLesson[]> {
+/** Alle Stunden der Quelle (Vorgabe: gültiger Plan), die sich mit dem Zeitraum überschneiden, mit Namen fürs Raster. */
+export async function gridLessons(db: Db, validFrom: string, validUntil: string | null, source: PlanSource = LIVE): Promise<GridLesson[]> {
+  const t = lessonCols(source);
   const rows = await db
-    .select({ l: timetableLessons, groupName: groups.name, subjectName: subjects.name, teacherCode: users.shortCode })
-    .from(timetableLessons)
-    .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
-    .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
-    .leftJoin(users, eq(users.id, timetableLessons.teacherId))
-    .where(and(validUntil ? lte(timetableLessons.validFrom, validUntil) : undefined, or(isNull(timetableLessons.validUntil), gte(timetableLessons.validUntil, validFrom))));
-  return rows.map((r) => ({
-    id: r.l.id,
-    couplingId: r.l.couplingId,
-    groupId: r.l.groupId,
-    groupName: r.groupName,
-    subjectId: r.l.subjectId,
-    subjectName: r.subjectName,
-    teacherId: r.l.teacherId,
-    teacherCode: r.teacherCode,
-    roomId: r.l.roomId,
-    weekday: r.l.weekday,
-    periodNr: r.l.periodNr,
-    week: r.l.week,
-    validFrom: r.l.validFrom,
-    validUntil: r.l.validUntil,
-    fixed: r.l.fixed,
-  }));
+    .select({
+      id: t.id,
+      couplingId: t.couplingId,
+      groupId: t.groupId,
+      groupName: groups.name,
+      subjectId: t.subjectId,
+      subjectName: subjects.name,
+      teacherId: t.teacherId,
+      teacherCode: users.shortCode,
+      roomId: t.roomId,
+      weekday: t.weekday,
+      periodNr: t.periodNr,
+      week: t.week,
+      validFrom: t.validFrom,
+      validUntil: t.validUntil,
+      fixed: t.fixed,
+    })
+    .from(t)
+    .innerJoin(groups, eq(groups.id, t.groupId))
+    .innerJoin(subjects, eq(subjects.id, t.subjectId))
+    .leftJoin(users, eq(users.id, t.teacherId))
+    .where(overlapWhere(source, validFrom, validUntil));
+  return rows;
 }
 
 export interface OpenAssignment extends Assignment {
@@ -258,10 +262,10 @@ export interface OpenAssignment extends Assignment {
  * Lehraufträge der Gruppe im Planungsjahr mit noch offenen Wochenstunden (Stichtag heute). Ein Lehrauftrag im Band ist offen,
  * solange das Band offen ist (schwächstes Mitglied) – gesetzt wird dann das ganze Band.
  */
-export async function openAssignments(db: Db, groupId: string, todayYmd: string): Promise<OpenAssignment[]> {
+export async function openAssignments(db: Db, groupId: string, todayYmd: string, source: PlanSource = LIVE): Promise<OpenAssignment[]> {
   const year = await planningYear(db);
   if (!year) return [];
-  const d = await distribution(db, year, todayYmd);
+  const d = await distribution(db, year, todayYmd, { source });
   const byId = new Map(d.assignments.map((a) => [a.id, a]));
   const bandOf = new Map(d.bands.map((b) => [b.id, b]));
   const out: OpenAssignment[] = [];
@@ -285,6 +289,8 @@ export function assignmentRows(a: Pick<Assignment, "groups" | "teachers" | "subj
 
 export interface Placement {
   rows: UnitRow[];
+  /** SP3-02: Lehrauftrag je Zeile (Reihenfolge wie `rows`) – im Entwurf als Herkunft der gesetzten Stunde */
+  rowAssignments: string[];
   validity: { validFrom: string; validUntil: string | null };
   lessons: GridLesson[];
   rooms: { id: string; kind: string; active: boolean }[];
@@ -320,7 +326,7 @@ export function clipValidity(
   return { validFrom, validUntil };
 }
 
-export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssignment, "band">, todayYmd: string, from?: string): Promise<Placement> {
+export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssignment, "band">, todayYmd: string, from?: string, source: PlanSource = LIVE): Promise<Placement> {
   const members = a.band?.members.length ? a.band.members : [a];
   const groupIds = unique(members.flatMap((m) => m.groups.map((g) => g.id)));
   const [validity, roomList, subjectRows, groupRows] = await Promise.all([
@@ -333,6 +339,7 @@ export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssig
     m.roomId ?? suggestRoom(subjectRows.find((s) => s.id === m.subjectId), groupRows.find((g) => g.id === m.groups[0]?.id)?.homeRoomId ?? null, roomList);
   // SP2-09: jede Stunde gilt höchstens so lange wie ihr Lehrauftrag (Band-Mitglieder je eigene Gültigkeit)
   const rows = members.flatMap((m) => assignmentRows(m, roomFor(m), clipValidity(validity, m)));
+  const rowAssignments = members.flatMap((m) => assignmentRows(m, null, validity).map(() => m.id));
   const targets = new Map<string, { kind: "teacher" | "group" | "room" | "subject"; id: string | null; label: string }>();
   const target = (kind: "teacher" | "group" | "room" | "subject", id: string | null, label: string) => {
     if (id) targets.set(`${kind}:${id}`, { kind, id, label });
@@ -344,16 +351,36 @@ export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssig
   }
   for (const r of rows) target("room", r.roomId, `Raum ${r.roomId}`);
   const blocked = await prefBlocker(db, [...targets.values()]);
-  return { rows, validity, lessons: await gridLessons(db, validity.validFrom, validity.validUntil), rooms: roomList, blocked, dayLimits: await loadDayLimits(db), teacherLimits: await loadTeacherLimits(db) };
+  return {
+    rows,
+    rowAssignments,
+    validity,
+    lessons: await gridLessons(db, validity.validFrom, validity.validUntil, source),
+    rooms: roomList,
+    blocked,
+    dayLimits: await loadDayLimits(db),
+    teacherLimits: await loadTeacherLimits(db),
+  };
 }
 
 const slotName = (weekday: number, periodNr: number) => `${["Mo", "Di", "Mi", "Do", "Fr"][weekday]} ${periodNr}. Stunde`;
 
 /** Setzt eine Stunde eines Lehrauftrags in den Slot – bei mehreren Lehrkräften oder im Band (alle Mitglieder) als Kopplung. */
-export async function placeAssignment(db: Db, actorId: string, assignmentId: string, groupId: string, weekday: number, periodNr: number, todayYmd: string, from?: string): Promise<void> {
-  const a = (await openAssignments(db, groupId, from ?? todayYmd)).find((x) => x.id === assignmentId);
+export async function placeAssignment(
+  db: Db,
+  actorId: string,
+  assignmentId: string,
+  groupId: string,
+  weekday: number,
+  periodNr: number,
+  todayYmd: string,
+  from?: string,
+  source: PlanSource = LIVE,
+): Promise<void> {
+  await requireWritable(db, source);
+  const a = (await openAssignments(db, groupId, from ?? todayYmd, source)).find((x) => x.id === assignmentId);
   if (!a) throw new ValidationError({ assignment: "Für diesen Lehrauftrag ist keine Stunde mehr offen" });
-  const pl = await assignmentPlacement(db, a, todayYmd, from);
+  const pl = await assignmentPlacement(db, a, todayYmd, from, source);
   const cell = placementCell({ ...pl, unitIds: [], weekdays: [weekday], periods: [periodNr] }, weekday, periodNr);
   if (cell.state !== "free") throw new ValidationError({ slot: `${slotName(weekday, periodNr)}: ${cell.state === "blocked" ? cell.reasons.join(", ") : "belegt"}` });
   // SP2-09: Gültigkeit des Lehrauftrags; Kopplungen haben eine gemeinsame – weichen Band-Mitglieder ab, gilt der Zeitraum der Setzhilfe
@@ -362,9 +389,15 @@ export async function placeAssignment(db: Db, actorId: string, assignmentId: str
   const slot = { weekday, periodNr, week: "all" as const, ...(same ? { validFrom: r0.validFrom, validUntil: r0.validUntil } : pl.validity) };
   if (pl.rows.length === 1) {
     const r = pl.rows[0]!;
-    await createLesson(db, actorId, { ...slot, groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[0]! });
+    await createLesson(db, actorId, { ...slot, groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[0]!, assignmentId: pl.rowAssignments[0] ?? null }, source);
   } else {
-    await saveCoupling(db, actorId, null, { ...slot, parts: pl.rows.map((r, i) => ({ groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[i]! })) });
+    await saveCoupling(
+      db,
+      actorId,
+      null,
+      { ...slot, parts: pl.rows.map((r, i) => ({ groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[i]!, assignmentId: pl.rowAssignments[i] ?? null })) },
+      source,
+    );
   }
 }
 
@@ -380,12 +413,13 @@ export interface MoveUnit {
   teacherLimits?: TeacherLimits;
 }
 
-/** Die Stunde (bzw. ihre Kopplung) und alle Stunden, die sich mit ihrer Gültigkeit überschneiden. */
-export async function movePlacement(db: Db, lessonId: string): Promise<MoveUnit | null> {
-  const [l] = await db.select().from(timetableLessons).where(eq(timetableLessons.id, lessonId));
+/** Die Stunde (bzw. ihre Kopplung) und alle Stunden der Quelle, die sich mit ihrer Gültigkeit überschneiden. */
+export async function movePlacement(db: Db, lessonId: string, source: PlanSource = LIVE): Promise<MoveUnit | null> {
+  const t = lessonCols(source);
+  const [l] = await db.select({ id: t.id, couplingId: t.couplingId, validFrom: t.validFrom, validUntil: t.validUntil }).from(t).where(idWhere(source, lessonId));
   if (!l) return null;
   const [lessons, roomList] = await Promise.all([
-    gridLessons(db, l.validFrom, l.validUntil),
+    gridLessons(db, l.validFrom, l.validUntil, source),
     db.select({ id: rooms.id, kind: rooms.kind, active: rooms.active }).from(rooms).orderBy(rooms.id),
   ]);
   const unit = lessons.filter((x) => (l.couplingId ? x.couplingId === l.couplingId : x.id === l.id));
@@ -415,8 +449,9 @@ export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number
 }
 
 /** Verschiebt eine Stunde/Kopplung in einen freien Slot oder tauscht sie mit der Stunde der Gruppe dort. */
-export async function moveLesson(db: Db, actorId: string, lessonId: string, groupId: string, weekday: number, periodNr: number): Promise<"moved" | "swapped"> {
-  const m = await movePlacement(db, lessonId);
+export async function moveLesson(db: Db, actorId: string, lessonId: string, groupId: string, weekday: number, periodNr: number, source: PlanSource = LIVE): Promise<"moved" | "swapped"> {
+  await requireWritable(db, source);
+  const m = await movePlacement(db, lessonId, source);
   if (!m || !m.unit.length) throw new ValidationError({ id: "Stunde gibt es nicht mehr" });
   const cell = placementCell(moveGridInput(m, groupId, [weekday], [periodNr]), weekday, periodNr);
   const first = m.unit[0]!;
@@ -425,22 +460,30 @@ export async function moveLesson(db: Db, actorId: string, lessonId: string, grou
   if (cell.state === "free") {
     const slot = { weekday, periodNr, week: first.week, validFrom: first.validFrom, validUntil: first.validUntil };
     if (!first.couplingId) {
-      await updateLesson(db, actorId, first.id, { ...slot, groupId: first.groupId, subjectId: first.subjectId, teacherId: first.teacherId, roomId: cell.rooms[0]! });
+      await updateLesson(db, actorId, first.id, { ...slot, groupId: first.groupId, subjectId: first.subjectId, teacherId: first.teacherId, roomId: cell.rooms[0]! }, source);
     } else {
-      await saveCoupling(db, actorId, first.couplingId, {
-        ...slot,
-        parts: m.unit.map((u, i) => ({ id: u.id, groupId: u.groupId, subjectId: u.subjectId, teacherId: u.teacherId, roomId: cell.rooms[i]! })),
-      });
+      await saveCoupling(
+        db,
+        actorId,
+        first.couplingId,
+        {
+          ...slot,
+          parts: m.unit.map((u, i) => ({ id: u.id, groupId: u.groupId, subjectId: u.subjectId, teacherId: u.teacherId, roomId: cell.rooms[i]! })),
+        },
+        source,
+      );
     }
     return "moved";
   }
   // Tauschen: beide Einheiten wechseln den Slot, Räume bleiben
   const partner = m.lessons.find((l) => l.id === cell.partnerIds[0])!;
   await db.transaction(async (tx) => {
-    for (const u of m.unit) await tx.update(timetableLessons).set({ weekday, periodNr }).where(eq(timetableLessons.id, u.id));
-    for (const id of cell.partnerIds) await tx.update(timetableLessons).set({ weekday: first.weekday, periodNr: first.periodNr }).where(eq(timetableLessons.id, id));
+    const t = lessonCols(source);
+    for (const u of m.unit) await tx.update(t).set({ weekday, periodNr }).where(idWhere(source, u.id));
+    for (const id of cell.partnerIds) await tx.update(t).set({ weekday: first.weekday, periodNr: first.periodNr }).where(idWhere(source, id));
   });
-  await audit(db, actorId, "stundenplan.lesson.swap", groupId, {
+  await audit(db, actorId, source.kind === "draft" ? "stundenplan.draft.lesson.swap" : "stundenplan.lesson.swap", groupId, {
+    ...(source.kind === "draft" ? { draft: source.versionId } : {}),
     lesson: first.id,
     with: partner.id,
     from: slotName(first.weekday, first.periodNr),
