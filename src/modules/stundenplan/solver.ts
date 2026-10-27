@@ -13,7 +13,8 @@
 // kosten Anwesenheitstage (`teacherDays`) und ein Fach an Folgetagen (`subjectSpread`) – beide mit Gewicht 0 in der Vorgabe.
 //
 // Verfahren: gierige Konstruktion (schwierigste Einheiten zuerst, je Einheit der günstigste zulässige Slot), danach
-// lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand). Beides läuft in Schritten, damit ein
+// lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand; SQ-01: je Schritt bis zu acht Zielplätze, bis einer zulässig
+// ist, Kosten erst für zulässige Kandidaten). Beides läuft in Schritten, damit ein
 // Hintergrundlauf (solverlauf.ts) zwischendurch die Ereignisschleife freigibt.
 
 import { ruleSummary, type DayRule } from "./tagesgrenzen";
@@ -933,6 +934,14 @@ export function unplacedReason(causes: UnplacedCause[]): string {
 }
 
 /**
+ * SQ-01: Kandidaten je Schritt der lokalen Suche, bis einer zulässig ist (1 = wie vor SQ-01). Verschieben: 8 Zielplätze – auf den
+ * Benchmark-Schulen 7–28 % bessere Bewertung bei gleicher Laufzeit (zusammen mit „Zulässigkeit vor Bewertung“). Tauschen: ein Partner –
+ * 4 Partner verbessern weiter, kosten aber ~70 % Laufzeit.
+ */
+const MOVE_TRIES = 8;
+const SWAP_TRIES = 1;
+
+/**
  * Solver in Schritten (für Hintergrundjobs mit Fortschritt): construct() → improve(n) beliebig oft → result().
  * Gleicher Input und Startwert ergeben dieselbe Lösung, egal in wie vielen Schritten konstruiert oder verbessert wird.
  */
@@ -1067,19 +1076,26 @@ export function createSolver(input: SolverInput) {
     return Math.max(0, total - done);
   }
 
+  /**
+   * Ein Schritt der lokalen Suche: Verschieben (60 %) oder Tauschen. SQ-01: Zulässigkeit vor Bewertung (die Kosten werden nur für
+   * zulässige Kandidaten gerechnet) und bis zu `MOVE_TRIES` bzw. `SWAP_TRIES` Kandidaten ziehen, bis einer zulässig ist – vorher
+   * war die große Mehrheit der Schritte wirkungslos (Zielplatz unzulässig).
+   */
   function step() {
     const u = placedUnits[Math.floor(random() * placedUnits.length)]!;
     const old = s.place.get(u.id)!;
     if (random() < 0.6) {
-      // Verschieben
-      const t = slots[Math.floor(random() * slots.length)]!;
-      if (t.wd === old.weekday && t.nr === old.periodNr) return;
+      // Verschieben: zulässigen Zielplatz suchen (mit `u` herausgenommen, sonst stünde es sich selbst im Weg)
+      s.unapply(u.id);
+      let t: { wd: number; nr: number } | null = null;
+      for (let k = 0; k < MOVE_TRIES && !t; k++) {
+        const c = slots[Math.floor(random() * slots.length)]!;
+        if ((c.wd !== old.weekday || c.nr !== old.periodNr) && s.feasible(u, c.wd, c.nr)) t = c;
+      }
+      s.apply(old);
+      if (!t) return;
       const before = s.localCost([u], [old.weekday, t.wd]);
       s.unapply(u.id);
-      if (!s.feasible(u, t.wd, t.nr)) {
-        s.apply(old);
-        return;
-      }
       s.apply(s.placeAt(u, t.wd, t.nr));
       const after = s.localCost([u], [old.weekday, t.wd]);
       if (after <= before) {
@@ -1090,34 +1106,51 @@ export function createSolver(input: SolverInput) {
       }
       return;
     }
-    // Tauschen mit einer anderen Einheit derselben Gruppe (gleiche Länge)
+    // Tauschen mit einer anderen Einheit derselben Gruppe (gleiche Länge): zulässigen Partner suchen
     const peers = (byGroup.get(u.groupIds[0]!) ?? []).filter((v) => v.id !== u.id && v.length === u.length);
     if (!peers.length) return;
-    const v = peers[Math.floor(random() * peers.length)]!;
-    const pv = s.place.get(v.id)!;
+    let v: SolverUnit | null = null;
+    let pv: Placement | null = null;
+    for (let k = 0; k < SWAP_TRIES && !v; k++) {
+      const c = peers[Math.floor(random() * peers.length)]!;
+      const pc = s.place.get(c.id)!;
+      if (swappable(u, old, c, pc)) {
+        v = c;
+        pv = pc;
+      }
+    }
+    if (!v || !pv) return;
     const days = [old.weekday, pv.weekday];
     const before = s.localCost([u, v], days);
     s.unapply(u.id);
     s.unapply(v.id);
-    let ok = s.feasible(u, pv.weekday, pv.periodNr);
-    let pu: Placement | null = null;
-    if (ok) {
-      pu = s.placeAt(u, pv.weekday, pv.periodNr);
-      s.apply(pu);
-      ok = s.feasible(v, old.weekday, old.periodNr);
+    s.apply(s.placeAt(u, pv.weekday, pv.periodNr));
+    s.apply(s.placeAt(v, old.weekday, old.periodNr));
+    const after = s.localCost([u, v], days);
+    if (after <= before) {
+      if (after < before) improved++;
+      return;
     }
-    if (ok) {
-      s.apply(s.placeAt(v, old.weekday, old.periodNr));
-      const after = s.localCost([u, v], days);
-      if (after <= before) {
-        if (after < before) improved++;
-        return;
-      }
-      s.unapply(v.id);
-    }
-    if (pu) s.unapply(u.id);
+    s.unapply(u.id);
+    s.unapply(v.id);
     s.apply(old);
     s.apply(pv);
+  }
+
+  /** Dürfen `u` (auf `pu`) und `v` (auf `pv`) die Plätze tauschen? Prüft wie das Setzen selbst; der Zustand bleibt unverändert. */
+  function swappable(u: SolverUnit, pu: Placement, v: SolverUnit, pv: Placement): boolean {
+    s.unapply(u.id);
+    s.unapply(v.id);
+    let ok = s.feasible(u, pv.weekday, pv.periodNr);
+    if (ok) {
+      // `v` muss auch mit `u` am neuen Platz passen (Räume spielen für die Zulässigkeit keine Rolle)
+      s.apply({ ...pu, weekday: pv.weekday, periodNr: pv.periodNr, roomId: null, roomIds: undefined });
+      ok = s.feasible(v, pu.weekday, pu.periodNr);
+      s.unapply(u.id);
+    }
+    s.apply(pu);
+    s.apply(pv);
+    return ok;
   }
 
   /** Aktuelle Bewertung ohne Einzelposten (Zwischenstand im Protokoll). */

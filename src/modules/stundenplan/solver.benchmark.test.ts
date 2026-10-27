@@ -220,6 +220,9 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     expect(r.gaps.classTotal / input.classIds.size).toBeLessThan(1);
     expect(r.breakdown.noRoom).toBe(0);
     expect(ms).toBeLessThan(120_000);
+    // neuer Stand SQ-01 (Zugwahl der lokalen Suche): Bewertung 1 904, Hohlstunden Lehrkräfte 132 / Klassen 3 (vorher 2 163, 169 / 13)
+    expect(r.score).toBeLessThanOrEqual(1904);
+    expect(r.unplaced.length).toBe(9);
     // gleiche Eingabe → gleiche Lösung, auch über solve()
     expect(solve({ ...input, iterations: r.stats.iterations }).placements).toEqual(r.placements);
   }, 300_000);
@@ -238,6 +241,8 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     const bothSport = placed.filter((p) => p.roomIds?.every((x) => x?.startsWith("SPORT"))).length;
     console.log(`[benchmark] split ${JSON.stringify({ units: input.units.length, splitUnits: split.length, placedSplit: placed.length, twoRooms, bothSport, totalMs: Math.round(ms), unplaced: r.unplaced.length, score: r.score, roomWish: r.breakdown.roomWish, noRoom: r.breakdown.noRoom, gaps: r.gaps })}`);
     expect(twoRooms).toBe(placed.length);
+    // neuer Stand SQ-01: Bewertung 2 199 (vorher 2 395)
+    expect(r.score).toBeLessThanOrEqual(2199);
     expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(r.breakdown.noRoom).toBe(0);
     expect(ms).toBeLessThan(120_000);
@@ -260,6 +265,8 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     for (const u of r.unplaced) console.log(`[benchmark] nicht gesetzt: ${u.label} – ${u.reason}`);
     // jede gesetzte Band-Stunde hat je Teil einen eigenen Raum
     expect(distinctRooms).toBe(placed.length);
+    // neuer Stand SQ-01: Bewertung 1 850 (vorher 2 091)
+    expect(r.score).toBeLessThanOrEqual(1850);
     expect(r.breakdown.noRoom).toBe(0);
     expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(ms).toBeLessThan(120_000);
@@ -303,6 +310,8 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     // die Kennzahl zählt die Jahrgänge wie Klassen; der Solver senkt ihre Hohlstunden
     expect(r.gaps.classTotal).toBeGreaterThanOrEqual(holesAfter);
     expect(holesAfter).toBeLessThan(holesBefore);
+    // neuer Stand SQ-01: Bewertung 1 809 (vorher 1 985)
+    expect(r.score).toBeLessThanOrEqual(1809);
     expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(ms).toBeLessThan(120_000);
   }, 300_000);
@@ -336,6 +345,8 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     for (const u of r.unplaced) console.log(`[benchmark] nicht gesetzt: ${u.label} – ${u.reason}`);
     expect(maxDay).toBeLessThanOrEqual(7);
     expect(maxAfternoons).toBeLessThanOrEqual(3);
+    // neuer Stand SQ-01: Bewertung 2 007 (vorher 2 156)
+    expect(r.score).toBeLessThanOrEqual(2007);
     expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(ms).toBeLessThan(120_000);
   }, 300_000);
@@ -380,7 +391,25 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     for (const u of r.unplaced) console.log(`[benchmark] nicht gesetzt: ${u.label} – ${u.reason}`);
     expect(maxDay).toBeLessThanOrEqual(6);
     expect(maxDays).toBeLessThanOrEqual(4);
+    // neuer Stand SQ-01: Bewertung 3 211 (vorher 3 397)
+    expect(r.score).toBeLessThanOrEqual(3211);
     expect(r.unplaced.length).toBeLessThanOrEqual(Math.ceil(input.units.length * 0.01));
     expect(ms).toBeLessThan(120_000);
+  }, 300_000);
+
+  it("SQ-01: kleinere Schule über fünf Startwerte – die Zugwahl schlägt die frühere lokale Suche bei jedem Startwert", () => {
+    // neuer Stand SQ-01: 157/144/168/158/146 bei Richtwert-Budget (15 240 Schritte); vor SQ-01 (ein Zielplatz je Schritt) 206/215/213/208/229
+    const base = syntheticSchool({ zuege: 2, coursesPerGrade: 12, studentsPerGrade: 40 });
+    const before = [206, 215, 213, 208, 229];
+    const scores = [1, 2, 3, 4, 5].map((seed) => {
+      const input = { ...base, seed };
+      const r = solve(input);
+      expect(validate(input, r.placements)).toEqual([]);
+      expect(r.unplaced).toEqual([]);
+      return r.score;
+    });
+    console.log(`[benchmark] sq01 ${JSON.stringify({ scores, before })}`);
+    scores.forEach((x, i) => expect(x).toBeLessThan(before[i]!));
+    expect(scores.reduce((a, b) => a + b, 0) / scores.length).toBeLessThanOrEqual(155);
   }, 300_000);
 });
