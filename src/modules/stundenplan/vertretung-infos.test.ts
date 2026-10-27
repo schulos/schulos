@@ -337,7 +337,8 @@ describe("VT-01 Vertretung mehr Infos", () => {
     expect(rows).toHaveLength(2);
     expect(text).not.toContain(T);
     expect(text).not.toContain("VWX");
-    expect(rows[0]!.after).toMatchObject({ substituteId: DELETED_TEACHER, internalNote: `${DELETED_TEACHER} bringt den Schlüssel` });
+    // ohne ORDER BY ist die Reihenfolge unter PostgreSQL beliebig – die erste Speicherung hat kein „vorher“
+    expect(rows.find((r) => r.before === null)?.after).toMatchObject({ substituteId: DELETED_TEACHER, internalNote: `${DELETED_TEACHER} bringt den Schlüssel` });
     expect(rows.every((r) => r.actorId !== T)).toBe(true);
   });
 });
