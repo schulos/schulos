@@ -12,13 +12,19 @@ import { teacherProblemText, teacherViolationsWith } from "./lehrkraftregeln";
  * Grund. `today` = Stunden, die sie an dem Tag tatsächlich halten (nach Vertretungen/Verlegungen); die übrigen Wochentage
  * zählen nach dem Regelplan.
  */
+/** Schuljahr, in dem `date` liegt (Bereitschaft, Vorschläge, Tagesregeln) – `null` außerhalb aller Schuljahre. */
+export async function schoolYearOn(db: Db, date: string): Promise<{ id: string; startsOn: string; endsOn: string } | null> {
+  const [y] = await db
+    .select({ id: schoolYears.id, startsOn: schoolYears.startsOn, endsOn: schoolYears.endsOn })
+    .from(schoolYears)
+    .where(and(lte(schoolYears.startsOn, date), gte(schoolYears.endsOn, date)));
+  return y ?? null;
+}
+
 export async function dayRuleBlocks(db: Db, date: string, periodNr: number, teacherIds: readonly string[], today: ReadonlyMap<string, readonly number[]>): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (teacherIds.length === 0) return out;
-  const [year] = await db
-    .select({ id: schoolYears.id })
-    .from(schoolYears)
-    .where(and(lte(schoolYears.startsOn, date), gte(schoolYears.endsOn, date)));
+  const year = await schoolYearOn(db, date);
   if (!year) return out;
   const rules = await listTeacherRules(db, year.id);
   const ids = teacherIds.filter((t) => rules.has(t));

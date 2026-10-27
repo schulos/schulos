@@ -432,6 +432,45 @@ describe("Solver-Lauf (Demo-Schule)", () => {
     expect(proposedLessons(early.stored!).length).toBeGreaterThan(0);
   }, 90_000);
 
+  it("Abbruch vor dem ersten Heartbeat geht nicht verloren: Phasengrenzen lesen den Wunsch (GATE-SP-E2E)", async () => {
+    await settle(h.db);
+    // Wunsch während der Konstruktion, Heartbeat nie fällig → nach der Konstruktion vorzeitig beendet, ohne Verbesserung
+    const a = await createRun(h.db, "u-admin", { seed: 7, effort: "gruendlich" }, today);
+    let askedA = false;
+    expect(
+      await executeRun(h.db, a, today, {
+        heartbeatMs: 3_600_000,
+        onSlice: async (phase) => {
+          if (phase === "construct" && !askedA) {
+            askedA = true;
+            await cancelRun(h.db, "u-admin", a);
+          }
+        },
+      }),
+    ).toBe("done");
+    const runA = (await getRun(h.db, a))!;
+    expect(runA.metrics!.cancelledAt).toBe(30);
+    expect(runA.metrics!.steps).toBe(0);
+    expect(runA.stored!.result.unplaced).toEqual([]);
+    expect(runA.log.some((e) => e.kind === "cancel" && /vorzeitig beendet bei 30 %/i.test(e.text))).toBe(true);
+
+    // Wunsch in der Verbesserung, Heartbeat nie fällig → am Ende als vorzeitig beendet vermerkt statt still „fertig“
+    const b = await createRun(h.db, "u-admin", { seed: 7, effort: "schnell" }, today);
+    let askedB = false;
+    expect(
+      await executeRun(h.db, b, today, {
+        heartbeatMs: 3_600_000,
+        onSlice: async (phase) => {
+          if (phase === "improve" && !askedB) {
+            askedB = true;
+            await cancelRun(h.db, "u-admin", b);
+          }
+        },
+      }),
+    ).toBe("done");
+    expect((await getRun(h.db, b))!.metrics!.cancelledAt).toBe(95);
+  }, 90_000);
+
   it("Serverneustart bricht rechnende Läufe ab; verwaiste Läufe ohne Heartbeat werden eingesammelt; frische bleiben", async () => {
     await settle(h.db);
     const b = await createRun(h.db, "u-admin", { seed: 2 }, today);

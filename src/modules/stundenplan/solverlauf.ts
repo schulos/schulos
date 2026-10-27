@@ -638,7 +638,10 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
     let done = 0;
     let nextMark = 10;
     let earlyAt: number | null = null;
-    while (done < steps) {
+    // Abbruchwunsch an jeder Phasengrenze lesen, nicht nur im Heartbeat-Takt: ein kurzer Lauf (kleine Schule, schneller Server) ist
+    // sonst vor dem ersten Heartbeat fertig und übergeht einen Abbruch, der längst gesetzt war (GATE-SP-E2E, main rot seit d4418f7).
+    if (await beat(30)) earlyAt = 30;
+    while (earlyAt === null && done < steps) {
       const start = performance.now();
       while (done < steps && performance.now() - start < sliceMs) {
         const n = Math.min(20, steps - done);
@@ -659,6 +662,9 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
         break;
       }
     }
+
+    // Abbruch während der letzten Scheibe(n) seit dem letzten Heartbeat: der Plan ist gültig, aber als vorzeitig beendet vermerkt
+    if (earlyAt === null && (await beat(95))) earlyAt = 95;
 
     // 3. Ergebnis, Kennzahlen, Protokoll
     await tick();

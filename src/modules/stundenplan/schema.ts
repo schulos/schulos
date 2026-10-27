@@ -83,8 +83,17 @@ export const timetableSubstitutions = pgTable(
     subjectId: text("subject_id").references(() => subjects.id, { onDelete: "set null", onUpdate: "cascade" }),
     /** SP2-07 (Verlegung): Stunde desselben Tages, in der die Stunde stattdessen liegt; nur bei `move` */
     targetPeriod: integer("target_period"),
-    /** SP2-07 (Zusammenlegung): Stunde zur selben Zeit, zu der die Gruppe geht (deren Lehrkraft betreut mit); nur bei `merge` */
-    mergeLessonId: text("merge_lesson_id").references((): AnyPgColumn => timetableLessons.id, { onDelete: "cascade" }),
+    /**
+     * SP2-07 (Zusammenlegung): Stunde zur selben Zeit, zu der die Gruppe geht (deren Lehrkraft betreut mit); nur bei `merge`.
+     * R1b/A10: wird die aufnehmende Stunde gelöscht, bleibt die Zusammenlegung ohne Ziel stehen („aufgehoben“, Bedarf wieder offen)
+     * statt still mitgelöscht zu werden.
+     */
+    mergeLessonId: text("merge_lesson_id").references((): AnyPgColumn => timetableLessons.id, { onDelete: "set null" }),
+    /**
+     * SP2-16b: die Abwesenheit, wegen der die Änderung eingetragen wurde, wurde verkürzt oder aufgehoben – die Änderung bleibt
+     * stehen, die Vertretungsplanung prüft sie („Abwesenheit beendet – prüfen“). Erneutes Speichern oder „behalten“ leert es.
+     */
+    absenceEndedAt: timestamp("absence_ended_at", { withTimezone: true }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

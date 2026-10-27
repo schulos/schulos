@@ -690,7 +690,7 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
 
 **Umgesetzt (SP2-07, Migration 0104, 2026-10-21) – Vertretung Stufe 2 (SP-G-08, Q-SP-15):**
 - **Daten:** `substitution_kind` + `move`/`merge`; `timetable_substitutions.target_period` (Verlegung: Stunde desselben Tages) und
-  `merge_lesson_id` (Zusammenlegung: aufnehmende Stunde, Fremdschlüssel mit `cascade`); neue Tabelle `timetable_standby` (Schuljahr × Wochentag ×
+  `merge_lesson_id` (Zusammenlegung: aufnehmende Stunde, Fremdschlüssel mit `cascade`, seit 0106 `set null` – R1b/A10); neue Tabelle `timetable_standby` (Schuljahr × Wochentag ×
   Stunde × Lehrkraft, LK-SJ-1J ab Schuljahr, Fremdschlüssel aufs Konto – `deleteAccounts` braucht nichts Eigenes).
 - **Belegung** (rein, `belegung.ts`): `ownTeacherPeriod`/`groupPeriod`/`roomUse` – Verlegung zählt in der neuen Stunde, Zusammenlegung gibt
   Lehrkraft und Raum frei (die Gruppe ist bei der anderen Stunde beschäftigt). Genutzt von Vertretung (`busyTeachers/busyRooms/busyGroups`,
@@ -711,13 +711,31 @@ Schüler:innen dürfen parallel liegen (Diagnose warnt). Der Übergang über `co
   „Verlegung … – in der 1. Std“, „Zusammenlegung … – mit 7a · bei …“; die mitbetreuende Lehrkraft bekommt die Tagesnachricht.
 - **Zähler:** Verlegung zählt weder als Vertretung noch als Entfall; Zusammenlegung zählt als „vertreten“ der Gruppe und „abgegeben“ der Lehrkraft.
 - Solver nicht betroffen. Tests: `vertretung-stufe2.test.ts`, E2E `vertretung-stufe2.spec.ts` (Planungs-Login, A11Y hell/dunkel/360 px).
+- **Review-Fixes R1b (2026-10-26, Migration 0106):** Ein anderer Raum bei der Verlegung gilt nur für die Teile im Raum der bearbeiteten Stunde
+  (dieselbe Lehrkraft bzw. Teamteaching); die übrigen Band-Teile behalten ihren Raum, jeder Raum wird in der Zielstunde geprüft, der neue Raum darf
+  nicht der eines anderen Teils sein (A3). „Tauschen“ nimmt nur Unterricht ohne Änderung mit: steht in der Zielstunde ein Entfall, wird ohne Tausch
+  verlegt, eine Vertretung/Raumänderung/Zusammenlegung dort muss erst aufgehoben werden (A4). Aufheben eines Tauschs nimmt auch die Kopplungsteile
+  des Partners in anderen Gruppen zurück (A5). `merge_lesson_id` jetzt `on delete set null` (A10, Leitlinie „nichts verschwindet still“): wird die
+  aufnehmende Stunde gelöscht (Stunde/Kopplung in der Pflege, Übernahme eines Laufs), bleibt die Zusammenlegung ohne Ziel stehen – Anzeige
+  „Zusammenlegung aufgehoben“, im Vertretungsbedarf wieder „offen“, Gong „aufgehoben – wird neu geregelt“ an Gruppe, Lehrkraft und bisher
+  mitbetreuende Lehrkraft (Löschen in der Pflege; Audit `mergesReleased`). Blockieren wurde verworfen: es hätte Übernahmen und Pflege an fremden
+  Vertretungen scheitern lassen. Die Belegungsprüfung lädt die Stunden eines Tages je Prüfung nur noch einmal (A13); „Schuljahr zum Datum“ einmal
+  (`schoolYearOn`, A14).
 
 **Umgesetzt (SP2-08, ohne Migration, 2026-10-21) – Dauervertretung und Wochenblick (SP-G-09, SP-G-10):**
 - **Dauervertretung** (`dauervertretung.ts`, `savePermanentSubstitution`): Option im Vertretungsformular, sobald die Lehrkraft der Stunde eine Abwesenheit
   über den Tag hinaus hat. Legt für jeden Tag der Abwesenheit ab dem gewählten, an dem die Stunde stattfindet (Ferien/Feiertage, A/B-Woche, Gültigkeit,
   stundenweise Abwesenheit beachtet), eine gewöhnliche Vertretung über `saveSubstitution` an – mit allen Prüfungen (frei, nicht abwesend, Tagesregel,
   Raum) und je Tag dem Gong. Schon geregelte Tage bleiben unverändert; Tage, an denen es nicht geht, nennt die Rückmeldung („nicht am 07.10. (…)“).
-  Kein eigener Datensatz: einzeln überschreiben/aufheben wie jede Vertretung (einfache Vorgabe, Q-SP2-16).
+  Kein eigener Datensatz: einzeln überschreiben/aufheben wie jede Vertretung (einfache Vorgabe, Q-SP2-16). R1b/A11: ohne Vertretungslehrkraft oder
+  wenn an keinem Tag etwas eingetragen werden konnte, meldet das Formular einen Fehler mit den Gründen (statt „an 0 Tagen eingetragen … benachrichtigt“).
+- **Verkürzte Abwesenheit (SP2-16b, Q-SP2-16 = b, Projektleitung 2026-10-26, Migration 0106):** Abwesenheiten lassen sich verkürzen („Verkürzen“ mit
+  neuem Ende am Eintrag, `shortenAbsence`). Eingetragene Änderungen nach dem neuen Ende – ebenso nach dem Aufheben einer Abwesenheit oder dem Zurückziehen
+  einer Selbstmeldung – bleiben stehen und bekommen `absence_ended_at` („Abwesenheit beendet – prüfen“), sofern keine andere wirksame Abwesenheit die
+  Stunde deckt (Lehrkraft: alle Arten außer Raumänderung, Klasse: Entfall). Karte oben auf `/planung/vertretungen` ab heute mit „Behalten“ (auch die
+  Teile derselben Kopplung), „Entfernen“ und „Alle entfernen“ (wie „Aufheben“, mit Gong; was nicht geht, wird genannt); in „Alle Änderungen“ steht der
+  Hinweis an der Zeile. Erneutes Speichern der Änderung bestätigt sie. Nur für die Vertretungsplanung sichtbar. Tests: `vertretung-review.test.ts`,
+  E2E `vertretung-pruefen.spec.ts`.
 - **Wochenblick** (`weekNeeds`): oben auf `/planung/vertretungen` die nächsten fünf Schultage mit „n offen“/„m geregelt“, Link auf den Tag.
 - Tests: `dauervertretung.test.ts`, E2E `vertretung-dauer.spec.ts` (Planungs-Login, A11Y, dunkel/360 px).
 

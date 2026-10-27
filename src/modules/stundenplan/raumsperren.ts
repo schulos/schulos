@@ -10,6 +10,7 @@ import { addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { blockCovers, listRooms, occupancyOn, searchRooms, type RoomBlock, type RoomHit, type RoomInfo } from "./raeume";
 import { lessonActiveOn, listSlots } from "./service";
+import { takesPlaceAsUsual } from "./belegung";
 
 export { blockCovers, blockLabel, ROOM_BLOCK_LABELS, type RoomBlock } from "./raeume";
 
@@ -195,7 +196,7 @@ export async function affectedLessons(db: Db, fromYmd: string, days = 14): Promi
       if (!r.l.roomId || !blockedRooms.includes(r.l.roomId)) continue;
       const sub = subOf.get(r.l.id);
       // SP2-07: verlegte und zusammengelegte Stunden liegen nicht im gesperrten Raum zu dieser Zeit
-      if (sub && sub.kind !== "substitute" && sub.kind !== "room") continue;
+      if (!takesPlaceAsUsual(sub)) continue;
       const block = dayBlocks.find((b) => b.roomId === r.l.roomId && blockCovers(b, d, r.l.periodNr));
       if (!block) continue;
       const movedTo = sub?.roomId && sub.roomId !== r.l.roomId ? sub.roomId : null;

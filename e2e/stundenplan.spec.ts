@@ -200,8 +200,11 @@ test("Kopplung: geteilte Klasse und eine Lehrkraft für zwei Klassen", async ({ 
   await form.getByLabel("Vertretung durch").selectOption(free!);
   await form.getByRole("button", { name: "Speichern" }).click();
   await expect(form.getByRole("status")).toContainText("Gespeichert");
-  await expect(page.getByRole("row", { name: /Klasse 7a.*Vertretung/ })).toBeVisible();
-  await expect(page.getByRole("row", { name: /Klasse 7b.*Vertretung/ })).toBeVisible();
+  // nur in „Alle Änderungen am …“ suchen: die Karte „Abwesenheit beendet – prüfen“ (SP2-16b) kann Zeilen aus Vorläufer-Specs zeigen
+  // (gate2b hebt die Abwesenheit von BRA auf, dienstags steht deren Vertretung in der 7a dann dort)
+  const changes = page.getByRole("region", { name: /^Alle Änderungen am/ });
+  await expect(changes.getByRole("row", { name: /Klasse 7a.*Vertretung/ })).toBeVisible();
+  await expect(changes.getByRole("row", { name: /Klasse 7b.*Vertretung/ })).toBeVisible();
 
   // ganze Kopplung löschen
   await page.goto("/planung/stundenplan?gruppe=g-7b");

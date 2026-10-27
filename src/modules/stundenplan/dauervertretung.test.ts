@@ -53,9 +53,10 @@ describe("SP2-08 Dauervertretung und Wochenblick", () => {
     const res = await savePermanentSubstitution(h.db, "u-admin", { lessonId: ids["g-7b-0"]!, from: MO, absenceId, substituteId: WAG });
     expect(res.saved).toEqual([MO, "2026-10-12"]);
     // Mittwoch: WAG unterrichtet selbst → an beiden Mittwochen übersprungen
-    const wed = await savePermanentSubstitution(h.db, "u-admin", { lessonId: ids["g-7b-2"]!, from: "2026-10-07", absenceId, substituteId: WAG });
-    expect(wed.saved).toEqual([]);
-    expect(wed.skipped[0]!.reason).toMatch(/unterrichtet/);
+    // R1b/A11: an keinem Tag eingetragen ist ein Fehler mit den Gründen, keine Erfolgsmeldung
+    const wed = await savePermanentSubstitution(h.db, "u-admin", { lessonId: ids["g-7b-2"]!, from: "2026-10-07", absenceId, substituteId: WAG }).catch((e: unknown) => e);
+    expect(wed).toBeInstanceOf(ValidationError);
+    expect((wed as ValidationError).fieldErrors.substituteId).toMatch(/an keinem Tag eingetragen: 07\.10\. \(.*unterrichtet/);
     const week = await weekNeeds(h.db, MO);
     expect(week.map((w) => w.open)).toEqual([0, 0, 1, 0, 1]);
     // einzeln überschreiben: Montag BRA statt WAG

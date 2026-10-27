@@ -20,7 +20,7 @@ import { notify } from "@/core/notifications";
 import { ForbiddenError, hasPermission, usersWithPermission, type PermissionSet } from "@/core/permissions";
 import { addDays, isCalendarDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { absenceCovers, ABSENCE_LABELS, createAbsence } from "./abwesenheit";
+import { absenceCovers, ABSENCE_LABELS, createAbsence, flagAfterAbsenceEnd } from "./abwesenheit";
 import { listSlots, type LessonSlot } from "./service";
 
 /** SP-02: Vertretungsplanung (Tagesgeschäft) – bekommt Selbstmeldungen und sieht/pflegt das Material */
@@ -136,7 +136,9 @@ export async function withdrawOwnAbsence(db: Db, perms: PermissionSet, id: strin
   if (a.status === "aktiv" && a.startsOn <= today)
     throw new ValidationError({ absence: "Die Abwesenheit hat schon begonnen – bitte die Vertretungsplanung ansprechen" });
   await db.delete(timetableAbsences).where(eq(timetableAbsences.id, id));
-  await audit(db, perms.userId, "stundenplan.absence.withdraw", perms.userId, { from: a.startsOn, to: a.endsOn });
+  // SP2-16b: schon eingetragene Vertretungen bleiben stehen und werden zur Prüfung markiert
+  const flagged = await flagAfterAbsenceEnd(db, a, a.startsOn);
+  await audit(db, perms.userId, "stundenplan.absence.withdraw", perms.userId, { from: a.startsOn, to: a.endsOn, flagged: flagged || undefined });
   if (a.status === "aktiv") await notifyPlanners(db, a, "Abwesenheit zurückgezogen");
 }
 

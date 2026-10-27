@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { collectErrors, login } from "./helpers";
+import { collectErrors, login, logoutForSwitch } from "./helpers";
 
 test("Löschlauf: Vorschau, Löschsperre mit Begründung, Bestätigung nötig; Sekretariat hat keinen Zugriff", async ({ page }) => {
   const errors = collectErrors(page);
@@ -181,7 +181,8 @@ test("Protokoll: Lesezugriff aufs Klassenbuch wird einmal protokolliert, Filter 
   await page.reload();
   await expect(page.getByRole("heading", { name: "7b", level: 1 })).toBeVisible();
 
-  await page.context().clearCookies();
+  // Seite vor dem Cookie-Löschen verlassen: sonst öffnet der frisch geladene Tab seinen Live-Strom womöglich erst danach → 401
+  await logoutForSwitch(page);
   await login(page, "admin");
   await page.goto("/verwaltung/protokoll?bereich=lesen.");
   await expect(page.getByText(/werden vom Löschlauf pseudonymisiert/)).toBeVisible();
