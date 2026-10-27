@@ -258,6 +258,32 @@ describe("VT-01 Vertretung mehr Infos", () => {
     expect((await lessonSubstitution(h.db, await p(PLANUNG), ids["7b-5"]!, MO))?.internal?.note).toBe(SECRET);
   });
 
+  it("Querschnitt (GATE VT): Grund und Notiz der Abwesenheit stehen nie in Vertretungsplan, Plänen, Monitor, Gong oder Klassenbuch-Hinweis", async () => {
+    const ABS_NOTE = "ABWESEND-Notiz-Arzttermin";
+    await createAbsence(h.db, "u-admin", { teacherId: BRA, groupId: null, startsOn: MO, endsOn: MO, fromPeriod: null, toPeriod: null, reason: "krank", note: ABS_NOTE });
+    await save(ids["7b-5"]!, "substitute", { substituteId: WAG, note: "Arbeitsheft" });
+    await save(ids["7b-4"]!, "cancel");
+    await publishDay(h.db, "u-admin", MO);
+    const outside = [
+      await substitutionsOn(h.db, [MO], { since: new Date(0) }),
+      await listSlots(h.db, { kind: "group", id: "g-7b" }, MO, "2026-10-06"),
+      await listSlots(h.db, { kind: "user", id: LEA }, MO, "2026-10-06"),
+      await listSlots(h.db, { kind: "teacher", id: WAG }, MO, "2026-10-06"),
+      await monitorData(h.db, { profile: "foyer" }, new Date("2026-10-05T06:00:00Z")),
+      await monitorData(h.db, { profile: "lehrerzimmer" }, new Date("2026-10-05T06:00:00Z")),
+      await h.db.select().from(notifications).where(eq(notifications.moduleId, "stundenplan")),
+      await ownSubstitutions(h.db, WAG, [MO]),
+      await lessonSubstitution(h.db, await p(LEA), ids["7b-5"]!, MO),
+      await lessonSubstitution(h.db, await p(WAG), ids["7b-5"]!, MO),
+    ];
+    expect((outside[0] as unknown[]).length).toBeGreaterThan(0);
+    for (const o of outside) {
+      const text = JSON.stringify(o);
+      expect(text).not.toContain(ABS_NOTE);
+      expect(text).not.toMatch(/krank/i);
+    }
+  });
+
   it("Material ohne Abwesenheit: Lehrkraft der Stunde, Vertretung und Planung dürfen; andere nicht; Schüler:innen nur mit Häkchen", async () => {
     const storage = memStorage();
     const input = { absenceId: null, lessonId: ids["7b-5"]!, date: MO, text: "Buch S. 34", forStudents: false };

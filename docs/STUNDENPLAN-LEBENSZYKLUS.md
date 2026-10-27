@@ -658,19 +658,21 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 
 ---
 
-## 9. Prüfliste GATE VT / GATE SP3 (Entwurf)
+## 9. Prüfliste GATE VT / GATE SP3
+
+**Stand: GATE VT erledigt (VT-05, Belege je Punkt) / GATE SP3 offen.** Ein Punkt ist erst abgehakt, wenn sein Test existiert und grün läuft; Punkte, die nur SP3 betreffen, bleiben offen. Gemischte Punkte tragen den VT-Anteil als Beleg und den SP3-Anteil als offenen Rest.
 
 - [ ] Kein Leser außerhalb `src/modules/stundenplan` liest `timetable_draft_lessons`; `timetable_lessons`-Leser unverändert (Grep-Test)
-- [ ] Schülersicht/Eltern-Gong/Monitor/Druck ohne `internal_note`, Abwesenheitsgrund, Kommentare, Entwurfsstunden (Querschnittstest)
+- [x] **GATE VT** Schülersicht/Eltern-Gong/Monitor/Druck ohne `internal_note` und Abwesenheitsgrund – Belege: `vertretung-infos.test.ts` „Querschnitt: interner Hinweis nie im Vertretungsplan, Schüler-/Lehrkraftplan, Monitor oder Gong“ und „Querschnitt (GATE VT): Grund und Notiz der Abwesenheit …“, Grep-Test „nur erlaubte Dateien lesen …“ (Druck/Exporte lesen die Felder nicht), `vertretung-gong.test.ts` „GATE-031 S-05“ (Eltern ohne Hinweis), `e2e/zx-gate-vt.spec.ts` (Schülerin, Gong, Monitor). **Offen für GATE SP3:** Kommentare, Entwurfsstunden
 - [ ] Veröffentlichen: unveränderte Stunden behalten ihre id; Klassenbuch-Einträge vor und nach dem Stichtag bleiben zugeordnet; Vertretungen/Material ziehen um oder werden gezählt
 - [ ] Zurücknehmen bis Stichtag stellt Stunden, Vertretungen und Material wieder her (SP-13-Niveau)
 - [ ] Nur eine Version `gueltig` je Tag; Varianten veröffentlichbar genau eine
 - [ ] Freigabe nur mit `stundenplan.review`; 2FA-Pflicht; Lehrkräfte-Vorschau nur eigener Plan
-- [ ] Kontolöschung bereinigt `undo`, `plan_changes`, `substitution_changes`
-- [ ] Sendewarteschlange: Ruhezeit, Endstand, genau ein Versand je Tag und Zielgruppe, zwei Instanzen senden nicht doppelt
+- [x] **GATE VT** Kontolöschung bereinigt `substitution_changes` – Belege: `vertretung-infos.test.ts` „Kontolöschung ersetzt die Vertretungslehrkraft in der Historie …“, `loeschlauf-konto.test.ts` (DS-21-Muster), `benachrichtigung.test.ts` „Kontolöschung nimmt die Einträge der Person mit“ (Warteschlange). **Offen für GATE SP3:** `undo`, `plan_changes`
+- [x] **GATE VT** Sendewarteschlange: Ruhezeit, Endstand, genau ein Versand je Tag und Zielgruppe, zwei Instanzen senden nicht doppelt – Belege: `sendezeit.test.ts` (Zeitlogik, Ruhezeit, Sommerzeit), `benachrichtigung.test.ts` „morgen: eingereiht für den Vortag 18:00, gesendet wird nur der Endstand …, genau einmal“, „nach der Vortags-Uhrzeit sofort; in der Ruhezeit wartet die Nachricht …“, „zwei Takte gleichzeitig (zwei App-Prozesse) senden nicht doppelt“, `e2e/vertretung-benachrichtigung.spec.ts`, `e2e/zx-gate-vt.spec.ts`
 - [ ] Benchmark/Solver-Kern unverändert (dieselbe Lösung)
 - [ ] Fahrplan: jeder Schritt-Status aus Demo-Daten nachvollziehbar; Warnung ohne Quittierung blockiert Schritt 8
-- [ ] Doku: STUNDENPLAN.md, DATENSCHUTZ §3.4, SICHERHEIT S8x, DSB-FRAGEN §13-Hinweis, Release-Notes
+- [ ] Doku: STUNDENPLAN.md, DATENSCHUTZ §3.4, SICHERHEIT S8x, DSB-FRAGEN §13-Hinweis, Release-Notes – **VT-Teil erledigt:** `STUNDENPLAN.md` §0 „Vertretung als Arbeitsplatz“, `DATENSCHUTZ.md` §3.4 (VT-01, VT-04) und DSB-Checkliste Thema 13, `SICHERHEIT.md` S85, Release-Notes `release/notes/0.10.0.json` (Vorschlag). **Offen für GATE SP3:** Versionen, Prüfung/Freigabe, Archiv, Fahrplan (S8x, Release-Notes v0.11)
 
 ---
 
