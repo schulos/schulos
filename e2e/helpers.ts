@@ -103,7 +103,15 @@ export async function caretToEnd(page: Page, box: Locator, lastText: string) {
     const atEnd = await box.evaluate((el) => {
       const sel = window.getSelection();
       const p = [...el.querySelectorAll("p")].pop();
-      return !!sel && !!p && sel.isCollapsed && p.contains(sel.anchorNode) && sel.anchorOffset === (sel.anchorNode?.textContent?.length ?? -1);
+      const domAtEnd = !!sel && !!p && sel.isCollapsed && p.contains(sel.anchorNode) && sel.anchorOffset === (sel.anchorNode?.textContent?.length ?? -1);
+      // Die DOM-Auswahl allein reicht nicht: ProseMirror übernimmt sie erst beim nächsten selectionchange in seinen Zustand. Steht
+      // dort die Marke noch vorn, landen Enter und Tippen am Textanfang (main rot seit d4418f7). Darum auch den Editor-Zustand prüfen
+      // (Tiptap hängt den Editor an sein DOM-Element).
+      type PmEditor = { state: { selection: { empty: boolean; from: number }; doc: { content: { size: number }; lastChild: { type: { name: string } } | null } } };
+      const editor = (el as HTMLElement & { editor?: PmEditor }).editor;
+      if (!editor) return domAtEnd;
+      const { selection, doc } = editor.state;
+      return domAtEnd && selection.empty && doc.lastChild?.type.name === "paragraph" && selection.from === doc.content.size - 1;
     });
     expect(atEnd).toBe(true);
   }).toPass({ timeout: 10_000 });
