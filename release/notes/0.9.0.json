@@ -1,0 +1,22 @@
+{
+  "minVersion": "0.5.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Stundenplanung druckt und exportiert (CSV): Gesamtübersicht aller Klassen und Lehrkräfte, Unterrichtsverteilung, Deputate, Aufsichtsplan und Vertretungsstatistik" },
+    { "kind": "neu", "text": "Lehrfächer je Lehrkraft: Bei Lehraufträgen, Vertretungen und Kurswahlen werden nur Lehrkräfte vorgeschlagen, die das Fach unterrichten; „Trotzdem zuweisen“ bleibt möglich" },
+    { "kind": "neu", "text": "Neuer Reiter „Fachbedarf“: Bedarf und Versorgung je Fach mit Ampel und Prognose fürs nächste Schuljahr; die Schulleitung sieht nur die Summen (neues Recht „Fachbedarf einsehen“)" },
+    { "kind": "neu", "text": "Unterrichtsverteilung als CSV jetzt auch mit „gültig ab“ und „gültig bis“" },
+    { "kind": "neu", "text": "Wird eine Abwesenheit verkürzt, bleiben die Vertretungen danach stehen und sind als „Abwesenheit beendet – prüfen“ markiert; sie lassen sich einzeln oder alle mit einem Klick entfernen" },
+    { "kind": "neu", "text": "Bücherei: eigener Rückgabetag für Schulbücher je Schuljahr; Ersatzforderungen auch ohne Schulbuchausleihe; Hinweis im Ersatzbrief" },
+    { "kind": "neu", "text": "Klassenleitungen sehen unter „Meine Klasse“, wie viele Schulbücher und Ersatzforderungen je Schüler:in offen sind (ohne Buchtitel)" },
+    { "kind": "neu", "text": "Räume lassen sich stilllegen und wieder in Betrieb nehmen; „Bearbeiten“ direkt aus Raumliste, Raumbelegung und Raumsuche" },
+    { "kind": "verbessert", "text": "Texte-Editor fragt beim Schließen nach, solange Änderungen noch nicht gespeichert sind" },
+    { "kind": "verbessert", "text": "Tabellen scrollen auf schmalen Bildschirmen nur noch für sich, nicht mehr die ganze Seite" },
+    { "kind": "behoben", "text": "Vertretung: Nach „Lehrkraft mit eigenem Fach übernehmen“ zeigte das Formular weiter das reguläre Fach" },
+    { "kind": "behoben", "text": "Vertretung: Verlegungen, Tausch und Zusammenlegungen bleiben auch bei geteilten Kursen und gelöschten Stunden stimmig; eine Zusammenlegung ohne aufnehmende Stunde bleibt als offener Bedarf sichtbar" },
+    { "kind": "behoben", "text": "Solver: Abbrechen wirkt auch bei kurzen Läufen; Übernahme und Zurücknehmen halten den Planungszeitraum ein" },
+    { "kind": "behoben", "text": "Offline-Notenbuch: Mehrere Offline-Eingaben kurz hintereinander überschreiben sich nicht mehr; ist der Zwischenspeicher unlesbar, nimmt das Buch nichts mehr an und sagt es deutlich, statt Eingaben zu verwerfen" },
+    { "kind": "sicherheit", "text": "Datenschutz: Bei der Kontolöschung werden Lehrkraft-Angaben in Solver-Läufen feldgenau ersetzt; Fach, Raum und Stunde bleiben für die Planung erhalten" },
+    { "kind": "sicherheit", "text": "Abhängigkeit katex auf eine Version ohne bekannte Schwachstelle angehoben" }
+  ]
+}
