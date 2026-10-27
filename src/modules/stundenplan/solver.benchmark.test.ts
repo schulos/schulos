@@ -1,7 +1,7 @@
 // SP-G-15: synthetischer Groß-Benchmark – große Gesamtschule (6-zügig 5–10 + Oberstufe mit Kursen und Konfliktmengen,
 // ~1 500 Einheiten). Misst Laufzeit, nicht gesetzt und Hohlstunden; Grenzwerte stehen in docs/LASTTEST.md („Solver“).
 import { describe, expect, it } from "vitest";
-import { createSolver, rng, solve, validate, type SolverInput, type SolverUnit, type UnitPart } from "./solver";
+import { createSolver, rng, solve, solveWarm, unchangedUnits, validate, type FixedLesson, type SolverInput, type SolverUnit, type UnitPart } from "./solver";
 import { precheck } from "./solver-check";
 
 interface SchoolSpec {
@@ -411,5 +411,54 @@ describe("Solver-Benchmark (SP-G-15): große Schule", () => {
     console.log(`[benchmark] sq01 ${JSON.stringify({ scores, before })}`);
     scores.forEach((x, i) => expect(x).toBeLessThan(before[i]!));
     expect(scores.reduce((a, b) => a + b, 0) / scores.length).toBeLessThanOrEqual(155);
+  }, 300_000);
+
+  it("SQ-02: Warmstart aus dem Ergebnis eines Neu-Laufs (gleiche Gründlichkeit) – je Startwert besser, nie schlechter, die meisten Einheiten bleiben", () => {
+    const base = syntheticSchool({ zuege: 2, coursesPerGrade: 12, studentsPerGrade: 40 });
+    const rows = [1, 2, 3, 4, 5].map((seed) => {
+      const input = { ...base, seed };
+      const neu = solve(input);
+      const r = solveWarm(input, neu.placements);
+      expect(validate(input, r.placements)).toEqual([]);
+      expect(r.unplaced).toEqual([]);
+      expect(r.score).toBeLessThan(neu.score);
+      return { neu: neu.score, warm: r.score, stable: unchangedUnits(neu.placements, r.placements) / neu.placements.length };
+    });
+    console.log(`[benchmark] sq02 ${JSON.stringify(rows)}`);
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    // Stand SQ-02: Mittel 154,6 → 133,4 (136/126/139/145/121), unverändert im Mittel ~95 % (ein zweiter Neu-Lauf mit anderem Startwert: ~43 %)
+    expect(mean(rows.map((r) => r.warm))).toBeLessThanOrEqual(133.4);
+    expect(Math.min(...rows.map((r) => r.stable))).toBeGreaterThan(0.85);
+  }, 300_000);
+
+  it("SQ-02: Warmstart auf der großen Schule – setzt die 9 nicht gesetzten Einheiten des Neu-Laufs, fixierte Stunden bleiben frei von anderen", () => {
+    const base = syntheticSchool({ zuege: 7, coursesPerGrade: 40, studentsPerGrade: 130 });
+    const neu = solve(base);
+    expect(neu.unplaced.length).toBe(9);
+    // jede 20. gesetzte Einheit wird fixiert (Stunden statt Einheit), der Rest ist der Start
+    const byId = new Map(base.units.map((u) => [u.id, u]));
+    const fixedUnits = new Set(neu.placements.filter((_, i) => i % 20 === 0).map((p) => p.unitId));
+    const fixed: FixedLesson[] = neu.placements
+      .filter((p) => fixedUnits.has(p.unitId))
+      .flatMap((p) => {
+        const u = byId.get(p.unitId)!;
+        return Array.from({ length: u.length }, (_, k) =>
+          u.parts.flatMap((part, i) => part.groupIds.map((g) => ({ groupId: g, teacherId: part.teacherIds[0] ?? null, roomId: p.roomIds?.[i] ?? p.roomId, subjectId: part.subjectId, weekday: p.weekday, periodNr: p.periodNr + k }))),
+        ).flat();
+      });
+    const input = { ...base, units: base.units.filter((u) => !fixedUnits.has(u.id)), fixed };
+    const start = neu.placements.filter((p) => !fixedUnits.has(p.unitId));
+    const t0 = performance.now();
+    const r = solveWarm(input, start);
+    const ms = performance.now() - t0;
+    expect(validate(input, r.placements)).toEqual([]);
+    const stable = unchangedUnits(start, r.placements) / start.length;
+    console.log(`[benchmark] sq02-gross ${JSON.stringify({ fixed: fixed.length, warm: r.warm, score: r.score, unplaced: r.unplaced.length, stable, ms: Math.round(ms) })}`);
+    expect(r.warm!.startUnplaced).toBe(9);
+    // Stand SQ-02: 9 → 0 nicht gesetzt, Bewertung 1 850 → 1 768, ~81 % der Einheiten unverändert, ~1,3 s
+    expect(r.unplaced).toEqual([]);
+    expect(r.score).toBeLessThanOrEqual(1768);
+    expect(stable).toBeGreaterThan(0.7);
+    expect(ms).toBeLessThan(120_000);
   }, 300_000);
 });

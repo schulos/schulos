@@ -217,6 +217,29 @@ unverändert). Über Startwerte 1–5 (Mittel, nur lokale Suche): kleine Schule 
 151 → 109 bei 39/142/547 → 39/132/545 ms; große Schule 2 409 → 2 239, 2 155 → 1 916, 1 823 → 1 653 bei 107/430/1 731 → 101/400/1 620 ms – jeder
 Startwert besser, Laufzeit gleich. Grenzwerte unverändert; der Test hält den neuen Stand als Obergrenze der Bewertung fest.
 
+**Messung SQ-02 (2026-10-27, „ab aktuellem Entwurf verbessern“):** Benchmark-Schulen klein (2-zügig, ~380 Einheiten) und groß (7-zügig, 1 323
+Einheiten) × Gründlichkeit × Startwerte 1–5. (a) Neu-Lauf; (a′) zweiter Neu-Lauf mit anderem Startwert (Startwert + 100) – so viel ändert „einfach
+neu rechnen“; (b) Warmstart aus dem Ergebnis von (a) mit derselben Gründlichkeit; (c) zweiter Warmstart aus (b). Bewertung Mittel (bester Lauf),
+nicht gesetzt im Mittel, Laufzeit im Mittel, „unverändert“ = Anteil der Einheiten von (a), die im selben Slot liegen.
+
+| Schule · Gründlichkeit | (a) Neu-Lauf | (a′) unverändert | (b) Warmstart | (b) unverändert | (c) 2. Warmstart | (c) unverändert |
+|---|---|---:|---|---:|---|---:|
+| klein · schnell | 211,2 (201), 0, 75 ms | 51 % | **179,0** (170), 0, 53 ms | **93 %** | 164,8 (159), 0, 49 ms | 90 % |
+| klein · normal | 154,6 (144), 0, 156 ms | 43 % | **133,4** (121), 0, 195 ms | **95 %** | 125,2 (109), 0, 188 ms | 92 % |
+| klein · gründlich | 109,2 (83), 0, 521 ms | 35 % | **89,6** (79), 0, 751 ms | **93 %** | 84,2 (75), 0, 751 ms | 92 % |
+| groß · schnell | 2 239 (2 228), 9, 280 ms | 57 % | **2 102** (2 052), 0,8, 507 ms | **86 %** | 1 975 (1 942), 0,6, 283 ms | 80 % |
+| groß · normal | 1 916 (1 880), 9, 557 ms | 48 % | **1 759** (1 699), 0, 1 140 ms | **81 %** | 1 667 (1 631), 0, 795 ms | 76 % |
+| groß · gründlich | 1 653 (1 623), 9, 1 689 ms | 45 % | **1 570** (1 465), 0, 3 502 ms | **82 %** | 1 490 (1 379), 0, 3 117 ms | 78 % |
+
+Ergebnis: Der Warmstart verbessert jeden Startwert (klein 13–18 %, groß 5–8 % bessere Bewertung) und setzt auf der großen Schule die 9 Einheiten,
+die die Konstruktion offen lässt (Reparatur mit Nachbarschaft) – dabei bleiben 81–95 % der Einheiten, wo sie waren; ein zweiter Neu-Lauf behält nur
+35–57 % und ist im Mittel nicht besser. Ein zweiter Warmstart verbessert weiter. Die Laufzeit liegt beim 0,7–2-Fachen des Neu-Laufs derselben
+Gründlichkeit (Runden sind teurer als Schritte; beim ersten Warmstart der großen Schule kostet das Einplanen der offenen Einheiten mit). Umfang
+„nur nicht gesetzte und schwache Bereiche“ (normal): klein 130,8 bei 94 % unverändert, groß 1 731 bei 89 % unverändert, aber 5 von 9 Einheiten
+bleiben offen (die Reparatur darf nur schwache Einheiten verdrängen) und 3,3 s. Der Neu-Lauf ist Ergebnis für Ergebnis unverändert (Vergleich mit dem
+Solver vor SQ-02); der Benchmark-Test hält den Warmstart der kleinen Schule (Mittel ≤ 133,4, je Startwert besser, ≥ 85 % unverändert) und der
+großen Schule mit fixierten Stunden (9 → 0 nicht gesetzt, ≤ 1 768) fest.
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:

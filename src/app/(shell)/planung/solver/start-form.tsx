@@ -15,6 +15,9 @@ export function SolverStartForm({
   busy,
   sources = [],
   defaultSource,
+  liveSource,
+  modes = {},
+  scopes = {},
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   presets: Record<string, Record<WeightKey, number>>;
@@ -26,6 +29,11 @@ export function SolverStartForm({
   /** SP3-02: Plan, gegen den gerechnet wird – „Gültiger Plan“ und offene Entwürfe (Wert = Versions-id) */
   sources?: { value: string; label: string }[];
   defaultSource?: string;
+  /** Wert von „Gültiger Plan“ im Wähler – dort gibt es kein „ab Entwurf verbessern“ */
+  liveSource?: string;
+  /** SQ-02: Vorgehen (neu planen / ab aktuellem Entwurf verbessern) und Umfang des Warmstarts */
+  modes?: Record<string, string>;
+  scopes?: Record<string, string>;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const fe = state.fieldErrors ?? {};
@@ -34,6 +42,9 @@ export function SolverStartForm({
   // Ausgangswerte der eigenen Gewichte: die zuletzt gewählte Voreinstellung
   const [base, setBase] = useState<Record<WeightKey, number>>(presets[v.preset ?? "ausgewogen"] ?? presets.ausgewogen!);
   const shown = preset === "eigene" ? null : presets[preset];
+  const [source, setSource] = useState(v.versionId ?? defaultSource ?? sources[0]?.value ?? "");
+  const [mode, setMode] = useState(v.mode ?? "neu");
+  const inDraft = sources.length > 1 && source !== liveSource;
   return (
     <form key={JSON.stringify(state.values ?? null)} action={formAction} aria-label="Lauf starten" className="flex flex-col gap-4">
       {state.error && (
@@ -78,10 +89,32 @@ export function SolverStartForm({
         </Field>
         {sources.length > 1 && (
           <Field label="Planen im" hint="fixierte Stunden und Stunden ohne Lehrauftrag kommen aus diesem Plan" error={fe.versionId} className="sm:col-span-2">
-            <Select name="versionId" defaultValue={v.versionId ?? defaultSource ?? sources[0]!.value}>
+            <Select name="versionId" value={source} onChange={(e) => setSource(e.target.value)}>
               {sources.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {inDraft && Object.keys(modes).length > 0 && (
+          <Field label="Vorgehen" hint="„verbessern“ startet von den Stunden des Entwurfs und ändert nur, was besser wird; fixierte Stunden bleiben" error={fe.mode} className="sm:col-span-2">
+            <Select name="mode" value={mode} onChange={(e) => setMode(e.target.value)}>
+              {Object.entries(modes).map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {inDraft && mode === "entwurf" && Object.keys(scopes).length > 0 && (
+          <Field label="Ändern dürfen" hint="„nur schwache Bereiche“: Stunden, die nichts kosten (keine Hohlstunde, kein Wunsch verletzt …), bleiben, wo sie sind" error={fe.scope} className="sm:col-span-2">
+            <Select name="scope" defaultValue={v.scope ?? "alle"}>
+              {Object.entries(scopes).map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
                 </option>
               ))}
             </Select>

@@ -12,6 +12,7 @@ import { listGradeRules } from "./jahrgangsregeln";
 import { dayRuleFor, type DayRule } from "./tagesgrenzen";
 import { listTeacherRules } from "./deputate";
 import { LIVE, type PlanSource } from "./plan-quelle";
+import type { StartLesson } from "./warmstart";
 
 export interface SolverInputOptions {
   /** Stunden, die bleiben, wo sie sind (fixiert); ihre Lehraufträge werden um diese Stunden gekürzt */
@@ -212,13 +213,16 @@ export function bandsWithSharedStudents<B extends { memberIds: string[] }>(
   return out;
 }
 
-/** Komplette Solver-Eingabe für ein Schuljahr am Stichtag – mit den Warnungen der Eingabeprüfung (`check`). */
+/**
+ * Komplette Solver-Eingabe für ein Schuljahr am Stichtag – mit den Warnungen der Eingabeprüfung (`check`) und den Stunden, die ein Lauf
+ * ersetzen würde (`current`, SQ-02: Startlösung des Warmstarts).
+ */
 export async function solverInputFromDb(
   db: Db,
   year: { id: string; startsOn: string; endsOn: string },
   todayYmd: string,
   opts: SolverInputOptions = {},
-): Promise<SolverInput & { check: InputCheck }> {
+): Promise<SolverInput & { check: InputCheck; current: StartLesson[] }> {
   const source = opts.source ?? LIVE;
   const d = await distribution(db, year, todayYmd, { source });
   const [periodRows, roomRows, subjectRows, groupRows, memberRows, prefs, planned, grid, gradeRules, teacherRules] = await Promise.all([
@@ -318,5 +322,7 @@ export async function solverInputFromDb(
     iterations: opts.iterations,
     keptLessonIds: fixedLessons.map((l) => l.id),
     check,
+    // SQ-02: Stunden, die der Lauf ersetzen darf – Startlösung für „ab aktuellem Entwurf verbessern“
+    current: grid.filter((l) => !fixedIds.has(l.id)).map((l) => ({ groupId: l.groupId, subjectId: l.subjectId, teacherId: l.teacherId, roomId: l.roomId, weekday: l.weekday, periodNr: l.periodNr })),
   };
 }
