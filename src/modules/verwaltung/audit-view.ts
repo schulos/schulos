@@ -109,6 +109,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "stundenplan.solver.delete": "Solver-Lauf gelöscht",
   "stundenplan.absence.create": "Abwesenheit einer Lehrkraft eingetragen",
   "stundenplan.absence.delete": "Abwesenheit einer Lehrkraft gelöscht",
+  "stundenplan.absence.shorten": "Abwesenheit einer Lehrkraft verkürzt",
   "stundenplan.absence.self": "Abwesenheit selbst gemeldet",
   "stundenplan.absence.withdraw": "Selbstmeldung zurückgezogen",
   "stundenplan.absence.approve": "Selbstmeldung genehmigt",
