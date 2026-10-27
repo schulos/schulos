@@ -90,6 +90,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "stundenplan.assignment.update": "Lehrauftrag geändert",
   "stundenplan.assignment.delete": "Lehrauftrag gelöscht",
   "stundenplan.assignment.import": "Lehraufträge aus dem Stundenplan übernommen",
+  "stundenplan.assignment.matrix": "Lehraufträge in der Matrix gespeichert",
   "stundenplan.assignment.off_subject": "Lehrauftrag fachfremd vergeben",
   "stundenplan.teacher_subjects": "Lehrfächer einer Lehrkraft geändert",
   "stundenplan.teacher_subjects.csv_import": "Lehrfächer aus CSV importiert",

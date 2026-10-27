@@ -301,6 +301,35 @@ gespeichert bleibt `obligation`) · `timetable_deputies.obligation_term2 numeric
 - Datenschutz: neue Spalten in den bestehenden Löschklassen (LK-SJ-1J ab Schuljahr), Kategorien im Manifest ergänzt; Kontolöschung löscht die
   Zeilen wie bisher per Fremdschlüssel. Pflege nur mit `stundenplan.manage`; das Audit-Ereignis `stundenplan.deputy.obligation` nennt alle drei Werte.
 
+**Umgesetzt (SP3-LA, 2026-10-27, Migration 0108)** – Vorgaben für offene Detailfragen (Projektleitung kann sie ändern):
+- **Matrix je Jahrgang** (`?ansicht=matrix&jahrgang=7`, Vorgabe der kleinste Jahrgang): Zeilen = Klassen des Schuljahrs (keine Kurse/AGs),
+  Spalten = Fächer der Stundentafel des Jahrgangs plus Fächer mit Lehraufträgen in diesen Klassen. Stichtag wie in der Verteilung.
+- **Bearbeitbar** ist eine Zelle, wenn sie leer ist oder genau einen eigenständigen Lehrauftrag mit höchstens einer Lehrkraft hat; Bänder
+  und Teamteaching zeigt die Zelle mit Link ins Formular. Doppelstunden, Band und Raum stehen nicht in der Zelle (Formular); beim Ändern
+  bleiben Raum, Hinweis, Gültigkeit und Doppelstunden (höchstens Stunden/2) erhalten, neue Lehraufträge haben 0 Doppelstunden.
+- **Stunden:** leer = Stundentafel-Soll (sobald eine Lehrkraft eingetragen ist), **0 = Lehrauftrag löschen** (die Zelle zeigt „wird gelöscht“).
+  Eine Zelle ohne Lehrkraft mit Stunden legt einen offenen Lehrauftrag an.
+- **Gültigkeit neuer Lehraufträge:** sie füllen die Lücke am Stichtag zwischen Lehraufträgen derselben Zelle aus anderen Zeiträumen
+  (`gapAround`; z. B. nach einem Lehrauftrag „bis Ende 1. Halbjahr“ → „ab Beginn 2. Halbjahr“), sonst ganzes Schuljahr.
+- **Typeahead** ist ein Textfeld mit Vorschlagsliste je Fach (Kürzel; Name und Restdeputat live mit den ungespeicherten Änderungen).
+  Vorgeschlagen: aktive Lehrkräfte mit dem Lehrfach; „alle Lehrkräfte vorschlagen“ ergänzt die übrigen (fachfremd / Lehrfächer fehlen).
+  Fachfremd speichern nur mit dem Häkchen „trotzdem“ (Regel P7, prüft auch der Server, Audit `off_subject`). Pfeiltasten zwischen Zellen
+  gibt es nicht (Pfeile bedienen die Vorschlagsliste); Tab, Enter (Zelle speichern), Esc (Zelle zurücksetzen).
+- **Speichern** je Zelle einzeln: eine fehlerhafte Zelle hält die anderen nicht auf und behält ihre Eingabe mit Hinweis. Audit je Lehrauftrag
+  wie im Formular, dazu `stundenplan.assignment.matrix` mit Anzahlen (angelegt/geändert/gelöscht/abgelehnt, Quelle).
+- **Live-Bilanz:** Seitenleiste mit den betroffenen Lehrkräften (bisherige und neue Lehrkraft geänderter Zellen): Soll am Stichtag,
+  Lehraufträge inkl. Änderungen, Rest. Gerechnet im Browser (`liveBalance`), nach dem Speichern vom Server neu.
+- **Übernahme** (F-10-7) füllt nur **leere** Zellen mit Vorschlägen (blau markiert, mit Herkunft), gespeichert wird erst mit „Änderungen
+  speichern“; einzeln änderbar oder mit Esc verwerfbar. Stunden = Stundentafel-Soll der Zelle, sonst die bisherigen. Nicht übernommen werden
+  Kurse, Bänder, Teamteaching, nicht aktive Lehrkräfte (Zelle bleibt mit Stunden, Lehrkraft offen) und Zellen mit mehreren Quell-Lehraufträgen.
+  „Aus dem 1. Halbjahr“ (nur bei Stichtag im 2. Halbjahr): Lehraufträge, die am letzten Tag des 1. Halbjahrs galten und am Stichtag nicht
+  mehr, gleiche Klasse. „Aus dem Vorjahr“: Lehraufträge am letzten Tag des Vorjahrs, Klassen über `class_map`.
+- **`class_map`:** `promote()` speichert alle Quellen je neuer Klasse; „Lehrkraft folgt der Klasse“ nutzt nur 1:1-Paare (zusammengelegte
+  Klassen wie 10a + 10b → EF folgen nicht). Für Übergänge ohne `class_map` (vor SP3-LA) rekonstruiert die Übernahme die Zuordnung **zur
+  Laufzeit** über `promotedName()` (nur eindeutige Namen) statt per Daten-Migration – die Migration fügt nur die Spalte hinzu. Ohne
+  Zuordnung kein Vorschlag (kein „nur nach Fach“, R13).
+- Keine Personendaten in `class_map` (nur Gruppen-ids); Löschklasse der Tabelle unverändert.
+
 **Recht `stundenplan.review`** („Planentwurf prüfen und freigeben“, SP3-03): Daten-Migration gibt es der Gruppe `g-schulleitung` (wie
 0088 `substitute`); 2FA-Pflicht wie die anderen Planungsrechte (Deputate/Namen im Entwurf). Keine Rollen-Vorgabe.
 
@@ -341,7 +370,7 @@ an die Queue andocken (DSB-Votum offen).
 | 0106 | VT-01 | `substitution_reason`, Spalten an `timetable_substitutions`, `timetable_substitution_changes`, `timetable_absence_materials.absence_id` nullable + neuer Unique, `timetable_day_notes` |
 | 0107 | VT-04 | `timetable_notification_queue` |
 | 0107 ✅ | SP3-DEP | `employment_percent`, `obligation_term2`, `obligation` nullable, `timetable_reductions.valid_from/valid_until` (tatsächlich 0107, vor VT-01) |
-| 0109 | SP3-LA | `school_year_transitions.class_map` (Daten-Migration: aus vorhandenen Übergängen per Namensregel `promotedName()` rekonstruieren, soweit eindeutig) |
+| 0108 ✅ | SP3-LA | `school_year_transitions.class_map` (tatsächlich 0108; nur die Spalte – Übergänge ohne Zuordnung rekonstruiert die Übernahme zur Laufzeit per Namensregel `promotedName()`, soweit eindeutig) |
 | 0110 | SP3-01 | `plan_version_status`, `plan_version_source`, `timetable_plan_versions`, `timetable_draft_lessons`, `timetable_lessons.plan_version_id`, Daten-Migration „Bestand 1.0“ |
 | 0111 | SP3-03 | Recht `stundenplan.review` (Grant an `g-schulleitung`, `grants.synced`), `timetable_plan_comments` |
 | 0112 | SP3-05 | `timetable_plan_changes` |

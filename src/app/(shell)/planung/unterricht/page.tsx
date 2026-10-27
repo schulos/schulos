@@ -24,6 +24,7 @@ import {
   saveGradeRulesAction,
   applyGradeRuleDefaultsAction,
   saveTeacherSubjectsAction,
+  saveMatrixAction,
 } from "@/modules/stundenplan/actions";
 import { activeTeacherIds, pickList, teacherSubjectMap } from "@/modules/stundenplan/lehrfaecher";
 import { formName } from "@/core/school/catalog";
@@ -47,10 +48,13 @@ import { GradeRulesForm } from "./grade-rules-form";
 import { ObligationForm, ReductionForm, TeacherDayRuleForm } from "./deputy-forms";
 import { DiagnosisView } from "./diagnosis";
 import { TeacherSubjectsForm } from "./teacher-subjects-form";
+import { MatrixEditor } from "./matrix";
+import { loadMatrix, matrixClasses, matrixGrades, matrixSuggestions, type SuggestionResult } from "@/modules/stundenplan/matrix";
+import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 
 export const metadata: Metadata = { title: "Unterrichtsverteilung" };
 
-type Search = { ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string; stichtag?: string };
+type Search = { jahrgang?: string; vorschlag?: string; ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string; stichtag?: string };
 
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "UTC" });
@@ -104,12 +108,14 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   const diagnoseView = sp.ansicht === "diagnose";
   const bandsView = sp.ansicht === "baender";
   const limitsView = sp.ansicht === "tagesgrenzen";
+  const matrixView = sp.ansicht === "matrix";
+  const otherView = teachersView || diagnoseView || bandsView || limitsView || matrixView;
   const report = diagnoseView ? await diagnoseYear(db, year, stichtag ?? today, fallback, d) : null;
   const category = DIAGNOSIS_CATEGORIES.find((c): c is DiagnosisCategory => c === sp.kategorie);
   const group = d.groups.find((g) => g.id === sp.gruppe);
   const teacher = teachersView ? d.teachers.find((t) => t.id === sp.lehrkraft) : undefined;
   // Review R3 N5: auch die Tagesgrenzen-Ansicht bleibt bei Stichtag „Anzeigen“, „Heute“ und „Lehrauftrag anlegen“ erhalten
-  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : bandsView ? "baender" : limitsView ? "tagesgrenzen" : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id, stichtag };
+  const current = { ansicht: teachersView ? "lehrkraefte" : diagnoseView ? "diagnose" : bandsView ? "baender" : limitsView ? "tagesgrenzen" : matrixView ? "matrix" : undefined, jahrgang: matrixView ? sp.jahrgang : undefined, kategorie: diagnoseView ? category : undefined, art: sp.art, gruppe: group?.id, lehrkraft: teacher?.id, stichtag };
   const back = href(current);
 
   // ------------------------------------------------------------ Formular
@@ -215,9 +221,14 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         </p>
       )}
       <nav aria-label="Ansicht" className="flex flex-wrap gap-2">
-        <Button asChild size="sm" variant={teachersView || diagnoseView || bandsView || limitsView ? "ghost" : "secondary"}>
-          <Link href={href({ stichtag })} aria-current={teachersView || diagnoseView || bandsView || limitsView ? undefined : "page"}>
+        <Button asChild size="sm" variant={otherView ? "ghost" : "secondary"}>
+          <Link href={href({ stichtag })} aria-current={otherView ? undefined : "page"}>
             Klassen & Kurse
+          </Link>
+        </Button>
+        <Button asChild size="sm" variant={matrixView ? "secondary" : "ghost"}>
+          <Link href={href({ ansicht: "matrix", stichtag })} aria-current={matrixView ? "page" : undefined}>
+            Matrix
           </Link>
         </Button>
         <Button asChild size="sm" variant={teachersView ? "secondary" : "ghost"}>
@@ -245,7 +256,9 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         </Button>
       </nav>
       {form}
-      {limitsView ? (
+      {matrixView ? (
+        <MatrixView d={d} year={year} accounts={accounts} teachers={pickList(accounts, fakultas, active)} gradeParam={sp.jahrgang} vorschlag={sp.vorschlag} stichtag={stichtag} />
+      ) : limitsView ? (
         <LimitsView saved={sp.gespeichert} />
       ) : bandsView ? (
         <BandsView d={d} bandParam={sp.band} />
@@ -885,6 +898,101 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
             })}
           </tbody>
         </Table>
+      )}
+    </section>
+  );
+}
+
+/** Jahrgang im Link: Zahl oder „ohne“ (Klassen ohne Jahrgang) */
+const gradeParamOf = (g: number | null) => (g === null ? "ohne" : String(g));
+
+/**
+ * SP3-LA: Matrix Klasse × Fach je Jahrgang – Stundentafel-Soll und Lehraufträge am Stichtag, Lehrkraft per Typeahead, live Deputatsbilanz,
+ * Übernahme aus dem 1. Halbjahr bzw. dem Vorjahr als Vorschlag (F-10-7).
+ */
+async function MatrixView({
+  d,
+  year,
+  accounts,
+  teachers,
+  gradeParam,
+  vorschlag,
+  stichtag,
+}: {
+  d: Distribution;
+  year: { id: string; name: string; startsOn: string; endsOn: string; term2StartsOn: string | null };
+  accounts: DeputyAccount[];
+  teachers: PickTeacher[];
+  gradeParam?: string;
+  vorschlag?: string;
+  stichtag?: string;
+}) {
+  const db = await getDb();
+  const classes = matrixClasses(d);
+  const grades = matrixGrades(classes);
+  if (!grades.length) return <EmptyState title="Noch keine Klassen">Die Matrix zeigt Klassen des Schuljahrs – lege zuerst Klassen an.</EmptyState>;
+  const grade = grades.find((g) => gradeParamOf(g) === gradeParam) ?? grades[0]!;
+  const gradeName = (g: number | null) => (g === null ? "ohne Jahrgang" : `Jahrgang ${g}`);
+  const matrix = await loadMatrix(db, d, grade);
+  const source = vorschlag === "vorjahr" || vorschlag === "halbjahr" ? vorschlag : null;
+  const result: SuggestionResult | null = source ? await matrixSuggestions(db, year, d.refYmd, matrix, source) : null;
+  const term2 = year.term2StartsOn && year.term2StartsOn > year.startsOn && d.refYmd >= year.term2StartsOn;
+  const base = { ansicht: "matrix", jahrgang: gradeParamOf(grade), stichtag };
+  const editHref: Record<string, string> = {};
+  for (const r of matrix.rows) for (const c of r.cells) for (const a of c.assignments) editHref[a.id] = href({ gruppe: r.groupId, auftrag: a.id, stichtag });
+  return (
+    <section aria-labelledby="mx" className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="mx" className="font-display text-xl font-bold">
+          Matrix Klasse × Fach · {gradeName(grade)}
+        </h2>
+        <div className="flex flex-wrap gap-2">
+          {term2 && (
+            <Button asChild size="sm" variant={source === "halbjahr" ? "secondary" : "ghost"}>
+              <Link href={href({ ...base, vorschlag: "halbjahr" })}>Aus dem 1. Halbjahr übernehmen</Link>
+            </Button>
+          )}
+          <Button asChild size="sm" variant={source === "vorjahr" ? "secondary" : "ghost"}>
+            <Link href={href({ ...base, vorschlag: "vorjahr" })}>Aus dem Vorjahr übernehmen</Link>
+          </Button>
+        </div>
+      </div>
+      <nav aria-label="Jahrgang" className="flex flex-wrap gap-1">
+        {grades.map((g) => (
+          <Button key={gradeParamOf(g)} asChild size="sm" variant={g === grade ? "secondary" : "ghost"}>
+            <Link href={href({ ...base, jahrgang: gradeParamOf(g) })} aria-current={g === grade ? "page" : undefined}>
+              {g === null ? "ohne Jahrgang" : g}
+            </Link>
+          </Button>
+        ))}
+      </nav>
+      {result && (
+        <p role="note" className="rounded-lg border border-border bg-accent-soft px-3 py-2 text-sm text-accent-ink">
+          {result.missing
+            ? `Keine Übernahme möglich: ${result.missing}`
+            : result.suggestions.length === 0
+            ? `Keine Vorschläge ${result.label} für leere Zellen in ${gradeName(grade)}.`
+            : `${result.suggestions.length} ${result.suggestions.length === 1 ? "Vorschlag" : "Vorschläge"} ${result.label}: Lehrkraft folgt der Klasse, Stunden laut Stundentafel. Prüfen, einzeln ändern oder mit Esc verwerfen – gespeichert wird erst mit „Änderungen speichern“. Kurse und Bänder werden nicht übernommen.`}
+          {result.reconstructed && " Die Zuordnung der Klassen stammt aus den Klassennamen (Schuljahreswechsel vor dieser Funktion)."}{" "}
+          <Link href={href(base)} className="font-medium underline">
+            Vorschläge ausblenden
+          </Link>
+        </p>
+      )}
+      {matrix.rows.length === 0 || matrix.columns.length === 0 ? (
+        <EmptyState title="Keine Fächer">Für {gradeName(grade)} gibt es weder Stundentafel noch Lehraufträge – Stundentafel unter Stammdaten pflegen.</EmptyState>
+      ) : (
+        <MatrixEditor
+          key={`${gradeParamOf(grade)}|${d.refYmd}|${source ?? ""}`}
+          matrix={matrix}
+          accounts={accounts.map(({ id, code, name, target, assigned }) => ({ id, code, name, target, assigned }))}
+          teachers={teachers}
+          refYmd={d.refYmd}
+          suggestions={result?.suggestions ?? []}
+          source={source ?? "matrix"}
+          editHref={editHref}
+          save={saveMatrixAction}
+        />
       )}
     </section>
   );
