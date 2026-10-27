@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectErrors, login, pickTeacher, publishIfDraft } from "./helpers";
+import { collectErrors, login, pickTeacher, publishIfDraft, sendPlannedNow } from "./helpers";
 
 test("Stundenplanung pflegt den Stundenplan und bekommt Kollisionen gemeldet", async ({ page }) => {
   const errors = collectErrors(page);
@@ -121,6 +121,8 @@ test("Vertretung eintragen: Klasse bekommt Gong und sieht die Stunde orange im P
   // Q5-11: Demo-Schule mit Freigabe – der Tag in zwei Wochen ist ein Entwurf, erst nach dem Veröffentlichen kommt der Gong
   await expect(page.getByRole("article", { name: "Entwurf" })).toBeVisible();
   await publishIfDraft(page);
+  // VT-04: der Gong für den Tag in zwei Wochen ist für den Vortag eingeplant – jetzt senden
+  await sendPlannedNow(page);
 
   const ctx = await browser.newContext();
   const lea = await ctx.newPage();

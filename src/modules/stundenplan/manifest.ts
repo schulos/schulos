@@ -86,6 +86,15 @@ export default defineModule({
       start: "date",
     },
     {
+      // VT-04 (F-10-11): Sendewarteschlange – wer zu welchem Tag wann benachrichtigt wird; der Inhalt steht nur im Gong (`notifications`)
+      table: "timetable_notification_queue",
+      purpose: "Vertretungsnachricht zur eingestellten Zeit senden (Vortag, Ruhezeit)",
+      categories: ["Empfänger:in", "Vertretungstag", "Zielgruppe (Lehrkräfte/Lernende)", "geplante und tatsächliche Sendezeit"],
+      class: "LK-90",
+      start: "created_at",
+      note: "keine Inhalte, nur Zeitpunkte; bei Kontolöschung werden die Einträge der Person mitgelöscht",
+    },
+    {
       table: "timetable_substitution_days",
       purpose: "Vertretungsplan erst nach Freigabe veröffentlichen (Entwurf je Tag)",
       categories: ["Datum", "Angelegt von", "Veröffentlicht von und wann"],

@@ -26,7 +26,8 @@ import type { ChangeMarker } from "./display";
 import { hasPermission, type PermissionSet } from "@/core/permissions";
 import { blockLabel, roomBlockAt } from "./raumsperren";
 import { lessonActiveOn } from "./service";
-import { dayChanges, notifySubstitutionDay } from "./vertretung-gong";
+import { dayChanges } from "./vertretung-gong";
+import { notifySubstitutionDay } from "./benachrichtigung";
 import { draftDays, startDraftIfNeeded } from "./freigabe";
 import { readModuleSetting } from "@/core/modules/settings";
 import { SUBSTITUTION_ACK } from "./settings";
@@ -721,7 +722,8 @@ export async function deleteSubstitution(db: Db, actorId: string, id: string): P
 
 /**
  * Q5-11: Entwurf eines Tages veröffentlichen – ab jetzt sehen alle die Änderungen, und jede betroffene Person bekommt die
- * gebündelte Tagesnachricht (Q5-03). Gibt `null` zurück, wenn der Tag kein Entwurf (mehr) ist, sonst die Zahl der Empfänger.
+ * gebündelte Tagesnachricht (Q5-03) – VT-04: eingereiht zur geplanten Sendezeit (Vortag 18:00, heute sofort). Gibt `null` zurück,
+ * wenn der Tag kein Entwurf (mehr) ist, sonst die Zahl der eingereihten Personen (ohne Eltern).
  */
 export async function publishDay(db: Db, actorId: string, date: string): Promise<number | null> {
   if (!YMD.test(date)) throw new ValidationError({ date: "Datum angeben" });

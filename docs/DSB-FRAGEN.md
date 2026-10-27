@@ -378,10 +378,10 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
 <!-- dsb:sichtbarkeit -->
 | Punkt | |
 |---|---|
-| Was SchulOS tut | Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang, die Veröffentlichung des Vertretungsplans und die Kenntnisnahme von Vertretungen durch die Vertretungslehrkraft (Profilbilder im Sitzplan: §16). |
-| Vorgabe | Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort, Kenntnisnahme an (freiwillig, ohne Eskalation). |
+| Was SchulOS tut | Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang, die Veröffentlichung des Vertretungsplans und die Kenntnisnahme von Vertretungen durch die Vertretungslehrkraft (Profilbilder im Sitzplan: §16). Legt fest, wann die Vertretungsnachricht rausgeht: am Vortag zur eingestellten Uhrzeit, für heute sofort, nie in der Ruhezeit – getrennt für Lehrkräfte und Schüler:innen/Eltern; bis dahin steht nur „wer, welcher Tag, wann“ in einer Warteschlange (90 Tage, ohne Inhalt). |
+| Vorgabe | Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort, Kenntnisnahme an (freiwillig, ohne Eskalation, Erinnerung mit der Vertretungsnachricht), Vertretungsnachricht am Vortag 18:00, Ruhezeit 20:00–06:30 (Schüler:innen/Eltern wie Lehrkräfte). |
 | Die Schule entscheidet / dokumentiert | Entscheidet je Schalter nach pädagogischem Konzept und Erforderlichkeit und dokumentiert die Wahl. |
-| Einstellungen | „Direktchats unter Schüler:innen“ (Vorgabe: nur innerhalb der eigenen Klasse); „Eltern über Vertretungen und Entfall informieren“ (Vorgabe: bis Jahrgang 10); „Vertretungsplan veröffentlichen“ (Vorgabe: sofort); „Kenntnisnahme von Vertretungen“ (Vorgabe: an); „Hausaufgaben für Eltern sichtbar“ (Vorgabe: aus) |
+| Einstellungen | „Direktchats unter Schüler:innen“ (Vorgabe: nur innerhalb der eigenen Klasse); „Eltern über Vertretungen und Entfall informieren“ (Vorgabe: bis Jahrgang 10); „Vertretungsplan veröffentlichen“ (Vorgabe: sofort); „Kenntnisnahme von Vertretungen“ (Vorgabe: an); „Vertretungsnachricht am Vortag – Lehrkräfte“ (Vorgabe: 18:00 Uhr); „Ruhezeit ab – Lehrkräfte“ (Vorgabe: 20:00 Uhr); „Ruhezeit bis – Lehrkräfte“ (Vorgabe: 06:30 Uhr); „Vertretungsnachricht am Vortag – Schüler:innen und Eltern“ (Vorgabe: wie bei Lehrkräften); „Ruhezeit ab – Schüler:innen und Eltern“ (Vorgabe: wie bei Lehrkräften); „Ruhezeit bis – Schüler:innen und Eltern“ (Vorgabe: wie bei Lehrkräften); „Hausaufgaben für Eltern sichtbar“ (Vorgabe: aus) |
 | In SchulOS | Verwaltung → Rechte & Module |
 <!-- /dsb -->
 

@@ -77,6 +77,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "stundenplan.substitution.delete": "Vertretung aufgehoben",
   "stundenplan.substitution.publish": "Vertretungsplan veröffentlicht",
   "stundenplan.substitution.acknowledge": "Vertretung zur Kenntnis genommen",
+  "stundenplan.substitution.notify_now": "Vertretungsnachricht sofort gesendet",
   "stundenplan.daynote.save": "Tagesmitteilung gespeichert",
   "stundenplan.daynote.delete": "Tagesmitteilung gelöscht",
   "stundenplan.timepref.window": "Eingabefenster Zeitwünsche geändert",

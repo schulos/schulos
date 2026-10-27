@@ -1,6 +1,6 @@
 # SP3-00: Lebenszyklus des Stundenplans und Vertretung mit mehr Infos – Architekturkonzept
 
-> Stand: 2026-10-26 · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
+> Stand: 2026-10-27 (VT-04 umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
 > (Arbeitsplan ab 26.10., Phase B1; Vorgaben „Nachtrag 25.10.“, „Sicht eines Stundenplaners“ und „Antworten 25.10.“).
 > Hebt die Entscheidung Q-SP-12/Q-SP-16 („keine Plan-Versionen“) auf – ausdrücklich durch die Projektleitung 25.10.2026.
 > Aufgaben nach Abnahme: `BACKLOG.md`, Blöcke **VT** (Vertretung) und **SP3** (Lebenszyklus). Dieses Dokument ändert keinen Code
@@ -378,7 +378,7 @@ Häkchen „für Schüler:innen“ bleibt.
   Pflege als kleine Liste auf `/planung/vertretungen`; Anzeige in Plan/Monitor/Druck mit VT-02.
 
 **Umgesetzt mit VT-02 (2026-10-27, ohne Migration) – Vorgaben zu Detailfragen:**
-- **Marker „neu/geändert“:** Stichzeitpunkt ist der letzte Vortags-Versand um 18:00 (Berliner Zeit) vor dem Abruf – bis 17:59 der Vortag 18:00, ab 18:00 derselbe Tag (`markerSince`). „neu“ = Vertretung seit dem Stichzeitpunkt angelegt (`created_at`), „geändert“ = ein Historien-Eintrag seither, der ein sichtbares Feld ändert (`changedSince`; nur interner Hinweis zählt nicht, Aufheben verschwindet einfach). Bis VT-04 ist 18:00 fest; danach gilt die Einstellung `notify_eve_time` bzw. der letzte Versand. Freigabe-Tage: maßgeblich ist das Anlegen, nicht das Veröffentlichen. Marker in Vertretungsplan, Monitor und Planung, nicht im Druck.
+- **Marker „neu/geändert“:** Stichzeitpunkt ist der letzte Vortags-Versand um 18:00 (Berliner Zeit) vor dem Abruf – bis 17:59 der Vortag 18:00, ab 18:00 derselbe Tag (`markerSince`). „neu“ = Vertretung seit dem Stichzeitpunkt angelegt (`created_at`), „geändert“ = ein Historien-Eintrag seither, der ein sichtbares Feld ändert (`changedSince`; nur interner Hinweis zählt nicht, Aufheben verschwindet einfach). Bis VT-04 war 18:00 fest; seit VT-04 gilt die Einstellung `notify_eve_time` bzw. der tatsächliche Versand (siehe unten). Freigabe-Tage: maßgeblich ist das Anlegen, nicht das Veröffentlichen. Marker in Vertretungsplan, Monitor und Planung, nicht im Druck.
 - **Raum „alt → neu“:** eine Regel `roomShift(alt, neu)` in `display.ts` für Vertretungsplan, Monitor, Druck, Planung, Wochenplan/Tagesleiste (`R 106 → 105`), Kursseite und Klassenbuch; gleicher Raum oder keiner → nur der Raum; Entfall → kein Raum; Zusammenlegung → Raum der anderen Stunde. Die Raumsicht des Wochenplans bleibt bei „→ R 105“ bzw. dem eigenen Raum.
 - **„Betreuung“:** Art heißt „Betreuung“ statt „Vertretung“ (Vertretungsplan, Monitor, Druck, Klassenbuch), im Plan der abgebenden Lehrkraft „Betreut“. Der Grund steht als „Grund: …“ (Vertretungsplan, Klassenbuch), als eigene Spalte (Druck) bzw. vor dem Hinweis (Monitor, Wochenplan, Tagesleiste, Kursseite).
 - **Tagesmitteilungen:** oben je Tag; „nur Beschäftigte“ sehen Beschäftigte (`isStaffRole`) im Vertretungsplan, Druck und in der Tagesleiste sowie der Monitor „Lehrerzimmer“; Foyer, Schüler:innen und Eltern nur „an alle“. Entwurfstage wie bisher nur Planung.
@@ -397,17 +397,48 @@ Stundenbeginn, sonst nur Lehrkräfte); morgen → zur Vortags-Uhrzeit, nach der 
 weiter voraus → am Vortag. Veröffentlichen eines Entwurfstags reiht ein statt zu senden; „jetzt senden“ je Eintrag. Web-Push kann später
 an die Queue andocken (DSB-Votum offen).
 
+**Umgesetzt mit VT-04 (2026-10-27, Migration 0110) – Vorgaben zu Detailfragen (Projektleitung kann sie ändern):**
+- **Eine Zeile je Person und Tag** statt je (Tag, Zielgruppe): `timetable_notification_queue` = `date` · `user_id` (cascade) · `audience`
+  (`lehrkraefte`, `lernende`) · `queued_at` · `due_at` · `sent_at` · `created_at`; partieller Unique `(user_id, date) where sent_at is null`.
+  Nur so bekommt auch eine bisherige Vertretungslehrkraft, die im Endstand nicht mehr vorkommt, ihr „keine Änderungen mehr“. Inhalt steht
+  nicht in der Tabelle, Eltern auch nicht (sie folgen beim Senden den eingereihten Lernenden). Gesendete Zeilen bleiben (LK-90 ab Anlage) –
+  daraus kommt der tatsächliche Versandzeitpunkt für die Marker.
+- **Endstand:** erneutes Einreihen behält den ersten offenen Eintrag (`plannedSendAt` ist monoton im Einreihezeitpunkt). Beim Senden wird
+  die Nachricht aus dem aktuellen Stand gebaut; wer „keine Änderungen mehr“ bekäme, ohne je eine Nachricht zu dem Tag bekommen zu haben
+  (Änderung und Rücknahme vor dem Versand), bekommt nichts; eine unveränderte Nachricht wird nicht erneut zugestellt.
+- **Zeitregeln** (`sendezeit.ts`, Europe/Berlin): morgen und später → Vortag (Kalendertag davor, auch Sonntag für Montag) zur Uhrzeit; ist
+  die vorbei → sofort; in der Ruhezeit → Ende der Ruhezeit. **Heute → sofort für alle Zielgruppen** (Abweichung von „nur vor Stundenbeginn,
+  sonst nur Lehrkräfte“: sonst erführen Lernende eine Änderung an der 6. Stunde gar nicht; Ruhezeit gilt trotzdem). **Rückwirkend** (Tag
+  vorbei) → sofort, auch in der Ruhezeit (Korrektur, niemand muss handeln).
+- **Einstellungen** (Moduleinstellungen, DSB-Checkliste §13): Lehrkräfte `stundenplan.notify_eve_time` (14:00–21:00, Vorgabe 18:00),
+  `stundenplan.quiet_from` („keine Ruhezeit“ oder 18:00–23:00, Vorgabe 20:00), `stundenplan.quiet_until` (05:00–08:00, Vorgabe 06:30);
+  Schüler:innen/Eltern dieselben drei mit `_students`, Vorgabe „wie bei Lehrkräften“ (statt eines Schalters `notify_students_separately`).
+  Werte ohne Doppelpunkt („1800“), weil der Schulprofil-Export nur Bezeichner zulässt. Geänderte Zeiten planen offene Einträge neu
+  (`reschedulePending`). Wer Lehrkraft und Elternteil zugleich ist, wird als Lehrkraft eingereiht.
+- **Senden:** sofort Fälliges geht in derselben Transaktion wie das Speichern raus (wie bisher, also ohne Minutenverzug); sonst Job
+  `vertretung-gong` jede Minute (`startSubstitutionGong`, `runExclusive`, nur bei eingeschaltetem Modul). Doppelversand verhindert die
+  Tagessperre (`pg_advisory_xact_lock` wie GATE-031 C-07): gesendet wird nur, was unter der Sperre noch offen ist. Entwurfstage warten.
+- **„jetzt senden“** je Tag und Zielgruppe auf `/planung/vertretungen` (Liste „Nachrichten“, nur bei offenen Einträgen: Tag · Zielgruppe ·
+  Personen · „geplant für …“), auch in der Ruhezeit; Recht `stundenplan.substitute`, Audit `stundenplan.substitution.notify_now` (Zahlen).
+  Die Anzeige in der Kopfleiste des Arbeitsplatzes („Gong geplant 18:00 (34)“) bleibt VT-03a.
+- **Nachrichtentext:** Raum „alt → neu“ (`roomShift`, Zusammenlegung: Raum der anderen Stunde), „Grund: …“ (Kategorie, auch für Eltern),
+  „Betreuung“ statt „Vertretung“. **Erinnerung an die Kenntnisnahme:** die Nachricht an die Vertretungslehrkraft endet mit „Bitte bestätigen:
+  n Vertretung(en) …“ und verlinkt auf „Meine Vertretungen“, solange sie offen sind und die Kenntnisnahme eingeschaltet ist – mit jeder
+  Nachricht dieses Tages (in der Regel der Vortags-Nachricht), ohne eigene Erinnerung und ohne Eskalation.
+- **Marker „neu/geändert“:** Stichzeit = letzter Vortags-Termin nach der Einstellung der Lehrkräfte; ging die zu diesem Termin geplante
+  Nachricht tatsächlich später raus (Takt verzögert), gilt der Versandzeitpunkt (`markerSinceDb`).
+
 ### 3.3 Migrationsfolge (Vorschlag, Nummern endgültig beim PR)
 
 | # | Paket | Inhalt |
 |---|---|---|
 | 0109 ✅ | VT-01 | `substitution_reason`, `substitution_change_action`, `day_note_audience`, Spalten an `timetable_substitutions`, `timetable_substitution_changes`, `timetable_absence_materials.absence_id` nullable + neuer Unique, `timetable_day_notes` (tatsächlich 0109, nach SP3-DEP/SP3-LA) |
-| (nächste freie) | VT-04 | `timetable_notification_queue` |
+| 0110 ✅ | VT-04 | `timetable_notify_audience`, `timetable_notification_queue` (eine offene Zeile je Person und Tag; tatsächlich 0110) |
 | 0107 ✅ | SP3-DEP | `employment_percent`, `obligation_term2`, `obligation` nullable, `timetable_reductions.valid_from/valid_until` (tatsächlich 0107, vor VT-01) |
 | 0108 ✅ | SP3-LA | `school_year_transitions.class_map` (tatsächlich 0108; nur die Spalte – Übergänge ohne Zuordnung rekonstruiert die Übernahme zur Laufzeit per Namensregel `promotedName()`, soweit eindeutig) |
-| 0110 | SP3-01 | `plan_version_status`, `plan_version_source`, `timetable_plan_versions`, `timetable_draft_lessons`, `timetable_lessons.plan_version_id`, Daten-Migration „Bestand 1.0“ |
-| 0111 | SP3-03 | Recht `stundenplan.review` (Grant an `g-schulleitung`, `grants.synced`), `timetable_plan_comments` |
-| 0112 | SP3-05 | `timetable_plan_changes` |
+| 0111 (nächste freie) | SP3-01 | `plan_version_status`, `plan_version_source`, `timetable_plan_versions`, `timetable_draft_lessons`, `timetable_lessons.plan_version_id`, Daten-Migration „Bestand 1.0“ |
+| 0112 | SP3-03 | Recht `stundenplan.review` (Grant an `g-schulleitung`, `grants.synced`), `timetable_plan_comments` |
+| 0113 | SP3-05 | `timetable_plan_changes` |
 | – | SP3-02/04/06/07/08, VT-02/03/05 | ohne Migration (SP3-06 nutzt `checklist jsonb`; SP3-07 nutzt `class_map`) |
 
 Reihenfolge VT vor SP3 ist nur eine Nummern-Reihenfolge; fachlich hängt SP3-04 (Übertrag von Vertretungen beim Veröffentlichen) an den

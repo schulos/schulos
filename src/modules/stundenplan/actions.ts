@@ -19,6 +19,8 @@ import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
 import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
 import { acknowledgeSubstitution, deleteSubstitution, keepReviewedSubstitution, publishDay, removeReviewedSubstitutions, saveSubstitution, type SubstitutionInput } from "./vertretung";
 import { deleteDayNote, saveDayNote } from "./tagesmitteilungen";
+import { sendNow } from "./benachrichtigung";
+import type { NotifyAudience } from "./schema";
 import { addReduction, defaultObligation, deleteReduction, saveTeacherRule, setDeputy } from "./deputate";
 import { readSchoolSettings } from "@/core/settings";
 import { applyGradeRuleDefaults, classGrades, saveGradeRules } from "./jahrgangsregeln";
@@ -301,6 +303,21 @@ export async function publishDayAction(date: string): Promise<void> {
   }
   revalidatePath("/", "layout");
   redirect(`/planung/vertretungen?datum=${date}&veroeffentlicht=${n ?? "0"}`);
+}
+
+/** VT-04: eingeplante Vertretungsnachricht eines Tages und einer Zielgruppe sofort senden (auch in der Ruhezeit). */
+export async function sendNotificationsNowAction(date: string, audience: string, back: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.substitute");
+  const target = back.startsWith("/planung/vertretungen") ? back : "/planung/vertretungen";
+  let n: number;
+  try {
+    n = await sendNow(await getDb(), user.id, date, audience as NotifyAudience);
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(`/planung/vertretungen?fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(`${target}${target.includes("?") ? "&" : "?"}gesendet=${n}`);
 }
 
 // ---------------------------------------------------------------- Unterrichtsverteilung

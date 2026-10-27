@@ -158,10 +158,23 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     nr: 13,
     title: "Kommunikation unter Schüler:innen und Information der Eltern",
     schulos:
-      "Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang, die Veröffentlichung des Vertretungsplans und die Kenntnisnahme von Vertretungen durch die Vertretungslehrkraft (Profilbilder im Sitzplan: §16).",
-    vorgabe: "Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort, Kenntnisnahme an (freiwillig, ohne Eskalation).",
+      "Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang, die Veröffentlichung des Vertretungsplans und die Kenntnisnahme von Vertretungen durch die Vertretungslehrkraft (Profilbilder im Sitzplan: §16). Legt fest, wann die Vertretungsnachricht rausgeht: am Vortag zur eingestellten Uhrzeit, für heute sofort, nie in der Ruhezeit – getrennt für Lehrkräfte und Schüler:innen/Eltern; bis dahin steht nur „wer, welcher Tag, wann“ in einer Warteschlange (90 Tage, ohne Inhalt).",
+    vorgabe:
+      "Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort, Kenntnisnahme an (freiwillig, ohne Eskalation, Erinnerung mit der Vertretungsnachricht), Vertretungsnachricht am Vortag 18:00, Ruhezeit 20:00–06:30 (Schüler:innen/Eltern wie Lehrkräfte).",
     schule: "Entscheidet je Schalter nach pädagogischem Konzept und Erforderlichkeit und dokumentiert die Wahl.",
-    settings: ["messenger.student_direct", "stundenplan.parents_substitution", "stundenplan.substitution_release", "stundenplan.substitution_ack", "klassenbuch.parents_homework"],
+    settings: [
+      "messenger.student_direct",
+      "stundenplan.parents_substitution",
+      "stundenplan.substitution_release",
+      "stundenplan.substitution_ack",
+      "stundenplan.notify_eve_time",
+      "stundenplan.quiet_from",
+      "stundenplan.quiet_until",
+      "stundenplan.notify_eve_time_students",
+      "stundenplan.quiet_from_students",
+      "stundenplan.quiet_until_students",
+      "klassenbuch.parents_homework",
+    ],
     where: { label: "Verwaltung → Rechte & Module", href: "/verwaltung/rechte" },
   },
   {
