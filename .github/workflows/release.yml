@@ -1,8 +1,11 @@
 # Releases (B-29/B-30, INSTALLATION.md §5a.2, Ablauf in release/README.md).
 #  - Tag v<version> bzw. v<version>-rc.N: Release aus diesem Stand mit den Notizen release/notes/<version>.json.
-#  - Wöchentlich (Mo 04:00 UTC) bzw. von Hand: neuestes fertiges Release mit aktuellen Fremd-Images (node, restic,
-#    caddy, postgres, rest-server) neu bauen; nur wenn sich ein Digest geändert hat → automatisches Patch-Release
-#    x.y.(z+1) aus demselben Commit (sicherheitsrelevant, kürzere Beta-Zeit), sonst endet der Lauf nach ~1 min.
+#  - Wöchentlich (Mo 04:00 UTC) bzw. von Hand: prüfen, ob sich ein Fremd-Image (node, restic, caddy, postgres,
+#    rest-server) seit dem neuesten fertigen Release geändert hat. Wenn ja, nur MELDEN (TD-13, Projektleitung 2026-10-27:
+#    Release-Tags legen nur Admins an, das Ruleset lässt den Actions-Token keinen Tag anlegen) – Warnung, Zusammenfassung
+#    und Issue „Patch-Release fällig“ mit dem Tag-Befehl; sonst endet der Lauf nach ~1 min.
+#  - Patch-Tag v<x.y.(z+1)> auf genau dem Commit des neuesten fertigen Releases (von Hand nach der Meldung): Neubau mit
+#    frischen Fremd-Images, Notizen automatisch („sicherheit“, kürzere Beta-Zeit), keine Release-ISO.
 # Images App, Backup, Agent → GHCR, mit cosign signiert (Schlüsselpaar aus den Secrets, ohne Rekor); Fremd-Images per
 # Digest gepinnt und im Manifest festgehalten; Manifest signiert → GitHub-Release mit release.json + release.json.sig.
 # Nur von einem grünen Stand auf main taggen – der Workflow wiederholt die CI nicht (Freikontingent); vor einem getaggten
@@ -59,7 +62,12 @@ jobs:
     # V-02: für den Folgejob „iso“ – angelegt nur, wenn weder Plan noch Fremd-Image-Vergleich den Lauf übersprungen haben
     outputs:
       tag: ${{ steps.plan.outputs.tag }}
+      mode: ${{ steps.plan.outputs.mode }}
       created: ${{ steps.plan.outputs.skip != 'true' && steps.upstream.outputs.skip != 'true' }}
+      # TD-13: nur beim Prüflauf – geänderte Fremd-Images und der fällige Patch-Tag (leer = nichts zu tun)
+      due: ${{ steps.upstream.outputs.due }}
+      changed: ${{ steps.upstream.outputs.changed }}
+      ref: ${{ steps.plan.outputs.ref }}
     # SEC-06: Signierschlüssel nur in der Umgebung der beiden Signierschritte (nicht im ganzen Job); tsx aus dem Lockfile
     # (npm ci ohne Install-Skripte) statt `npx -y tsx@4` zur Laufzeit aus dem Netz bzw. dem npx-Cache des Runners
     env:
@@ -88,10 +96,25 @@ jobs:
             git worktree prune && git worktree add --force --detach build "$ref"
             core="${version%%-*}"
             pkg="$(node -p 'require("./build/package.json").version')"
-            if [ "$core" != "$pkg" ]; then echo "::error::Tag $GITHUB_REF_NAME passt nicht zu package.json ($pkg)"; exit 1; fi
-            $TSX scripts/release-manifest.ts --check "$version"
+            mode=tag
+            if [ "$core" != "$pkg" ]; then
+              # TD-13: Patch-Tag nach der Meldung – nur x.y.(z+1) des neuesten fertigen Releases und genau dessen Commit
+              latest="$(gh release list --limit 100 --json tagName --jq '.[].tagName' | $TSX scripts/release-manifest.ts --latest)"
+              [ -n "$latest" ] && gh release download "$latest" --pattern release.json --dir previous
+              prev_commit="$( [ -n "$latest" ] && node -p 'require("./previous/release.json").commit' || true)"
+              next="$( [ -n "$latest" ] && node -p 'const v=require("./previous/release.json").version.split(".");v[2]=+v[2]+1;v.join(".")' || true)"
+              if [ -z "$latest" ] || [ "$version" != "$next" ] || [ "$ref" != "$prev_commit" ]; then
+                echo "::error::Tag $GITHUB_REF_NAME passt nicht zu package.json ($pkg) und ist kein Patch-Tag (erwartet v$next auf $prev_commit)"
+                exit 1
+              fi
+              mode=patch
+              echo "Patch-Release $GITHUB_REF_NAME aus $latest ($ref)"
+            else
+              $TSX scripts/release-manifest.ts --check "$version"
+            fi
             echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
           else
+            mode=check
             latest="$(gh release list --limit 100 --json tagName --jq '.[].tagName' | $TSX scripts/release-manifest.ts --latest)"
             if [ -z "$latest" ]; then echo "Noch kein fertiges Release – nichts neu zu bauen"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
             gh release download "$latest" --pattern release.json --dir previous
@@ -99,8 +122,9 @@ jobs:
             version="$(node -p 'const v=require("./previous/release.json").version.split(".");v[2]=+v[2]+1;v.join(".")')"
             git worktree prune && git worktree add --force --detach build "$ref"
             echo "tag=v$version" >> "$GITHUB_OUTPUT"
-            echo "Neubau von $latest ($ref) als Kandidat v$version"
+            echo "Prüfung von $latest ($ref), Kandidat v$version"
           fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
           echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
@@ -109,13 +133,17 @@ jobs:
       - name: Fremd-Images per Digest
         id: upstream
         if: steps.plan.outputs.skip != 'true'
+        env:
+          MODE: ${{ steps.plan.outputs.mode }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          REF: ${{ steps.plan.outputs.ref }}
         run: |
           echo "{" > upstream.json; sep=""
-          # B-47: getaggtes Release mit den gepinnten Digests (deploy/upstream/Dockerfile, wie die ISO); der wöchentliche
-          # Neubau löst die Tags frisch auf (B-30) – Stände ohne Pin-Datei liefern nur Tags
+          # B-47: getaggtes Release mit den gepinnten Digests (deploy/upstream/Dockerfile, wie die ISO); Prüflauf und
+          # Patch-Release lösen die Tags frisch auf (B-30) – Stände ohne Pin-Datei liefern nur Tags
           while IFS='=' read -r name ref; do
             tag="${ref%@*}"
-            if [ "$GITHUB_EVENT_NAME" = push ] && [ "$ref" != "$tag" ]; then digest="${ref#*@}"
+            if [ "$MODE" = tag ] && [ "$ref" != "$tag" ]; then digest="${ref#*@}"
             else digest="$(docker buildx imagetools inspect "$tag" | awk '/^Digest:/ && !d {print $2; d=1}')"; fi
             [ -n "$digest" ] || { echo "::error::Kein Digest für $tag"; exit 1; }
             printf '%s  "%s": "%s@%s"' "$sep" "$name" "$tag" "$digest" >> upstream.json; sep=$',\n'
@@ -123,10 +151,26 @@ jobs:
           done < <($TSX scripts/release-manifest.ts --upstream-refs build)
           printf '\n}\n' >> upstream.json
           cat upstream.json
-          if [ "$GITHUB_EVENT_NAME" != push ]; then
+          if [ "$MODE" != tag ]; then
             changed="$($TSX scripts/release-manifest.ts --changed previous/release.json --upstream upstream.json)"
-            if [ -z "$changed" ]; then echo "Fremd-Images unverändert – kein Patch-Release"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+            if [ -z "$changed" ]; then
+              if [ "$MODE" = patch ]; then echo "::error::Fremd-Images unverändert – Patch-Release $TAG unnötig"; exit 1; fi
+              echo "Fremd-Images unverändert – kein Patch-Release"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+            fi
             echo "Geändert: $changed"
+            if [ "$MODE" = check ]; then
+              # TD-13: nur melden – den Tag setzt ein Admin (Folgejob „melden“ legt das Issue an)
+              echo "::warning::Patch-Release $TAG fällig (geänderte Fremd-Images: $changed)"
+              {
+                echo "### Patch-Release $TAG fällig"
+                echo "Geänderte Fremd-Images: \`$changed\`. Tag auf den Commit des letzten Releases setzen:"
+                echo '```'
+                echo "git fetch --tags && git tag -a $TAG $REF -m \"SchulOS ${TAG#v}\" && git push origin $TAG"
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
+              { echo "due=$TAG"; echo "changed=$changed"; echo "skip=true"; } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "auto=--auto-patch $changed" >> "$GITHUB_OUTPUT"
           fi
 
@@ -272,11 +316,11 @@ jobs:
             $(ls dist-release/sbom-*.cdx.json 2>/dev/null)
 
   # V-02: nach einem getaggten Release die Release-ISO samt QEMU-Tests anstoßen (Build-VM, iso.yml von main; die ISO
-  # entsteht aus den signierten Images dieses Tags, B-49). Wöchentliche Auto-Patch-Releases (B-30) bauen bewusst keine
-  # ISO – Neuinstallationen ziehen das Update danach selbst. Den Platz auf der Build-VM prüft iso.yml (`platz`).
+  # entsteht aus den signierten Images dieses Tags, B-49). Patch-Releases aus geänderten Fremd-Images (B-30/TD-13) bauen
+  # bewusst keine ISO – Neuinstallationen ziehen das Update danach selbst. Den Platz auf der Build-VM prüft iso.yml (`platz`).
   iso:
     needs: release
-    if: github.event_name == 'push' && needs.release.result == 'success' && needs.release.outputs.created == 'true'
+    if: github.event_name == 'push' && needs.release.result == 'success' && needs.release.outputs.created == 'true' && needs.release.outputs.mode == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -289,3 +333,28 @@ jobs:
         run: |
           gh workflow run iso.yml --repo "$GITHUB_REPOSITORY" --ref main -f release="$TAG" -f qemu=beide
           echo "Release-ISO für $TAG angestoßen (Actions → ISO)." >> "$GITHUB_STEP_SUMMARY"
+
+  # TD-13: Prüflauf hat geänderte Fremd-Images gefunden → ein offenes Issue „Patch-Release fällig“ anlegen bzw. ergänzen
+  # (die Projektleitung bekommt es mit; den Tag setzt ein Admin, siehe release/README.md)
+  melden:
+    needs: release
+    if: github.event_name != 'push' && needs.release.result == 'success' && needs.release.outputs.due != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Issue „Patch-Release fällig“
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DUE: ${{ needs.release.outputs.due }}
+          CHANGED: ${{ needs.release.outputs.changed }}
+          REF: ${{ needs.release.outputs.ref }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Patch-Release $DUE fällig (Fremd-Images aktualisiert)"
+          body="$(printf 'Der wöchentliche Prüflauf hat geänderte Fremd-Images gefunden: `%s`.\n\nPatch-Release aus dem Commit des letzten Releases (nur Admins, Ruleset „Release-Tags“):\n\n```\ngit fetch --tags && git tag -a %s %s -m "SchulOS %s" && git push origin %s\n```\n\nDer Tag startet den Release-Workflow (Neubau mit frischen Images, Notizen automatisch, keine ISO). Lauf: %s' \
+            "$CHANGED" "$DUE" "$REF" "${DUE#v}" "$DUE" "$RUN")"
+          nr="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"Patch-Release $DUE fällig\" in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$nr" ]; then gh issue comment "$nr" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"; fi
