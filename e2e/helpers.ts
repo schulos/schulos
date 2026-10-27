@@ -57,6 +57,21 @@ export async function publishIfDraft(page: Page) {
 }
 
 /**
+ * VT-04: Vertretungsnachrichten gehen zur geplanten Zeit raus (Vortag 18:00, heute sofort, nicht in der Ruhezeit). Auf Stundenplanung →
+ * Vertretungen alle eingeplanten Nachrichten „jetzt senden“, damit Tests nicht von der Uhrzeit abhängen.
+ */
+export async function sendPlannedNow(page: Page) {
+  await page.reload();
+  const planned = page.getByRole("list", { name: "Geplante Nachrichten" });
+  const buttons = planned.getByRole("button", { name: /^Jetzt senden/ });
+  for (let i = 0; i < 10 && (await buttons.count()) > 0; i++) {
+    const label = (await buttons.first().getAttribute("aria-label"))!;
+    await buttons.first().click();
+    await expect(page.getByRole("button", { name: label, exact: true })).toHaveCount(0);
+  }
+}
+
+/**
  * Konto wechseln: erst die Seite verlassen (schließt die Live-Verbindung der Shell), dann die Cookies löschen.
  * Sonst verbindet sich deren EventSource ohne Sitzung neu, bekommt die Login-Seite (HTML) und meldet einen Konsolenfehler.
  */

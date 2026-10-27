@@ -15,6 +15,7 @@ import {
   keepReviewedAction,
   deleteDayNoteAction,
   publishDayAction,
+  sendNotificationsNowAction,
   removeReviewedAction,
   saveDayNoteAction,
   saveSubstitutionAction,
@@ -23,9 +24,10 @@ import {
 import { SUBSTITUTION_REASONS } from "@/modules/stundenplan/schema";
 import { dayNotesOn, DAY_NOTE_AUDIENCE_LABELS } from "@/modules/stundenplan/tagesmitteilungen";
 import { DayNoteForm } from "./day-note-form";
+import { markerSinceDb, NOTIFY_AUDIENCE_LABELS, plannedNotifications } from "@/modules/stundenplan/benachrichtigung";
 import { dayRelease, draftDays, openDrafts } from "@/modules/stundenplan/freigabe";
 import { ABSENCE_LABELS, endedAbsenceReviews, GROUP_REASONS, needsOn, TEACHER_REASONS } from "@/modules/stundenplan/abwesenheit";
-import { CHANGE_KIND_LABEL, CHANGE_MARKER_LABEL, changeLabel, changeOff, changeRoomShift, changeTeacher, markerSince, slotDisplay, SUBSTITUTION_REASON_LABELS, subjectLabel } from "@/modules/stundenplan/display";
+import { CHANGE_KIND_LABEL, CHANGE_MARKER_LABEL, changeLabel, changeOff, changeRoomShift, changeTeacher, slotDisplay, SUBSTITUTION_REASON_LABELS, subjectLabel } from "@/modules/stundenplan/display";
 import { plannableGroups, teacherOptions } from "@/modules/stundenplan/manage";
 import { listSlots, timetableMasterData, type PlanTarget } from "@/modules/stundenplan/service";
 import { acknowledgeEnabled, defaultReason, examSubjectsOn, mergeOptions, planDays, substitutionsOn, teacherAvailability, unacknowledgedSubstitutions } from "@/modules/stundenplan/vertretung";
@@ -50,9 +52,10 @@ export const metadata: Metadata = { title: "Vertretungen" };
 
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 const shortDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", timeZone: TZ });
+const plannedAt = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TZ });
 const stamp = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: TZ });
 
-export default async function VertretungenPage({ searchParams }: { searchParams: Promise<{ datum?: string; lehrkraft?: string; gruppe?: string; fehler?: string; veroeffentlicht?: string; verkuerzt?: string }> }) {
+export default async function VertretungenPage({ searchParams }: { searchParams: Promise<{ datum?: string; lehrkraft?: string; gruppe?: string; fehler?: string; veroeffentlicht?: string; verkuerzt?: string; gesendet?: string }> }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.substitute")) notFound();
   const sp = await searchParams;
@@ -61,8 +64,8 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   const today = toBerlinDate(new Date());
   const shown = planDays(today, cal);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.datum ?? "") ? sp.datum! : shown[0];
-  const marker = markerSince(new Date());
-  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week, reviews, dayNotes, history, unconfirmed, ack] = await Promise.all([
+  const marker = await markerSinceDb(db, new Date());
+  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week, reviews, dayNotes, history, unconfirmed, ack, planned] = await Promise.all([
     teacherOptions(db),
     plannableGroups(db),
     timetableMasterData(db),
@@ -84,6 +87,8 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     // VT-02 (F-10-10): Vertretungen der nächsten Tage, die noch niemand bestätigt hat (nur bei eingeschalteter Kenntnisnahme)
     unacknowledgedSubstitutions(db, perms, [...new Set([...shown, date])].sort()),
     acknowledgeEnabled(db),
+    // VT-04: eingeplante Vertretungsnachrichten („geplant für …“, „jetzt senden“)
+    plannedNotifications(db),
   ]);
   const actorIds = [...new Set(history.map((h) => h.actorId).filter((x): x is string => !!x))];
   const actors = new Map(
@@ -92,6 +97,7 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   const historyOf = (lessonId: string) => history.filter((h) => h.lessonId === lessonId);
   const notified = /^\d+$/.test(sp.veroeffentlicht ?? "") ? Number(sp.veroeffentlicht) : null;
   const shortened = /^\d+$/.test(sp.verkuerzt ?? "") ? Number(sp.verkuerzt) : null;
+  const sentNow = /^\d+$/.test(sp.gesendet ?? "") ? Number(sp.gesendet) : null;
 
   const target: PlanTarget | null = sp.lehrkraft ? { kind: "teacher", id: sp.lehrkraft } : sp.gruppe ? { kind: "group", id: sp.gruppe } : null;
   // nur eigene Stunden der Lehrkraft/Gruppe – übernommene Vertretungen werden bei der Original-Stunde gepflegt
@@ -162,8 +168,36 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
       </nav>
       {notified !== null && (
         <p role="status" className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
-          Veröffentlicht{notified > 0 ? ` – ${notified === 1 ? "1 Person hat" : `${notified} Personen haben`} eine Nachricht bekommen.` : "."}
+          Veröffentlicht{notified > 0 ? ` – Nachricht an ${notified === 1 ? "1 Person" : `${notified} Personen`} eingeplant (siehe „Nachrichten“).` : "."}
         </p>
+      )}
+      {sentNow !== null && (
+        <p role="status" className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
+          {sentNow === 0 ? "Gesendet – es gab nichts Neues zu melden." : `Gesendet – ${sentNow === 1 ? "1 Nachricht" : `${sentNow} Nachrichten`}.`}
+        </p>
+      )}
+      {planned.length > 0 && (
+        <section aria-labelledby="planned-title" className="flex flex-col gap-2">
+          <h2 id="planned-title" className="text-base font-semibold">
+            Nachrichten
+          </h2>
+          <ul aria-label="Geplante Nachrichten" className="flex flex-col gap-1.5 text-sm">
+            {planned.map((p) => (
+              <li key={`${p.date}-${p.audience}`} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>
+                  <span className="font-medium">{shortDay.format(fromBerlinLocal(p.date))}</span> · {NOTIFY_AUDIENCE_LABELS[p.audience]} ·{" "}
+                  {p.people === 1 ? "1 Person" : `${p.people} Personen`}
+                </span>
+                <span className="text-muted">geplant für {plannedAt.format(p.dueAt)} Uhr</span>
+                <form action={sendNotificationsNowAction.bind(null, p.date, p.audience, here)}>
+                  <Button type="submit" size="sm" aria-label={`Jetzt senden: ${shortDay.format(fromBerlinLocal(p.date))}, ${NOTIFY_AUDIENCE_LABELS[p.audience]}`}>
+                    jetzt senden
+                  </Button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {shortened !== null && (
         <p role="status" className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
@@ -180,7 +214,8 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
               <h2 className="text-base font-semibold">Entwurf – noch nicht veröffentlicht</h2>
               <p className="text-sm text-muted">
                 Schüler:innen, Eltern, Lehrkräfte und die Monitore sehen die Änderungen vom {longDay.format(fromBerlinLocal(date))} erst nach dem
-                Veröffentlichen. Dann bekommt jede betroffene Person eine Nachricht mit allen Änderungen des Tages; spätere Änderungen gelten sofort.
+                Veröffentlichen. Dann bekommt jede betroffene Person eine Nachricht mit allen Änderungen des Tages – zur eingestellten Zeit am
+                Vortag, für heute sofort; spätere Änderungen gelten sofort.
               </p>
             </div>
             <form action={publishDayAction.bind(null, date)}>

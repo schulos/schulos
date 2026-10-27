@@ -7,7 +7,7 @@ import { writeModuleSetting } from "@/core/modules/settings";
 import { listUsers } from "@/modules/verwaltung/users";
 import { PARENTS_SUBSTITUTION } from "./settings";
 import { deleteSubstitution, saveSubstitution, substitutionsOn } from "./vertretung";
-import { dayMessage, type DayChange } from "./vertretung-gong";
+import { dayMessage, withAckReminder, type DayChange } from "./vertretung-gong";
 
 const change = (over: Partial<DayChange>): DayChange => ({
   lessonId: "l1",
@@ -42,6 +42,24 @@ describe("Vertretungs-Gong (Q5-03): Tagesnachricht", () => {
     expect(dayMessage("2026-10-13", [change({}), change({ periodNr: 4 })]).title).toBe("Vertretungsplan Di., 13.10.: 2 Stunden entfallen");
     expect(dayMessage("2026-10-13", []).title).toBe("Vertretungsplan Di., 13.10.: keine Änderungen mehr");
   });
+  it("VT-04: Raum „alt → neu“, Grund-Kategorie, „Betreuung“ und Erinnerung an die Kenntnisnahme", () => {
+    expect(dayMessage("2026-10-13", [change({ kind: "room", roomId: "105", oldRoomId: "106", reason: "raum_gesperrt" })])).toEqual({
+      title: "Raumänderung Di., 13.10., 3. Std: Mathematik (7b)",
+      body: "Raum 106 → 105 · Grund: Raum gesperrt",
+    });
+    expect(dayMessage("2026-10-13", [change({ kind: "substitute", substituteId: "s", substituteName: "Jana Brandt", supervisionOnly: true, reason: "lehrkraft_abwesend" })])).toEqual({
+      title: "Betreuung Di., 13.10., 3. Std: Mathematik (7b)",
+      body: "bei Jana Brandt · Grund: Lehrkraft abwesend",
+    });
+    // gleicher Raum → nur der Raum; Zusammenlegung → Raum der anderen Stunde
+    expect(dayMessage("2026-10-13", [change({ kind: "room", roomId: "106", oldRoomId: "106" })]).body).toBe("Raum 106");
+    expect(dayMessage("2026-10-13", [change({ kind: "merge", mergeGroup: "7a", substituteId: "s", substituteName: "Jana Brandt", roomId: "201", oldRoomId: "106" })]).body).toBe(
+      "mit 7a · bei Jana Brandt · Raum 201",
+    );
+    expect(withAckReminder({ title: "t", body: null }, 2).body).toBe("Bitte bestätigen: 2 Vertretungen sind noch nicht als „Gesehen“ markiert.");
+    expect(withAckReminder({ title: "t", body: "x" }, 0)).toEqual({ title: "t", body: "x" });
+  });
+
   it("SP-12: Fachtausch im Titel bzw. in der Zeile – „Mathematik statt Sport“", () => {
     const alt = change({ kind: "substitute", substituteId: "s", substituteName: "Jana Brandt", insteadOf: "Sport" });
     expect(dayMessage("2026-10-13", [alt]).title).toBe("Vertretung Di., 13.10., 3. Std: Mathematik statt Sport (7b)");
@@ -90,7 +108,7 @@ describe("Vertretungs-Gong (Q5-03): gebündelt und an Eltern", () => {
     g = await gongs(mother);
     expect(g).toHaveLength(1);
     expect(g[0]).toMatchObject({ title: "Vertretungsplan Mo., 5.10.: 1 Änderung, 1 Entfall", readAt: null });
-    expect(g[0]!.body).toBe("1. Std Deutsch (7b): Entfall · 2. Std Mathematik (7b): Raumänderung – Raum 201");
+    expect(g[0]!.body).toBe("1. Std Deutsch (7b): Entfall · 2. Std Mathematik (7b): Raumänderung – Raum 106 → 201"); // VT-04: Raum alt → neu
     // Schülerin und Lehrkraft ebenso je eine Nachricht; die handelnde Person keine
     expect(await gongs("u-lea.schaefer")).toHaveLength(1);
     expect((await gongs("u-tobias.kleine")).map((n) => n.title)).toEqual(["Raumänderung Mo., 5.10., 2. Std: Mathematik (7b)"]);

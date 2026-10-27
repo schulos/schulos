@@ -5,19 +5,19 @@
 // GATE-031 (S-05): Eltern bekommen die Notiz der Vertretung nicht (Freitext – könnte einen Abwesenheitsgrund enthalten; VVT:
 // „ohne Grund für die Abwesenheit einer Lehrkraft“). GATE-031 (C-07): Lesen des Tagesstands und Ersetzen der Nachricht
 // unter einer Sperre je Tag – sonst überschreibt eine ältere Fassung eine neuere, wenn zwei Personen gleichzeitig ändern.
-import { and, eq, inArray, sql } from "drizzle-orm";
+// VT-04: Hier stehen nur Inhalt und Empfänger der Nachricht; wann sie rausgeht (Warteschlange, Vortags-Uhrzeit, Ruhezeit), regelt
+// `benachrichtigung.ts` (`notifySubstitutionDay`).
+import { and, eq, inArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/core/db/client";
 import { groupMembers, groups, parentChild, subjects, timetableLessons, timetableSubstitutions, users } from "@/core/db/schema";
 import { readGradeSetting } from "@/core/modules/settings";
-import { notifyBundled } from "@/core/notifications";
 import { sek1GradeOf, withinGradeSetting } from "@/core/school/grades";
 import { parentInformedSql, parentLinks } from "@/core/school/majority";
 import { TZ, fromBerlinLocal } from "@/core/time";
-import { coupledGroupLabel, subjectLabel } from "./display";
-import { isDraftDay } from "./freigabe";
+import { coupledGroupLabel, reasonLabel, roomShift, subjectLabel } from "./display";
 import { PARENTS_SUBSTITUTION } from "./settings";
-import type { SubstitutionKind } from "./schema";
+import type { SubstitutionKind, SubstitutionReason } from "./schema";
 
 const shortDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", timeZone: TZ });
 
@@ -41,15 +41,23 @@ export interface DayChange {
   /** neuer Raum */
   roomId: string | null;
   note: string | null;
+  /** VT-04: bisheriger Raum der Stunde (für „Raum 106 → 105“) */
+  oldRoomId?: string | null;
+  /** VT-04 (F-10-8): öffentliche Grund-Kategorie – auch für Eltern */
+  reason?: SubstitutionReason | null;
+  /** VT-04 (F-10-9): Vertretung nur als Betreuung */
+  supervisionOnly?: boolean;
+  /** VT-04 (F-10-10): Vertretungslehrkraft hat die Vertretung schon bestätigt */
+  acknowledged?: boolean;
 }
 
-const bundleKey = (date: string) => `stundenplan:${date}`;
+export const bundleKey = (date: string) => `stundenplan:${date}`;
 
 /** Gekoppelte Gruppen mit derselben Änderung in einer Zeile: „Mathe (7a/7b)“. */
 function merge(changes: readonly DayChange[]): (DayChange & { groupNames: string[] })[] {
   const out = new Map<string, DayChange & { groupNames: string[] }>();
   for (const c of [...changes].sort((a, b) => a.periodNr - b.periodNr || a.groupName.localeCompare(b.groupName, "de", { numeric: true }))) {
-    const key = [c.periodNr, c.subjectName, c.insteadOf, c.kind, c.substituteId, c.roomId, c.note, c.targetPeriod, c.mergeGroup].join("|");
+    const key = [c.periodNr, c.subjectName, c.insteadOf, c.kind, c.substituteId, c.roomId, c.oldRoomId, c.note, c.targetPeriod, c.mergeGroup, c.reason, c.supervisionOnly].join("|");
     const prev = out.get(key);
     if (prev) {
       if (!prev.groupNames.includes(c.groupName)) prev.groupNames.push(c.groupName);
@@ -59,10 +67,14 @@ function merge(changes: readonly DayChange[]): (DayChange & { groupNames: string
 }
 
 const KIND_WORD = { cancel: "Entfall", substitute: "Vertretung", room: "Raumänderung", move: "Verlegung", merge: "Zusammenlegung" } as const;
+/** VT-04 (F-10-9): „Betreuung“ statt „Vertretung“ wie im Vertretungsplan */
+const kindWord = (c: Pick<DayChange, "kind" | "supervisionOnly">) => (c.kind === "substitute" && c.supervisionOnly ? "Betreuung" : KIND_WORD[c.kind]);
 
 /**
  * Tagesnachricht für eine Person. Rein. Eine Änderung: wie bisher („Entfall Di, 13.10., 3. Std: Mathe (7b)“, Einzelheiten im
  * Text); mehrere: Zusammenfassung im Titel, je Stunde eine Zeile im Text; keine (zurückgenommen): Hinweis auf den Regelplan.
+ * VT-04: Einzelheiten mit Raum „alt → neu“ (Regel `roomShift` wie im Vertretungsplan; Zusammenlegung: Raum der anderen Stunde) und
+ * Grund-Kategorie.
  */
 export function dayMessage(date: string, changes: readonly DayChange[]): { title: string; body: string | null } {
   const day = shortDay.format(fromBerlinLocal(date));
@@ -76,14 +88,15 @@ export function dayMessage(date: string, changes: readonly DayChange[]): { title
       // R1b/A10: die aufnehmende Stunde gibt es nicht mehr – die Stunde wird neu geregelt
       c.kind === "merge" && !c.mergeGroup ? "aufgehoben – wird neu geregelt" : null,
       (c.kind === "substitute" || c.kind === "merge") && c.substituteName ? `bei ${c.substituteName}` : null,
-      c.roomId ? `Raum ${c.roomId}` : null,
+      c.roomId ? `Raum ${c.kind === "merge" ? c.roomId : roomShift(c.oldRoomId, c.roomId)}` : null,
+      reasonLabel(c.reason) ? `Grund: ${reasonLabel(c.reason)}` : null,
       c.note,
     ]
       .filter(Boolean)
       .join(sep);
   if (lines.length === 1) {
     const c = lines[0]!;
-    return { title: `${KIND_WORD[c.kind]} ${day}, ${c.periodNr}. Std: ${what(c)}`, body: detail(c, " · ") || null };
+    return { title: `${kindWord(c)} ${day}, ${c.periodNr}. Std: ${what(c)}`, body: detail(c, " · ") || null };
   }
   const cancels = lines.filter((c) => c.kind === "cancel").length;
   const others = lines.length - cancels;
@@ -91,7 +104,7 @@ export function dayMessage(date: string, changes: readonly DayChange[]): { title
   const body = lines
     .map((c) => {
       const d = detail(c, ", ");
-      return `${c.periodNr}. Std ${what(c)}: ${KIND_WORD[c.kind]}${d ? ` – ${d}` : ""}`;
+      return `${c.periodNr}. Std ${what(c)}: ${kindWord(c)}${d ? ` – ${d}` : ""}`;
     })
     .join(" · ");
   return { title: `Vertretungsplan ${day}: ${summary}`, body };
@@ -118,6 +131,10 @@ export async function dayChanges(db: Db, date: string): Promise<DayChange[]> {
       targetPeriod: timetableSubstitutions.targetPeriod,
       mergeLessonId: timetableSubstitutions.mergeLessonId,
       altName: altSubject.name,
+      oldRoomId: timetableLessons.roomId,
+      reason: timetableSubstitutions.reason,
+      supervisionOnly: timetableSubstitutions.supervisionOnly,
+      acknowledgedAt: timetableSubstitutions.acknowledgedAt,
     })
     .from(timetableSubstitutions)
     .innerJoin(timetableLessons, eq(timetableLessons.id, timetableSubstitutions.lessonId))
@@ -149,7 +166,8 @@ export async function dayChanges(db: Db, date: string): Promise<DayChange[]> {
         .leftJoin(substitute, eq(substitute.id, timetableSubstitutions.substituteId))
         .where(inArray(timetableLessons.id, hostIds))
     : [];
-  return rows.map(({ altName, mergeLessonId, ...r }) => {
+  return rows.map(({ altName, mergeLessonId, acknowledgedAt, ...rest }) => {
+    const r: DayChange = { ...rest, acknowledged: acknowledgedAt !== null };
     const out: DayChange = altName ? { ...r, subjectName: altName, insteadOf: r.subjectName } : r;
     const h = r.kind === "merge" ? hosts.find((x) => x.id === mergeLessonId) : undefined;
     if (!h) return out;
@@ -195,33 +213,35 @@ async function informedParents(db: Db, studentIds: readonly string[]): Promise<M
   return out;
 }
 
-/**
- * Tagesnachricht an alle, die eine Änderung betrifft: `students` (Schüler:innen der Gruppen) und `teachers` (Lehrkraft der
- * Stunde, Vertretung – auch eine vorherige). Die handelnde Person bekommt nichts. Gibt die Empfänger zurück.
- */
-type Affected = { students: readonly string[]; teachers: readonly string[] };
+/** Betroffene einer Änderung: Schüler:innen der Gruppen und Lehrkräfte (Lehrkraft der Stunde, Vertretung – auch eine vorherige). */
+export type Affected = { students: readonly string[]; teachers: readonly string[] };
 
-export async function notifySubstitutionDay(
-  db: Db,
-  actorId: string,
-  date: string,
-  /** Betroffene – oder eine Funktion, die sie erst unter der Tagessperre ermittelt (Veröffentlichen, GATE-4f C-01) */
-  affected: Affected | ((tx: Db) => Promise<Affected>),
-  /** Q5-11: läuft unter derselben Tagessperre vorher (Veröffentlichen); `false` → keine Nachricht */
-  guard?: (tx: Db) => Promise<boolean>,
-): Promise<string[]> {
-  return db.transaction(async (raw) => {
-    const tx = raw as unknown as Db;
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${bundleKey(date)}))`);
-    if (guard && !(await guard(tx))) return [];
-    // Q5-11: Entwurf → niemand erfährt etwas, bis der Tag veröffentlicht ist (geprüft unter der Sperre: wer während des
-    // Veröffentlichens speichert, sieht danach „veröffentlicht“ und meldet selbst)
-    if (await isDraftDay(tx, date)) return [];
-    return notifyDayLocked(tx, actorId, date, typeof affected === "function" ? await affected(tx) : affected);
-  });
+export interface DayMessageItem {
+  userId: string;
+  title: string;
+  body: string | null;
+  href: string;
+  /** Zahl der Änderungen für die Person (0 = „keine Änderungen mehr“) */
+  changes: number;
 }
 
-async function notifyDayLocked(db: Db, actorId: string, date: string, affected: Affected): Promise<string[]> {
+/**
+ * VT-04 (F-10-10): Erinnerung an noch nicht bestätigte Vertretungen – in der Nachricht an die Vertretungslehrkraft (ohne Eskalation).
+ * Rein; `n` = Zahl der Stunden.
+ */
+export function withAckReminder(msg: { title: string; body: string | null }, n: number): { title: string; body: string | null } {
+  if (n === 0) return msg;
+  const line = n === 1 ? "Bitte bestätigen: 1 Vertretung ist noch nicht als „Gesehen“ markiert." : `Bitte bestätigen: ${n} Vertretungen sind noch nicht als „Gesehen“ markiert.`;
+  return { title: msg.title, body: msg.body ? `${msg.body} · ${line}` : line };
+}
+
+/**
+ * Tagesnachricht je betroffener Person aus dem **aktuellen** Stand des Tages (Endstand): Schüler:innen ihre Gruppen, Lehrkräfte ihre
+ * Stunden und Vertretungen, Eltern nach Moduleinstellung (ohne Notiz, GATE-031 S-05). Mit `ackReminder` bekommt die
+ * Vertretungslehrkraft die Erinnerung an unbestätigte Vertretungen dazu. Die Planung (Sperre, Entwurf, Empfängerauswahl) macht
+ * der Aufrufer (`benachrichtigung.ts`).
+ */
+export async function buildDayMessages(db: Db, date: string, affected: Affected, opts: { ackReminder?: boolean } = {}): Promise<DayMessageItem[]> {
   const changes = await dayChanges(db, date);
   const parents = await informedParents(db, affected.students);
   const kids = [...new Set([...parents.values()].flatMap((s) => [...s]))];
@@ -247,13 +267,15 @@ async function notifyDayLocked(db: Db, actorId: string, date: string, affected: 
   // S-05: Eltern ohne Notiz (Freitext der Planung) – ist ein Elternteil zugleich Lehrkraft der Stunde, sieht es sie dort
   const forParents = changes.map((c) => ({ ...c, note: null }));
   for (const [p, children] of parents) add(p, forParents.filter((c) => [...children].some((k) => groupsOf.get(k)?.has(c.groupId))));
-  recipients.delete(actorId);
 
+  const teachers = new Set(affected.teachers);
   const href = `/stundenplan?woche=${date}`;
-  await notifyBundled(
-    db,
-    [...recipients].map(([userId, list]) => ({ userId, ...dayMessage(date, list), href })),
-    { moduleId: "stundenplan", bundleKey: bundleKey(date) },
-  );
-  return [...recipients.keys()];
+  return [...recipients].map(([userId, list]) => {
+    const msg = dayMessage(date, list);
+    // je Stunde einmal (Kopplungsteile zählen zusammen)
+    const open = opts.ackReminder && teachers.has(userId) ? new Set(list.filter((c) => c.kind === "substitute" && c.substituteId === userId && !c.acknowledged).map((c) => c.periodNr)).size : 0;
+    const base = { userId, changes: list.length };
+    return open ? { ...base, ...withAckReminder(msg, open), href: "/stundenplan/vertretungen#meine-vertretungen" } : { ...base, ...msg, href };
+  });
 }
+

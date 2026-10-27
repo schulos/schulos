@@ -1,5 +1,5 @@
 import { expect, test, type Browser } from "@playwright/test";
-import { collectErrors, login, publishIfDraft } from "./helpers";
+import { collectErrors, login, publishIfDraft, sendPlannedNow } from "./helpers";
 
 async function as(browser: Browser, username: string) {
   const ctx = await browser.newContext();
@@ -28,6 +28,8 @@ test("Gate 2 – Vertretung: Sekretariat trägt ein, Schülerin sieht sie in der
   await expect(form.getByRole("status")).toContainText("Gespeichert");
   // Q5-11: Demo-Schule mit Freigabe – ein neuer Tag ist erst ein Entwurf
   await publishIfDraft(sek.page);
+  // VT-04: Nachricht zur geplanten Zeit – für den Test jetzt senden
+  await sendPlannedNow(sek.page);
 
   await lea.page.reload();
   const card = strip.locator(`article[data-period="${period}"]`);

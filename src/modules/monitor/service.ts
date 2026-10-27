@@ -12,7 +12,8 @@ import { timeRange } from "@/modules/kalender/format";
 import { schoolOccurrences } from "@/modules/kalender/service";
 import { weekOf } from "@/modules/stundenplan/service";
 import { planDays, substitutionsOn } from "@/modules/stundenplan/vertretung";
-import { changeLabel, changeOff, changeRoom, changeTeacher, markerSince, reasonLabel, roomShift, type ChangeMarker } from "@/modules/stundenplan/display";
+import { changeLabel, changeOff, changeRoom, changeTeacher, reasonLabel, roomShift, type ChangeMarker } from "@/modules/stundenplan/display";
+import { markerSinceDb } from "@/modules/stundenplan/benachrichtigung";
 import { dayNotesOn } from "@/modules/stundenplan/tagesmitteilungen";
 import { dutiesOn } from "@/modules/stundenplan/aufsichten";
 import { ValidationError } from "@/modules/verwaltung/users";
@@ -146,7 +147,7 @@ export async function monitorData(db: Db, screen: Pick<MonitorScreen, "profile">
   const [settings, cal] = await Promise.all([cachedSchoolSettings(db), loadSchoolCalendar(db)]);
   const days = planDays(today, cal);
   const [subs, occ, news, notes] = await Promise.all([
-    substitutionsOn(db, days, { since: markerSince(now).since }),
+    substitutionsOn(db, days, { since: (await markerSinceDb(db, now)).since }),
     schoolOccurrences(db, today, addDays(today, 1)),
     db
       .select({ id: newsPosts.id, title: newsPosts.title, role: newsTargets.role, groupId: newsTargets.groupId })

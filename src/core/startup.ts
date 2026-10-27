@@ -11,7 +11,7 @@ import { scrubConfigPassword } from "@schulos/server/admin";
 import { jobsEnabled } from "./jobs";
 import { releaseNote } from "./school/freigabe";
 import { readSchoolSettings } from "./settings";
-import { startAlarmChecks, startMailOutbox, startScheduler, startSolverQueue } from "./scheduler";
+import { startAlarmChecks, startMailOutbox, startScheduler, startSolverQueue, startSubstitutionGong } from "./scheduler";
 import { mailConfig } from "@schulos/server/mail";
 import { executeQueued, failInterruptedRuns } from "@/modules/stundenplan/solverlauf";
 import { syncHolidays } from "@/modules/verwaltung/ferien-abruf";
@@ -69,6 +69,8 @@ export async function startup(): Promise<void> {
     startScheduler(db);
     startMailOutbox(db);
     startSolverQueue(db);
+    // VT-04: Vertretungsnachrichten zur geplanten Zeit (Minutentakt)
+    startSubstitutionGong(db);
     // Alarm-Mails (B-38) nur mit SMTP-Konfiguration; fehlerhafte Angaben melden statt den Start zu verhindern
     try {
       if (mailConfig()) {
@@ -78,7 +80,7 @@ export async function startup(): Promise<void> {
     } catch (err) {
       console.error(`[schulos] ${err instanceof Error ? err.message : String(err)}`);
     }
-    console.log("[schulos] Hintergrundjobs aktiv (Löschlauf 02:30, Ferienabruf 03:30)");
+    console.log("[schulos] Hintergrundjobs aktiv (Löschlauf 02:30, Ferienabruf 03:30, Vertretungsnachrichten minütlich)");
     // neue Produktivinstanz: Ferien gleich holen statt erst in der Nacht (blockiert den Start nicht)
     if (r.action === "created-production")
       void syncHolidays(db, toBerlinDate(new Date())).then((s) =>

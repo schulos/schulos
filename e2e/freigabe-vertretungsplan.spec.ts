@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectErrors, login } from "./helpers";
+import { collectErrors, login, sendPlannedNow } from "./helpers";
 
 // Q5-11 (I-25, F-06): Die Demo-Schule veröffentlicht den Vertretungsplan erst nach Freigabe. Ein Tag des Vertretungsplans
 // ohne Änderungen wird mit der ersten Änderung zum Entwurf: Monitor und Schülerin sehen ihn nicht, nach „Tag veröffentlichen“
@@ -43,7 +43,9 @@ test("Vertretungsplan mit Freigabe: Monitor und Schülerin sehen keinen Entwurf,
 
   // Veröffentlichen → alle sehen die Änderung, die Schülerin bekommt den Gong
   await draft.getByRole("button", { name: "Tag veröffentlichen" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Veröffentlicht" })).toContainText("eine Nachricht bekommen");
+  // VT-04: die Nachricht ist eingeplant (Vortag 18:00 bzw. heute sofort) – für den Test jetzt senden
+  await expect(page.getByRole("status").filter({ hasText: "Veröffentlicht" })).toContainText("eingeplant");
+  await sendPlannedNow(page);
   await expect(page.getByRole("article", { name: "Entwurf" })).toHaveCount(0);
   await monitor.reload();
   await expect(monitor.getByText(NOTE).first()).toBeVisible();

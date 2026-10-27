@@ -2,6 +2,7 @@
 import type { LessonSlot } from "./service";
 import type { SubstitutionReason } from "./schema";
 import { fromBerlinLocal, toBerlinLocal } from "@/core/time";
+import { lastEveLocal } from "./sendezeit";
 
 /** Wessen Plan: Schüler:in/Eltern, Lehrkraft, Gruppe oder Raum */
 export type PlanView = "student" | "teacher" | "group" | "room";
@@ -47,28 +48,30 @@ export function roomShift(before: string | null | undefined, after: string | nul
 export type ChangeMarker = "neu" | "geaendert";
 export const CHANGE_MARKER_LABEL: Record<ChangeMarker, string> = { neu: "neu", geaendert: "geändert" };
 
-/** Uhrzeit, zu der am Vortag die Vertretungsnachricht rausgeht (bis VT-04 fest; dann Moduleinstellung `notify_eve_time`). */
-export const MARKER_HOUR = 18;
+/** Vorgabe der Vortags-Uhrzeit (VT-04: Moduleinstellung `stundenplan.notify_eve_time`, F-10-11). */
+export const MARKER_EVE = "18:00";
 
 /**
- * VT-02: Stichzeitpunkt der Marker – der letzte Vortags-Versand (18:00 Berliner Zeit) vor `now`. Was danach angelegt oder geändert
- * wurde, ist „neu“/„geändert“. Rein (Berliner Ortszeit wird vom Aufrufer als „YYYY-MM-DDTHH:MM“ übergeben).
+ * VT-02: Stichzeitpunkt der Marker – der letzte Vortags-Versand (Uhrzeit `eve`, Vorgabe 18:00 Berliner Zeit) vor `now`. Was danach
+ * angelegt oder geändert wurde, ist „neu“/„geändert“. Rein (Berliner Ortszeit wird vom Aufrufer als „YYYY-MM-DDTHH:MM“ übergeben).
  */
-export function markerSinceLocal(nowLocal: string): string {
-  const day = nowLocal.slice(0, 10);
-  const hour = Number(nowLocal.slice(11, 13));
-  const at = `T${String(MARKER_HOUR).padStart(2, "0")}:00`;
-  if (hour >= MARKER_HOUR) return `${day}${at}`;
-  const d = new Date(`${day}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return `${d.toISOString().slice(0, 10)}${at}`;
+export function markerSinceLocal(nowLocal: string, eve: string = MARKER_EVE): string {
+  return lastEveLocal(nowLocal, eve);
 }
 
-/** VT-02: Stichzeitpunkt der Marker zu `now` und der Text dazu („seit gestern, 18:00 Uhr“). */
-export function markerSince(now: Date): { since: Date; label: string } {
+/**
+ * VT-02/VT-04: Stichzeitpunkt der Marker zu `now` und der Text dazu („seit gestern, 18:00 Uhr“). `eve` = eingestellte Vortags-Uhrzeit;
+ * `dispatched` = tatsächlicher Versand der Vortags-Nachricht zu diesem Termin (etwas später, wenn der Takt verzögert lief) – dann gilt er.
+ * Die Seiten lesen beides über `markerSinceDb()` (benachrichtigung.ts).
+ */
+export function markerSince(now: Date, opts: { eve?: string; dispatched?: Date | null } = {}): { since: Date; label: string } {
   const nowLocal = toBerlinLocal(now);
-  const local = markerSinceLocal(nowLocal);
-  return { since: fromBerlinLocal(local), label: `seit ${local.slice(0, 10) === nowLocal.slice(0, 10) ? "heute" : "gestern"}, ${local.slice(11)} Uhr` };
+  const local = markerSinceLocal(nowLocal, opts.eve);
+  const eveAt = fromBerlinLocal(local);
+  const sent = opts.dispatched;
+  const since = sent && sent.getTime() > eveAt.getTime() && sent.getTime() <= now.getTime() ? sent : eveAt;
+  const sinceLocal = toBerlinLocal(since);
+  return { since, label: `seit ${sinceLocal.slice(0, 10) === nowLocal.slice(0, 10) ? "heute" : "gestern"}, ${sinceLocal.slice(11)} Uhr` };
 }
 
 const room = (id: string | null | undefined) => (id ? `R ${id}` : null);

@@ -153,6 +153,7 @@ der Spalte „einstellbar bis“ – umgesetzt je Datenart als Moduleinstellung 
 | Fachbedarf *(SP2-12)*: Lehrfächer je Lehrkraft · bekannte Abgänge/Zugänge (Datum, Stunden, ohne Begründung) | Lehrfächer LK-KONTO; Abgänge/Zugänge LK-ENDE-1J ab Datum (mit dem Konto sofort) | Pflege und Details nur `stundenplan.manage`; „Fachbedarf einsehen“ nur Summen je Fach ohne Namen; Klassenzahlen der Prognose ohne Personenbezug |
 | Abwesenheiten von Lehrkräften – auch selbst gemeldet, mit Antrag/Genehmigung (P4-74) – und Vertretungsmaterial je Stunde (Text, Datei – Q5-12; VT-01: auch ohne Abwesenheit) | LK-SJ-1J ab Ende der Abwesenheit; Material LK-SJ-1J ab Datum (VT-01, F-10-12; mit einer Abwesenheit zusätzlich mit ihr gelöscht) | Grund nur „krank“ ohne Ergänzung, nie im Gong; Material sieht nur die Lehrkraft der Stunde, die Vertretung, die Planung und (mit Häkchen) die Gruppe |
 | Vertretung „mehr Infos“ (VT-01): Grund-Kategorie, interner Hinweis, „nur Betreuung“, geändert von/am, Kenntnisnahme an `timetable_substitutions`; Historie `timetable_substitution_changes` (vorher/nachher); Tagesmitteilungen `timetable_day_notes` | LK-SJ-1J ab Datum (alle drei) | Kategorie öffentlich, aber grob (fehlende Lehrkraft immer „Lehrkraft abwesend“); interner Hinweis, Kenntnisnahme und Historie nur Planung (Vertretungslehrkraft: eigener Hinweis/Kenntnisnahme); Kontolöschung ersetzt die Lehrkraft in der Historie |
+| Sendewarteschlange der Vertretungsnachricht (VT-04) `timetable_notification_queue`: Empfänger:in, Vertretungstag, Zielgruppe, geplante/tatsächliche Sendezeit | LK-90 ab Anlage (wie der Gong selbst); bei Kontolöschung mitgelöscht (Fremdschlüssel) | kein Inhalt (die Nachricht entsteht beim Senden aus dem Vertretungsplan und steht nur im Gong); Eltern stehen nicht darin; „geplant für …“ sieht nur `stundenplan.substitute`, und zwar nur als Zahl je Tag und Zielgruppe |
 | Umfragen, Antworten, Teilnahme *(P3)* | LK-ENDE-1J (ab Ende der Umfrage) | anonym: Antworten ohne Personenbezug, nur tagesgenau, Teilnahme getrennt; Ergebnisse erst ab 5 Antworten |
 | Foren: Themen, Beiträge, Abos *(P3)* | LK-ENDE-1J (ab letzter Antwort) | ausgeblendete Beiträge bleiben bis dahin als Nachweis, Text nur für die Moderation |
 | Foren-Meldungen *(P3)* | LK-90 | Moderationsvorgang, danach ohne Zweck |
@@ -403,6 +404,11 @@ Phase 2 als eigener Block folgen.
   (`timetable_day_notes`, ≤ 300 Zeichen, Hinweis „keine Personen nennen“, an alle oder nur Beschäftigte) folgen der Tagesfreigabe und
   werden ein Schuljahr nach dem Datum gelöscht. Material ohne Abwesenheit (`timetable_absence_materials.absence_id` leer) legen die Lehrkraft
   der Stunde, die Vertretungslehrkraft oder die Planung an.
+  Die Vertretungsnachricht (Gong) geht seit VT-04 zur eingestellten Zeit raus (Moduleinstellungen je Zielgruppe: Vortags-Uhrzeit, Vorgabe
+  18:00; Ruhezeit, Vorgabe 20:00–06:30; Änderungen für heute sofort, außerhalb der Ruhezeit). Bis dahin steht nur „wer, welcher Tag, wann“ in
+  der Warteschlange `timetable_notification_queue` (LK-90, ohne Inhalt); der Text wird beim Senden aus dem aktuellen Vertretungsplan gebaut,
+  Eltern ohne Notiz wie bisher. Die Vertretungslehrkraft bekommt darin eine Erinnerung an noch nicht bestätigte Vertretungen (keine
+  Eskalation, nur bei eingeschalteter Kenntnisnahme). Der Vertretungsplan selbst ist unverändert sofort sichtbar.
   Das Heute-Widget „Offen für dich“ (Q5-07) zeigt nur Zähler und eigene Vorgänge (eigene Kinder, eigene Briefe, eigene
   Klassen; Planungszahlen nur mit `stundenplan.substitute` (SP-02), Backup nur mit `verwaltung.system`) – keine Auswertung je Lehrkraft.
   Zeitwünsche (Q5-10) trägt eine Lehrkraft im Eingabefenster der Planung selbst ein – nur die eigenen, die Person kommt aus der

@@ -10,7 +10,8 @@ import { childrenOf } from "@/core/school/majority";
 import { isStaffRole } from "@/core/roles";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { acknowledgeSubstitutionAction } from "@/modules/stundenplan/actions";
-import { CHANGE_MARKER_LABEL, changeLabel, changeOff, changeRoomShift, changeTeacher, markerSince, reasonLabel, subjectLabel } from "@/modules/stundenplan/display";
+import { CHANGE_MARKER_LABEL, changeLabel, changeOff, changeRoomShift, changeTeacher, reasonLabel, subjectLabel } from "@/modules/stundenplan/display";
+import { markerSinceDb } from "@/modules/stundenplan/benachrichtigung";
 import { materialsFor } from "@/modules/stundenplan/selbstmeldung";
 import { dayNotesOn, type DayNote } from "@/modules/stundenplan/tagesmitteilungen";
 import { acknowledgeEnabled, ownSubstitutions, planDays, substitutionsOn, type DaySubstitution } from "@/modules/stundenplan/vertretung";
@@ -205,7 +206,7 @@ export default async function VertretungsplanPage() {
   const now = new Date();
   const today = toBerlinDate(now);
   const days = planDays(today, await loadSchoolCalendar(db));
-  const marker = markerSince(now);
+  const marker = await markerSinceDb(db, now);
   const staff = isStaffRole(user.role);
   // Q5-11: hier steht immer der veröffentlichte Stand (wie für alle); die Planung bekommt einen Hinweis auf Entwürfe
   const [entries, mine, drafts, notes, own, ack] = await Promise.all([

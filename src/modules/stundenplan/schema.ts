@@ -823,3 +823,39 @@ export const timetableSubstitutionDays = pgTable("timetable_substitution_days", 
   publishedBy: text("published_by").references(() => users.id, { onDelete: "set null" }),
   publishedAt: timestamp("published_at", { withTimezone: true }),
 });
+
+/** VT-04 (F-10-11): Zielgruppe der Vertretungsnachricht – Lehrkräfte bzw. Lernende (mit ihren Eltern). */
+export const NOTIFY_AUDIENCES = ["lehrkraefte", "lernende"] as const;
+export type NotifyAudience = (typeof NOTIFY_AUDIENCES)[number];
+export const notifyAudienceEnum = pgEnum("timetable_notify_audience", NOTIFY_AUDIENCES);
+
+/**
+ * VT-04: Sendewarteschlange der Vertretungsnachricht – eine offene Zeile je Person und Vertretungstag. Die Nachricht selbst steht
+ * nicht hier: beim Senden wird sie aus dem **aktuellen** Stand des Tages gebaut (immer Endstand, nie Zwischenstände). `queued_at`
+ * ist das erste Einreihen seit dem letzten Versand (daraus folgt `due_at`, auch nach einer Änderung der Einstellungen);
+ * `sent_at` gesetzt = verschickt. Eltern stehen nicht in der Warteschlange – sie folgen beim Senden den Lernenden.
+ */
+export const timetableNotificationQueue = pgTable(
+  "timetable_notification_queue",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    date: date("date").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    audience: notifyAudienceEnum("audience").notNull(),
+    queuedAt: timestamp("queued_at", { withTimezone: true }).notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("timetable_notification_queue_pending_idx").on(t.userId, t.date).where(sql`${t.sentAt} is null`),
+    index("timetable_notification_queue_due_idx").on(t.dueAt).where(sql`${t.sentAt} is null`),
+    index("timetable_notification_queue_date_idx").on(t.date, t.sentAt),
+  ],
+);
+
+export type TimetableNotificationQueueRow = typeof timetableNotificationQueue.$inferSelect;

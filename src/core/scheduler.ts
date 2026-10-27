@@ -23,6 +23,7 @@ import { runReservations } from "@/modules/buecherei/reservations";
 import { runSchoolbookDunning } from "@/modules/buecherei/ausgabe";
 import { runDunning } from "@/modules/buecherei/mahnungen";
 import { cleanupRuns, executeQueued } from "@/modules/stundenplan/solverlauf";
+import { runSubstitutionQueue } from "@/modules/stundenplan/benachrichtigung";
 
 export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   {
@@ -225,6 +226,36 @@ export function startAlarmChecks(db: Db, everyMs = 15 * 60_000): void {
   };
   ga.__schulosAlarms = setInterval(run, everyMs);
   ga.__schulosAlarms.unref();
+  void run();
+}
+
+const gv = globalThis as unknown as { __schulosSubstitutionGong?: NodeJS.Timeout };
+
+/**
+ * VT-04: Vertretungsnachrichten zur geplanten Zeit (Vortags-Uhrzeit, Ende der Ruhezeit) – jede Minute unter der Sperre
+ * „vertretung-gong“, damit zwei App-Prozesse nicht gleichzeitig takten (doppelt senden verhindert zusätzlich die Tagessperre).
+ * Nur bei eingeschaltetem Stundenplan-Modul; Fälliges von vorher geht nach dem Einschalten raus.
+ */
+export function startSubstitutionGong(db: Db, everyMs = 60_000): void {
+  if (gv.__schulosSubstitutionGong) return;
+  let busy = false;
+  const run = async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      const m = MODULES.find((x) => x.id === "stundenplan");
+      if (!m || !isEnabled(m, await loadModuleStates(db))) return;
+      const r = await runExclusive(db, "vertretung-gong", () => runSubstitutionQueue(db, new Date()), { ttlMs: 5 * 60_000 });
+      if (r.error) console.error(`[schulos] Vertretungsnachrichten fehlgeschlagen: ${r.error}`);
+      else if (r.result?.sent) console.log(`[schulos] Vertretungsnachrichten: ${r.result.sent} gesendet (${r.result.days} Tage)`);
+    } catch (err) {
+      console.error("[schulos] Vertretungsnachrichten fehlgeschlagen:", err instanceof Error ? err.message : err);
+    } finally {
+      busy = false;
+    }
+  };
+  gv.__schulosSubstitutionGong = setInterval(run, everyMs);
+  gv.__schulosSubstitutionGong.unref();
   void run();
 }
 
