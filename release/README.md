@@ -40,9 +40,14 @@ ein Release kommt; auf Servern prüft besser das installierte `schulosctl` (eing
 
 **Wöchentlicher Neubau (B-30):** Montags 04:00 UTC (oder von Hand: Actions → Release → „Run workflow“) prüft der Workflow,
 ob sich eines der Fremd-Images (`node`, `restic` als Basis; `caddy`, `postgres`, `rest-server` im Stack) seit dem neuesten
-fertigen Release geändert hat – verglichen wird der Digest mit `upstream` im Manifest. Wenn ja: automatisches Patch-Release
-x.y.(z+1) **aus demselben Commit** (keine neuen Funktionen), Änderung „sicherheit“, `betaDays` 3; der Tag entsteht dabei
-im Workflow. Deshalb vor einem eigenen Patch-Release erst `git fetch --tags` und die nächste freie Nummer nehmen.
+fertigen Release geändert hat – verglichen wird der Digest mit `upstream` im Manifest. Wenn ja, **meldet** er nur (TD-13,
+Projektleitung 2026-10-27; Release-Tags legen nur Admins an): Warnung + Zusammenfassung im Lauf und ein Issue „Patch-Release
+vx.y.(z+1) fällig“ mit dem fertigen Befehl. Ein Admin setzt dann den Tag **auf den Commit des letzten Releases**
+(`git fetch --tags && git tag -a vx.y.(z+1) <commit> -m "SchulOS x.y.(z+1)" && git push origin vx.y.(z+1)`). Der Workflow
+erkennt den Patch-Tag (genau nächste Patch-Nummer + genau dieser Commit; sonst Abbruch wegen `package.json`), baut mit frischen
+Fremd-Images, schreibt die Notizen selbst (Änderung „sicherheit“, `betaDays` 3) und baut keine ISO. Ein eigenes Patch-Release
+mit Code-Änderungen läuft dagegen normal über `package.json` + Notizen – vorher `git fetch --tags` und die nächste freie
+Nummer nehmen.
 Die Fremd-Images werden beim Bauen per Digest gepinnt und im Manifest festgehalten – `schulosctl` zieht genau diese.
 Ein getaggtes Release nimmt die Digests aus `deploy/upstream/Dockerfile` (B-47, gleiche wie die ISO, Dependabot hält sie
 aktuell); der wöchentliche Neubau löst die Tags dagegen frisch auf.
