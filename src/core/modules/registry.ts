@@ -74,7 +74,7 @@ export interface NavGroup {
 }
 
 /**
- * Navigation für einen Benutzer: nur aktive Module, nur erlaubte Einträge, nach Sektionen gruppiert. `ctx.selfResponsible`:
+ * Navigation für einen Benutzer: nur aktive Module, nur erlaubte Einträge, nach Sektionen gruppiert. `ctx.classLead`: die Person leitet eine Klasse (Einträge mit `classLead`). `ctx.selfResponsible`:
  * die Person ist eine eigenständige Schüler:in (Einträge mit `selfResponsible`). `ctx.settings`: aktuelle Werte der
  * Moduleinstellungen, von denen Einträge abhängen (`navSettingKeys`) – fehlt ein Wert, gilt der Eintrag als ausgeschaltet.
  */
@@ -82,7 +82,7 @@ export function buildNav(
   manifests: readonly ModuleManifest[],
   states: ModuleStateMap,
   perms: PermissionSet,
-  ctx: { selfResponsible?: boolean; settings?: ReadonlyMap<string, string> } = {},
+  ctx: { selfResponsible?: boolean; classLead?: boolean; settings?: ReadonlyMap<string, string> } = {},
 ): NavGroup[] {
   const sorted = [...manifests].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
   return NAV_SECTIONS.map((section) => ({
@@ -92,7 +92,12 @@ export function buildNav(
       .filter((m) => m.section === section && isEnabled(m, states))
       .flatMap((m) =>
         (m.nav ?? [])
-          .filter((n) => !n.requires || (Array.isArray(n.requires) ? n.requires : [n.requires]).some((r) => (n.explicit ? hasExplicitGrant(perms, r) : hasPermission(perms, r))))
+          .filter((n) => {
+            // TD-11: `classLead` öffnet den Eintrag zusätzlich für die Klassenleitung (Recht ODER Klassenleitung)
+            if (n.classLead && ctx.classLead === true) return true;
+            if (n.classLead && !n.requires) return false;
+            return !n.requires || (Array.isArray(n.requires) ? n.requires : [n.requires]).some((r) => (n.explicit ? hasExplicitGrant(perms, r) : hasPermission(perms, r)));
+          })
           .filter((n) => !n.settings || n.settings.every((st) => (ctx.settings?.get(st.key) ?? st.off) !== st.off))
           .filter((n) => {
             const other = n.requiresModule ? manifests.find((x) => x.id === n.requiresModule) : undefined;

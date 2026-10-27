@@ -103,6 +103,17 @@ describe("buildNav", () => {
     const parent = { ...student, role: "eltern" as const };
     expect(buildNav(MODULES, new Map(), parent, { selfResponsible: true }).flatMap((g) => g.items.map((i) => i.href)).filter((h) => h === "/elternbriefe")).toHaveLength(1);
   });
+  it("TD-11: Bücherei erscheint für die Klassenleitung auch ohne Büchereirecht, sonst nicht", () => {
+    const hrefs = (perms: PermissionSet, classLead?: boolean) =>
+      buildNav(MODULES, new Map([["buecherei", true]]), perms, { classLead }).flatMap((g) => g.items.map((i) => i.href));
+    const lehrkraft = { ...student, role: "lehrkraft" as const, granted: new Set<string>() };
+    expect(hrefs(lehrkraft)).not.toContain("/buecherei");
+    expect(hrefs(lehrkraft, false)).not.toContain("/buecherei");
+    expect(hrefs(lehrkraft, true)).toContain("/buecherei");
+    // mit Recht und Klassenleitung genau ein Eintrag
+    const mitRecht = { ...lehrkraft, granted: new Set(["buecherei.use"]) };
+    expect(hrefs(mitRecht, true).filter((h) => h === "/buecherei")).toHaveLength(1);
+  });
   it("SP-05 (L-01): Räume für alle Beschäftigten (auch Personal ohne Gebäude-Recht und Beratung), nicht für Schüler:innen/Eltern", () => {
     const hrefs = (perms: PermissionSet, states = new Map<string, boolean>()) => buildNav(MODULES, states, perms).flatMap((g) => g.items.map((i) => i.href));
     const hausmeister = { ...student, role: "personal" as const, granted: new Set(["gebaeude.report", "gebaeude.manage"]) };

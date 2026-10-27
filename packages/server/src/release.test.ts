@@ -310,7 +310,7 @@ describe("Release-ISO (B-49)", () => {
 
   it("Release ohne Fremd-Images (vor B-30) oder ohne Tag → Fehler", () => {
     expect(() => isoImages(release("0.1.0"))).toThrow("nennt kein Fremd-Image „caddy“");
-    const { "rest-server": _, ...ohneRest } = upstream;
+    const ohneRest = Object.fromEntries(Object.entries(upstream).filter(([name]) => name !== "rest-server")) as typeof upstream;
     expect(() => isoImages(release("0.1.0", { upstream: ohneRest }))).toThrow("„rest-server“");
     expect(() => isoImages(release("0.1.0", { upstream: { ...upstream, caddy: `caddy@${digest("2")}` } }))).toThrow("upstream.caddy: Tag fehlt");
   });

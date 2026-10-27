@@ -1,7 +1,7 @@
 // News – schwarzes Brett mit Zielgruppen.
 import { and, asc, desc, eq, exists, gt, inArray, isNull, notExists, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { groupMembers, groups, newsPosts, newsTargets, parentChild, users, ROLES, type Role } from "@/core/db/schema";
+import { groupMembers, groups, newsPosts, newsTargets, users, ROLES, type Role } from "@/core/db/schema";
 import { ROLE_LABELS } from "@/core/labels";
 import { childIdsQuery, parentLinks } from "@/core/school/majority";
 import { notify } from "@/core/notifications";

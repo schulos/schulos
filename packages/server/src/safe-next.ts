@@ -9,7 +9,6 @@ const ORIGIN = "http://schulos.invalid";
  */
 export function safeNext(next: unknown): string {
   const n = typeof next === "string" ? next : "";
-  // eslint-disable-next-line no-control-regex
   if (!n.startsWith("/") || n.startsWith("//") || n.startsWith("/\\") || /[\u0000- \u007f-\u009f\\]/.test(n)) return "/";
   let url: URL;
   try {

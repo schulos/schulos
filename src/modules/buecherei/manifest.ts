@@ -30,7 +30,8 @@ export default defineModule({
   // BU-06: ISBN-Abfrage (ab Werk aus) und ihre Quellen; BU-10: Schulbuchausleihe (Stufe 2, ab Werk aus)
   settings: BUECHEREI_SETTINGS,
   nav: [
-    { href: "/buecherei", label: "Bücherei", requires: ["buecherei.use", "buecherei.desk", "buecherei.stock", "buecherei.materials"] },
+    // TD-11: die Klassenleitung erreicht „Meine Klasse“ (BU-16) auch ohne eines der Büchereirechte
+    { href: "/buecherei", label: "Bücherei", requires: ["buecherei.use", "buecherei.desk", "buecherei.stock", "buecherei.materials"], classLead: true },
     // BU-03: Eltern sehen Ausleihen und Vormerkungen ihrer Kinder (nur lesend)
     { href: "/buecherei/meine", label: "Bücherei", roles: ["eltern"] },
   ],

@@ -34,7 +34,7 @@ export const getShellData = cache(async ({ user, perms }: CurrentUser): Promise<
       .from(notifications)
       .where(and(eq(notifications.userId, user.id), isNull(notifications.readAt))),
     db
-      .select({ slug: groups.slug, kind: groups.kind, role: groupMembers.role })
+      .select({ slug: groups.slug, kind: groups.kind, role: groupMembers.role, archivedAt: groups.archivedAt })
       .from(groupMembers)
       .innerJoin(groups, eq(groups.id, groupMembers.groupId))
       .where(eq(groupMembers.userId, user.id)),
@@ -56,7 +56,7 @@ export const getShellData = cache(async ({ user, perms }: CurrentUser): Promise<
   ];
   const detail = extras.length ? [roleLabel, ...extras].join(" · ") : undefined;
   return {
-    nav: buildNav(MODULES, states, perms, { selfResponsible, settings }),
+    nav: buildNav(MODULES, states, perms, { selfResponsible, classLead: user.role === "lehrkraft" && memberships.some((l) => l.kind === "klasse" && l.role === "leader" && !l.archivedAt), settings }),
     unread: unreadRow?.n ?? 0,
     badges: { messenger: chatUnread },
     userId: user.id,

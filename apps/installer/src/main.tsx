@@ -2,7 +2,6 @@
 // Installationsplan ablegen; mit --installieren bzw. --plan die Systemschritte (B-42) ausführen.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, openSync, readFileSync, rmdirSync, writeFileSync } from "node:fs";
-import path from "node:path";
 import { ReadStream, WriteStream } from "node:tty";
 import { CLEAR_SCREEN } from "@schulos/server/recovery-key";
 import { configLocation, CONSOLE_WAIT_NOTE, endingFor, summaryText } from "./abschluss";
