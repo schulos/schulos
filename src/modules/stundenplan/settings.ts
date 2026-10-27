@@ -24,4 +24,19 @@ export const SUBSTITUTION_RELEASE = defineSetting({
   default: "sofort",
 });
 
-export const STUNDENPLAN_SETTINGS = [PARENTS_SUBSTITUTION, SUBSTITUTION_RELEASE];
+/**
+ * VT-01 (F-10-10, Projektleitung 2026-10-26): Kenntnisnahme durch die Vertretungslehrkraft – optional, Vorgabe an, ohne Eskalation.
+ * „aus“: Lehrkräfte bekommen keinen Knopf „Gesehen“, die Planung keine Liste Unbestätigter.
+ */
+export const SUBSTITUTION_ACK = defineSetting({
+  key: "stundenplan.substitution_ack",
+  label: "Kenntnisnahme von Vertretungen",
+  help: "Vertretungslehrkräfte bestätigen eine Vertretung mit einem Klick („Gesehen“); die Planung sieht, wer noch nicht bestätigt hat. Keine Pflicht, keine Eskalation.",
+  options: [
+    { value: "an", label: "an" },
+    { value: "aus", label: "aus" },
+  ],
+  default: "an",
+});
+
+export const STUNDENPLAN_SETTINGS = [PARENTS_SUBSTITUTION, SUBSTITUTION_RELEASE, SUBSTITUTION_ACK];

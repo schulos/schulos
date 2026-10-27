@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
 import { rowsOf } from "@/core/db/rows";
-import { auditLog, timetableSolverRuns, timetableTimePrefs, users } from "@/core/db/schema";
+import { auditLog, timetableSolverRuns, timetableSubstitutionChanges, timetableTimePrefs, users } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { audit } from "@/core/audit";
 import { DELETED_TEACHER, labelPattern, scrubIds } from "@/modules/stundenplan/solverlauf-konto";
@@ -58,6 +58,10 @@ describe("DS-21 Löschlauf = Kontolöschung (Demo-Schule)", () => {
       log: [{ at: new Date().toISOString(), kind: "precheck", text: `Vorprüfung: ${CODE} überplant`, data: {} }],
     });
 
+    // VT-01: Historie der Vertretungen – Kennung in Vorher/Nachher, Kürzel im Hinweis, als Handelnde
+    const snap = { lessonId: "l-x", kind: "substitute", substituteId: ID, roomId: null, subjectId: null, targetPeriod: null, mergeLessonId: null, note: `bei ${CODE}`, internalNote: `${CODE} hat den Schlüssel`, reason: null, supervisionOnly: false };
+    await h.db.insert(timetableSubstitutionChanges).values({ id: "hist-ds21", date: "2026-10-05", action: "update", before: { ...snap, substituteId: "u-jana.brandt" }, after: snap, actorId: ID });
+
     const out = await runDeletion(h.db, "u-admin", today);
     expect(out.items.find((i) => i.table === "users")).toMatchObject({ deleted: expect.any(Number) });
     expect(out.items.find((i) => i.table === "users")?.error).toBeUndefined();
@@ -85,5 +89,14 @@ describe("DS-21 Löschlauf = Kontolöschung (Demo-Schule)", () => {
     expect(text).not.toContain(ID);
     expect(text).not.toContain(CODE);
     expect(text).toContain(`${DELETED_TEACHER} Mo: 2 Hohlstunden`);
+
+    // VT-01: Historie der Vertretungen – weder Kennung noch Kürzel, „geändert von“ leer, andere Lehrkraft bleibt
+    const [hist] = await h.db.select().from(timetableSubstitutionChanges).where(eq(timetableSubstitutionChanges.id, "hist-ds21"));
+    const histText = JSON.stringify([hist!.before, hist!.after]);
+    expect(histText).not.toContain(ID);
+    expect(histText).not.toContain(CODE);
+    expect(hist!.actorId).toBeNull();
+    expect(hist!.after).toMatchObject({ substituteId: DELETED_TEACHER, internalNote: `${DELETED_TEACHER} hat den Schlüssel` });
+    expect(hist!.before).toMatchObject({ substituteId: "u-jana.brandt" });
   }, 120_000);
 });

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, inArray, isNull, lte, or, gte, sql } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
 import { createSeededTestDb } from "@/core/db/testing";
-import { timetableLessons, timetableSolverRuns, timetableSubstitutions } from "@/core/db/schema";
+import { timetableLessons, timetableSolverRuns, timetableSubstitutionChanges, timetableSubstitutions } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { applyPreview, applyRun, createRun, executeRun, getRun, parseParams, planningPeriod, undoApply } from "./solverlauf";
 import { createAssignment, listAssignments, planningYear, updateAssignment } from "./verteilung";
@@ -60,7 +60,7 @@ describe("A1: Verlegung und Zusammenlegung beim Übernehmen/Zurücknehmen", () =
     const [guest, host] = pairs[0]!;
     await h.db.update(timetableLessons).set({ fixed: true }).where(eq(timetableLessons.id, guest.id));
     await h.db.insert(timetableSubstitutions).values([
-      { id: "s-move", lessonId: moved.id, date: from, kind: "move", targetPeriod: 1, createdBy: "u-admin" },
+      { id: "s-move", lessonId: moved.id, date: from, kind: "move", targetPeriod: 1, createdBy: "u-admin", reason: "veranstaltung", internalNote: "Aula belegt" },
       { id: "s-merge", lessonId: guest.id, date: from, kind: "merge", mergeLessonId: host.id, createdBy: "u-admin" },
     ]);
     const id = await freshRun(h);
@@ -78,8 +78,18 @@ describe("A1: Verlegung und Zusammenlegung beim Übernehmen/Zurücknehmen", () =
     const back = await undoApply(h.db, "u-admin", id, today);
     expect(back).toMatchObject({ restoredSubstitutions: 2, lostSubstitutions: 0 });
     const subs = new Map((await h.db.select().from(timetableSubstitutions).where(inArray(timetableSubstitutions.id, ["s-move", "s-merge"]))).map((s) => [s.id, s]));
-    expect(subs.get("s-move")).toMatchObject({ lessonId: moved.id, kind: "move", targetPeriod: 1, mergeLessonId: null });
+    expect(subs.get("s-move")).toMatchObject({ lessonId: moved.id, kind: "move", targetPeriod: 1, mergeLessonId: null, reason: "veranstaltung", internalNote: "Aula belegt" });
     expect(subs.get("s-merge")).toMatchObject({ lessonId: guest.id, kind: "merge", mergeLessonId: host.id });
+    // VT-01: Übernahme und Zurücknehmen stehen in der Historie (Vorher bzw. Nachher)
+    const hist = (await h.db.select().from(timetableSubstitutionChanges).where(eq(timetableSubstitutionChanges.date, from))).filter((c) =>
+      [moved.id, guest.id].includes(((c.before ?? c.after) as { lessonId: string }).lessonId),
+    );
+    expect(hist.filter((c) => c.action === "plan_publish").map((c) => [(c.before as { kind: string; internalNote: string | null }).kind, c.after]).sort()).toEqual([
+      ["merge", null],
+      ["move", null],
+    ]);
+    expect(hist.filter((c) => c.action === "plan_undo" && c.before === null).map((c) => c.substitutionId).sort()).toEqual(["s-merge", "s-move"]);
+    expect(hist.every((c) => c.actorId === "u-admin")).toBe(true);
     await h.db.delete(timetableSubstitutions).where(inArray(timetableSubstitutions.id, ["s-move", "s-merge"]));
     await h.db.update(timetableLessons).set({ fixed: false }).where(eq(timetableLessons.id, guest.id));
   }, 120_000);

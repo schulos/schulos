@@ -10,7 +10,7 @@ import { addDays } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { absenceCovers, absencesBetween, needsOn } from "./abwesenheit";
 import { lessonActiveOn } from "./service";
-import { saveSubstitution, substitutionsOn } from "./vertretung";
+import { saveSubstitution, substitutionsOn, type SubstitutionInput } from "./vertretung";
 
 export interface PermanentInput {
   lessonId: string;
@@ -21,6 +21,10 @@ export interface PermanentInput {
   subjectId?: string | null;
   roomId?: string | null;
   note?: string | null;
+  /** VT-01: wie beim einzelnen Speichern (fehlt = Vorgabe bzw. gespeicherter Stand je Tag) */
+  reason?: SubstitutionInput["reason"];
+  internalNote?: string | null;
+  supervisionOnly?: boolean;
 }
 
 export interface PermanentResult {
@@ -45,7 +49,18 @@ export async function savePermanentSubstitution(db: Db, actorId: string, input: 
       continue;
     }
     try {
-      await saveSubstitution(db, actorId, { lessonId: l.id, date: d, kind: "substitute", substituteId: input.substituteId, roomId: input.roomId ?? null, note: input.note ?? null, subjectId: input.subjectId ?? null });
+      await saveSubstitution(db, actorId, {
+        lessonId: l.id,
+        date: d,
+        kind: "substitute",
+        substituteId: input.substituteId,
+        roomId: input.roomId ?? null,
+        note: input.note ?? null,
+        subjectId: input.subjectId ?? null,
+        reason: input.reason,
+        internalNote: input.internalNote,
+        supervisionOnly: input.supervisionOnly,
+      });
       out.saved.push(d);
     } catch (err) {
       if (!(err instanceof ValidationError)) throw err;

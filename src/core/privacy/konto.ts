@@ -24,6 +24,7 @@ import { auditOfUsers, pseudonymizeAudit } from "./protokoll";
 import { qid, refWhere, SOFT_REFS, userRefs, type UserRef } from "./refs";
 import { de } from "@/core/db/sort";
 import { scrubSolverRuns } from "@/modules/stundenplan/solverlauf-konto";
+import { scrubSubstitutionChanges } from "@/modules/stundenplan/vertretung-konto";
 
 /** Karenz zwischen Abgang und Löschung (Rückfragen, Eigenexport) – Vorgabe; die Schule stellt sie ein (DS-15, 30–365 Tage). */
 export const ACCOUNT_GRACE_DAYS = 90;
@@ -257,6 +258,8 @@ export async function deleteAccounts(db: Db, ids: readonly string[]): Promise<nu
     for (const r of soft) for (const id of ids) await tx.execute(sql`delete from ${qid(r.table)} where ${refWhere(r, id)}`);
     // SP-14/DS-21: Lehrkraft-Kennungen und -Kürzel in Solver-Läufen (ohne Fremdschlüssel) → Platzhalter „gelöschte Lehrkraft“
     await scrubSolverRuns(tx, ids);
+    // VT-01 (F-10-13): Kennung der Vertretungslehrkraft und Kürzel in der Historie der Vertretungen
+    await scrubSubstitutionChanges(tx, ids);
     return tx.delete(users).where(inArray(users.id, [...ids])).returning({ id: users.id });
   });
   return res.length;

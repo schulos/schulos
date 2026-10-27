@@ -354,6 +354,29 @@ Häkchen „für Schüler:innen“ bleibt.
 **`timetable_day_notes`** (VT-01): `id` · `date` · `body text` (≤ 300, Hinweis „keine Personen nennen“) · `audience` (`alle`,
 `beschaeftigte`) · `sort_order` · `created_by/at` · `updated_at`. Folgt der Tagesfreigabe (Entwurfstag → nur Planung). LK-SJ-1J ab `date`.
 
+**Umgesetzt mit VT-01 (2026-10-27, Migration 0109) – Vorgaben zu Detailfragen:**
+- `reason` ist nullable: Bestand vor VT-01 bleibt „ohne Angabe“ (keine Rückrechnung). Beim Speichern gilt: Feld leer („automatisch“) →
+  `defaultReason()` (fehlende Lehrkraft → `lehrkraft_abwesend`, fehlende Gruppe → Grund 1:1 bzw. `sonstiges`, gesperrter Raum →
+  `raum_gesperrt`; bei Raumänderung/Verlegung zuerst die Raumsperre; sonst leer). Feld fehlt ganz (z. B. „Vorschlag übernehmen“,
+  Ausweichraum, Entfall bei Freisetzung) → eine schon gewählte Kategorie bleibt, sonst Vorgabe. Ebenso bleiben interner Hinweis und
+  „nur Betreuung“, wenn ein Weg sie nicht mitschickt; „nur Betreuung“ fällt bei anderer Art weg (Check-Constraint).
+- `updated_*` ist beim Anlegen leer; `created_*` bleibt beim Überschreiben. Ein Tauschpartner (Stufe 2) bekommt dieselbe Kategorie, keinen
+  internen Hinweis.
+- Kenntnisnahme: Moduleinstellung `stundenplan.substitution_ack` (an/aus, Vorgabe an, F-10-10), Service `acknowledgeSubstitution()` +
+  Action (nur die Vertretungslehrkraft, nur veröffentlichte Tage, Kopplungsteile mit); ändert weder `updated_*` noch die Historie. Die
+  Bedienung („Gesehen“ in „Meine Vertretungen“/Gong) und die Liste Unbestätigter kommen mit VT-02.
+- Historie: Einträge ohne geänderte Felder (erneutes Speichern) entfallen; `substitution_id` ist bei `delete`-Einträgen leer (die Zeile gibt es
+  nicht mehr, ältere Einträge leert der Fremdschlüssel) – die Zuordnung läuft über (Stunde, Tag). Solver-Übernahme schreibt `plan_publish`
+  (Vorher), Rücknahme `plan_undo` (wiederhergestellt: Nachher; mit der Übernahme-Stunde gelöscht: Vorher). Löschen einer Stunde/Kopplung
+  schreibt `delete` vor der Kaskade. Umhängen auf eine neue Stunde (Periode kopieren, Teilung am Zeitraumende) nimmt die Historie mit.
+  Nicht in der Historie: die Markierung „Abwesenheit beendet – prüfen“ und „Behalten“ (nur Zeitpunkt, kein Inhalt).
+- Scrub: Kennung der Vertretungslehrkraft in `before/after` sowie Kürzel **und** Name als ganzes Wort in `note`/`internal_note`.
+- Rücknahme-Daten des Solvers (`undo.substitutions`) tragen die neuen Felder mit, damit „Zurücknehmen“ sie wiederherstellt.
+- Material ohne Abwesenheit: Unique als Ausdrucksindex `(lesson_id, date, coalesce(absence_id, ''))`; gibt es zu einer Stunde Material mit und
+  ohne Abwesenheit, zeigt die Planung das der Abwesenheit. Die Pflege-Oberfläche kommt mit VT-03b („Material“ im kompakten Formular).
+- Tagesmitteilungen: Speichern startet keinen Entwurf; sichtbar außerhalb der Planung nur an veröffentlichten Tagen (`draftDays`).
+  Pflege als kleine Liste auf `/planung/vertretungen`; Anzeige in Plan/Monitor/Druck mit VT-02.
+
 **`timetable_notification_queue`** (VT-04): `id` · `date` (Vertretungstag) · `audience` (`lehrkraefte`, `lernende`) · `due_at` ·
 `sent_at` · `recipients int` · `created_at`; Unique `(date, audience, sent_at is null)` (partiell). Beim Senden wird die Nachricht aus
 dem **aktuellen** Stand gebaut (`dayMessage`) → immer Endstand, nie Zwischenstände. Minutentakt-Job mit `runExclusive("vertretung-gong")`
@@ -367,8 +390,8 @@ an die Queue andocken (DSB-Votum offen).
 
 | # | Paket | Inhalt |
 |---|---|---|
-| 0106 | VT-01 | `substitution_reason`, Spalten an `timetable_substitutions`, `timetable_substitution_changes`, `timetable_absence_materials.absence_id` nullable + neuer Unique, `timetable_day_notes` |
-| 0107 | VT-04 | `timetable_notification_queue` |
+| 0109 ✅ | VT-01 | `substitution_reason`, `substitution_change_action`, `day_note_audience`, Spalten an `timetable_substitutions`, `timetable_substitution_changes`, `timetable_absence_materials.absence_id` nullable + neuer Unique, `timetable_day_notes` (tatsächlich 0109, nach SP3-DEP/SP3-LA) |
+| (nächste freie) | VT-04 | `timetable_notification_queue` |
 | 0107 ✅ | SP3-DEP | `employment_percent`, `obligation_term2`, `obligation` nullable, `timetable_reductions.valid_from/valid_until` (tatsächlich 0107, vor VT-01) |
 | 0108 ✅ | SP3-LA | `school_year_transitions.class_map` (tatsächlich 0108; nur die Spalte – Übergänge ohne Zuordnung rekonstruiert die Übernahme zur Laufzeit per Namensregel `promotedName()`, soweit eindeutig) |
 | 0110 | SP3-01 | `plan_version_status`, `plan_version_source`, `timetable_plan_versions`, `timetable_draft_lessons`, `timetable_lessons.plan_version_id`, Daten-Migration „Bestand 1.0“ |

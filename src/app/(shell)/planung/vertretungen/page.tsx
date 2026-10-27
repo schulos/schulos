@@ -13,17 +13,22 @@ import {
   deleteAbsenceAction,
   deleteSubstitutionAction,
   keepReviewedAction,
+  deleteDayNoteAction,
   publishDayAction,
   removeReviewedAction,
+  saveDayNoteAction,
   saveSubstitutionAction,
   shortenAbsenceAction,
 } from "@/modules/stundenplan/actions";
+import { SUBSTITUTION_REASONS } from "@/modules/stundenplan/schema";
+import { dayNotesOn, DAY_NOTE_AUDIENCE_LABELS } from "@/modules/stundenplan/tagesmitteilungen";
+import { DayNoteForm } from "./day-note-form";
 import { dayRelease, draftDays, openDrafts } from "@/modules/stundenplan/freigabe";
 import { ABSENCE_LABELS, endedAbsenceReviews, GROUP_REASONS, needsOn, TEACHER_REASONS } from "@/modules/stundenplan/abwesenheit";
-import { CHANGE_KIND_LABEL, changeLabel, changeOff, changeRoom, changeTeacher, slotDisplay, subjectLabel } from "@/modules/stundenplan/display";
+import { CHANGE_KIND_LABEL, changeLabel, changeOff, changeRoom, changeTeacher, slotDisplay, SUBSTITUTION_REASON_LABELS, subjectLabel } from "@/modules/stundenplan/display";
 import { plannableGroups, teacherOptions } from "@/modules/stundenplan/manage";
 import { listSlots, timetableMasterData, type PlanTarget } from "@/modules/stundenplan/service";
-import { examSubjectsOn, mergeOptions, planDays, substitutionsOn, teacherAvailability } from "@/modules/stundenplan/vertretung";
+import { defaultReason, examSubjectsOn, mergeOptions, planDays, substitutionsOn, teacherAvailability } from "@/modules/stundenplan/vertretung";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -52,11 +57,12 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   const today = toBerlinDate(new Date());
   const shown = planDays(today, cal);
   const date = /^\d{4}-\d{2}-\d{2}$/.test(sp.datum ?? "") ? sp.datum! : shown[0];
-  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week, reviews] = await Promise.all([
+  const [teachers, groupList, master, changes, needs, release, drafts, shownChanges, shownDrafts, week, reviews, dayNotes] = await Promise.all([
     teacherOptions(db),
     plannableGroups(db),
     timetableMasterData(db),
-    substitutionsOn(db, [date], { drafts: true }),
+    // VT-01: mit internem Hinweis und Kenntnisnahme (nur hier, Vertretungsplanung)
+    substitutionsOn(db, [date], { drafts: true, internal: true }),
     needsOn(db, date),
     dayRelease(db, date),
     openDrafts(db, today),
@@ -66,6 +72,8 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     weekNeeds(db, today),
     // SP2-16b: Änderungen nach dem Ende einer verkürzten/aufgehobenen Abwesenheit – „Abwesenheit beendet – prüfen“
     endedAbsenceReviews(db, today),
+    // VT-01: Tagesmitteilungen (alle Zielgruppen, auch an Entwurfstagen)
+    dayNotesOn(db, [date], { drafts: true, staff: true }),
   ]);
   const notified = /^\d+$/.test(sp.veroeffentlicht ?? "") ? Number(sp.veroeffentlicht) : null;
   const shortened = /^\d+$/.test(sp.verkuerzt ?? "") ? Number(sp.verkuerzt) : null;
@@ -74,13 +82,16 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
   // nur eigene Stunden der Lehrkraft/Gruppe – übernommene Vertretungen werden bei der Original-Stunde gepflegt
   // SP2-07: eine verlegte Stunde wird bei ihrer bisherigen Stunde gepflegt (nicht zusätzlich in der neuen)
   const lessons = target ? (await listSlots(db, target, date, addDays(date, 1), { drafts: true })).filter((s) => s.perspective !== "covering" && s.moved !== "to") : [];
-  const [availability, suggestions, examsByGroup, merges] = await Promise.all([
+  const [availability, suggestions, examsByGroup, merges, reasonDefaults] = await Promise.all([
     Promise.all(lessons.map((l) => teacherAvailability(db, l.lessonId, date))),
     Promise.all(lessons.map((l) => (l.change && l.change.kind !== "room" ? Promise.resolve([]) : suggestSubstitutes(db, l.lessonId, date)))),
     // SP-12: Klausur-Hinweis im Formular, wenn das gewählte Fach an dem Tag eine Arbeit hat
     examSubjectsOn(db, [...new Set(lessons.map((l) => l.groupId))], date),
     Promise.all(lessons.map((l) => mergeOptions(db, l.lessonId, date))),
+    // VT-01: Vorgabe der Grund-Kategorie je Stunde (Anzeige bei „automatisch“)
+    Promise.all(lessons.map((l) => defaultReason(db, l, date, l.change?.kind ?? "substitute"))),
   ]);
+  const reasonOptions = SUBSTITUTION_REASONS.map((r) => ({ value: r, label: SUBSTITUTION_REASON_LABELS[r] }));
   // SP2-08: mehrtägige Abwesenheit der Lehrkraft einer Stunde → Dauervertretung anbieten
   const permanentFor = (teacherId: string | null) => {
     const a = teacherId ? needs.absences.find((x) => x.teacherId === teacherId && x.endsOn > date) : undefined;
@@ -173,6 +184,27 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           </p>
         )
       )}
+      <section aria-labelledby="day-notes-title" className="flex flex-col gap-2">
+        <h2 id="day-notes-title" className="text-base font-semibold">
+          Tagesmitteilungen am {longDay.format(fromBerlinLocal(date))}
+        </h2>
+        {dayNotes.length > 0 && (
+          <ul className="flex flex-col gap-1.5 text-sm">
+            {dayNotes.map((n) => (
+              <li key={n.id} className="flex flex-wrap items-center gap-2">
+                <span>{n.body}</span>
+                {n.audience !== "alle" && <Badge tone="neutral">{DAY_NOTE_AUDIENCE_LABELS[n.audience]}</Badge>}
+                <form action={deleteDayNoteAction.bind(null, n.id)}>
+                  <Button type="submit" size="sm" variant="ghost" aria-label={`Tagesmitteilung löschen: ${n.body}`}>
+                    Löschen
+                  </Button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+        <DayNoteForm action={saveDayNoteAction.bind(null, null)} date={date} />
+      </section>
       <section aria-labelledby="week-title" className="flex flex-col gap-2">
         <h2 id="week-title" className="text-base font-semibold">
           Vertretungsbedarf der nächsten Schultage
@@ -507,7 +539,12 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                       subjectId: l.change?.subjectId ?? regularSubjectId,
                       targetPeriod: l.change?.targetPeriod ? String(l.change.targetPeriod) : "",
                       mergeLessonId: l.change?.mergeLessonId ?? "",
+                      reason: existing?.reason ?? "",
+                      internalNote: existing?.internal?.note ?? "",
+                      supervisionOnly: existing?.supervisionOnly ? "1" : "",
                     }}
+                    reasons={reasonOptions}
+                    defaultReasonLabel={reasonDefaults[i] ? SUBSTITUTION_REASON_LABELS[reasonDefaults[i]!] : null}
                     periods={periodOptions}
                     ownPeriod={l.periodNr}
                     mergeOptions={merges[i]!}
@@ -563,7 +600,10 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                     )}
                   </td>
                   <td className="whitespace-nowrap">{[changeTeacher(c), changeRoom(c) && changeRoom(c) !== c.roomId && `R ${changeRoom(c)}`].filter(Boolean).join(" · ") || "–"}</td>
-                  <td className="text-muted">{c.note}</td>
+                  <td className="text-muted">
+                    {[c.reason && SUBSTITUTION_REASON_LABELS[c.reason], c.supervisionOnly && "nur Betreuung", c.note].filter(Boolean).join(" · ")}
+                    {c.internal?.note && <span className="block text-xs">intern: {c.internal.note}</span>}
+                  </td>
                   <td className="text-right">
                     <form action={deleteSubstitutionAction.bind(null, c.id)}>
                       <Button type="submit" size="sm" variant="ghost" aria-label={`Aufheben: ${c.groupName} ${c.periodNr}. Std`}>

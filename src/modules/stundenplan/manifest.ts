@@ -50,7 +50,38 @@ export default defineModule({
     {
       table: "timetable_substitutions",
       purpose: "Vertretungen und Ausfälle bekanntgeben",
-      categories: ["Stunde", "Datum", "Vertretungslehrkraft", "Raum", "Hinweis", "Verlegt in Stunde", "Zusammengelegt mit Stunde", "Eingetragen von"],
+      categories: [
+        "Stunde",
+        "Datum",
+        "Vertretungslehrkraft",
+        "Raum",
+        "Hinweis für Schüler:innen",
+        "Verlegt in Stunde",
+        "Zusammengelegt mit Stunde",
+        "Grund-Kategorie (grob, z. B. „Lehrkraft abwesend“)",
+        "interner Hinweis",
+        "nur Betreuung",
+        "Kenntnisnahme der Vertretungslehrkraft (Zeitpunkt)",
+        "Eingetragen und zuletzt geändert von/am",
+      ],
+      class: "LK-SJ-1J",
+      start: "date",
+      note: "VT-01: die Grund-Kategorie ist öffentlich und bewusst grob (eine Lehrkraft-Abwesenheit heißt immer „Lehrkraft abwesend“); interner Hinweis und Kenntnisnahme nur für die Vertretungsplanung bzw. die Vertretungslehrkraft, nie für Schüler:innen, Eltern oder Monitore",
+    },
+    {
+      // VT-01 (F-10-13): Historie mit Vorher/Nachher; Kontolöschung ersetzt die Kennung der Vertretungslehrkraft (DS-21-Muster)
+      table: "timetable_substitution_changes",
+      purpose: "Vertretungen nachvollziehen (Änderungsverlauf, Marker „neu/geändert“)",
+      categories: ["Stunde", "Datum", "Art der Änderung", "Stand vorher/nachher (Vertretungslehrkraft, Raum, Fach, Hinweise, Grund-Kategorie)", "Geändert von/am"],
+      class: "LK-SJ-1J",
+      start: "date",
+      note: "nur für die Vertretungsplanung sichtbar; bei Kontolöschung wird die Lehrkraft in Vorher/Nachher durch „gelöschte Lehrkraft“ ersetzt (auch Kürzel/Namen in den Hinweisen), „geändert von“ wird leer",
+    },
+    {
+      // VT-01: Tagesmitteilungen (Freitext ohne Personen) – folgen der Tagesfreigabe
+      table: "timetable_day_notes",
+      purpose: "Vertretungsplan: Mitteilungen zum Tag (alle bzw. nur Beschäftigte)",
+      categories: ["Datum", "Text (ohne Personen)", "Zielgruppe", "Eingetragen von"],
       class: "LK-SJ-1J",
       start: "date",
     },
@@ -135,10 +166,11 @@ export default defineModule({
     },
     {
       table: "timetable_absence_materials",
-      purpose: "Vertretungsmaterial der abwesenden Lehrkraft für die Vertretung (Q5-12)",
-      categories: ["Stunde", "Datum", "Arbeitsauftrag", "Datei", "für Schüler:innen sichtbar", "Eingetragen von"],
-      follows: "timetable_absences",
-      note: "sichtbar für die Lehrkraft selbst, die Vertretung dieser Stunde, die Planung und – nur mit Häkchen – die Schüler:innen der Gruppe",
+      purpose: "Vertretungsmaterial für die Vertretung (Q5-12; VT-01: auch ohne Abwesenheit)",
+      categories: ["Stunde", "Datum", "Abwesenheit (falls vorhanden)", "Arbeitsauftrag", "Datei", "für Schüler:innen sichtbar", "Eingetragen von"],
+      class: "LK-SJ-1J",
+      start: "date",
+      note: "sichtbar für die Lehrkraft der Stunde bzw. die abwesende Lehrkraft, die Vertretung dieser Stunde, die Planung und – nur mit Häkchen – die Schüler:innen der Gruppe; Material zu einer Abwesenheit geht zusätzlich mit ihr (VT-01, F-10-12: eigene Frist ab Datum statt „folgt der Abwesenheit“)",
     },
     {
       table: "timetable_duties",
@@ -203,6 +235,6 @@ export default defineModule({
       "Stundenplanung und Schulleitung (Deputate, Zeitwünsche, Abwesenheiten)",
       "die jeweilige Lehrkraft selbst (eigenes Deputat, eigene Vertretungsstunden und Aufsichten)",
     ],
-    note: "Automatische Stundenplanung (Solver-Läufe): Planvorschläge, Parameter, Kennzahlen und Protokoll sieht nur die Stundenplanung (`stundenplan.manage`), sie sind Entwürfe ohne Außenwirkung (90 Tage, ältere Vorschläge und gescheiterte Läufe räumt ein Nachtjob früher ab); erst die Übernahme ab einem Stichtag schreibt Stunden in den Plan, die Rücknahme-Daten dazu bleiben nur bis zu diesem Stichtag. Eine Vertretung kann ein abweichendes Fach nennen („Mathe statt Sport“, nur die Bezeichnung des Fachs, kein weiterer Personenbezug). Abwesenheiten von Lehrkräften werden ohne Grund gespeichert; Deputate und Zeitwünsche sieht nur die Planung – und die Lehrkraft ihre eigenen Zahlen und Wünsche (ohne Vergleich mit anderen); Zeitwünsche tragen Lehrkräfte im Eingabefenster der Planung selbst ein, die Planung sieht, wer abgegeben hat. Bereitschaften (Vertretungsreserve je Stunde) sind Personaldienst und nur für die Vertretungsplanung sichtbar; Verlegung (Stunde rückt am selben Tag auf eine andere Stunde) und Zusammenlegung (Gruppe geht zu einer anderen Stunde, deren Lehrkraft mitbetreut) erscheinen wie Vertretungen im Vertretungsplan, die mitbetreuende Lehrkraft bekommt den Gong. Vertretungen von Pausenaufsichten melden einen Gong an die vertretende und die eingeteilte Lehrkraft. Im Modus „erst nach Freigabe“ sehen nur die Planung Änderungen eines Tages im Entwurf; alle anderen sehen den veröffentlichten Stand. Vertretungen und Entfall melden (sofort bzw. beim Veröffentlichen) einen Gong je Person und Tag an Schüler:innen, Lehrkräfte und – nach Moduleinstellung bis Jahrgang, nie in der Oberstufe – an Eltern (mit Name der Vertretungslehrkraft, ohne Grund für die Abwesenheit einer Lehrkraft und ohne die Notiz der Planung – die sehen nur Schüler:innen und Lehrkräfte).",
+    note: "Automatische Stundenplanung (Solver-Läufe): Planvorschläge, Parameter, Kennzahlen und Protokoll sieht nur die Stundenplanung (`stundenplan.manage`), sie sind Entwürfe ohne Außenwirkung (90 Tage, ältere Vorschläge und gescheiterte Läufe räumt ein Nachtjob früher ab); erst die Übernahme ab einem Stichtag schreibt Stunden in den Plan, die Rücknahme-Daten dazu bleiben nur bis zu diesem Stichtag. Eine Vertretung kann ein abweichendes Fach nennen („Mathe statt Sport“, nur die Bezeichnung des Fachs, kein weiterer Personenbezug). Abwesenheiten von Lehrkräften werden ohne Grund gespeichert; Deputate und Zeitwünsche sieht nur die Planung – und die Lehrkraft ihre eigenen Zahlen und Wünsche (ohne Vergleich mit anderen); Zeitwünsche tragen Lehrkräfte im Eingabefenster der Planung selbst ein, die Planung sieht, wer abgegeben hat. Bereitschaften (Vertretungsreserve je Stunde) sind Personaldienst und nur für die Vertretungsplanung sichtbar; Verlegung (Stunde rückt am selben Tag auf eine andere Stunde) und Zusammenlegung (Gruppe geht zu einer anderen Stunde, deren Lehrkraft mitbetreut) erscheinen wie Vertretungen im Vertretungsplan, die mitbetreuende Lehrkraft bekommt den Gong. Vertretungen von Pausenaufsichten melden einen Gong an die vertretende und die eingeteilte Lehrkraft. Im Modus „erst nach Freigabe“ sehen nur die Planung Änderungen eines Tages im Entwurf; alle anderen sehen den veröffentlichten Stand. Vertretungen und Entfall melden (sofort bzw. beim Veröffentlichen) einen Gong je Person und Tag an Schüler:innen, Lehrkräfte und – nach Moduleinstellung bis Jahrgang, nie in der Oberstufe – an Eltern (mit Name der Vertretungslehrkraft, ohne Grund für die Abwesenheit einer Lehrkraft und ohne die Notiz der Planung – die sehen nur Schüler:innen und Lehrkräfte). VT-01: Vertretungen nennen öffentlich nur eine grobe Grund-Kategorie (bei fehlender Lehrkraft immer „Lehrkraft abwesend“, nie krank/Fortbildung/dienstlich); ein interner Hinweis, die optionale Kenntnisnahme der Vertretungslehrkraft und der Änderungsverlauf (vorher/nachher) bleiben bei der Vertretungsplanung bzw. der Vertretungslehrkraft und erscheinen nie bei Schüler:innen, Eltern oder auf Monitoren.",
   },
 });

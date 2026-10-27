@@ -33,6 +33,7 @@ import { createSolver, DEFAULT_WEIGHTS, placementRooms, unitParts, type GapStats
 import { precheck, type PrecheckFinding } from "./solver-check";
 import { solverInputFromDb } from "./solver-input";
 import { planningYear } from "./verteilung";
+import { deletedEntries, moveChangeHistory, recordLessonCascade, recordSubstitutionChanges, snapshotOf } from "./vertretung-historie";
 
 export const EFFORTS = { schnell: 0.25, normal: 1, gruendlich: 4 } as const;
 export type Effort = keyof typeof EFFORTS;
@@ -128,6 +129,10 @@ export type UndoSubstitution = Pick<TimetableSubstitution, "id" | "lessonId" | "
   /** SP2-07 (R1a/A1): Zielstunde einer Verlegung bzw. aufnehmende Stunde einer Zusammenlegung – fehlen bei Übernahmen davor */
   targetPeriod?: number | null;
   mergeLessonId?: string | null;
+  /** VT-01: Grund-Kategorie, interner Hinweis, „nur Betreuung“ – fehlen bei Übernahmen davor */
+  reason?: TimetableSubstitution["reason"];
+  internalNote?: string | null;
+  supervisionOnly?: boolean;
 };
 
 /**
@@ -980,6 +985,8 @@ async function moveReferences(tx: Db, fromId: string, toId: string, fromYmd: str
   await tx.update(timetableSubstitutions).set({ mergeLessonId: toId }).where(and(eq(timetableSubstitutions.mergeLessonId, fromId), gte(timetableSubstitutions.date, fromYmd)));
   await tx.update(classbookEntries).set({ lessonId: toId }).where(and(eq(classbookEntries.lessonId, fromId), gte(classbookEntries.date, fromYmd)));
   await tx.update(timetableAbsenceMaterials).set({ lessonId: toId }).where(and(eq(timetableAbsenceMaterials.lessonId, fromId), gte(timetableAbsenceMaterials.date, fromYmd)));
+  // VT-01: die Historie hängt mit um
+  await moveChangeHistory(tx, fromId, toId, fromYmd);
 }
 
 /** Vertretungen ab `fromYmd` an diesen Stunden – auch Zusammenlegungen anderer Gruppen in diese Stunden (R1a/A1). */
@@ -1089,8 +1096,10 @@ export async function applyRun(
     const later = current.filter((l) => l.validFrom >= fromYmd);
     const running = current.filter((l) => l.validFrom < fromYmd);
     const removed: UndoSubstitution[] = [];
+    const gone: TimetableSubstitution[] = [];
     for (const part of chunks(ids))
-      for (const s of await tx.delete(timetableSubstitutions).where(substitutionsOn(part, fromYmd)).returning())
+      for (const s of await tx.delete(timetableSubstitutions).where(substitutionsOn(part, fromYmd)).returning()) {
+        gone.push(s);
         removed.push({
           id: s.id,
           lessonId: s.lessonId,
@@ -1104,7 +1113,13 @@ export async function applyRun(
           mergeLessonId: s.mergeLessonId,
           createdBy: s.createdBy,
           createdAt: s.createdAt.toISOString(),
+          reason: s.reason,
+          internalNote: s.internalNote,
+          supervisionOnly: s.supervisionOnly,
         });
+      }
+    // VT-01: die bei der Übernahme entfernten Vertretungen stehen in der Historie (`plan_publish`)
+    await recordSubstitutionChanges(tx, actorId, deletedEntries(gone, "plan_publish"));
     const removedSubstitutions = removed.length;
     for (const part of chunks(later.map((l) => l.id))) await tx.delete(timetableLessons).where(inArray(timetableLessons.id, part));
     for (const part of chunks(running.map((l) => l.id))) await tx.update(timetableLessons).set({ validUntil: dayBefore }).where(inArray(timetableLessons.id, part));
@@ -1233,6 +1248,9 @@ function substitutionsToRestore(subs: UndoSubstitution[], lessons: Map<string, V
       mergeLessonId: s.mergeLessonId ?? null,
       createdBy: keep(s.createdBy, ids.users),
       createdAt: new Date(s.createdAt),
+      reason: s.reason ?? null,
+      internalNote: s.internalNote ?? null,
+      supervisionOnly: s.kind === "substitute" && (s.supervisionOnly ?? false),
     }));
 }
 
@@ -1346,7 +1364,8 @@ export async function undoApply(db: Db, actorId: string, runId: string, todayYmd
     const s = await undoState(tx, run);
     const ownIds = s.own.map((l) => l.id);
     const counts = await countOnLessons(tx, ownIds);
-    // 1. eigene Stunden weg (Vertretungen/Material per Cascade, Klassenbuch-Bezug wird leer)
+    // 1. eigene Stunden weg (Vertretungen/Material per Cascade, Klassenbuch-Bezug wird leer); VT-01: die Vertretungen in die Historie
+    await recordLessonCascade(tx, actorId, ownIds, "plan_undo");
     for (const part of chunks(ownIds)) await tx.delete(timetableLessons).where(inArray(timetableLessons.id, part));
     // 2. beendete Stunden wieder verlängern – nur, wenn sie noch so enden, wie die Übernahme sie hinterlassen hat
     let restored = 0;
@@ -1378,9 +1397,8 @@ export async function undoApply(db: Db, actorId: string, runId: string, todayYmd
     // 4. SP-13: entfernte Vertretungen wieder anlegen, sofern ihre Stunde (bei Zusammenlegungen auch die aufnehmende) an dem Tag jetzt wieder gilt
     const lessonsNow = await lessonValidity(tx, referencedLessons(s.subs));
     let restoredSubstitutions = 0;
-    for (const part of chunks(substitutionsToRestore(s.subs, lessonsNow, s.existing)))
-      restoredSubstitutions += (
-        await tx
+    for (const part of chunks(substitutionsToRestore(s.subs, lessonsNow, s.existing))) {
+      const back = await tx
           .insert(timetableSubstitutions)
           .values(part)
           // eine inzwischen aufgehobene Zusammenlegung (aufnehmende Stunde gelöscht, `merge_lesson_id` leer) am selben Tag weicht der alten Vertretung
@@ -1397,11 +1415,24 @@ export async function undoApply(db: Db, actorId: string, runId: string, todayYmd
               mergeLessonId: sql`excluded.merge_lesson_id`,
               createdBy: sql`excluded.created_by`,
               createdAt: sql`excluded.created_at`,
+              reason: sql`excluded.reason`,
+              internalNote: sql`excluded.internal_note`,
+              supervisionOnly: sql`excluded.supervision_only`,
+              updatedBy: sql`null`,
+              updatedAt: sql`null`,
+              acknowledgedAt: sql`null`,
             },
             setWhere: sql`${timetableSubstitutions.kind} = 'merge' and ${timetableSubstitutions.mergeLessonId} is null`,
           })
-          .returning({ id: timetableSubstitutions.id })
-      ).length;
+          .returning();
+      restoredSubstitutions += back.length;
+      // VT-01: wiederhergestellte Vertretungen stehen in der Historie (`plan_undo`)
+      await recordSubstitutionChanges(
+        tx,
+        actorId,
+        back.map((r) => ({ action: "plan_undo" as const, date: r.date, lessonId: r.lessonId, substitutionId: r.id, before: null, after: snapshotOf(r) })),
+      );
+    }
     const result: UndoPreview = {
       lessons: ownIds.length,
       changed: s.changed,
