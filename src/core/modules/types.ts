@@ -27,6 +27,12 @@ export interface ModuleNavItem {
    * sie bekommen, was sonst an die Eltern geht (G4D-C09)
    */
   selfResponsible?: boolean;
+  /**
+   * Nur für Lehrkräfte, die mindestens eine Klasse leiten (Klassenleitung) – unabhängig von Rechten des Moduls
+   * (TD-11: Bücherei „Meine Klasse“ ohne `buecherei.use`). Wirkt zusätzlich zu `requires`: ohne `requires` genügt die Klassenleitung,
+   * mit `requires` zeigt der Eintrag sich bei Recht ODER Klassenleitung.
+   */
+  classLead?: boolean;
   /** eigenes Icon (sonst das des Moduls) */
   icon?: string;
   /**

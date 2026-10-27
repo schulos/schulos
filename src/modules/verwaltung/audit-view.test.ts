@@ -25,10 +25,7 @@ function auditActionsInSource(): Map<string, string> {
   return out;
 }
 
-describe("Protokoll-Beschriftungen (Review R3 N6)", () => {
-  // Bereiche aus SP2 und die im Review genannten Aktionen – jede geschriebene Aktion braucht eine deutsche Beschriftung
-  const SCOPES = ["stundenplan.", "kurswahl.", "verwaltung.room.", "buecherei.material.return_day", "buecherei.compensation."];
-
+describe("Protokoll-Beschriftungen (Review R3 N6, TD-12)", () => {
   it("findet die Aktionen im Code (Plausibilität der Suche)", () => {
     const found = auditActionsInSource();
     expect(found.has("verwaltung.room.activate")).toBe(true);
@@ -36,8 +33,8 @@ describe("Protokoll-Beschriftungen (Review R3 N6)", () => {
     expect(found.size).toBeGreaterThan(100);
   });
 
-  it("jede Aktion aus SP2-Bereichen hat eine deutsche Beschriftung", () => {
-    const missing = [...auditActionsInSource()].filter(([a]) => SCOPES.some((s) => a.startsWith(s)) && !ACTION_LABELS[a]).map(([a, f]) => `${a} (${f})`);
+  it("jede im Code geschriebene Aktion hat eine deutsche Beschriftung (TD-12)", () => {
+    const missing = [...auditActionsInSource()].filter(([a]) => !ACTION_LABELS[a]).map(([a, f]) => `${a} (${f})`);
     expect(missing).toEqual([]);
   });
 });
