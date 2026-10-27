@@ -246,12 +246,12 @@ test("Setzhilfe: offene Stunden setzen, belegte Felder mit Grund, Stunde tausche
 
   await page.goto("/planung/stundenplan?gruppe=g-6b");
   const panel = page.getByRole("article", { name: "Offene Stunden" });
-  await panel.getByRole("link", { name: "Setzen: Französisch · WAG, 2 von 2 offen" }).click();
+  await panel.getByRole("link", { name: /^Französisch · WAG.*2 von 2 offen/ }).click();
   await expect(page).toHaveURL(/setzen=/);
   // belegte Felder nennen den Grund
   await expect(page.getByRole("list", { name: / belegt$/ }).filter({ hasText: "Klasse 6b hat" }).first()).toBeVisible();
   await page.getByRole("button", { name: /^Hier setzen: / }).first().click();
-  await expect(panel.getByRole("link", { name: "Setzen beenden: Französisch · WAG, 1 von 2 offen" })).toBeVisible();
+  await expect(panel.getByRole("link", { name: /^Französisch · WAG.*1 von 2 offen/ })).toBeVisible();
   await page.screenshot({ path: ".data/shots/e2e/stundenplan-setzhilfe.png", fullPage: true });
   await page.getByRole("button", { name: /^Hier setzen: / }).first().click();
   await expect(page).not.toHaveURL(/setzen=/);

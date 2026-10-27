@@ -11,10 +11,8 @@ const NAME = `E2E Entwurf ${tag}`;
 const RUN = `E2E Lauf im Entwurf ${tag}`;
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"];
 
-// Die Links „Setzen: …“ der offenen Stunden (seit P2b-12) haben einen eigenen Namen statt des sichtbaren Texts (axe best-practice
-// „label-content-name-mismatch“) – andere Specs bedienen genau diese Namen; hier deshalb ausgenommen, nicht Teil von SP3-02.
 async function axe(page: Page, label: string) {
-  const res = await new AxeBuilder({ page }).withTags(TAGS).include("main").exclude('[aria-labelledby="open-title"] ul').analyze();
+  const res = await new AxeBuilder({ page }).withTags(TAGS).include("main").analyze();
   expect(res.violations.map((v) => `${label}: ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 }
 
@@ -49,7 +47,7 @@ test("SP3-02: Quelle wählen, Stunde im Entwurf setzen, Lauf in den Entwurf übe
   await expect(page.getByTestId("entwurf-hinweis")).toBeVisible();
 
   // Stunde im Entwurf löschen → offen → mit der Setzhilfe in ein freies Feld setzen
-  const openDeutsch = page.getByRole("link", { name: /^Setzen: Deutsch/ });
+  const openDeutsch = page.locator('[aria-labelledby="open-title"]').getByRole("link", { name: /^Deutsch/ });
   const openBefore = await openDeutsch.count();
   await plan.getByRole("link", { name: /^Deutsch BRA/ }).first().click();
   await expect(page.getByRole("heading", { name: /^Stunde bearbeiten/ })).toBeVisible();

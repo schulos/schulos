@@ -22,14 +22,13 @@ async function axeClean(page: Page, where: string) {
   ).toEqual([]);
 }
 
-const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-/** Morgen – am Wochenende der Montag (die E2E-Datenbank hat keine Ferien). */
+/** Morgen (Schulort Berlin, nicht die Zeitzone des Testrechners) – am Wochenende der Montag (die E2E-Datenbank hat keine Ferien). */
 function tomorrowSchoolDay(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-  return ymd(d);
+  // „heute“ in Berlin als Kalendertag; mittags gerechnet, damit Sommer-/Winterzeit nichts verschiebt
+  const [y, m, day] = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" }).format(new Date()).split("-").map(Number);
+  const d = new Date(Date.UTC(y!, m! - 1, day! + 1, 12));
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 const stundeOf = (url: string) => new URL(url).searchParams.get("stunde");
