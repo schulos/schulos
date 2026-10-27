@@ -211,6 +211,9 @@ test("SP2-11: Tagesgeschäft – Bereitschaft oben in den Vorschlägen, Verlegun
   const teachers = await standby.getByLabel("Lehrkraft").locator("option").count();
   let code = "";
   for (let i = 1; i < teachers && !code; i++) {
+    // je Versuch frisch laden: sonst setzt die Antwort des vorigen (abgelehnten) Versuchs das Formular zurück, während schon der
+    // nächste gewählt ist, und die alte Meldung gilt als Antwort (SQ-01: im neuen Demo-Plan ist die erste Lehrkraft nicht frei)
+    if (i > 1) await page.goto("/planung/vertretungen/bereitschaft");
     await standby.getByLabel("Lehrkraft").selectOption({ index: i });
     await standby.getByLabel("Wochentag").selectOption(String(weekday));
     await standby.getByLabel("Stunde").selectOption(String(period));

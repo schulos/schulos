@@ -207,6 +207,16 @@ unverändert ≤ 1 %, der Test prüft zusätzlich, dass mindestens 20 bzw. 10 Le
 „geteilter Sport“ 10/2 395, Bänder 0/2 091, „Oberstufe mit Jahrgang“ 0/1 985, „Tagesgrenzen“ 9/2 156, „Lehrkraft-Tagesregeln“ 1/3 397 – je
 nicht gesetzt/Bewertung, Laufzeiten 0,67–0,79 s).
 
+**Nachmessung SQ-01 (2026-10-27, Zugwahl der lokalen Suche):** vorher waren ~88 % der Verbesserungsschritte wirkungslos (Zielplatz unzulässig,
+gleicher Platz oder kein Tauschpartner), nur ~10 % wurden bewertet – die Suche hing nicht in lokalen Optima, ihr reichte das Budget nicht (eine
+spätere Annahme, Late Acceptance Hill Climbing, und Simulated Annealing brachten gemessen nichts und sind verworfen). Jetzt rechnet ein Schritt die Kosten
+erst für einen zulässigen Kandidaten und zieht beim Verschieben bis zu 8 Zielplätze, bis einer zulässig ist. Groß-Benchmark: Bewertung **2 163 → 1 904**,
+Hohlstunden Lehrkräfte 169 → 132, Klassen 13 → 3, 9 nicht gesetzt (unverändert, Konstruktion gleich), gesamt 0,8 s; „geteilter Sport“ 2 395 → 2 199,
+Bänder 2 091 → 1 850, „Oberstufe mit Jahrgang“ 1 985 → 1 809, „Tagesgrenzen“ 2 156 → 2 007, „Lehrkraft-Tagesregeln“ 3 397 → 3 211 (nicht gesetzt jeweils
+unverändert). Über Startwerte 1–5 (Mittel, nur lokale Suche): kleine Schule (2-zügig, ~380 Einheiten) schnell/normal/gründlich 261 → 211, 214 → 155,
+151 → 109 bei 39/142/547 → 39/132/545 ms; große Schule 2 409 → 2 239, 2 155 → 1 916, 1 823 → 1 653 bei 107/430/1 731 → 101/400/1 620 ms – jeder
+Startwert besser, Laufzeit gleich. Grenzwerte unverändert; der Test hält den neuen Stand als Obergrenze der Bewertung fest.
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:
