@@ -338,7 +338,8 @@ jobs:
   # (die Projektleitung bekommt es mit; den Tag setzt ein Admin, siehe release/README.md)
   melden:
     needs: release
-    if: github.event_name != 'push' && needs.release.result == 'success' && needs.release.outputs.due != ''
+    # always(): update-test ist im Prüflauf übersprungen – ohne always() übersprängen auch alle Folgejobs
+    if: always() && github.event_name != 'push' && needs.release.result == 'success' && needs.release.outputs.due != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
