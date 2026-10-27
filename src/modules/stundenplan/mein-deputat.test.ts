@@ -4,7 +4,7 @@ import type { DbHandle } from "@/core/db/client";
 import { timetableLessons, timetableSubstitutions } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { readSchoolSettings } from "@/core/settings";
-import { addReduction, defaultObligation, deputyAccounts } from "./deputate";
+import { addReduction, defaultObligation, deputyAccounts, setDeputy } from "./deputate";
 import { myDeputy, ownSubstitutions } from "./mein-deputat";
 import { distribution, planningYear } from "./verteilung";
 
@@ -39,7 +39,7 @@ describe("Mein Deputat (Q5-09)", () => {
     await addReduction(h.db, "u-admin", { schoolYearId: year.id, teacherId: "u-jana.brandt", reason: "klassenleitung", hours: 1, note: null });
     const mine = (await myDeputy(h.db, "u-jana.brandt", today))!;
     const d = await distribution(h.db, year, today);
-    const all = await deputyAccounts(h.db, year.id, d.teachers, defaultObligation((await readSchoolSettings(h.db)).profile.form));
+    const all = await deputyAccounts(h.db, year.id, d.teachers, defaultObligation((await readSchoolSettings(h.db)).profile.form), d.refYmd);
     expect(mine.account).toEqual(all.find((a) => a.id === "u-jana.brandt"));
     expect(mine.account!.reductions.map((r) => r.reason)).toContain("klassenleitung");
     expect(mine).toMatchObject({ inYear: { covered: 1 }, inMonth: { covered: 1, given: 0 }, monthFrom: "2026-10-01" });
@@ -47,5 +47,23 @@ describe("Mein Deputat (Q5-09)", () => {
     expect(JSON.stringify(mine)).not.toContain("u-tobias.kleine");
     // Person ohne Unterricht: kein Konto
     expect((await myDeputy(h.db, "u-admin", today))!.account).toBeNull();
+  });
+
+  it("SP3-DEP: eigene Rechnung am Stichtag – Teilzeit, Pflicht 2. Halbjahr, Anrechnung ab dem 2. Halbjahr; gleich wie in der Planung", async () => {
+    const year = (await planningYear(h.db))!;
+    const fallback = defaultObligation((await readSchoolSettings(h.db)).profile.form);
+    await setDeputy(h.db, "u-admin", year.id, "u-jana.brandt", { obligation: null, employmentPercent: 80, obligationTerm2: 18 }, fallback);
+    await addReduction(h.db, "u-admin", { schoolYearId: year.id, teacherId: "u-jana.brandt", reason: "fachleitung", hours: 2, note: null, validFrom: "2027-02-01" });
+    const now = (await myDeputy(h.db, "u-jana.brandt", today))!;
+    expect(now.refYmd).toBe(today);
+    expect(now.account).toMatchObject({ obligation: 20.5, term: 1, settings: { employmentPercent: 80 }, otherReductions: [{ reason: "fachleitung" }] });
+    expect(now.account!.terms?.map((t) => [t.obligation, t.target])).toEqual([
+      [20.5, 18.5],
+      [18, 14],
+    ]);
+    const later = (await myDeputy(h.db, "u-jana.brandt", "2027-03-01"))!;
+    expect(later.account).toMatchObject({ obligation: 18, term: 2, target: 14 });
+    const d = await distribution(h.db, year, "2027-03-01");
+    expect(later.account).toEqual((await deputyAccounts(h.db, year.id, d.teachers, fallback, d.refYmd)).find((a) => a.id === "u-jana.brandt"));
   });
 });

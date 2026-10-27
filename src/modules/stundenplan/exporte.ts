@@ -197,7 +197,7 @@ async function deputate(db: Db, today: string): Promise<ExportTable> {
   const head = ["Kürzel", "Name", "Pflichtstunden", "Ermäßigungen/Anrechnungen", "Soll", "Lehraufträge", "verplant", "Saldo", "max. Std./Tag", "max. Anwesenheitstage"];
   if (!year) return { art: "deputate", title: EXPORT_LABELS.deputate, subtitle: "Kein Schuljahr angelegt", filename: "deputate", head, rows: [] };
   const [d, school] = await Promise.all([distribution(db, year, today), readSchoolSettings(db)]);
-  const accounts = await deputyAccounts(db, year.id, d.teachers, defaultObligation(school.profile.form));
+  const accounts = await deputyAccounts(db, year.id, d.teachers, defaultObligation(school.profile.form), d.refYmd);
   const rows = accounts
     .map((a) => [
       a.code ?? "",

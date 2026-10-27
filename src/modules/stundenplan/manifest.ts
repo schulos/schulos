@@ -81,14 +81,14 @@ export default defineModule({
     {
       table: "timetable_deputies",
       purpose: "Deputat planen",
-      categories: ["Lehrkraft", "Pflichtstunden"],
+      categories: ["Lehrkraft", "Pflichtstunden (auch 2. Halbjahr)", "Teilzeit-Anteil"],
       class: "LK-SJ-1J",
       start: "school_year_id",
     },
     {
       table: "timetable_reductions",
       purpose: "Deputat planen (Ermäßigungen und Anrechnungen)",
-      categories: ["Lehrkraft", "Grund (feste Liste, ohne Gesundheitsbezug)", "Stunden", "Ergänzung"],
+      categories: ["Lehrkraft", "Grund (feste Liste, ohne Gesundheitsbezug)", "Stunden", "Ergänzung", "gültig ab/bis"],
       class: "LK-SJ-1J",
       start: "school_year_id",
     },

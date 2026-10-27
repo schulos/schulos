@@ -750,6 +750,13 @@
       "when": 1793040175269,
       "tag": "0106_r1b_vertretung_pruefen",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1793076981931,
+      "tag": "0107_sp3_dep_deputat",
+      "breakpoints": true
     }
   ]
 }

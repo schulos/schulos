@@ -259,5 +259,5 @@ export async function loadPickList(db: Db, todayYmd: string): Promise<PickTeache
     return rows.map((t) => ({ ...t, subjectIds: map.get(t.id) ?? [], rest: null }));
   }
   const [d, school, map] = await Promise.all([distribution(db, year, todayYmd), readSchoolSettings(db), teacherSubjectMap(db)]);
-  return pickList(await deputyAccounts(db, year.id, d.teachers, defaultObligation(school.profile.form)), map, active);
+  return pickList(await deputyAccounts(db, year.id, d.teachers, defaultObligation(school.profile.form), d.refYmd), map, active);
 }

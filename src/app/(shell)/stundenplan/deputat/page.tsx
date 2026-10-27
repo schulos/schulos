@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { REDUCTION_LABELS, reductionKind } from "@/modules/stundenplan/deputate";
+import { REDUCTION_LABELS, reductionKind, type Reduction } from "@/modules/stundenplan/deputate";
 import { teacherRuleSummary } from "@/modules/stundenplan/lehrkraftregeln";
 import { myDeputy, type OwnSubstitutions } from "@/modules/stundenplan/mein-deputat";
 import { Card, CardHeader } from "@schulos/ui/card";
@@ -14,6 +14,9 @@ export const metadata: Metadata = { title: "Mein Deputat" };
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: TZ });
 const fmt = (ymd: string) => dateFmt.format(fromBerlinLocal(ymd));
+/** SP3-DEP: Gültigkeit als Zusatz („ab …“, „bis …“); ganzes Schuljahr ohne Zusatz */
+const validity = (r: Reduction) =>
+  r.validFrom && r.validUntil ? `, ${fmt(r.validFrom)} – ${fmt(r.validUntil)}` : r.validFrom ? `, ab ${fmt(r.validFrom)}` : r.validUntil ? `, bis ${fmt(r.validUntil)}` : "";
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
@@ -59,9 +62,12 @@ export default async function MeinDeputatPage() {
               <p className="text-sm text-muted">Für dich ist im Schuljahr nichts verplant.</p>
             ) : (
               <dl>
+                {/* SP3-DEP: Rechnung am Stichtag (heute) – Pflicht des Halbjahrs, nur geltende Ermäßigungen/Anrechnungen */}
+                <Row label="Stand" value={`${fmt(data.refYmd)}${data.account.terms ? ` (${data.account.term}. Halbjahr)` : ""}`} />
+                {data.account.settings.employmentPercent !== null && <Row label="Teilzeit-Anteil" value={`${num.format(data.account.settings.employmentPercent)} %`} />}
                 <Row label={data.account.isDefault ? "Pflichtstunden (Vorgabe der Schulform)" : "Pflichtstunden"} value={num.format(data.account.obligation)} />
                 {data.account.reductions.map((r) => (
-                  <Row key={r.id} label={`${reductionKind(r.reason)}: ${REDUCTION_LABELS[r.reason]}${r.note ? ` (${r.note})` : ""}`} value={`− ${num.format(r.hours)}`} />
+                  <Row key={r.id} label={`${reductionKind(r.reason)}: ${REDUCTION_LABELS[r.reason]}${r.note ? ` (${r.note})` : ""}${validity(r)}`} value={`− ${num.format(r.hours)}`} />
                 ))}
                 <Row label="Soll" value={num.format(data.account.target)} strong />
                 <Row label="Lehraufträge" value={num.format(data.account.assigned)} />
@@ -72,6 +78,12 @@ export default async function MeinDeputatPage() {
                   strong
                 />
                 {data.account.dayRule && <Row label="Tagesregel für die Stundenplanung" value={teacherRuleSummary(data.account.dayRule)} />}
+                {data.account.terms?.map((t) => (
+                  <Row key={t.term} label={`${t.term}. Halbjahr (ab ${fmt(t.from)}): Pflicht ${num.format(t.obligation)}`} value={`Soll ${num.format(t.target)}`} />
+                ))}
+                {data.account.otherReductions.map((r) => (
+                  <Row key={r.id} label={`gilt heute nicht – ${reductionKind(r.reason)}: ${REDUCTION_LABELS[r.reason]}${validity(r)}`} value={num.format(r.hours)} />
+                ))}
               </dl>
             )}
           </Card>

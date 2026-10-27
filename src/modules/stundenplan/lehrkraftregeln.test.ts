@@ -213,7 +213,7 @@ describe("Tagesregeln je Lehrkraft (Demo-Schule)", () => {
     await saveTeacherRule(h.db, "u-admin", year.id, t!.id, { maxPerDay: 6, maxDays: 4 });
     expect((await listTeacherRules(h.db, year.id)).get(t!.id)).toEqual({ maxPerDay: 6, maxDays: 4 });
     const d = await distribution(h.db, year, today);
-    const acc = (await deputyAccounts(h.db, year.id, d.teachers, 25.5)).find((a) => a.id === t!.id);
+    const acc = (await deputyAccounts(h.db, year.id, d.teachers, 25.5, d.refYmd)).find((a) => a.id === t!.id);
     expect(acc?.dayRule).toEqual({ maxPerDay: 6, maxDays: 4 });
     const input = await solverInputFromDb(h.db, year, today, { seed: 1 });
     expect(input.teacherRules?.get(t!.id)).toEqual({ maxPerDay: 6, maxDays: 4 });

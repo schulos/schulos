@@ -30,7 +30,7 @@ import { formName } from "@/core/school/catalog";
 import { classGrades, listGradeRules } from "@/modules/stundenplan/jahrgangsregeln";
 import { dayRuleFor, LUNCH_MIN_MINUTES, ruleSummary } from "@/modules/stundenplan/tagesgrenzen";
 import { DIAGNOSIS_CATEGORIES, diagnoseYear, type DiagnosisCategory } from "@/modules/stundenplan/diagnose";
-import { defaultObligation, deputyAccounts, REDUCTION_LABELS, reductionKind, type DeputyAccount } from "@/modules/stundenplan/deputate";
+import { defaultObligation, deputyAccounts, REDUCTION_LABELS, reductionKind, type DeputyAccount, type Reduction } from "@/modules/stundenplan/deputate";
 import { timetableMasterData } from "@/modules/stundenplan/service";
 import { bandMembers, freeAssignments, validityLabel as validityText } from "@/modules/stundenplan/baender-ansicht";
 import { distribution, planningYear, PLANNED_GROUP_KINDS, type Assignment, type Distribution } from "@/modules/stundenplan/verteilung";
@@ -98,7 +98,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
     activeTeacherIds(db), // R2-P2: nur aktive Lehrkräfte vorschlagen
   ]);
   const fallback = defaultObligation(school.profile.form);
-  const accounts = await deputyAccounts(db, year.id, d.teachers, fallback);
+  const accounts = await deputyAccounts(db, year.id, d.teachers, fallback, d.refYmd);
   const subjectOptions = master.subjects.map((s) => ({ value: s.id, label: s.name, color: s.color }));
   const teachersView = sp.ansicht === "lehrkraefte";
   const diagnoseView = sp.ansicht === "diagnose";
@@ -254,7 +254,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
       ) : group ? (
         <GroupDetail d={d} groupId={group.id} current={current} />
       ) : teacher ? (
-        <TeacherDetail d={d} account={accounts.find((a) => a.id === teacher.id)!} fallback={fallback} current={current} subjects={subjectOptions} selected={fakultas.get(teacher.id) ?? []} />
+        <TeacherDetail d={d} year={year} account={accounts.find((a) => a.id === teacher.id)!} fallback={fallback} current={current} subjects={subjectOptions} selected={fakultas.get(teacher.id) ?? []} />
       ) : teachersView ? (
         <TeacherOverview accounts={accounts} fakultas={fakultas} />
       ) : (
@@ -374,6 +374,14 @@ function TeacherOverview({ accounts, fakultas }: { accounts: DeputyAccount[]; fa
               <td className="text-right tabular-nums">
                 {num.format(t.target)}
                 {t.target !== t.obligation && <span className="block text-xs text-muted">von {num.format(t.obligation)}</span>}
+                {/* SP3-DEP: anderes Halbjahr, wenn es abweicht */}
+                {t.terms
+                  ?.filter((x) => x.term !== t.term)
+                  .map((x) => (
+                    <span key={x.term} className="block text-xs text-muted">
+                      {x.term}. Hj: {num.format(x.target)}
+                    </span>
+                  ))}
               </td>
               <td className="text-right tabular-nums">{num.format(t.assigned)}</td>
               <td className="text-right">
@@ -565,8 +573,21 @@ function GroupDetail({ d, groupId, current }: { d: Distribution; groupId: string
   );
 }
 
-function DeputyCard({ account: a, fallback }: { account: DeputyAccount; fallback: number }) {
+type DeputyYear = { startsOn: string; endsOn: string; term2StartsOn: string | null };
+
+const ymdDe = (ymd: string) => dateFmt.format(new Date(`${ymd}T00:00:00Z`));
+
+/** SP3-DEP: Gültigkeit einer Ermäßigung/Anrechnung, kurz */
+function reductionValidity(r: Reduction): string {
+  if (!r.validFrom && !r.validUntil) return "ganzes Schuljahr";
+  if (r.validFrom && r.validUntil) return `${ymdDe(r.validFrom)} – ${ymdDe(r.validUntil)}`;
+  return r.validFrom ? `ab ${ymdDe(r.validFrom)}` : `bis ${ymdDe(r.validUntil!)}`;
+}
+
+function DeputyCard({ account: a, fallback, year, refYmd }: { account: DeputyAccount; fallback: number; year: DeputyYear; refYmd: string }) {
   const reductionSum = a.reductions.reduce((s, r) => s + r.hours, 0);
+  const all = [...a.reductions.map((r) => ({ r, active: true })), ...a.otherReductions.map((r) => ({ r, active: false }))];
+  const term2From = year.term2StartsOn && year.term2StartsOn > year.startsOn && year.term2StartsOn <= year.endsOn ? year.term2StartsOn : null;
   return (
     <Card aria-labelledby="dep" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -574,21 +595,60 @@ function DeputyCard({ account: a, fallback }: { account: DeputyAccount; fallback
           Deputat
         </h3>
         <p className="text-sm text-muted">
-          Pflicht {num.format(a.obligation)}
-          {a.isDefault && " (Vorgabe)"} − Ermäßigungen/Anrechnungen {num.format(reductionSum)} = <strong className="text-ink">Soll {num.format(a.target)}</strong> · Lehraufträge {num.format(a.assigned)} ·{" "}
-          Saldo <Balance balance={a.balance} />
+          Am {ymdDe(refYmd)}
+          {term2From && ` (${a.term}. Halbjahr)`}: Pflicht {num.format(a.obligation)}
+          {a.isDefault && " (Vorgabe)"}
+          {a.settings.employmentPercent !== null && ` · Teilzeit ${num.format(a.settings.employmentPercent)} %`} − Ermäßigungen/Anrechnungen {num.format(reductionSum)} ={" "}
+          <strong className="text-ink">Soll {num.format(a.target)}</strong> · Lehraufträge {num.format(a.assigned)} · Saldo <Balance balance={a.balance} />
         </p>
       </div>
-      <ObligationForm action={saveObligationAction.bind(null, a.id)} value={a.isDefault ? "" : num.format(a.obligation)} fallback={num.format(fallback)} />
+      {/* SP3-DEP: beide Halbjahre, wenn Pflicht oder Soll sich unterscheiden */}
+      {a.terms && (
+        <Table scrollLabel="Deputat je Halbjahr (Tabelle)">
+          <caption className="sr-only">Deputat je Halbjahr</caption>
+          <thead>
+            <tr>
+              <th>Halbjahr</th>
+              <th>Zeitraum</th>
+              <th className="text-right">Pflicht</th>
+              <th className="text-right">Soll am Halbjahresbeginn</th>
+            </tr>
+          </thead>
+          <tbody>
+            {a.terms.map((t) => (
+              <tr key={t.term} aria-current={t.term === a.term ? "true" : undefined}>
+                <td>
+                  {t.term}. Halbjahr {t.term === a.term && <Badge tone="accent">Stichtag</Badge>}
+                </td>
+                <td className="text-muted">
+                  {ymdDe(t.from)} – {ymdDe(t.until)}
+                </td>
+                <td className="text-right tabular-nums">{num.format(t.obligation)}</td>
+                <td className="text-right tabular-nums">{num.format(t.target)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+      <ObligationForm
+        key={a.id}
+        action={saveObligationAction.bind(null, a.id)}
+        value={a.settings.obligation === null ? "" : num.format(a.settings.obligation)}
+        percent={a.settings.employmentPercent === null ? "" : num.format(a.settings.employmentPercent)}
+        term2={a.settings.obligationTerm2 === null ? "" : num.format(a.settings.obligationTerm2)}
+        term2From={term2From ? ymdDe(term2From) : null}
+        fallback={fallback}
+      />
       {/* SP2-04: Tagesregel (hart im Solver und in der Setzhilfe, geprüft in der Diagnose) */}
       <TeacherDayRuleForm action={saveTeacherDayRuleAction.bind(null, a.id)} maxPerDay={a.dayRule?.maxPerDay?.toString() ?? ""} maxDays={a.dayRule?.maxDays?.toString() ?? ""} />
-      {a.reductions.length > 0 && (
-        <Table>
+      {all.length > 0 && (
+        <Table scrollLabel="Ermäßigungen und Anrechnungen (Tabelle)">
           <caption className="sr-only">Ermäßigungen und Anrechnungen</caption>
           <thead>
             <tr>
               <th>Grund</th>
               <th>Art</th>
+              <th>gültig</th>
               <th className="text-right">Stunden</th>
               <th>
                 <span className="sr-only">Aktionen</span>
@@ -596,13 +656,22 @@ function DeputyCard({ account: a, fallback }: { account: DeputyAccount; fallback
             </tr>
           </thead>
           <tbody>
-            {a.reductions.map((r) => (
-              <tr key={r.id}>
+            {all.map(({ r, active }) => (
+              <tr key={r.id} className={active ? undefined : "text-muted"}>
                 <td>
                   {REDUCTION_LABELS[r.reason]}
                   {r.note && <span className="text-muted"> · {r.note}</span>}
                 </td>
                 <td className="text-muted">{reductionKind(r.reason)}</td>
+                <td>
+                  {reductionValidity(r)}
+                  {!active && (
+                    <>
+                      {" "}
+                      <Badge>gilt am Stichtag nicht</Badge>
+                    </>
+                  )}
+                </td>
                 <td className="text-right tabular-nums">{num.format(r.hours)}</td>
                 <td className="text-right">
                   <form action={deleteReductionAction.bind(null, r.id, a.id)}>
@@ -616,13 +685,20 @@ function DeputyCard({ account: a, fallback }: { account: DeputyAccount; fallback
           </tbody>
         </Table>
       )}
-      <ReductionForm action={addReductionAction.bind(null, a.id)} reasons={REDUCTION_REASONS.map((r) => ({ value: r, label: `${REDUCTION_LABELS[r]} (${reductionKind(r)})` }))} />
+      <ReductionForm
+        action={addReductionAction.bind(null, a.id)}
+        reasons={REDUCTION_REASONS.map((r) => ({ value: r, label: `${REDUCTION_LABELS[r]} (${reductionKind(r)})` }))}
+        min={year.startsOn}
+        max={year.endsOn}
+        term2From={term2From ? ymdDe(term2From) : null}
+      />
     </Card>
   );
 }
 
 function TeacherDetail({
   d,
+  year,
   account,
   fallback,
   current,
@@ -630,6 +706,7 @@ function TeacherDetail({
   selected,
 }: {
   d: Distribution;
+  year: DeputyYear;
   account: DeputyAccount;
   fallback: number;
   current: Current;
@@ -657,7 +734,7 @@ function TeacherDetail({
         </h3>
         <TeacherSubjectsForm action={saveTeacherSubjectsAction.bind(null, t.id)} subjects={subjects} selected={selected} />
       </Card>
-      <DeputyCard account={account} fallback={fallback} />
+      <DeputyCard account={account} fallback={fallback} year={year} refYmd={d.refYmd} />
       <AssignmentTable rows={rows} bands={d.bands} current={current} caption={`Lehraufträge ${t.name}`} show="groups" />
       <Unmatched rows={d.unmatched.filter((l) => l.teacherId === teacherId)} />
     </section>
