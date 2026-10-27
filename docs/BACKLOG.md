@@ -619,7 +619,7 @@ vor dem PR auf aktuellem `main`.
 einarbeiten). SQ-01 läuft parallel zu SP3 (nur Solver-Kern), SQ-02/SQ-03 nach SP3-02 (brauchen den Entwurf). Jede Änderung wird am
 Benchmark gemessen; SQ setzt bewusst einen neuen Benchmark-Stand, die SP3-Pakete ändern den Solver-Kern nicht.
 
-- [ ] **SQ-01** (S) Bessere Annahme-Regel der lokalen Suche: zeitweise schlechtere Züge zulassen (Late Acceptance bzw. Simulated Annealing statt „nur nicht schlechter“), damit die Suche aus lokalen Optima herausfindet; deterministisch je Startwert; Vorher/Nachher-Messung im Benchmark (Bewertung, Restverstöße, Laufzeit) im PR (Projektleitung 2026-10-27)
+- [ ] **SQ-01** (S) Bessere Zugwahl der lokalen Suche: Zulässigkeit vor der Bewertung prüfen (schneller bei gleichem Ergebnis) und beim Verschieben mehrere Zielplätze ziehen, bis einer zulässig ist (heute sind ~88 % der Schritte wirkungslos); deterministisch je Startwert; Vorher/Nachher-Messung im Benchmark im PR. Gemessen und verworfen: Late Acceptance / Simulated Annealing (kein Gewinn – die Suche hängt nicht in lokalen Optima, sondern verschwendet Schritte) (Projektleitung 2026-10-27)
 - [ ] **SQ-02** (M) Warmstart „ab aktuellem Entwurf verbessern“: Lauf startet vom Entwurf statt von null, löst wiederholt einen Teil heraus (Tag, Lehrkraft, Jahrgang) und setzt ihn neu (Large Neighbourhood Search), übernimmt nur Verbesserungen; fixierte und von Hand gesetzte Stunden bleiben; Übernahme in den Entwurf mit Diff (Projektleitung 2026-10-27)
 - [ ] **SQ-03** (S) Mehrfachlauf: mehrere Startwerte nacheinander (bzw. Ketten von Warmstarts), der beste Lauf wird behalten und im Vergleich markiert; Abbrechen und Fortschritt wie beim Einzellauf (Projektleitung 2026-10-27)
 
