@@ -1,7 +1,5 @@
 // SP-07/SP-08: Vorschau eines Laufs als Wochenplan – gemeinsam für die Detailseite und den Vergleich (Wert `g:<id>` bzw. `t:<id>`).
-import { inArray } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { timetableLessons } from "@/core/db/schema";
 import {
   plannableGroups,
   teacherOptions,
@@ -9,6 +7,7 @@ import {
 } from "@/modules/stundenplan/manage";
 import { timetableMasterData } from "@/modules/stundenplan/service";
 import {
+  keptLessons,
   proposedLessons,
   type StoredResult,
 } from "@/modules/stundenplan/solverlauf";
@@ -85,12 +84,8 @@ export async function previewLessons(
   stored: StoredResult,
   p: PreviewTarget,
 ): Promise<PreviewLesson[]> {
-  const kept = stored.keptLessonIds.length
-    ? await db
-        .select()
-        .from(timetableLessons)
-        .where(inArray(timetableLessons.id, stored.keptLessonIds))
-    : [];
+  // SP3-02: bleibende Stunden aus der Quelle des Laufs (gültiger Plan oder Entwurf)
+  const kept = await keptLessons(db, stored);
   return [
     ...proposedLessons(stored).map((l) => ({ ...l, kept: false })),
     ...kept.map((l) => ({

@@ -1,13 +1,19 @@
 // SP-08: Vergleich von 2–3 Solver-Läufen – Auswahl prüfen und Kennzahlen nebeneinander mit bestem Wert und Delta zum ersten Lauf.
 // Rein (ohne Datenbank) bis auf `loadComparison`; die Kennzahlen kommen aus `metrics` (keine Diagnose je Aufruf).
+// SP3-02: zweite Quelle „Version“ – Variantenvergleich von Entwürfen/Versionen mit Kennzahlen aus ihrem Wochenplan (`loadVersionComparison`).
+import { eq } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
+import { groups, periods, schoolYears } from "@/core/db/schema";
 import { COST_LABELS, type CostItem } from "./solver";
 import {
   listRunSummaries,
   type RunMetrics,
   type RunSummary,
 } from "./solverlauf";
-import { DIAGNOSIS_LABELS } from "./diagnose";
+import { DIAGNOSIS_LABELS, diagnoseYear, gapsOf, type Finding } from "./diagnose";
+import { diffLessons, versionSide } from "./plan-diff";
+import { getVersion, versionNumber } from "./planversionen";
+import type { TimetablePlanVersion } from "./schema";
 
 export const MIN_COMPARE = 2;
 export const MAX_COMPARE = 3;
@@ -198,4 +204,111 @@ export async function loadComparison(
       rows: compareMetrics(list.map((r) => r.metrics!)),
     },
   };
+}
+
+// ---------------------------------------------------------------- Variantenvergleich (SP3-02, §2.5)
+
+/** Kennzahlen eines Wochenplans (Version) für den Variantenvergleich. */
+export interface PlanMetrics {
+  lessons: number;
+  withoutTeacher: number;
+  gaps: { teacherTotal: number; teacherMax: number; classTotal: number; classMax: number };
+  /** Diagnose-Zähler (Fehler + Warnungen) der Kategorien des Solver-Vergleichs */
+  diag: Record<"gaps" | "subjectDay" | "room", number>;
+  errors: number;
+  warnings: number;
+}
+
+/** Rein: Hohlstunden je Lehrkraft und Klasse (je Tag zwischen erster und letzter Stunde; A/B-Wochen zählen wie jede Woche). */
+export function planGaps(
+  lessons: readonly { groupId: string; teacherId: string | null; weekday: number; periodNr: number }[],
+  periodNrs: number[],
+  classIds: ReadonlySet<string>,
+): PlanMetrics["gaps"] {
+  const count = (key: (l: (typeof lessons)[number]) => string | null) => {
+    const days = new Map<string, { id: string; periods: Set<number> }>();
+    for (const l of lessons) {
+      const id = key(l);
+      if (!id) continue;
+      const d = `${id}|${l.weekday}`;
+      const entry = days.get(d) ?? { id, periods: new Set<number>() };
+      entry.periods.add(l.periodNr);
+      days.set(d, entry);
+    }
+    const per = new Map<string, number>();
+    for (const { id, periods: ps } of days.values()) per.set(id, (per.get(id) ?? 0) + gapsOf(ps, periodNrs).length);
+    const values = [...per.values()];
+    return { total: values.reduce((s, x) => s + x, 0), max: Math.max(0, ...values) };
+  };
+  const t = count((l) => l.teacherId);
+  const c = count((l) => (classIds.has(l.groupId) ? l.groupId : null));
+  return { teacherTotal: t.total, teacherMax: t.max, classTotal: c.total, classMax: c.max };
+}
+
+/** Rein: Zeilen des Variantenvergleichs (kleiner ist besser; Wochenstunden nur zur Information). */
+export function compareVersionMetrics(metrics: PlanMetrics[]): CompareRow[] {
+  const pick = (f: (m: PlanMetrics) => number) => metrics.map(f);
+  return [
+    rowOf("lessons", "Wochenstunden", "gesamt", pick((m) => m.lessons), false),
+    rowOf("withoutTeacher", "Stunden ohne Lehrkraft", "gesamt", pick((m) => m.withoutTeacher)),
+    rowOf("errors", "Diagnose: Fehler", "gesamt", pick((m) => m.errors)),
+    rowOf("warnings", "Diagnose: Warnungen", "gesamt", pick((m) => m.warnings)),
+    rowOf("teacherTotal", "Hohlstunden Lehrkräfte (gesamt)", "hohlstunden", pick((m) => m.gaps.teacherTotal)),
+    rowOf("teacherMax", "Hohlstunden Lehrkräfte (höchstens je Lehrkraft)", "hohlstunden", pick((m) => m.gaps.teacherMax)),
+    rowOf("classTotal", "Hohlstunden Klassen (gesamt)", "hohlstunden", pick((m) => m.gaps.classTotal)),
+    rowOf("classMax", "Hohlstunden Klassen (höchstens je Klasse)", "hohlstunden", pick((m) => m.gaps.classMax)),
+    ...(["gaps", "subjectDay", "room"] as const).map((c) => rowOf(`diag-${c}`, DIAGNOSIS_LABELS[c], "diagnose", pick((m) => m.diag[c]))),
+  ];
+}
+
+export interface VersionColumn {
+  id: string;
+  label: string;
+  name: string;
+  status: TimetablePlanVersion["status"];
+  /** Tag, an dem der Wochenplan verglichen wird */
+  refYmd: string;
+}
+
+export type VersionComparisonResult = { ok: true; versions: VersionColumn[]; rows: CompareRow[] } | { ok: false; problem: string };
+
+/**
+ * Variantenvergleich (Quelle „Version“, §2.5): 2–3 Versionen desselben Schuljahrs – Entwürfe an ihrem Stichtag, veröffentlichte wie in der
+ * Versionsliste – mit Kennzahlen aus ihrem Wochenplan und der Diagnose gegen die jeweilige Quelle. Reihenfolge wie in der Auswahl
+ * (die erste ist die Bezugsgröße für die Deltas).
+ */
+export async function loadVersionComparison(db: Db, ids: string[], todayYmd: string, fallbackObligation: number): Promise<VersionComparisonResult> {
+  if (ids.length < MIN_COMPARE) return { ok: false, problem: `Für den Vergleich braucht es mindestens ${MIN_COMPARE} Versionen.` };
+  if (ids.length > MAX_COMPARE) return { ok: false, problem: `Verglichen werden höchstens ${MAX_COMPARE} Versionen.` };
+  const versions = await Promise.all(ids.map((id) => getVersion(db, id)));
+  if (versions.some((v) => !v)) return { ok: false, problem: "Mindestens eine Version wurde nicht gefunden (vielleicht gelöscht)." };
+  const list = versions as TimetablePlanVersion[];
+  if (new Set(list.map((v) => v.schoolYearId)).size > 1) return { ok: false, problem: "Die Versionen gehören zu verschiedenen Schuljahren." };
+  if (list.some((v) => v.status === "verworfen")) return { ok: false, problem: "Verworfene Versionen lassen sich nicht vergleichen." };
+  const [year] = await db.select().from(schoolYears).where(eq(schoolYears.id, list[0]!.schoolYearId));
+  if (!year) return { ok: false, problem: "Das Schuljahr gibt es nicht mehr." };
+  const [periodRows, classRows] = await Promise.all([
+    db.select({ nr: periods.nr }).from(periods).orderBy(periods.nr),
+    db.select({ id: groups.id }).from(groups).where(eq(groups.kind, "klasse")),
+  ]);
+  const periodNrs = periodRows.map((p) => p.nr);
+  const classIds = new Set(classRows.map((g) => g.id));
+  const columns: VersionColumn[] = [];
+  const metrics: PlanMetrics[] = [];
+  for (const v of list) {
+    const side = versionSide(v, todayYmd);
+    const lessons = await diffLessons(db, side);
+    const report = await diagnoseYear(db, year, side.refYmd, fallbackObligation, undefined, { source: side.source });
+    const sev = (c: Finding["category"]) => report.counts[c].error + report.counts[c].warn;
+    metrics.push({
+      lessons: lessons.length,
+      withoutTeacher: lessons.filter((l) => l.teacherId === null).length,
+      gaps: planGaps(lessons, periodNrs, classIds),
+      diag: { gaps: sev("gaps"), subjectDay: sev("subjectDay"), room: sev("room") },
+      errors: report.findings.filter((f) => f.severity === "error").length,
+      warnings: report.findings.filter((f) => f.severity === "warn").length,
+    });
+    columns.push({ id: v.id, label: versionNumber(v), name: v.name, status: v.status, refYmd: report.refYmd });
+  }
+  return { ok: true, versions: columns, rows: compareVersionMetrics(metrics) };
 }

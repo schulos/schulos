@@ -14,9 +14,14 @@ import {
 import {
   GROUP_LABELS,
   loadComparison,
+  loadVersionComparison,
   parseCompareIds,
   type CompareRow,
 } from "@/modules/stundenplan/solververgleich";
+import { STATUS_LABELS } from "@/modules/stundenplan/planversionen";
+import { defaultObligation } from "@/modules/stundenplan/deputate";
+import { readSchoolSettings } from "@/core/settings";
+import { toBerlinDate } from "@/core/time";
 import { Badge } from "@schulos/ui/badge";
 import { PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
@@ -54,11 +59,13 @@ const valueText = (row: CompareRow, v: number) =>
 export default async function SolverComparePage({
   searchParams,
 }: {
-  searchParams: Promise<{ laeufe?: string | string[]; vorschau?: string }>;
+  searchParams: Promise<{ laeufe?: string | string[]; vorschau?: string; versionen?: string | string[] }>;
 }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
   const sp = await searchParams;
+  // SP3-02: zweite Quelle „Version“ – Variantenvergleich von Entwürfen/Versionen
+  if (sp.versionen) return <VersionCompare ids={parseCompareIds(sp.versionen)} />;
   const ids = parseCompareIds(sp.laeufe);
   const db = await getDb();
   const result = await loadComparison(db, ids);
@@ -320,6 +327,105 @@ export default async function SolverComparePage({
           </div>
         )}
       </section>
+    </main>
+  );
+}
+
+const ymdFmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+
+/**
+ * SP3-02 (docs/STUNDENPLAN-LEBENSZYKLUS.md §2.5): Variantenvergleich – 2–3 Versionen (Entwürfe an ihrem Stichtag, veröffentlichte wie in
+ * der Versionsliste) mit Kennzahlen aus ihrem Wochenplan, bestem Wert je Zeile und Delta zur ersten; Sprung in die Änderungen je Person.
+ */
+async function VersionCompare({ ids }: { ids: string[] }) {
+  const db = await getDb();
+  const school = await readSchoolSettings(db);
+  const result = await loadVersionComparison(db, ids, toBerlinDate(new Date()), defaultObligation(school.profile.form));
+  const back = (
+    <Link href="/planung/versionen" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+      <ArrowLeft aria-hidden className="size-4" /> Planversionen
+    </Link>
+  );
+  if (!result.ok) {
+    return (
+      <main className="flex flex-col gap-6">
+        {back}
+        <PageHeader eyebrow="Stundenplanung · Planversionen" title="Varianten vergleichen" />
+        <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+          {result.problem}
+        </p>
+      </main>
+    );
+  }
+  const { versions, rows } = result;
+  const groups = [...new Set(rows.map((r) => r.group))];
+  const first = versions[0]!;
+  return (
+    <main className="flex flex-col gap-6">
+      {back}
+      <PageHeader eyebrow="Stundenplanung · Planversionen" title="Varianten vergleichen" />
+      <p className="-mt-3 max-w-3xl text-sm text-muted">
+        Kennzahlen aus dem Wochenplan jeder Version und der Diagnose gegen sie. Kleiner ist besser (Wochenstunden nur zur Information); der beste Wert ist markiert,
+        der Unterschied bezieht sich auf Version {first.label}.
+      </p>
+      <Table scrollLabel="Kennzahlen der Versionen im Vergleich">
+        <caption className="sr-only">Kennzahlen der verglichenen Versionen, bester Wert je Zeile markiert, Unterschied zur ersten Version</caption>
+        <thead>
+          <tr>
+            <th scope="col">Kennzahl</th>
+            {versions.map((v) => (
+              <th key={v.id} scope="col" className="min-w-40 !normal-case">
+                <span className="text-sm font-semibold tracking-normal">
+                  Version {v.label} „{v.name}“
+                </span>
+                <span className="mt-0.5 block text-xs font-normal tracking-normal text-muted">
+                  {STATUS_LABELS[v.status]} · Plan am {ymdFmt.format(new Date(`${v.refYmd}T00:00:00Z`))}
+                </span>
+                {v.id !== first.id && (
+                  <Link
+                    href={`/planung/versionen/aenderungen?version=${encodeURIComponent(v.id)}&mit=${encodeURIComponent(first.id)}`}
+                    className="mt-0.5 block text-xs font-normal tracking-normal text-accent-ink hover:underline"
+                  >
+                    Änderungen zu {first.label}
+                  </Link>
+                )}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        {groups.map((g) => (
+          <tbody key={g}>
+            <tr>
+              <th scope="colgroup" colSpan={versions.length + 1} className="bg-surface-2">
+                {g === "gesamt" ? "Plan und Diagnose" : GROUP_LABELS[g]}
+              </th>
+            </tr>
+            {rows
+              .filter((r) => r.group === g)
+              .map((row) => (
+                <tr key={row.key}>
+                  <th scope="row" className="!font-normal !tracking-normal !normal-case !text-ink">
+                    {row.label}
+                  </th>
+                  {row.values.map((v, i) => {
+                    const best = row.best.includes(i);
+                    return (
+                      <td key={versions[i]!.id} className={`tabular-nums ${best ? "bg-accent-soft font-semibold text-accent-ink" : ""}`}>
+                        {valueText(row, v)}
+                        {i > 0 && <span className="ml-2 text-xs font-normal text-muted">{deltaText(row, row.deltas[i]!)}</span>}
+                        {best && (
+                          <Badge tone="success" className="ml-2">
+                            <Check aria-hidden className="size-3" /> Bestwert
+                          </Badge>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+          </tbody>
+        ))}
+      </Table>
     </main>
   );
 }

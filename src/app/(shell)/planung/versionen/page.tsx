@@ -93,6 +93,16 @@ function VersionCard({ s }: { s: VersionSummary }) {
             </>
           )}
         </dl>
+        {open && (
+          <nav aria-label={`Entwurf ${s.label}`} className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <Link href={`/planung/stundenplan?quelle=${encodeURIComponent(v.id)}`} className="font-medium text-accent-ink hover:underline">
+              Im Entwurf arbeiten
+            </Link>
+            <Link href={`/planung/versionen/aenderungen?version=${encodeURIComponent(v.id)}`} className="font-medium text-accent-ink hover:underline">
+              Änderungen zum gültigen Plan
+            </Link>
+          </nav>
+        )}
         {open && <VersionActions id={v.id} label={`${s.label} „${v.name}“`} />}
       </article>
     </li>
@@ -102,7 +112,7 @@ function VersionCard({ s }: { s: VersionSummary }) {
 /**
  * SP3-01 (docs/STUNDENPLAN-LEBENSZYKLUS.md §2.1/§7.2): Versionsliste je Schuljahr – Karte je Version mit Status, Stichtag, Quelle und
  * Zahlen; Entwurf anlegen (aus dem gültigen Plan ab Stichtag, leer, aus Vorversion), Variante, Verwerfen. Nur `stundenplan.manage`.
- * Arbeiten im Entwurf (Setzhilfe, Solver) folgt mit SP3-02, Prüfung/Freigabe mit SP3-03, Veröffentlichen mit SP3-04.
+ * SP3-02: je Entwurf „Im Entwurf arbeiten“ und „Änderungen zum gültigen Plan“, Variantenvergleich; Prüfung/Freigabe mit SP3-03, Veröffentlichen mit SP3-04.
  */
 export default async function VersionenPage({ searchParams }: { searchParams: Promise<{ jahr?: string; angelegt?: string; verworfen?: string; fehler?: string }> }) {
   const { perms } = await requireUser();
@@ -187,7 +197,16 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
         )}
         {drafts.length > 1 && (
           <p className="text-sm text-muted">
-            {drafts.length} offene Entwürfe – veröffentlicht wird genau einer, die anderen bleiben stehen, bis sie verworfen werden.
+            {drafts.length} offene Entwürfe – veröffentlicht wird genau einer, die anderen bleiben stehen, bis sie verworfen werden.{" "}
+            <Link
+              href={`/planung/solver/vergleich?versionen=${drafts
+                .slice(0, 3)
+                .map((d) => encodeURIComponent(d.version.id))
+                .join(",")}`}
+              className="font-medium text-accent-ink hover:underline"
+            >
+              Varianten vergleichen
+            </Link>
           </p>
         )}
       </section>
@@ -207,6 +226,7 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
         />
       </Card>
       <p className="text-sm text-muted">
+        Gearbeitet wird im Entwurf über „Im Entwurf arbeiten“ (Stundenplan, Setzhilfe, Diagnose) oder „Automatisch planen“ (Übernahme in den Entwurf).
         Zum Halbjahreswechsel teilt „Neue Periode“ unter{" "}
         <Link href="/planung/stundenplan" className="font-medium text-accent-ink hover:underline">
           Stundenplan

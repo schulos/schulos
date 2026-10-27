@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { collectErrors, login } from "./helpers";
+import { collectErrors, login, openDirectApply } from "./helpers";
 
 // SP2-11 (docs/STUNDENPLAN-UMBAU.md §7): E2E-Gesamtszenario „Gesamtschule“ für GATE SP2. Das Sekretariat legt für Jahrgang 7 zwei
 // Mathe-Kurse (E/G) und zwei Wahlpflichtkurse an; die Stundenplanung (frank.schulte) liest die Unterrichtsverteilung per CSV ein
@@ -143,12 +143,14 @@ test("SP2-11: Tagesgrenze Jahrgang 7 → Lauf → Übernahme ab Stichtag (Bände
   runUrl = page.url();
   await expect(async () => {
     await page.reload();
-    await expect(page.getByRole("form", { name: "Vorschlag übernehmen" })).toBeVisible({ timeout: 1000 });
+    // SP3-02: „Übernehmen“ füllt einen Entwurf – die direkte Übernahme (Übergangsweg bis SP3-04) ist eingeklappt
+    await expect(page.getByRole("form", { name: "In den Entwurf übernehmen" })).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 150_000 });
   await expect(page.getByRole("region", { name: "Protokoll" })).toContainText(/Tagesgrenzen für \d+ Klassen/);
 
   // Übernahme ab einem Montag in sechs Wochen
   const from = mondayIn(6);
+  await openDirectApply(page);
   const applyForm = page.getByRole("form", { name: "Vorschlag übernehmen" });
   await applyForm.getByLabel("ab Stichtag").fill(from);
   await applyForm.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();

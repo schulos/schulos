@@ -32,8 +32,11 @@ import { diagnose, type DiagLesson, type Finding } from "./diagnose";
 import { createSolver, DEFAULT_WEIGHTS, placementRooms, unitParts, type GapStats, type SolverResult, type SolverWeights, type UnitPart } from "./solver";
 import { precheck, type PrecheckFinding } from "./solver-check";
 import { solverInputFromDb } from "./solver-input";
-import { planningYear } from "./verteilung";
+import { distribution, planningYear } from "./verteilung";
 import { deletedEntries, moveChangeHistory, recordLessonCascade, recordSubstitutionChanges, snapshotOf } from "./vertretung-historie";
+import { draftOf, idWhere, insertLessonRows, lessonCols, LIVE, requireWritable, versionWhere, type NewLessonRow, type PlanSource } from "./plan-quelle";
+import { createDraft, getVersion, OPEN_STATUSES, versionNumber } from "./planversionen";
+import { timetableDraftLessons, timetablePlanVersions } from "./schema";
 
 export const EFFORTS = { schnell: 0.25, normal: 1, gruendlich: 4 } as const;
 export type Effort = keyof typeof EFFORTS;
@@ -64,6 +67,8 @@ export interface RunParams {
   preset: WeightPreset;
   /** SP2-09: Lehraufträge, die an diesem Tag gelten (fehlt = Tag der Berechnung, wie vor SP2-09) */
   refYmd?: string;
+  /** SP3-02: gerechnet gegen den Entwurf dieser Planversion (fixierte/behaltene Stunden aus dem Entwurf); fehlt = gültiger Plan */
+  versionId?: string;
 }
 
 export interface RunLogEntry {
@@ -113,6 +118,8 @@ export interface StoredResult {
   units: StoredUnit[];
   keptLessonIds: string[];
   refYmd: string;
+  /** SP3-02: `keptLessonIds` sind Entwurfsstunden dieser Version (fehlt = Stunden des gültigen Plans) */
+  versionId?: string;
 }
 
 export type RunStatus = (typeof timetableSolverRuns.$inferSelect)["status"];
@@ -342,8 +349,10 @@ export interface CreateRunOptions {
   preset?: string;
   /** eigene Gewichte (nur bei `preset: "eigene"`, sonst ignoriert); fehlende Felder aus der Vorgabe */
   weights?: Partial<Record<keyof SolverWeights, number>>;
-  /** SP2-09: Planungsstand – Lehraufträge, die an diesem Tag gelten (leer = heute) */
+  /** SP2-09: Planungsstand – Lehraufträge, die an diesem Tag gelten (leer = heute; im Entwurf: dessen Stichtag) */
   refYmd?: string | null;
+  /** SP3-02: im Entwurf dieser Planversion rechnen (leer = gegen den gültigen Plan) */
+  versionId?: string | null;
 }
 
 /** Rein: Parameter aus der Eingabe (Formular/Test) – ungültige Werte werden gemeldet, nicht still ersetzt. */
@@ -368,7 +377,22 @@ export function parseParams(opts: CreateRunOptions): RunParams {
   const refYmd = opts.refYmd || undefined;
   if (refYmd && !isCalendarDate(refYmd)) errors.refYmd = "Datum angeben";
   if (Object.keys(errors).length) throw new ValidationError(errors);
-  return { effort, seed, weights, preset, ...(refYmd ? { refYmd } : {}) };
+  const versionId = opts.versionId?.trim() || undefined;
+  return { effort, seed, weights, preset, ...(refYmd ? { refYmd } : {}), ...(versionId ? { versionId } : {}) };
+}
+
+/**
+ * SP3-02: Entwurf eines Laufs prüfen – offen (nicht verworfen/veröffentlicht), im Planungsjahr; der Planungsstand liegt frühestens am
+ * Stichtag des Entwurfs (vorher gelten seine Stunden nicht). Liefert den Planungsstand (Vorgabe: Stichtag des Entwurfs).
+ */
+async function draftRunRef(db: Db, versionId: string, year: { id: string }, refYmd: string | undefined): Promise<string | undefined> {
+  const v = await getVersion(db, versionId);
+  if (!v || v.schoolYearId !== year.id) throw new ValidationError({ versionId: "Entwurf des Planungsjahrs wählen" });
+  if (!(OPEN_STATUSES as readonly string[]).includes(v.status)) throw new ValidationError({ versionId: `Version ${versionNumber(v)} ist kein offener Entwurf` });
+  const from = v.validFrom ?? undefined;
+  if (refYmd && from && refYmd < from)
+    throw new ValidationError({ refYmd: `Im Entwurf ${versionNumber(v)} gelten die Stunden erst ab ${dayFmt.format(fromBerlinLocal(from))} – Planungsstand ab diesem Tag wählen` });
+  return refYmd ?? from;
 }
 
 const dayFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: TZ });
@@ -391,7 +415,13 @@ export async function createRun(db: Db, actorId: string, opts: CreateRunOptions,
   const params = parseParams(opts);
   if (params.refYmd && (params.refYmd < year.startsOn || params.refYmd > year.endsOn)) throw new ValidationError({ refYmd: "Der Planungsstand muss im Schuljahr liegen" });
   const label = opts.label?.trim() ? opts.label.trim().slice(0, 120) : null;
-  const input = await solverInputFromDb(db, year, params.refYmd ?? todayYmd ?? toBerlinDate(new Date()), { seed: params.seed });
+  // SP3-02: im Entwurf ist der Planungsstand mindestens sein Stichtag (und wird mitgespeichert, damit der Lauf reproduzierbar bleibt)
+  if (params.versionId) {
+    const ref = await draftRunRef(db, params.versionId, year, params.refYmd);
+    if (ref) params.refYmd = ref;
+  }
+  const source = params.versionId ? draftOf(params.versionId) : LIVE;
+  const input = await solverInputFromDb(db, year, params.refYmd ?? todayYmd ?? toBerlinDate(new Date()), { seed: params.seed, source });
   if (Object.keys(input.check.errors).length) throw new ValidationError(input.check.errors);
   const now = new Date();
   const log: RunLogEntry[] = [logEntry("queued", "Lauf angelegt, wartet auf die Berechnung", undefined, now), ...input.check.warnings.map((w) => logEntry("warning", w, undefined, now))];
@@ -399,7 +429,7 @@ export async function createRun(db: Db, actorId: string, opts: CreateRunOptions,
     .insert(timetableSolverRuns)
     .values({ schoolYearId: year.id, status: "queued", seed: params.seed, createdBy: actorId, iterations: 0, label, params, log })
     .returning({ id: timetableSolverRuns.id });
-  await audit(db, actorId, "stundenplan.solver.start", null, { run: row!.id, seed: params.seed, effort: params.effort, preset: params.preset, label });
+  await audit(db, actorId, "stundenplan.solver.start", null, { run: row!.id, seed: params.seed, effort: params.effort, preset: params.preset, label, ...(params.versionId ? { draft: params.versionId } : {}) });
   return row!.id;
 }
 
@@ -561,7 +591,12 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
     await set({ status: "running", progress: 1, heartbeatAt: new Date(), log });
 
     // Eingabe und Vorprüfung (zwischen den Abschnitten die Ereignisschleife freigeben – mit PGlite rechnet die Datenbank im selben Thread)
-    const input = await solverInputFromDb(db, year, refYmd, { seed: params.seed });
+    // SP3-02: im Entwurf rechnen – gibt es ihn nicht mehr (verworfen/veröffentlicht), scheitert der Lauf mit Hinweis
+    if (params.versionId) {
+      const v = await getVersion(db, params.versionId);
+      if (!v || !(OPEN_STATUSES as readonly string[]).includes(v.status)) throw new Error("Der Entwurf des Laufs ist nicht mehr offen (verworfen oder veröffentlicht)");
+    }
+    const input = await solverInputFromDb(db, year, refYmd, { seed: params.seed, source: params.versionId ? draftOf(params.versionId) : LIVE });
     await tick();
     input.weights = params.weights;
     const blockedSlots = [...input.prefs.values()].reduce((s, m) => s + [...m.values()].filter((v) => v === null).length, 0);
@@ -679,6 +714,7 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
       units: input.units.map((u) => ({ id: u.id, label: u.label, groupIds: u.groupIds, teacherIds: u.teacherIds, subjectId: u.subjectId, length: u.length, parts: u.parts })),
       keptLessonIds: input.keptLessonIds ?? [],
       refYmd,
+      ...(params.versionId ? { versionId: params.versionId } : {}),
     };
     await tick();
     const diag = await proposalDiagnosis(db, stored);
@@ -815,8 +851,23 @@ export function withCouplingIds<T extends Pick<ProposedLesson, "unitId" | "coupl
 }
 
 /** Diagnose des Vorschlags (Hohlstunden, Fach mehrfach am Tag, Räume) inklusive der Stunden, die bleiben. */
+/** Die Stunden, die ein Lauf behält (fixiert/ohne Lehrauftrag) – SP3-02: aus der Quelle des Laufs (Entwurf oder gültiger Plan). */
+export async function keptLessons(db: Db, stored: StoredResult): Promise<DiagLesson[]> {
+  if (!stored.keptLessonIds.length) return [];
+  const kt = lessonCols(stored.versionId ? draftOf(stored.versionId) : LIVE);
+  const out: DiagLesson[] = [];
+  for (const part of chunks(stored.keptLessonIds))
+    out.push(
+      ...(await db
+        .select({ id: kt.id, couplingId: kt.couplingId, groupId: kt.groupId, subjectId: kt.subjectId, teacherId: kt.teacherId, roomId: kt.roomId, weekday: kt.weekday, periodNr: kt.periodNr, week: kt.week })
+        .from(kt)
+        .where(inArray(kt.id, part))),
+    );
+  return out;
+}
+
 export async function proposalDiagnosis(db: Db, stored: StoredResult): Promise<Finding[]> {
-  const kept = stored.keptLessonIds.length ? await db.select().from(timetableLessons).where(inArray(timetableLessons.id, stored.keptLessonIds)) : [];
+  const kept = await keptLessons(db, stored);
   const lessons: DiagLesson[] = [
     ...proposedLessons(stored).map((l, i) => ({ ...l, id: `p${i}`, couplingId: l.coupled ? l.unitId : null, week: "all" as const })),
     ...kept.map((l) => ({
@@ -1009,7 +1060,8 @@ export interface ApplyPreview {
 }
 
 export async function applyPreview(db: Db, run: SolverRun, fromYmd: string): Promise<ApplyPreview | null> {
-  if (!run.stored) return null;
+  // SP3-02: im Entwurf gerechnete Läufe gehen nur in einen Entwurf
+  if (!run.stored || run.stored.versionId) return null;
   const year = await planningYear(db);
   if (!year) return null;
   const period = await runPeriod(db, year, run.stored);
@@ -1048,6 +1100,8 @@ export async function applyRun(
   const run = await getRun(db, runId);
   if (!run || run.status !== "done") throw new ValidationError({ run: "Nur ein fertiger, noch nicht übernommener Lauf lässt sich übernehmen" });
   if (!run.stored) throw new ValidationError({ run: "Das Ergebnis dieses Laufs wurde beim Aufräumen entfernt – einen neuen Lauf starten" });
+  // SP3-02: ein im Entwurf gerechneter Lauf behält Entwurfsstunden – er geht nur in einen Entwurf (F-10-1)
+  if (run.stored.versionId || run.params?.versionId) throw new ValidationError({ run: "Dieser Lauf wurde in einem Entwurf gerechnet – in den Entwurf übernehmen" });
   const year = await planningYear(db);
   if (!year) throw new ValidationError({ run: "Kein Schuljahr" });
   if (!isCalendarDate(fromYmd) || fromYmd <= todayYmd) throw new ValidationError({ from: "Der Stichtag muss in der Zukunft liegen" });
@@ -1164,6 +1218,219 @@ export async function applyRun(
     return result;
   });
   await audit(db, actorId, "stundenplan.solver.apply", null, { run: runId, from: fromYmd, ...out });
+  return out;
+}
+
+// ---------------------------------------------------------------- Übernahme in den Entwurf (SP3-02, F-10-1)
+
+/** Ziel der Übernahme: ein offener Entwurf oder ein neuer Entwurf aus dem gültigen Plan ab Stichtag. */
+export type DraftTarget = { versionId: string } | { newDraft: { validFrom: string; name?: string | null } };
+
+/** Was die Übernahme in den Entwurf getan hat. */
+export interface DraftApplyResult {
+  versionId: string;
+  /** Stichtag des Entwurfs (ab dann gelten die neuen Stunden) */
+  from: string;
+  /** neu gesetzte Stunden des Laufs */
+  created: number;
+  /** ersetzte Entwurfsstunden (ganz im Planungszeitraum, entfernt) */
+  replaced: number;
+  /** Entwurfsstunden, die über den Zeitraum hinausreichen – gekürzt, der Teil davor/danach bleibt */
+  trimmed: number;
+  /** behaltene Entwurfsstunden (fixiert, ohne Lehrauftrag, vom Lauf behalten) */
+  kept: number;
+  /** neue Stunden, die die Herkunft (`origin_lesson_id`) einer ersetzten Stunde übernommen haben */
+  withOrigin: number;
+  /** Stunden, deren Lehrauftrag vor dem Stichtag endet (nicht gesetzt) */
+  expired?: number;
+}
+
+type OriginKey = Pick<ProposedLesson, "groupId" | "subjectId" | "teacherId" | "weekday" | "periodNr">;
+
+/**
+ * Rein (SP3-02): Herkunft je neuer Stunde aus den ersetzten Entwurfsstunden, damit das Veröffentlichen (SP3-04) „geändert“ statt
+ * „entfallen + neu“ erkennt – zuerst gleicher Slot (Gruppe, Fach, Lehrkraft, Tag, Stunde), dann gleiche Gruppe/Fach/Lehrkraft, dann
+ * gleiche Gruppe/Fach. Jede Herkunft wird höchstens einmal vergeben; ersetzte Stunden ohne Herkunft (neu im Entwurf) zählen nicht.
+ */
+export function carryOrigins(fresh: OriginKey[], replaced: (OriginKey & { originLessonId: string | null })[]): (string | null)[] {
+  const out: (string | null)[] = fresh.map(() => null);
+  const used = new Set<number>();
+  const keys: ((l: OriginKey) => string)[] = [
+    (l) => `${l.groupId}|${l.subjectId}|${l.teacherId ?? ""}|${l.weekday}|${l.periodNr}`,
+    (l) => `${l.groupId}|${l.subjectId}|${l.teacherId ?? ""}`,
+    (l) => `${l.groupId}|${l.subjectId}`,
+  ];
+  for (const key of keys) {
+    const pool = new Map<string, number[]>();
+    replaced.forEach((r, j) => {
+      if (!r.originLessonId || used.has(j)) return;
+      const k = key(r);
+      pool.set(k, [...(pool.get(k) ?? []), j]);
+    });
+    fresh.forEach((f, i) => {
+      if (out[i] !== null) return;
+      const j = pool.get(key(f))?.find((x) => !used.has(x));
+      if (j === undefined) return;
+      used.add(j);
+      out[i] = replaced[j]!.originLessonId;
+    });
+  }
+  return out;
+}
+
+/** Offene, bearbeitbare Entwürfe des Schuljahres (Ziele der Übernahme), neueste zuerst. */
+export async function draftTargets(db: Db, schoolYearId: string) {
+  return db
+    .select({ id: timetablePlanVersions.id, major: timetablePlanVersions.major, minor: timetablePlanVersions.minor, name: timetablePlanVersions.name, validFrom: timetablePlanVersions.validFrom })
+    .from(timetablePlanVersions)
+    .where(and(eq(timetablePlanVersions.schoolYearId, schoolYearId), eq(timetablePlanVersions.status, "entwurf")))
+    .orderBy(desc(timetablePlanVersions.createdAt), desc(timetablePlanVersions.id));
+}
+
+/** Fachliche Felder einer Entwurfsstunde zum Kopieren. */
+const draftRowFields = (r: typeof timetableDraftLessons.$inferSelect): NewLessonRow => ({
+  groupId: r.groupId,
+  weekday: r.weekday,
+  periodNr: r.periodNr,
+  subjectId: r.subjectId,
+  teacherId: r.teacherId,
+  roomId: r.roomId,
+  week: r.week,
+  validFrom: r.validFrom,
+  validUntil: r.validUntil,
+  couplingId: r.couplingId,
+  fixed: r.fixed,
+  solverRunId: r.solverRunId,
+});
+
+/**
+ * SP3-02 (F-10-1): „Übernehmen“ füllt einen Entwurf statt des gültigen Plans. Ab dem Stichtag des Entwurfs ersetzt der Vorschlag im
+ * Planungszeitraum des Laufs alle Entwurfsstunden, die nicht fixiert sind, die der Lauf nicht behalten hat und die einem Lehrauftrag
+ * entsprechen (wie `applyRun()` im gültigen Plan). Stunden, die über den Zeitraum hinausreichen, werden gekürzt (Teil davor/danach
+ * bleibt). Neue Stunden tragen den Lauf (`solver_run_id`), ihren Lehrauftrag und – wo möglich – die Herkunft der ersetzten Stunde
+ * (`carryOrigins`). Der gültige Plan, Vertretungen und Klassenbuch bleiben unberührt; es gibt deshalb keine Rücknahme-Daten – der
+ * Entwurf lässt sich verwerfen oder vorher als Variante sichern. Der Lauf bleibt „fertig“ (in weitere Entwürfe übernehmbar).
+ */
+export async function applyRunToDraft(db: Db, actorId: string, runId: string, target: DraftTarget, todayYmd: string): Promise<DraftApplyResult> {
+  const run = await getRun(db, runId);
+  if (!run || run.status !== "done") throw new ValidationError({ run: "Nur ein fertiger Lauf lässt sich in einen Entwurf übernehmen" });
+  if (!run.stored) throw new ValidationError({ run: "Das Ergebnis dieses Laufs wurde beim Aufräumen entfernt – einen neuen Lauf starten" });
+  if (run.stored.result.unplaced.length)
+    throw new ValidationError({ run: `${run.stored.result.unplaced.length} Stunden ließen sich nicht setzen – erst Lehraufträge oder Sperrzeiten anpassen` });
+  const stored = run.stored;
+  const year = await planningYear(db);
+  if (!year || year.id !== run.schoolYearId) throw new ValidationError({ run: "Der Lauf gehört nicht zum Planungsjahr" });
+  let version = "versionId" in target ? await requireWritable(db, draftOf(target.versionId)) : null;
+  if (version && version.schoolYearId !== year.id) throw new ValidationError({ versionId: "Entwurf des Planungsjahrs wählen" });
+  const fromYmd = version ? version.validFrom : "newDraft" in target ? target.newDraft.validFrom : null;
+  if (!fromYmd || !isCalendarDate(fromYmd)) throw new ValidationError({ from: "Stichtag wählen" });
+
+  // Lehraufträge und Planungszeitraum wie bei der Übernahme in den gültigen Plan
+  const proposal = proposedLessons(stored);
+  const validity = await assignmentValidity(db, proposal);
+  const startsLater = [...validity.values()].map((v) => v.validFrom).filter((v): v is string => v !== null && v > fromYmd).sort();
+  if (startsLater.length)
+    throw new ValidationError({
+      from: `Lehraufträge dieses Laufs gelten erst ab ${dayFmt.format(fromBerlinLocal(startsLater.at(-1)!))} – einen Entwurf mit späterem Stichtag wählen (oder den Lauf mit einem anderen Planungsstand rechnen)`,
+    });
+  const period = await runPeriod(db, year, stored);
+  const periodHint = `Planungsstand ${dayFmt.format(fromBerlinLocal(stored.refYmd))}`;
+  if (fromYmd < period.from) throw new ValidationError({ from: `Dieser Lauf gilt erst ab ${dayFmt.format(fromBerlinLocal(period.from))} (${periodHint}) – einen Entwurf mit Stichtag ab diesem Tag wählen` });
+  if (fromYmd > period.until)
+    throw new ValidationError({ from: `Dieser Lauf gilt nur bis ${dayFmt.format(fromBerlinLocal(period.until))} (${periodHint}; danach gelten andere Lehraufträge) – einen Entwurf mit früherem Stichtag wählen` });
+  const untilOf = (l: ProposedLesson) => {
+    const v = l.assignmentId ? validity.get(l.assignmentId)?.validUntil : null;
+    return v && v < period.until ? v : period.until;
+  };
+  const expired = proposal.filter((l) => untilOf(l) < fromYmd).length;
+
+  // neuer Entwurf erst nach den Prüfungen: Kopie des gültigen Plans ab Stichtag, Quelle „Solver-Lauf“
+  if (!version && "newDraft" in target) {
+    const name = (target.newDraft.name?.trim() || `Aus Solver-Lauf${run.label ? ` „${run.label}“` : ""}`).slice(0, 80);
+    const created = await createDraft(db, actorId, { schoolYearId: year.id, source: "live_copy", validFrom: fromYmd, numbering: "major", name }, todayYmd);
+    const [updated] = await db.update(timetablePlanVersions).set({ source: "solver_run", sourceRunId: run.id }).where(eq(timetablePlanVersions.id, created.id)).returning();
+    version = updated!;
+  }
+  const v = version!;
+  const source = draftOf(v.id);
+
+  const out = await db.transaction(async (tx) => {
+    const t = tx as unknown as Db;
+    const rows = await t
+      .select()
+      .from(timetableDraftLessons)
+      .where(eq(timetableDraftLessons.versionId, v.id))
+      .orderBy(asc(timetableDraftLessons.createdAt), asc(timetableDraftLessons.id));
+    // behalten: fixiert, vom Lauf behalten (gleicher Entwurf: die Stunde; sonst über ihre Herkunft) und Stunden ohne Lehrauftrag im Entwurf
+    const keptIds = new Set(stored.keptLessonIds);
+    const sameSource = stored.versionId === v.id;
+    const unmatched = new Set((await distribution(t, year, fromYmd, { source })).unmatched.map((l) => l.id));
+    const isKept = (r: (typeof rows)[number]) =>
+      r.fixed || keptIds.has(r.id) || (!sameSource && r.originLessonId !== null && keptIds.has(r.originLessonId)) || unmatched.has(r.id);
+    const kept = rows.filter(isKept);
+    const replaceable = rows.filter((r) => !isKept(r) && r.validFrom <= period.until && (r.validUntil === null || r.validUntil >= fromYmd));
+    const dayBefore = addDays(fromYmd, -1);
+    const dayAfter = addDays(period.until, 1);
+    let replaced = 0;
+    let trimmed = 0;
+    for (const r of replaceable) {
+      const head = r.validFrom < fromYmd;
+      const tail = r.validUntil === null || r.validUntil > period.until;
+      if (!head && !tail) {
+        await tx.delete(timetableDraftLessons).where(eq(timetableDraftLessons.id, r.id));
+        replaced++;
+        continue;
+      }
+      trimmed++;
+      if (head) await tx.update(timetableDraftLessons).set({ validUntil: dayBefore }).where(eq(timetableDraftLessons.id, r.id));
+      // Teil nach dem Zeitraum: an der Zeile (nur Ende) bzw. als Kopie mit gleicher Herkunft (Anfang und Ende)
+      if (tail && head) await insertLessonRows(t, source, [{ ...draftRowFields(r), validFrom: dayAfter, validUntil: r.validUntil, originLessonId: r.originLessonId, assignmentId: r.assignmentId }]);
+      else if (tail) await tx.update(timetableDraftLessons).set({ validFrom: dayAfter }).where(eq(timetableDraftLessons.id, r.id));
+    }
+    // SP-14: Lehrkräfte, deren Konto seit dem Lauf gelöscht wurde, werden leer – die Stunde bleibt offen
+    const knownUsers = new Set((await tx.select({ id: users.id }).from(users)).map((u) => u.id));
+    const fresh = withCouplingIds(proposal.filter((l) => untilOf(l) >= fromYmd));
+    const origins = carryOrigins(fresh, replaceable);
+    const assignmentOfOrigin = new Map(replaceable.filter((r) => r.originLessonId).map((r) => [r.originLessonId!, r.assignmentId]));
+    const newRows: NewLessonRow[] = fresh.map((l, i) => ({
+      groupId: l.groupId,
+      subjectId: l.subjectId,
+      teacherId: l.teacherId && knownUsers.has(l.teacherId) ? l.teacherId : null,
+      roomId: l.roomId,
+      weekday: l.weekday,
+      periodNr: l.periodNr,
+      week: "all",
+      validFrom: fromYmd,
+      validUntil: untilOf(l),
+      couplingId: l.couplingId,
+      solverRunId: runId,
+      originLessonId: origins[i],
+      assignmentId: l.assignmentId ?? (origins[i] ? (assignmentOfOrigin.get(origins[i]!) ?? null) : null),
+    }));
+    await insertLessonRows(t, source, newRows);
+    await tx.update(timetablePlanVersions).set({ sourceRunId: runId }).where(eq(timetablePlanVersions.id, v.id));
+    const result: DraftApplyResult = {
+      versionId: v.id,
+      from: fromYmd,
+      created: newRows.length,
+      replaced,
+      trimmed,
+      kept: kept.length,
+      withOrigin: origins.filter(Boolean).length,
+      ...(expired ? { expired } : {}),
+    };
+    const log = [
+      ...run.log,
+      logEntry(
+        "apply",
+        `In den Entwurf ${versionNumber(v)} „${v.name}“ übernommen (ab ${dayFmt.format(fromBerlinLocal(fromYmd))}): ${result.created} Stunden gesetzt, ${replaced} Entwurfsstunden ersetzt${trimmed ? `, ${trimmed} gekürzt` : ""}, ${kept.length} behalten${expired ? `, ${expired} Stunden nicht gesetzt (Lehrauftrag endet vor dem Stichtag)` : ""} – der gültige Plan bleibt unverändert`,
+        { draft: v.id, version: versionNumber(v), ...result },
+      ),
+    ].slice(-LOG_LIMIT);
+    await tx.update(timetableSolverRuns).set({ log }).where(and(eq(timetableSolverRuns.id, runId), eq(timetableSolverRuns.status, "done")));
+    return result;
+  });
+  await audit(db, actorId, "stundenplan.solver.apply_draft", null, { run: runId, draft: v.id, version: versionNumber(v), from: fromYmd, created: out.created, replaced: out.replaced, trimmed: out.trimmed, kept: out.kept });
   return out;
 }
 
@@ -1466,15 +1733,18 @@ export async function undoApply(db: Db, actorId: string, runId: string, todayYmd
   return out;
 }
 
-/** Stunde (bzw. alle Teile ihrer Kopplung) fixieren oder lösen. */
-export async function setFixed(db: Db, actorId: string, lessonId: string, fixed: boolean): Promise<void> {
-  const [l] = await db.select().from(timetableLessons).where(eq(timetableLessons.id, lessonId));
+/** Stunde (bzw. alle Teile ihrer Kopplung) fixieren oder lösen – im gültigen Plan oder im Entwurf (SP3-02). */
+export async function setFixed(db: Db, actorId: string, lessonId: string, fixed: boolean, source: PlanSource = LIVE): Promise<void> {
+  await requireWritable(db, source);
+  const t = lessonCols(source);
+  const [l] = await db.select({ id: t.id, groupId: t.groupId, couplingId: t.couplingId }).from(t).where(idWhere(source, lessonId));
   if (!l) throw new ValidationError({ id: "Stunde gibt es nicht" });
   await db
-    .update(timetableLessons)
+    .update(t)
     .set({ fixed })
-    .where(l.couplingId ? eq(timetableLessons.couplingId, l.couplingId) : eq(timetableLessons.id, lessonId));
-  await audit(db, actorId, fixed ? "stundenplan.lesson.fix" : "stundenplan.lesson.unfix", l.groupId, { lesson: lessonId });
+    .where(and(versionWhere(source), l.couplingId ? eq(t.couplingId, l.couplingId) : eq(t.id, lessonId)));
+  if (source.kind === "draft") await audit(db, actorId, fixed ? "stundenplan.draft.lesson.fix" : "stundenplan.draft.lesson.unfix", l.groupId, { lesson: lessonId, draft: source.versionId });
+  else await audit(db, actorId, fixed ? "stundenplan.lesson.fix" : "stundenplan.lesson.unfix", l.groupId, { lesson: lessonId });
 }
 
 export type { PrecheckFinding };

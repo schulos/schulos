@@ -12,6 +12,7 @@ import { cancelSolverAction, startSolverAction } from "@/modules/stundenplan/act
 import { EFFORT_LABELS, listRunSummaries, PRESET_LABELS, WEIGHT_PRESETS, type RunSummary } from "@/modules/stundenplan/solverlauf";
 import { isComparable, MAX_COMPARE, MIN_COMPARE } from "@/modules/stundenplan/solververgleich";
 import { planningYear } from "@/modules/stundenplan/verteilung";
+import { resolveQuelle } from "@/modules/stundenplan/quelle";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
@@ -31,7 +32,7 @@ const HISTORY_LIMIT = 100;
 export default async function SolverPage({
   searchParams,
 }: {
-  searchParams: Promise<{ lauf?: string; gruppe?: string; fehler?: string; geloescht?: string; status?: string }>;
+  searchParams: Promise<{ lauf?: string; gruppe?: string; fehler?: string; geloescht?: string; status?: string; quelle?: string }>;
 }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
@@ -48,6 +49,8 @@ export default async function SolverPage({
     db.$count(timetableLessons, eq(timetableLessons.fixed, true)),
   ]);
   const [latest] = year ? await listRunSummaries(db, { schoolYearId: year.id, limit: 1 }) : [];
+  // SP3-02: im Entwurf rechnen (Vorauswahl über ?quelle=, z. B. aus der Pflege-Seite)
+  const q = await resolveQuelle(db, sp.quelle, year?.id ?? null);
   const liveInitial = active.map((r) => ({ id: r.id, status: r.status, progress: r.progress, cancelRequested: r.cancelRequested, heartbeatAt: r.heartbeatAt?.toISOString() ?? null, note: null }));
   const returnTo = `/planung/solver${filter.key ? `?status=${filter.key}` : ""}`;
 
@@ -60,7 +63,8 @@ export default async function SolverPage({
       <p className="-mt-3 max-w-3xl text-sm text-muted">
         Der Solver setzt alle Lehraufträge der Unterrichtsverteilung neu – kollisionsfrei, mit Kopplungen, Doppelstunden und Sperrzeiten – und bewertet
         Zeitwünsche, Hohlstunden, Fach mehrfach am Tag, Raumwünsche und späte Stunden. Fixierte Stunden ({fixedCount}) und Stunden ohne Lehrauftrag bleiben, wo
-        sie sind. Jeder Lauf speichert seine Parameter; erst „Übernehmen“ auf der Seite eines Laufs ändert den Stundenplan.
+        sie sind. Jeder Lauf speichert seine Parameter und rechnet gegen den gültigen Plan oder einen Entwurf; „Übernehmen“ auf der Seite eines Laufs füllt
+        einen Entwurf – der gültige Plan ändert sich erst, wenn der Entwurf veröffentlicht wird.
       </p>
       {sp.fehler && (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
@@ -84,6 +88,8 @@ export default async function SolverPage({
           efforts={EFFORT_LABELS}
           defaultSeed={Math.min(999_999, (latest?.seed ?? 0) + 1)}
           busy={active.length > 0}
+          sources={q.options.map((o) => ({ value: o.value, label: o.label }))}
+          defaultSource={q.value}
         />
       </Card>
 

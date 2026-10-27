@@ -19,6 +19,7 @@ import {
 import { ValidationError } from "@/modules/verwaltung/users";
 import { isCalendarDate } from "@/core/time";
 import { de } from "@/core/db/sort";
+import { activeOnWhere, lessonCols, LIVE, type PlanSource } from "./plan-quelle";
 
 /** Gruppenarten, für die Unterricht verteilt wird */
 export const PLANNED_GROUP_KINDS = ["klasse", "kurs", "ag", "wahlpflicht", "foerderkurs"] as const;
@@ -250,21 +251,22 @@ export function bandStatus(
   });
 }
 
-/** Stunden, die am Stichtag gelten (unabhängig vom Wochentag), mit Gewicht nach A/B-Woche. */
-export async function planLessonsOn(db: Db, refYmd: string): Promise<PlanLesson[]> {
+/** Stunden der Quelle (Vorgabe: gültiger Plan), die am Stichtag gelten (unabhängig vom Wochentag), mit Gewicht nach A/B-Woche. */
+export async function planLessonsOn(db: Db, refYmd: string, source: PlanSource = LIVE): Promise<PlanLesson[]> {
+  const t = lessonCols(source);
   const rows = await db
     .select({
-      id: timetableLessons.id,
-      groupId: timetableLessons.groupId,
-      subjectId: timetableLessons.subjectId,
-      teacherId: timetableLessons.teacherId,
-      week: timetableLessons.week,
-      weekday: timetableLessons.weekday,
-      periodNr: timetableLessons.periodNr,
+      id: t.id,
+      groupId: t.groupId,
+      subjectId: t.subjectId,
+      teacherId: t.teacherId,
+      week: t.week,
+      weekday: t.weekday,
+      periodNr: t.periodNr,
     })
-    .from(timetableLessons)
-    .where(and(lte(timetableLessons.validFrom, refYmd), or(isNull(timetableLessons.validUntil), gte(timetableLessons.validUntil, refYmd))))
-    .orderBy(asc(timetableLessons.weekday), asc(timetableLessons.periodNr));
+    .from(t)
+    .where(activeOnWhere(source, refYmd))
+    .orderBy(asc(t.weekday), asc(t.periodNr));
   return rows.map((r) => ({ ...r, weight: r.week === "all" ? 1 : 0.5 }));
 }
 
@@ -337,12 +339,15 @@ export function teacherPlanned(lessons: PlanLesson[], teacherId: string): number
   return [...slots.values()].reduce((s, w) => s + w, 0);
 }
 
-/** Komplette Unterrichtsverteilung eines Schuljahres mit Soll/verplant je Auftrag, Gruppe und Lehrkraft. */
-export async function distribution(db: Db, year: { id: string; startsOn: string; endsOn: string }, todayYmd: string): Promise<Distribution> {
+/**
+ * Komplette Unterrichtsverteilung eines Schuljahres mit Soll/verplant je Auftrag, Gruppe und Lehrkraft. SP3-02: „verplant“ (und damit
+ * offene Stunden, Deputat-Ist, Diagnose) wahlweise gegen den Entwurf einer Planversion (`source`); Lehraufträge sind nicht versioniert (F-10-5).
+ */
+export async function distribution(db: Db, year: { id: string; startsOn: string; endsOn: string }, todayYmd: string, opts: { source?: PlanSource } = {}): Promise<Distribution> {
   const refYmd = referenceDate(year, todayYmd);
   const [all, lessons, groupRows, teacherRows, tafel, subjectRows] = await Promise.all([
     listAssignments(db, year.id),
-    planLessonsOn(db, refYmd),
+    planLessonsOn(db, refYmd, opts.source),
     db
       .select({ id: groups.id, name: groups.name, kind: groups.kind, gradeLevel: groups.gradeLevel, homeRoomId: groups.homeRoomId, schoolYearId: groups.schoolYearId })
       .from(groups)

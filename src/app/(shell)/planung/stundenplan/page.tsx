@@ -18,7 +18,8 @@ import { couplingParts, defaultValidity, lessonsOfGroup, plannableGroups, sugges
 import { loadPickList, teacherSubjectMap } from "@/modules/stundenplan/lehrfaecher";
 import { timetableMasterData } from "@/modules/stundenplan/service";
 import { assignmentPlacement, movePlacement, moveGridInput, openAssignments, placementGrid, type Cell } from "@/modules/stundenplan/setzhilfe";
-import { PLANNED_GROUP_KINDS } from "@/modules/stundenplan/verteilung";
+import { planningYear, PLANNED_GROUP_KINDS } from "@/modules/stundenplan/verteilung";
+import { QUELLE_LIVE, quelleQuery, resolveQuelle } from "@/modules/stundenplan/quelle";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -36,7 +37,7 @@ export const metadata: Metadata = { title: "Stundenplan pflegen" };
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "UTC" });
 const fmtYmd = (ymd: string) => dateFmt.format(new Date(`${ymd}T00:00:00Z`));
 
-type Search = { stand?: string; periode?: string; kopiert?: string; ab?: string; gruppe?: string; neu?: string; stunde?: string; kopplung?: string; von?: string; setzen?: string; verschieben?: string; fehler?: string };
+type Search = { stand?: string; periode?: string; kopiert?: string; ab?: string; gruppe?: string; neu?: string; stunde?: string; kopplung?: string; von?: string; setzen?: string; verschieben?: string; fehler?: string; quelle?: string };
 
 export default async function StundenplanPflegePage({ searchParams }: { searchParams: Promise<Search> }) {
   const { perms } = await requireUser();
@@ -44,11 +45,19 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
   const sp = await searchParams;
   const db = await getDb();
   const today = toBerlinDate(new Date());
-  const [groupList, master, fakultas] = await Promise.all([plannableGroups(db), timetableMasterData(db), teacherSubjectMap(db)]);
+  const [groupList, master, fakultas, year] = await Promise.all([plannableGroups(db), timetableMasterData(db), teacherSubjectMap(db), planningYear(db)]);
   const group = groupList.find((g) => g.id === sp.gruppe);
+  // SP3-02: Quelle „Gültiger Plan“ oder ein offener Entwurf – im Entwurf ist der Planungsstand sein Stichtag
+  const q = await resolveQuelle(db, sp.quelle, year?.id ?? null);
+  const draft = q.version;
+  const src = q.source;
+  const quelle = q.value === QUELLE_LIVE ? null : q.value;
+  const readOnly = !q.editable;
   // Planungsstand: heute oder der Beginn einer künftigen Periode (nach „Periode kopieren“)
-  const stand = sp.stand && /^\d{4}-\d{2}-\d{2}$/.test(sp.stand) && sp.stand > today ? sp.stand : undefined;
-  const view = stand ?? today;
+  const stand = !draft && sp.stand && /^\d{4}-\d{2}-\d{2}$/.test(sp.stand) && sp.stand > today ? sp.stand : undefined;
+  const view = draft ? (draft.validFrom ?? today) : (stand ?? today);
+  /** Beginn neuer Stunden: Stichtag des Entwurfs bzw. der Planungsstand */
+  const from = draft ? (draft.validFrom ?? undefined) : stand;
 
   const header = (
     <>
@@ -59,7 +68,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
           <>
             <ExportMenu arts={["gesamt-klassen", "gesamt-lehrkraefte"]} perms={perms} />
             <Button asChild>
-              <Link href="/planung/solver">
+              <Link href={`/planung/solver${quelle ? `?quelle=${encodeURIComponent(quelle)}` : ""}`}>
                 <Wand2 aria-hidden /> Automatisch planen
               </Link>
             </Button>
@@ -81,9 +90,28 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
             </optgroup>
           ))}
         </Select>
+        {q.options.length > 1 && (
+          <Select name="quelle" defaultValue={q.value} aria-label="Plan" className="w-72">
+            {q.options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        )}
         {stand && <input type="hidden" name="stand" value={stand} />}
         <Button type="submit">Anzeigen</Button>
       </form>
+      {draft && (
+        <p data-testid="entwurf-hinweis" className="rounded-xl border border-warn-border bg-warn-soft px-4 py-3 text-sm">
+          Du arbeitest im <strong>{q.label}</strong>
+          {draft.validFrom ? ` ab ${fmtYmd(draft.validFrom)}` : ""}. Änderungen wirken erst mit dem Veröffentlichen – der gültige Plan, Vertretungen und Klassenbuch
+          bleiben unverändert.{readOnly ? " Dieser Entwurf ist nicht mehr bearbeitbar." : ""}{" "}
+          <Link href={`/planung/versionen/aenderungen?version=${encodeURIComponent(draft.id)}`} className="font-medium text-accent-ink hover:underline">
+            Änderungen zum gültigen Plan
+          </Link>
+        </p>
+      )}
     </>
   );
   if (!group) {
@@ -98,37 +126,37 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
           </p>
         )}
         <EmptyState title="Keine Gruppe gewählt">Wähle eine Klasse, einen Kurs oder eine AG, um ihren Stundenplan zu bearbeiten.</EmptyState>
-        <PeriodCard cutoff={sp.periode} error={sp.fehler} suggestion={await suggestedCutoff(db, today)} today={today} />
+        {!draft && <PeriodCard cutoff={sp.periode} error={sp.fehler} suggestion={await suggestedCutoff(db, today)} today={today} />}
       </main>
     );
   }
 
-  const upcoming = await lessonsOfGroup(db, group.id, view);
+  const upcoming = await lessonsOfGroup(db, group.id, view, src);
   const lessons = upcoming.filter((r) => r.l.validFrom <= view);
-  // künftige Perioden der Gruppe (Stunden, die erst später beginnen)
-  const periodStarts = [...new Set(upcoming.map((r) => r.l.validFrom).filter((d) => d > today))].sort().slice(0, 4);
-  const parts = await couplingParts(db, [...new Set(lessons.map((r) => r.l.couplingId).filter((c): c is string => Boolean(c)))]);
+  // künftige Perioden der Gruppe (Stunden, die erst später beginnen) – im Entwurf gilt sein Stichtag
+  const periodStarts = draft ? [] : [...new Set(upcoming.map((r) => r.l.validFrom).filter((d) => d > today))].sort().slice(0, 4);
+  const parts = await couplingParts(db, [...new Set(lessons.map((r) => r.l.couplingId).filter((c): c is string => Boolean(c)))], src);
   const partsOf = (cid: string) => parts.filter((p) => p.couplingId === cid);
-  const base = `/planung/stundenplan?gruppe=${encodeURIComponent(group.id)}${stand ? `&stand=${stand}` : ""}`;
+  const base = `/planung/stundenplan?gruppe=${encodeURIComponent(group.id)}${stand ? `&stand=${stand}` : ""}${quelleQuery(quelle)}`;
   const groupBase = `/planung/stundenplan?gruppe=${encodeURIComponent(group.id)}`;
   // Setzhilfe: offene Lehraufträge, Freiraster beim Setzen bzw. Verschieben
-  const [open, planFindings] = await Promise.all([openAssignments(db, group.id, view), groupPlanFindings(db, group.id, view)]);
-  const placing = sp.setzen ? open.find((a) => a.id === sp.setzen) : undefined;
-  const moving = !placing && sp.verschieben ? lessons.find((r) => r.l.id === sp.verschieben) : undefined;
+  const [open, planFindings] = await Promise.all([openAssignments(db, group.id, view, src), groupPlanFindings(db, group.id, view, src)]);
+  const placing = !readOnly && sp.setzen ? open.find((a) => a.id === sp.setzen) : undefined;
+  const moving = !readOnly && !placing && sp.verschieben ? lessons.find((r) => r.l.id === sp.verschieben) : undefined;
   const gridDims = [WEEKDAYS.map((_, i) => i), master.periods.map((p) => p.nr)] as const;
   let grid: Map<string, Cell> | null = null;
-  if (placing) grid = placementGrid({ ...(await assignmentPlacement(db, placing, today, stand)), unitIds: [], weekdays: [...gridDims[0]], periods: [...gridDims[1]] });
+  if (placing) grid = placementGrid({ ...(await assignmentPlacement(db, placing, today, from, src)), unitIds: [], weekdays: [...gridDims[0]], periods: [...gridDims[1]] });
   else if (moving) {
-    const m = await movePlacement(db, moving.l.id);
+    const m = await movePlacement(db, moving.l.id, src);
     if (m?.unit.length) grid = placementGrid(moveGridInput(m, group.id, [...gridDims[0]], [...gridDims[1]]));
   }
   const modeOn = Boolean(grid);
   const yearEnd = (await defaultValidity(db, today)).validUntil;
   const endsEarly = (until: string | null) => until !== null && (yearEnd === null || until < yearEnd);
 
-  const editing = !modeOn && sp.stunde ? lessons.find((r) => r.l.id === sp.stunde && !r.l.couplingId) : undefined;
+  const editing = !readOnly && !modeOn && sp.stunde ? lessons.find((r) => r.l.id === sp.stunde && !r.l.couplingId) : undefined;
   const [newDay, newPeriod] = (sp.neu ?? "").split("-").map(Number);
-  const creating = !editing && sp.neu !== undefined && Number.isInteger(newDay) && Number.isInteger(newPeriod);
+  const creating = !readOnly && !editing && sp.neu !== undefined && Number.isInteger(newDay) && Number.isInteger(newPeriod);
   // SP2-12: Lehrfächer + Restdeputat nur laden, wenn ein Formular offen ist
   const formOpen = Boolean(editing || creating || (sp.kopplung && (sp.kopplung !== "neu" || sp.von || creating)));
   const options = {
@@ -141,10 +169,10 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
 
   let form: React.ReactNode = null;
   // Kopplung: bestehende bearbeiten, aus einer Einzelstunde erweitern oder neu im Slot anlegen
-  const coupledRow = sp.kopplung && sp.kopplung !== "neu" ? lessons.find((r) => r.l.couplingId === sp.kopplung) : undefined;
-  const fromLesson = sp.kopplung === "neu" && sp.von ? lessons.find((r) => r.l.id === sp.von && !r.l.couplingId) : undefined;
+  const coupledRow = !readOnly && sp.kopplung && sp.kopplung !== "neu" ? lessons.find((r) => r.l.couplingId === sp.kopplung) : undefined;
+  const fromLesson = !readOnly && sp.kopplung === "neu" && sp.von ? lessons.find((r) => r.l.id === sp.von && !r.l.couplingId) : undefined;
   if (coupledRow || fromLesson || (sp.kopplung === "neu" && creating)) {
-    const validity = await defaultValidity(db, today, stand);
+    const validity = await defaultValidity(db, today, from);
     const slotOf = coupledRow ?? fromLesson;
     const empty = { id: "", groupId: group.id, subjectId: "", teacherId: "", roomId: "" };
     const initial: CouplingFormValues = {
@@ -165,15 +193,15 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
           {coupledRow ? "Kopplung bearbeiten" : "Kopplung anlegen"} · {group.name}
         </h2>
         {coupledRow && <MoveLink href={`${base}&verschieben=${coupledRow.l.id}`} />}
-        {coupledRow && <FixToggle action={toggleFixedAction.bind(null, coupledRow.l.id, group.id, !coupledRow.l.fixed, stand ?? null)} fixed={coupledRow.l.fixed} />}
+        {coupledRow && <FixToggle action={toggleFixedAction.bind(null, coupledRow.l.id, group.id, !coupledRow.l.fixed, stand ?? null, quelle)} fixed={coupledRow.l.fixed} />}
         <p className="text-sm text-muted">
           Alle Teile liegen zur selben Zeit: geteilte Klasse (z. B. Religion/Philosophie), Kurse über Klassen hinweg, eine Lehrkraft für mehrere Gruppen oder
           Teamteaching im selben Raum.
         </p>
         <CouplingForm
           key={coupledRow?.l.couplingId ?? `neu-${sp.von ?? sp.neu}`}
-          action={saveCouplingAction.bind(null, coupledRow?.l.couplingId ?? null, group.id)}
-          deleteAction={coupledRow ? deleteCouplingAction.bind(null, coupledRow.l.couplingId!, group.id, stand ?? null) : undefined}
+          action={saveCouplingAction.bind(null, coupledRow?.l.couplingId ?? null, group.id, quelle)}
+          deleteAction={coupledRow ? deleteCouplingAction.bind(null, coupledRow.l.couplingId!, group.id, stand ?? null, quelle) : undefined}
           initial={initial}
           cancelHref={base}
           options={{
@@ -187,7 +215,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
       </Card>
     );
   } else if (editing || creating) {
-    const validity = await defaultValidity(db, today, stand);
+    const validity = await defaultValidity(db, today, from);
     const initial: LessonFormValues = editing
       ? {
           groupId: group.id,
@@ -217,11 +245,11 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
           {editing ? "Stunde bearbeiten" : "Stunde anlegen"} · {group.name}
         </h2>
         {editing && <MoveLink href={`${base}&verschieben=${editing.l.id}`} />}
-        {editing && <FixToggle action={toggleFixedAction.bind(null, editing.l.id, group.id, !editing.l.fixed, stand ?? null)} fixed={editing.l.fixed} />}
+        {editing && <FixToggle action={toggleFixedAction.bind(null, editing.l.id, group.id, !editing.l.fixed, stand ?? null, quelle)} fixed={editing.l.fixed} />}
         <LessonForm
           key={editing?.l.id ?? sp.neu}
-          action={saveLessonAction.bind(null, editing?.l.id ?? null)}
-          deleteAction={editing ? deleteLessonAction.bind(null, editing.l.id, group.id, stand ?? null) : undefined}
+          action={saveLessonAction.bind(null, editing?.l.id ?? null, quelle)}
+          deleteAction={editing ? deleteLessonAction.bind(null, editing.l.id, group.id, stand ?? null, quelle) : undefined}
           initial={initial}
           cancelHref={base}
           couplingHref={editing ? `${base}&kopplung=neu&von=${editing.l.id}` : `${base}&kopplung=neu&neu=${sp.neu}`}
@@ -258,7 +286,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
         </nav>
       )}
       {form}
-      <OpenPanel open={open} base={base} placing={placing?.id} fakultas={fakultas} />
+      {!readOnly && <OpenPanel open={open} base={base} placing={placing?.id} fakultas={fakultas} />}
       {moving && (
         <Card aria-labelledby="move-title" className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -331,12 +359,12 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
                           slot={`${d} ${p.nr}. Stunde`}
                           action={
                             placing
-                              ? placeAssignmentAction.bind(null, placing.id, group.id, stand ?? null, day, p.nr)
-                              : moveLessonAction.bind(null, moving!.l.id, group.id, stand ?? null, day, p.nr)
+                              ? placeAssignmentAction.bind(null, placing.id, group.id, stand ?? null, quelle, day, p.nr)
+                              : moveLessonAction.bind(null, moving!.l.id, group.id, stand ?? null, quelle, day, p.nr)
                           }
                           verb={placing ? "Hier setzen" : "Hierher verschieben"}
                         />
-                      ) : (
+                      ) : readOnly ? null : (
                       <Link
                         href={`${base}&neu=${day}-${p.nr}`}
                         aria-label={`Stunde anlegen: ${d} ${p.nr}. Stunde`}
@@ -365,8 +393,8 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
               Keine {DIAGNOSIS_LABELS.gaps}, kein Fach mehrfach am Tag, alle Räume passen.
             </p>
           )}
-          <Link href="/planung/unterricht?ansicht=diagnose" className="text-sm text-accent-ink hover:underline">
-            Diagnose der ganzen Schule
+          <Link href={`/planung/unterricht?ansicht=diagnose${quelleQuery(quelle)}`} className="text-sm text-accent-ink hover:underline">
+            Diagnose der ganzen Schule{draft ? " (Entwurf)" : ""}
           </Link>
         </section>
       )}

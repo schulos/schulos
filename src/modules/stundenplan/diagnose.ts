@@ -2,9 +2,10 @@
 // Stundentafel, ungeeignete Räume, Deputat über/unter Soll, Bänder (SP2-02: zur selben Zeit, gemeinsame Schüler:innen) und
 // Tagesgrenzen/Ganztag je Jahrgang (SP2-03), Tagesregeln je Lehrkraft (SP2-04) und Zeitwünsche (SP2-05: gesperrt belegt, −3/−2).
 // Reine Prüflogik + Loader.
-import { and, count, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, count, eq, inArray } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { groupMembers, periods, rooms, subjects, timetableLessons, users } from "@/core/db/schema";
+import { groupMembers, periods, rooms, subjects, users } from "@/core/db/schema";
+import { activeOnWhere, lessonCols, LIVE, type PlanSource } from "./plan-quelle";
 import { ROOM_KIND_LABELS } from "@/core/labels";
 import type { RoomKind } from "@/core/db/schema";
 import { readSchoolSettings } from "@/core/settings";
@@ -433,25 +434,37 @@ export function countFindings(findings: Finding[]): DiagnosisReport["counts"] {
   return counts;
 }
 
-/** Diagnose für ein Schuljahr am Stichtag (wie die Unterrichtsverteilung). */
-export async function diagnoseYear(db: Db, year: { id: string; startsOn: string; endsOn: string }, todayYmd: string, fallbackObligation: number, pre?: Distribution): Promise<DiagnosisReport> {
-  const d = pre ?? (await distribution(db, year, todayYmd));
+/**
+ * Diagnose für ein Schuljahr am Stichtag (wie die Unterrichtsverteilung). SP3-02: wahlweise gegen den Entwurf einer Planversion
+ * (`opts.source`, auch für die mitgegebene Verteilung `pre`); die Prüflogik `diagnose()` bleibt unverändert.
+ */
+export async function diagnoseYear(
+  db: Db,
+  year: { id: string; startsOn: string; endsOn: string },
+  todayYmd: string,
+  fallbackObligation: number,
+  pre?: Distribution,
+  opts: { source?: PlanSource } = {},
+): Promise<DiagnosisReport> {
+  const source = opts.source ?? LIVE;
+  const d = pre ?? (await distribution(db, year, todayYmd, { source }));
   const ref = d.refYmd;
+  const t = lessonCols(source);
   const [lessonRows, periodRows, subjectRows, roomRows, sizes, accounts, dayLimits, prefs] = await Promise.all([
     db
       .select({
-        id: timetableLessons.id,
-        couplingId: timetableLessons.couplingId,
-        groupId: timetableLessons.groupId,
-        subjectId: timetableLessons.subjectId,
-        teacherId: timetableLessons.teacherId,
-        roomId: timetableLessons.roomId,
-        weekday: timetableLessons.weekday,
-        periodNr: timetableLessons.periodNr,
-        week: timetableLessons.week,
+        id: t.id,
+        couplingId: t.couplingId,
+        groupId: t.groupId,
+        subjectId: t.subjectId,
+        teacherId: t.teacherId,
+        roomId: t.roomId,
+        weekday: t.weekday,
+        periodNr: t.periodNr,
+        week: t.week,
       })
-      .from(timetableLessons)
-      .where(and(lte(timetableLessons.validFrom, ref), or(isNull(timetableLessons.validUntil), gte(timetableLessons.validUntil, ref)))),
+      .from(t)
+      .where(activeOnWhere(source, ref)),
     db.select({ nr: periods.nr, startsAt: periods.startsAt, endsAt: periods.endsAt }).from(periods).orderBy(periods.nr),
     db.select({ id: subjects.id, name: subjects.name, roomKind: subjects.roomKind }).from(subjects),
     db.select({ id: rooms.id, kind: rooms.kind, capacity: rooms.capacity, active: rooms.active }).from(rooms),
@@ -490,11 +503,11 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
 }
 
 /** Plan-Hinweise einer Gruppe (Hohlstunden, Fach mehrfach am Tag, Räume) für die Pflege-Seite. */
-export async function groupPlanFindings(db: Db, groupId: string, todayYmd: string): Promise<Finding[]> {
+export async function groupPlanFindings(db: Db, groupId: string, todayYmd: string, source: PlanSource = LIVE): Promise<Finding[]> {
   const year = await planningYear(db);
   if (!year) return [];
   const school = await readSchoolSettings(db);
-  const { findings } = await diagnoseYear(db, year, todayYmd, defaultObligation(school.profile.form));
+  const { findings } = await diagnoseYear(db, year, todayYmd, defaultObligation(school.profile.form), undefined, { source });
   const plan = new Set<DiagnosisCategory>(["gaps", "subjectDay", "room", "day", "prefs"]);
   return findings.filter((f) => f.target.kind === "group" && f.target.id === groupId && plan.has(f.category));
 }

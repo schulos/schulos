@@ -1,8 +1,11 @@
 // Stundenplan-Pflege (Verwaltung): Stunden anlegen/ändern/löschen mit Kollisionsprüfung.
+// SP3-02: jede Pflege-Funktion arbeitet wahlweise im gültigen Plan (Vorgabe) oder im Entwurf einer Planversion (`PlanSource`). Im Entwurf
+// gibt es keine Vertretungen, Zusammenlegungen und keine Historie – Änderungen sind „in place“ und wirken erst mit dem Veröffentlichen
+// (SP3-04); Kollisionen zählen nur innerhalb derselben Version.
 import { and, asc, eq, gte, inArray, isNull, ne, notInArray, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
-import { groups, periods, rooms, schoolYears, subjects, timetableLessons, users, type TimetableLesson } from "@/core/db/schema";
+import { groups, periods, rooms, schoolYears, subjects, users, type TimetableLesson } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { LESSON_WEEKS } from "./schema";
 import { PLANNED_GROUP_KINDS } from "./verteilung";
@@ -10,6 +13,7 @@ import { de } from "@/core/db/sort";
 import { toBerlinDate } from "@/core/time";
 import { mergesInto, notifyReleasedMerges } from "./vertretung";
 import { recordLessonCascade } from "./vertretung-historie";
+import { idWhere, insertLessonRows, lessonCols, LIVE, requireWritable, versionWhere, type PlanSource } from "./plan-quelle";
 
 export const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr"] as const;
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -24,6 +28,8 @@ export interface LessonInput {
   week: (typeof LESSON_WEEKS)[number];
   validFrom: string;
   validUntil: string | null;
+  /** SP3-02: nur im Entwurf – Lehrauftrag, aus dem die Setzhilfe die Stunde gesetzt hat (Herkunft für Diff/Deputat) */
+  assignmentId?: string | null;
 }
 
 export interface Collision {
@@ -43,26 +49,31 @@ export function slotsOverlap(a: Slot, b: Slot): boolean {
   return a.validFrom <= bEnd && b.validFrom <= aEnd;
 }
 
+/** Audit-Ziel im Entwurf: die Version (ohne Personen). */
+const draftMeta = (source: PlanSource) => (source.kind === "draft" ? { draft: source.versionId } : {});
+
 /**
  * Andere Stunden, mit denen `input` kollidiert (Lehrkraft, Raum, Gruppe). Stunden derselben Kopplung und
- * `excludeIds` (die Stunde selbst bzw. bisherige Teile der Kopplung) zählen nicht.
+ * `excludeIds` (die Stunde selbst bzw. bisherige Teile der Kopplung) zählen nicht. Im Entwurf nur Stunden derselben Version.
  */
-export async function findCollisions(db: Db, input: LessonInput, opts: { excludeIds?: string[]; couplingId?: string | null } = {}): Promise<Collision[]> {
-  const who = [eq(timetableLessons.groupId, input.groupId)];
-  if (input.teacherId) who.push(eq(timetableLessons.teacherId, input.teacherId));
-  if (input.roomId) who.push(eq(timetableLessons.roomId, input.roomId));
+export async function findCollisions(db: Db, input: LessonInput, opts: { excludeIds?: string[]; couplingId?: string | null } = {}, source: PlanSource = LIVE): Promise<Collision[]> {
+  const t = lessonCols(source);
+  const who = [eq(t.groupId, input.groupId)];
+  if (input.teacherId) who.push(eq(t.teacherId, input.teacherId));
+  if (input.roomId) who.push(eq(t.roomId, input.roomId));
   const rows = await db
-    .select({ l: timetableLessons, groupName: groups.name, teacherCode: users.shortCode })
-    .from(timetableLessons)
-    .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
-    .leftJoin(users, eq(users.id, timetableLessons.teacherId))
+    .select({ l: { id: t.id, groupId: t.groupId, teacherId: t.teacherId, roomId: t.roomId, weekday: t.weekday, periodNr: t.periodNr, week: t.week, validFrom: t.validFrom, validUntil: t.validUntil }, groupName: groups.name, teacherCode: users.shortCode })
+    .from(t)
+    .innerJoin(groups, eq(groups.id, t.groupId))
+    .leftJoin(users, eq(users.id, t.teacherId))
     .where(
       and(
-        eq(timetableLessons.weekday, input.weekday),
-        eq(timetableLessons.periodNr, input.periodNr),
+        versionWhere(source),
+        eq(t.weekday, input.weekday),
+        eq(t.periodNr, input.periodNr),
         or(...who),
-        opts.excludeIds?.length ? notInArray(timetableLessons.id, opts.excludeIds) : undefined,
-        opts.couplingId ? or(isNull(timetableLessons.couplingId), ne(timetableLessons.couplingId, opts.couplingId)) : undefined,
+        opts.excludeIds?.length ? notInArray(t.id, opts.excludeIds) : undefined,
+        opts.couplingId ? or(isNull(t.couplingId), ne(t.couplingId, opts.couplingId)) : undefined,
       ),
     );
   const when = `${WEEKDAYS[input.weekday]} ${input.periodNr}. Stunde`;
@@ -107,17 +118,18 @@ async function checkRefs(db: Db, input: LessonInput, fe: Record<string, string>,
   if (!r[0]) fe[`${prefix}roomId`] = "Raum gibt es nicht";
 }
 
-async function validate(db: Db, input: LessonInput, excludeId?: string): Promise<void> {
+async function validate(db: Db, input: LessonInput, excludeId: string | undefined, source: PlanSource): Promise<void> {
   const fe: Record<string, string> = {};
   checkSlot(input, fe);
   await checkRefs(db, input, fe);
   if (Object.keys(fe).length) throw new ValidationError(fe);
   if (excludeId) {
-    const [own] = await db.select({ c: timetableLessons.couplingId }).from(timetableLessons).where(eq(timetableLessons.id, excludeId));
+    const t = lessonCols(source);
+    const [own] = await db.select({ c: t.couplingId }).from(t).where(idWhere(source, excludeId));
     if (own?.c) throw new ValidationError({ id: "Die Stunde gehört zu einer Kopplung – dort bearbeiten" });
   }
 
-  const collisions = await findCollisions(db, input, { excludeIds: excludeId ? [excludeId] : [] });
+  const collisions = await findCollisions(db, input, { excludeIds: excludeId ? [excludeId] : [] }, source);
   if (collisions.length) {
     const fieldOf = { teacher: "teacherId", room: "roomId", group: "periodNr" } as const;
     for (const c of collisions) fe[fieldOf[c.kind]] ??= c.message;
@@ -129,40 +141,60 @@ function values(i: LessonInput) {
   return { groupId: i.groupId, weekday: i.weekday, periodNr: i.periodNr, subjectId: i.subjectId, teacherId: i.teacherId, roomId: i.roomId, week: i.week, validFrom: i.validFrom, validUntil: i.validUntil };
 }
 
-export async function createLesson(db: Db, actorId: string, input: LessonInput): Promise<string> {
-  await validate(db, input);
-  const [row] = await db.insert(timetableLessons).values(values(input)).returning({ id: timetableLessons.id });
-  await audit(db, actorId, "stundenplan.lesson.create", input.groupId, { weekday: input.weekday, period: input.periodNr, subject: input.subjectId });
-  return row!.id;
+export async function createLesson(db: Db, actorId: string, input: LessonInput, source: PlanSource = LIVE): Promise<string> {
+  await requireWritable(db, source);
+  await validate(db, input, undefined, source);
+  const [id] = await insertLessonRows(db, source, [{ ...values(input), assignmentId: input.assignmentId ?? null }]);
+  await audit(db, actorId, source.kind === "draft" ? "stundenplan.draft.lesson.create" : "stundenplan.lesson.create", input.groupId, {
+    weekday: input.weekday,
+    period: input.periodNr,
+    subject: input.subjectId,
+    ...draftMeta(source),
+  });
+  return id!;
 }
 
-export async function updateLesson(db: Db, actorId: string, id: string, input: LessonInput): Promise<void> {
-  const [old] = await db.select({ id: timetableLessons.id }).from(timetableLessons).where(eq(timetableLessons.id, id));
+export async function updateLesson(db: Db, actorId: string, id: string, input: LessonInput, source: PlanSource = LIVE): Promise<void> {
+  await requireWritable(db, source);
+  const t = lessonCols(source);
+  const [old] = await db.select({ id: t.id }).from(t).where(idWhere(source, id));
   if (!old) throw new ValidationError({ id: "Stunde gibt es nicht mehr" });
-  await validate(db, input, id);
-  await db.update(timetableLessons).set(values(input)).where(eq(timetableLessons.id, id));
-  await audit(db, actorId, "stundenplan.lesson.update", input.groupId, { lesson: id });
+  await validate(db, input, id, source);
+  await db.update(t).set(values(input)).where(idWhere(source, id));
+  await audit(db, actorId, source.kind === "draft" ? "stundenplan.draft.lesson.update" : "stundenplan.lesson.update", input.groupId, { lesson: id, ...draftMeta(source) });
 }
 
-export async function deleteLesson(db: Db, actorId: string, id: string, today = toBerlinDate(new Date())): Promise<void> {
+export async function deleteLesson(db: Db, actorId: string, id: string, today = toBerlinDate(new Date()), source: PlanSource = LIVE): Promise<void> {
+  if (source.kind === "draft") {
+    // Entwurf: keine Vertretungen/Zusammenlegungen, keine Historie
+    await requireWritable(db, source);
+    const t = lessonCols(source);
+    const [old] = await db.delete(t).where(idWhere(source, id)).returning();
+    if (!old) return;
+    if (old.couplingId) await dissolveIfSingle(db, old.couplingId, source);
+    await audit(db, actorId, "stundenplan.draft.lesson.delete", old.groupId, { weekday: old.weekday, period: old.periodNr, subject: old.subjectId, ...draftMeta(source) });
+    return;
+  }
   // R1b/A10: Zusammenlegungen in diese Stunde bleiben ohne Ziel stehen (Bedarf wieder offen) – Betroffene erfahren es
   const released = await mergesInto(db, [id], today);
+  const t = lessonCols(LIVE);
   const old = await db.transaction(async (tx) => {
     // VT-01: Vertretungen der Stunde gehen per Kaskade mit – vorher in die Historie
     await recordLessonCascade(tx as unknown as Db, actorId, [id], "delete");
-    const [row] = await tx.delete(timetableLessons).where(eq(timetableLessons.id, id)).returning();
+    const [row] = await tx.delete(t).where(eq(t.id, id)).returning();
     return row;
   });
   if (!old) return;
-  if (old.couplingId) await dissolveIfSingle(db, old.couplingId);
+  if (old.couplingId) await dissolveIfSingle(db, old.couplingId, LIVE);
   await audit(db, actorId, "stundenplan.lesson.delete", old.groupId, { weekday: old.weekday, period: old.periodNr, subject: old.subjectId, mergesReleased: released.length || undefined });
   await notifyReleasedMerges(db, actorId, released);
 }
 
 /** Eine Kopplung mit nur noch einem Teil ist keine mehr. */
-async function dissolveIfSingle(db: Db, couplingId: string) {
-  const rest = await db.select({ id: timetableLessons.id }).from(timetableLessons).where(eq(timetableLessons.couplingId, couplingId));
-  if (rest.length === 1) await db.update(timetableLessons).set({ couplingId: null }).where(eq(timetableLessons.id, rest[0]!.id));
+async function dissolveIfSingle(db: Db, couplingId: string, source: PlanSource) {
+  const t = lessonCols(source);
+  const rest = await db.select({ id: t.id }).from(t).where(and(versionWhere(source), eq(t.couplingId, couplingId)));
+  if (rest.length === 1) await db.update(t).set({ couplingId: null }).where(eq(t.id, rest[0]!.id));
 }
 
 // ---------------------------------------------------------------- Kopplungen
@@ -174,6 +206,8 @@ export interface CouplingPart {
   subjectId: string;
   teacherId: string | null;
   roomId: string | null;
+  /** SP3-02: nur im Entwurf – Lehrauftrag des Teils (Setzhilfe) */
+  assignmentId?: string | null;
 }
 
 export interface CouplingInput extends SlotInput {
@@ -185,15 +219,17 @@ export interface CouplingInput extends SlotInput {
  * mehrfach vorkommen (geteilte Klasse), eine Lehrkraft mehrere Gruppen im selben Raum unterrichten und ein Raum
  * mehrere Lehrkräfte haben (Teamteaching). Nach außen gelten die normalen Kollisionen. Fehler je Teil unter `p<i>-<feld>`.
  */
-export async function saveCoupling(db: Db, actorId: string, couplingId: string | null, input: CouplingInput): Promise<string> {
+export async function saveCoupling(db: Db, actorId: string, couplingId: string | null, input: CouplingInput, source: PlanSource = LIVE): Promise<string> {
+  await requireWritable(db, source);
+  const t = lessonCols(source);
   const fe: Record<string, string> = {};
   checkSlot(input, fe);
   if (input.parts.length < 2) fe.parts = "Eine Kopplung braucht mindestens zwei Teile";
-  const existing = couplingId ? await db.select().from(timetableLessons).where(eq(timetableLessons.couplingId, couplingId)) : [];
+  const existing = couplingId ? await db.select({ id: t.id }).from(t).where(and(versionWhere(source), eq(t.couplingId, couplingId))) : [];
   if (couplingId && !existing.length) throw new ValidationError({ id: "Die Kopplung gibt es nicht mehr" });
   // Teile mit id: Stunden dieser Kopplung oder (beim Erweitern) eine ungekoppelte Stunde
   const ids = input.parts.map((p) => p.id).filter((x): x is string => Boolean(x));
-  const known = ids.length ? await db.select().from(timetableLessons).where(inArray(timetableLessons.id, ids)) : [];
+  const known = ids.length ? await db.select({ id: t.id, couplingId: t.couplingId }).from(t).where(and(versionWhere(source), inArray(t.id, ids))) : [];
   for (const [i, p] of input.parts.entries()) {
     if (!p.id) continue;
     const row = known.find((k) => k.id === p.id);
@@ -214,7 +250,7 @@ export async function saveCoupling(db: Db, actorId: string, couplingId: string |
   const id = couplingId ?? crypto.randomUUID();
   const excludeIds = [...new Set([...existing.map((e) => e.id), ...ids])];
   for (const [i, p] of input.parts.entries()) {
-    const collisions = await findCollisions(db, { ...input, ...p }, { excludeIds, couplingId: id });
+    const collisions = await findCollisions(db, { ...input, ...p }, { excludeIds, couplingId: id }, source);
     const fieldOf = { teacher: "teacherId", room: "roomId", group: "groupId" } as const;
     for (const c of collisions) fe[`p${i}-${fieldOf[c.kind]}`] ??= c.message;
   }
@@ -223,37 +259,56 @@ export async function saveCoupling(db: Db, actorId: string, couplingId: string |
   const slot = { weekday: input.weekday, periodNr: input.periodNr, week: input.week, validFrom: input.validFrom, validUntil: input.validUntil, couplingId: id };
   const keep = new Set(ids);
   const gone = existing.filter((e) => !keep.has(e.id)).map((e) => e.id);
-  // R1b/A10: Zusammenlegungen in wegfallende Teile bleiben ohne Ziel stehen – Betroffene erfahren es
-  const released = await mergesInto(db, gone, toBerlinDate(new Date()));
+  const live = source.kind === "live";
+  // R1b/A10: Zusammenlegungen in wegfallende Teile bleiben ohne Ziel stehen – Betroffene erfahren es (nur im gültigen Plan)
+  const released = live ? await mergesInto(db, gone, toBerlinDate(new Date())) : [];
   await db.transaction(async (tx) => {
+    const x = tx as unknown as Db;
     if (gone.length) {
-      await recordLessonCascade(tx as unknown as Db, actorId, gone, "delete");
-      await tx.delete(timetableLessons).where(inArray(timetableLessons.id, gone));
+      if (live) await recordLessonCascade(x, actorId, gone, "delete");
+      await tx.delete(t).where(and(versionWhere(source), inArray(t.id, gone)));
     }
+    const fresh = [];
     for (const p of input.parts) {
       const v = { ...slot, groupId: p.groupId, subjectId: p.subjectId, teacherId: p.teacherId, roomId: p.roomId };
-      if (p.id) await tx.update(timetableLessons).set(v).where(eq(timetableLessons.id, p.id));
-      else await tx.insert(timetableLessons).values(v);
+      if (p.id) await tx.update(t).set(v).where(idWhere(source, p.id));
+      else fresh.push({ ...v, assignmentId: p.assignmentId ?? null });
     }
+    if (fresh.length) await insertLessonRows(x, source, fresh);
   });
-  await audit(db, actorId, couplingId ? "stundenplan.coupling.update" : "stundenplan.coupling.create", input.parts[0]!.groupId, {
-    coupling: id,
-    weekday: input.weekday,
-    period: input.periodNr,
-    parts: input.parts.length,
-    mergesReleased: released.length || undefined,
-  });
-  await notifyReleasedMerges(db, actorId, released);
+  await audit(
+    db,
+    actorId,
+    source.kind === "draft" ? (couplingId ? "stundenplan.draft.coupling.update" : "stundenplan.draft.coupling.create") : couplingId ? "stundenplan.coupling.update" : "stundenplan.coupling.create",
+    input.parts[0]!.groupId,
+    {
+      coupling: id,
+      weekday: input.weekday,
+      period: input.periodNr,
+      parts: input.parts.length,
+      mergesReleased: released.length || undefined,
+      ...draftMeta(source),
+    },
+  );
+  if (live) await notifyReleasedMerges(db, actorId, released);
   return id;
 }
 
-export async function deleteCoupling(db: Db, actorId: string, couplingId: string): Promise<void> {
-  const parts = await db.select({ id: timetableLessons.id }).from(timetableLessons).where(eq(timetableLessons.couplingId, couplingId));
+export async function deleteCoupling(db: Db, actorId: string, couplingId: string, source: PlanSource = LIVE): Promise<void> {
+  await requireWritable(db, source);
+  const t = lessonCols(source);
+  const where = and(versionWhere(source), eq(t.couplingId, couplingId));
+  const parts = await db.select({ id: t.id }).from(t).where(where);
+  if (source.kind === "draft") {
+    const gone = await db.delete(t).where(where).returning();
+    if (gone.length) await audit(db, actorId, "stundenplan.draft.coupling.delete", gone[0]!.groupId, { coupling: couplingId, parts: gone.length, ...draftMeta(source) });
+    return;
+  }
   // R1b/A10: Zusammenlegungen in die Kopplung bleiben ohne Ziel stehen – Betroffene erfahren es
   const released = await mergesInto(db, parts.map((p) => p.id), toBerlinDate(new Date()));
   const gone = await db.transaction(async (tx) => {
     await recordLessonCascade(tx as unknown as Db, actorId, parts.map((p) => p.id), "delete");
-    return tx.delete(timetableLessons).where(eq(timetableLessons.couplingId, couplingId)).returning();
+    return tx.delete(t).where(where).returning();
   });
   if (gone.length) await audit(db, actorId, "stundenplan.coupling.delete", gone[0]!.groupId, { coupling: couplingId, parts: gone.length, mergesReleased: released.length || undefined });
   await notifyReleasedMerges(db, actorId, released);
@@ -272,27 +327,18 @@ export interface CouplingRow {
 }
 
 /** Alle Teile der angegebenen Kopplungen, nach Gruppe sortiert. */
-export async function couplingParts(db: Db, couplingIds: string[]): Promise<CouplingRow[]> {
+export async function couplingParts(db: Db, couplingIds: string[], source: PlanSource = LIVE): Promise<CouplingRow[]> {
   if (!couplingIds.length) return [];
+  const t = lessonCols(source);
   const rows = await db
-    .select({ l: timetableLessons, groupName: groups.name, subjectName: subjects.name, teacherCode: users.shortCode })
-    .from(timetableLessons)
-    .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
-    .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
-    .leftJoin(users, eq(users.id, timetableLessons.teacherId))
-    .where(inArray(timetableLessons.couplingId, couplingIds))
-    .orderBy(asc(groups.gradeLevel), de(groups.name), asc(subjects.sortOrder), asc(users.shortCode));
-  return rows.map((r) => ({
-    id: r.l.id,
-    couplingId: r.l.couplingId!,
-    groupId: r.l.groupId,
-    groupName: r.groupName,
-    subjectId: r.l.subjectId,
-    subjectName: r.subjectName,
-    teacherId: r.l.teacherId,
-    teacherCode: r.teacherCode,
-    roomId: r.l.roomId,
-  }));
+    .select({ id: t.id, couplingId: t.couplingId, groupId: t.groupId, subjectId: t.subjectId, teacherId: t.teacherId, roomId: t.roomId, groupName: groups.name, subjectName: subjects.name, teacherCode: users.shortCode })
+    .from(t)
+    .innerJoin(groups, eq(groups.id, t.groupId))
+    .innerJoin(subjects, eq(subjects.id, t.subjectId))
+    .leftJoin(users, eq(users.id, t.teacherId))
+    .where(and(versionWhere(source), inArray(t.couplingId, couplingIds)))
+    .orderBy(asc(groups.gradeLevel), de(groups.name), asc(subjects.sortOrder), asc(users.shortCode), asc(t.id));
+  return rows.map((r) => ({ ...r, couplingId: r.couplingId! }));
 }
 
 /**
@@ -324,18 +370,37 @@ export async function teacherOptions(db: Db) {
     .orderBy(asc(users.shortCode));
 }
 
-/** Aktuelle und künftige Stunden einer Gruppe (abgelaufene ausgeblendet). */
-export async function lessonsOfGroup(db: Db, groupId: string, todayYmd: string) {
-  return db
-    .select({ l: timetableLessons, subjectName: subjects.name, color: subjects.color, teacherCode: users.shortCode })
-    .from(timetableLessons)
-    .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
-    .leftJoin(users, eq(users.id, timetableLessons.teacherId))
-    .where(and(eq(timetableLessons.groupId, groupId), or(isNull(timetableLessons.validUntil), gte(timetableLessons.validUntil, todayYmd))))
-    .orderBy(asc(timetableLessons.weekday), asc(timetableLessons.periodNr), asc(timetableLessons.validFrom));
+/** Aktuelle und künftige Stunden einer Gruppe (abgelaufene ausgeblendet) – im gültigen Plan oder im Entwurf. */
+export async function lessonsOfGroup(db: Db, groupId: string, todayYmd: string, source: PlanSource = LIVE) {
+  const t = lessonCols(source);
+  const rows = await db
+    .select({
+      id: t.id,
+      groupId: t.groupId,
+      weekday: t.weekday,
+      periodNr: t.periodNr,
+      subjectId: t.subjectId,
+      teacherId: t.teacherId,
+      roomId: t.roomId,
+      week: t.week,
+      validFrom: t.validFrom,
+      validUntil: t.validUntil,
+      couplingId: t.couplingId,
+      fixed: t.fixed,
+      solverRunId: t.solverRunId,
+      subjectName: subjects.name,
+      color: subjects.color,
+      teacherCode: users.shortCode,
+    })
+    .from(t)
+    .innerJoin(subjects, eq(subjects.id, t.subjectId))
+    .leftJoin(users, eq(users.id, t.teacherId))
+    .where(and(versionWhere(source), eq(t.groupId, groupId), or(isNull(t.validUntil), gte(t.validUntil, todayYmd))))
+    .orderBy(asc(t.weekday), asc(t.periodNr), asc(t.validFrom), asc(t.id));
+  return rows.map(({ subjectName, color, teacherCode, ...l }) => ({ l, subjectName, color, teacherCode }));
 }
 
-/** Vorbelegung für neue Stunden: laufendes Schuljahr; mit `from` (Planungsstand einer neuen Periode) erst ab diesem Tag. */
+/** Vorbelegung für neue Stunden: laufendes Schuljahr; mit `from` (Planungsstand einer neuen Periode bzw. Stichtag des Entwurfs) erst ab diesem Tag. */
 export async function defaultValidity(db: Db, todayYmd: string, from?: string): Promise<{ validFrom: string; validUntil: string | null }> {
   const [y] = await db.select().from(schoolYears).where(eq(schoolYears.isCurrent, true));
   const v = y ? { validFrom: y.startsOn, validUntil: y.endsOn } : { validFrom: todayYmd, validUntil: null };

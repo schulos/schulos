@@ -11,6 +11,7 @@ import { gridLessons, type GridLesson } from "./setzhilfe";
 import { listGradeRules } from "./jahrgangsregeln";
 import { dayRuleFor, type DayRule } from "./tagesgrenzen";
 import { listTeacherRules } from "./deputate";
+import { LIVE, type PlanSource } from "./plan-quelle";
 
 export interface SolverInputOptions {
   /** Stunden, die bleiben, wo sie sind (fixiert); ihre Lehraufträge werden um diese Stunden gekürzt */
@@ -19,6 +20,8 @@ export interface SolverInputOptions {
   keepUnmatched?: boolean;
   seed?: number;
   iterations?: number;
+  /** SP3-02: Plan, gegen den gerechnet wird (fixierte/behaltene Stunden) – Vorgabe gültiger Plan, sonst der Entwurf einer Planversion */
+  source?: PlanSource;
 }
 
 /** Gruppenarten, deren Stunden für die Klassen desselben Jahrgangs als belegt zählen (Kursband) – plus die Klassen selbst. */
@@ -216,7 +219,8 @@ export async function solverInputFromDb(
   todayYmd: string,
   opts: SolverInputOptions = {},
 ): Promise<SolverInput & { check: InputCheck }> {
-  const d = await distribution(db, year, todayYmd);
+  const source = opts.source ?? LIVE;
+  const d = await distribution(db, year, todayYmd, { source });
   const [periodRows, roomRows, subjectRows, groupRows, memberRows, prefs, planned, grid, gradeRules, teacherRules] = await Promise.all([
     db.select({ nr: periods.nr, startsAt: periods.startsAt, endsAt: periods.endsAt }).from(periods).orderBy(periods.nr),
     db.select({ id: rooms.id, kind: rooms.kind, capacity: rooms.capacity, active: rooms.active }).from(rooms),
@@ -229,8 +233,8 @@ export async function solverInputFromDb(
       .innerJoin(users, eq(users.id, groupMembers.userId))
       .where(and(eq(groupMembers.role, "member"), eq(users.role, "schueler"))),
     allPrefs(db),
-    planLessonsOn(db, d.refYmd),
-    gridLessons(db, d.refYmd, d.refYmd),
+    planLessonsOn(db, d.refYmd, source),
+    gridLessons(db, d.refYmd, d.refYmd, source),
     listGradeRules(db),
     // SP2-04: Tagesregeln je Lehrkraft des Schuljahres
     listTeacherRules(db, year.id),
