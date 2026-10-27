@@ -18,7 +18,8 @@ import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenst
 import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
 import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
 import { deleteSubstitution, keepReviewedSubstitution, publishDay, removeReviewedSubstitutions, saveSubstitution, type SubstitutionInput } from "./vertretung";
-import { addReduction, deleteReduction, saveTeacherRule, setObligation } from "./deputate";
+import { addReduction, defaultObligation, deleteReduction, saveTeacherRule, setDeputy } from "./deputate";
+import { readSchoolSettings } from "@/core/settings";
 import { applyGradeRuleDefaults, classGrades, saveGradeRules } from "./jahrgangsregeln";
 import {
   assignmentsFromTimetable,
@@ -432,9 +433,27 @@ export async function saveObligationAction(teacherId: string, _prev: FormState, 
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
   const year = await planningYear(db);
-  const raw = String(form.get("obligation") ?? "").trim();
+  const opt = (k: string) => {
+    const raw = String(form.get(k) ?? "")
+      .replace("%", "")
+      .trim();
+    return raw ? hoursOf(raw) : null;
+  };
+  // SP3-DEP: Teilzeit-Anteil (Rechenhilfe) und Pflicht 2. Halbjahr (Feld fehlt ohne Beginn des 2. Halbjahrs → leer)
+  const fallback = defaultObligation((await readSchoolSettings(db)).profile.form);
   try {
-    await setObligation(db, user.id, year?.id ?? "", teacherId, raw ? hoursOf(raw) : null);
+    await setDeputy(
+      db,
+      user.id,
+      year?.id ?? "",
+      teacherId,
+      {
+        obligation: opt("obligation"),
+        employmentPercent: opt("employmentPercent"),
+        obligationTerm2: opt("obligationTerm2"),
+      },
+      fallback,
+    );
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
@@ -468,7 +487,15 @@ export async function addReductionAction(teacherId: string, _prev: FormState, fo
   const year = await planningYear(db);
   const str = (k: string) => String(form.get(k) ?? "").trim();
   try {
-    await addReduction(db, user.id, { schoolYearId: year?.id ?? "", teacherId, reason: str("reason"), hours: hoursOf(str("hours")), note: str("note") || null });
+    await addReduction(db, user.id, {
+      schoolYearId: year?.id ?? "",
+      teacherId,
+      reason: str("reason"),
+      hours: hoursOf(str("hours")),
+      note: str("note") || null,
+      validFrom: str("validFrom") || null,
+      validUntil: str("validUntil") || null,
+    });
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;

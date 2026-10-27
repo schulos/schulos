@@ -388,6 +388,7 @@ export async function loadFachbedarf(db: Db, todayYmd: string, { details, distri
     year.id,
     d.teachers.filter((t) => active.has(t.id)),
     defaultObligation(school.profile.form),
+    d.refYmd, // SP3-DEP: Soll am Stichtag (Pflicht des Halbjahrs, geltende Anrechnungen); Restdeputat = Soll − Lehraufträge
   );
   const next = nextRow
     ? { name: nextRow.name, startsOn: nextRow.startsOn, endsOn: nextRow.endsOn, exists: true }

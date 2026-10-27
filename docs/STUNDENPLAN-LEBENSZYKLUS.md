@@ -283,6 +283,24 @@ gespeichert bleibt `obligation`) · `timetable_deputies.obligation_term2 numeric
 `timetable_reductions.valid_from/valid_until date` (optional, im Schuljahr). `deputyAccounts()` rechnet am Stichtag der Verteilung
 (`refYmd`), die Deputats-Karte zeigt beide Halbjahre, wenn sie sich unterscheiden.
 
+**Umgesetzt (SP3-DEP, 2026-10-27, Migration 0107)** – Vorgaben für offene Detailfragen (Projektleitung kann sie ändern):
+- `timetable_deputies.obligation` ist jetzt **nullable** (leer = Vorgabe der Schulform), damit „nur das 2. Halbjahr weicht ab“ die Vorgabe des
+  1. Halbjahrs nicht einfriert. Bestandszeilen behalten ihren Wert (Test `deputate.migration.test`).
+- **Rechenhilfe Teilzeit:** Pflicht = Vorgabe × Anteil, **auf halbe Stunden gerundet** (25,5 × 50 % = 12,75 → 13). Der Anteil allein (Pflicht leer)
+  speichert die berechnete Stundenzahl; eine eingetragene Pflicht geht vor, der Anteil bleibt nur als Angabe. Im Formular rechnet die Hilfe live
+  und kann den Wert übernehmen. Anteil über 0 bis 100 % mit höchstens einer Nachkommastelle. Die Vorgabe wirkt nicht auf `obligation_term2`.
+- **Pflicht 2. Halbjahr** gilt ab `school_years.term2_starts_on`; ohne diesen Tag lässt sie sich nicht setzen, und ein vorhandener Wert zählt nicht.
+- **Gültigkeit:** „gültig ab/bis“ einschließlich, beide optional, nur innerhalb des Schuljahres; leer = ganzes Schuljahr. Am Stichtag nicht
+  geltende Einträge stehen in der Karte grau mit „gilt am Stichtag nicht“ (löschbar), in „Mein Deputat“ als „gilt heute nicht“.
+- **Halbjahrs-Tabelle** zeigt Pflicht und Soll **am ersten Tag** jedes Halbjahres; sie erscheint, wenn sich Pflicht oder Soll unterscheiden. Die
+  Lehrkräfte-Übersicht nennt das Soll des anderen Halbjahrs klein unter dem Soll.
+- **Stichtag** ist überall der der Unterrichtsverteilung (`distribution().refYmd`, auf das Schuljahr begrenzt): Karte/Übersicht/Diagnose mit
+  `?stichtag=`, Export „Deputate“, Lehrervorschläge (Restdeputat = Soll − Lehraufträge) und Fachbedarf mit heute, „Mein Deputat“ mit heute.
+  Die Prognose fürs Folgejahr nutzt weiter das Soll am Stichtag (keine Halbjahres-Mittelung).
+- Export „Deputate“ behält seine Spalten (Pflicht und Ermäßigungen am Stichtag); Teilzeit-Anteil/Pflicht 2. Hj stehen nur in Karte und „Mein Deputat“.
+- Datenschutz: neue Spalten in den bestehenden Löschklassen (LK-SJ-1J ab Schuljahr), Kategorien im Manifest ergänzt; Kontolöschung löscht die
+  Zeilen wie bisher per Fremdschlüssel. Pflege nur mit `stundenplan.manage`; das Audit-Ereignis `stundenplan.deputy.obligation` nennt alle drei Werte.
+
 **Recht `stundenplan.review`** („Planentwurf prüfen und freigeben“, SP3-03): Daten-Migration gibt es der Gruppe `g-schulleitung` (wie
 0088 `substitute`); 2FA-Pflicht wie die anderen Planungsrechte (Deputate/Namen im Entwurf). Keine Rollen-Vorgabe.
 
@@ -322,7 +340,7 @@ an die Queue andocken (DSB-Votum offen).
 |---|---|---|
 | 0106 | VT-01 | `substitution_reason`, Spalten an `timetable_substitutions`, `timetable_substitution_changes`, `timetable_absence_materials.absence_id` nullable + neuer Unique, `timetable_day_notes` |
 | 0107 | VT-04 | `timetable_notification_queue` |
-| 0108 | SP3-DEP | `employment_percent`, `obligation_term2`, `timetable_reductions.valid_from/valid_until` |
+| 0107 ✅ | SP3-DEP | `employment_percent`, `obligation_term2`, `obligation` nullable, `timetable_reductions.valid_from/valid_until` (tatsächlich 0107, vor VT-01) |
 | 0109 | SP3-LA | `school_year_transitions.class_map` (Daten-Migration: aus vorhandenen Übergängen per Namensregel `promotedName()` rekonstruieren, soweit eindeutig) |
 | 0110 | SP3-01 | `plan_version_status`, `plan_version_source`, `timetable_plan_versions`, `timetable_draft_lessons`, `timetable_lessons.plan_version_id`, Daten-Migration „Bestand 1.0“ |
 | 0111 | SP3-03 | Recht `stundenplan.review` (Grant an `g-schulleitung`, `grants.synced`), `timetable_plan_comments` |
@@ -404,7 +422,7 @@ aus dem Vorjahr als Vorschlag – SP3-07), **Änderung im laufenden Plan** (`liv
 | **Diagnose** (`diagnose.ts`) | `diagnoseYear(db, year, today, fallback, pre, { source })`; `groupPlanFindings` ebenso; `diagnose()` unverändert | klein |
 | **Vorprüfung** (`solver-check.ts`) | über die Eingabe, keine eigene Änderung | 0 |
 | **Verteilung** (`verteilung.ts`) | `planLessonsOn(db, ref, source)` für „verplant“ im Entwurf; `distribution()` bekommt optional `source` (nur `planned`/`unmatched` hängen am Plan) | klein |
-| **Deputate** (`deputate.ts`) | Stichtag (SP3-DEP), `planned` aus der Quelle | klein |
+| **Deputate** (`deputate.ts`) | Stichtag ✅ (SP3-DEP, `deputyAccounts(…, refYmd)`), `planned` aus der Quelle | klein |
 | **Übersicht** (`uebersicht.ts`) | Jahresplanung → Fahrplan-Status (SP3-06) | mittel |
 | **Vertretung** (`vertretung.ts`) | VT-01-Felder in `SubstitutionInput`, Historie schreiben, Upsert behält `created_*` und setzt `updated_*`; `substitutionsOn` liefert `reason`, `internal_note` (nur mit `substitute`), `acknowledged`, `changedSince`; Kenntnisnahme-Action; Versionsgrenze: Vertretungen für Tage ≥ `valid_from` einer `freigegeben`-Version mit Hinweis, Übertrag in `publishVersion` | mittel |
 | **Vertretungs-Gong** (`vertretung-gong.ts`) | `notifySubstitutionDay` reiht ein statt zu senden (VT-04); Nachrichtentext um Grund-Kategorie/Raum alt → neu; Eltern weiter ohne `note`/`internal_note` | mittel |

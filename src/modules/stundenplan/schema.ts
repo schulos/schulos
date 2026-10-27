@@ -229,7 +229,11 @@ export const timetableAssignmentTeachers = pgTable(
   (t) => [primaryKey({ columns: [t.assignmentId, t.teacherId] }), index("timetable_assignment_teachers_teacher_idx").on(t.teacherId)],
 );
 
-/** Pflichtstunden je Lehrkraft und Schuljahr (fehlt die Zeile, gilt die Vorgabe der Schulform) */
+/**
+ * Pflichtstunden je Lehrkraft und Schuljahr (fehlt die Zeile, gilt die Vorgabe der Schulform).
+ * SP3-DEP: `obligation` leer = Vorgabe der Schulform (z. B. wenn nur das 2. Halbjahr abweicht); `employment_percent` ist nur die
+ * Rechenhilfe (Pflicht = Vorgabe × Anteil, gespeichert bleibt die Pflichtstundenzahl); `obligation_term2` gilt ab Beginn des 2. Halbjahrs.
+ */
 export const timetableDeputies = pgTable(
   "timetable_deputies",
   {
@@ -239,9 +243,16 @@ export const timetableDeputies = pgTable(
     teacherId: text("teacher_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    obligation: numeric("obligation", { precision: 4, scale: 1, mode: "number" }).notNull(),
+    obligation: numeric("obligation", { precision: 4, scale: 1, mode: "number" }),
+    employmentPercent: numeric("employment_percent", { precision: 5, scale: 1, mode: "number" }),
+    obligationTerm2: numeric("obligation_term2", { precision: 4, scale: 1, mode: "number" }),
   },
-  (t) => [primaryKey({ columns: [t.schoolYearId, t.teacherId] }), check("timetable_deputies_range", sql`${t.obligation} between 0 and 40`)],
+  (t) => [
+    primaryKey({ columns: [t.schoolYearId, t.teacherId] }),
+    check("timetable_deputies_range", sql`${t.obligation} between 0 and 40`),
+    check("timetable_deputies_percent", sql`${t.employmentPercent} > 0 and ${t.employmentPercent} <= 100`),
+    check("timetable_deputies_term2", sql`${t.obligationTerm2} between 0 and 40`),
+  ],
 );
 
 /**
@@ -367,9 +378,16 @@ export const timetableReductions = pgTable(
     hours: numeric("hours", { precision: 4, scale: 1, mode: "number" }).notNull(),
     /** kurze Ergänzung, z. B. „Stufenkoordination 8“ – keine Gesundheitsangaben */
     note: text("note"),
+    /** SP3-DEP: gilt ab/bis (einschließlich); leer = ab Schuljahresbeginn bzw. bis Schuljahresende */
+    validFrom: date("valid_from"),
+    validUntil: date("valid_until"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [check("timetable_reductions_hours", sql`${t.hours} > 0 and ${t.hours} <= 30`), index("timetable_reductions_teacher_idx").on(t.schoolYearId, t.teacherId)],
+  (t) => [
+    check("timetable_reductions_hours", sql`${t.hours} > 0 and ${t.hours} <= 30`),
+    check("timetable_reductions_validity", sql`${t.validFrom} is null or ${t.validUntil} is null or ${t.validFrom} <= ${t.validUntil}`),
+    index("timetable_reductions_teacher_idx").on(t.schoolYearId, t.teacherId),
+  ],
 );
 
 /** Gründe für Raumsperrungen. Neue Gründe nur hinten anfügen. */

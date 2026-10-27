@@ -456,7 +456,7 @@ export async function diagnoseYear(db: Db, year: { id: string; startsOn: string;
     db.select({ id: subjects.id, name: subjects.name, roomKind: subjects.roomKind }).from(subjects),
     db.select({ id: rooms.id, kind: rooms.kind, capacity: rooms.capacity, active: rooms.active }).from(rooms),
     db.select({ groupId: groupMembers.groupId, n: count() }).from(groupMembers).where(eq(groupMembers.role, "member")).groupBy(groupMembers.groupId),
-    deputyAccounts(db, year.id, d.teachers, fallbackObligation),
+    deputyAccounts(db, year.id, d.teachers, fallbackObligation, ref),
     loadDayLimits(db),
     allPrefs(db),
   ]);

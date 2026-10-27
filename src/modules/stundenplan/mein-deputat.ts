@@ -59,6 +59,8 @@ export interface MyDeputy {
   inYear: OwnSubstitutions;
   inMonth: OwnSubstitutions;
   monthFrom: string;
+  /** SP3-DEP: Stichtag des Kontos (heute, eingegrenzt auf das Schuljahr) */
+  refYmd: string;
 }
 
 /** Deputatskonto + Vertretungszähler (Schuljahr bis heute, laufender Monat) der Person; null ohne Schuljahr. */
@@ -67,9 +69,9 @@ export async function myDeputy(db: Db, teacherId: string, today: string): Promis
   if (!year) return null;
   const [d, school] = await Promise.all([distribution(db, year, today), readSchoolSettings(db)]);
   const own = d.teachers.filter((t) => t.id === teacherId);
-  const [account] = own.length ? await deputyAccounts(db, year.id, own, defaultObligation(school.profile.form)) : [];
+  const [account] = own.length ? await deputyAccounts(db, year.id, own, defaultObligation(school.profile.form), d.refYmd) : [];
   const yearTo = today < year.endsOn ? today : year.endsOn;
   const monthFrom = `${today.slice(0, 8)}01`;
   const [y, m] = await Promise.all([ownSubstitutions(db, teacherId, year.startsOn, yearTo), ownSubstitutions(db, teacherId, monthFrom, today)]);
-  return { year: { id: year.id, name: year.name, startsOn: year.startsOn, endsOn: year.endsOn }, account: account ?? null, inYear: y, inMonth: m, monthFrom };
+  return { year: { id: year.id, name: year.name, startsOn: year.startsOn, endsOn: year.endsOn }, account: account ?? null, inYear: y, inMonth: m, monthFrom, refYmd: d.refYmd };
 }

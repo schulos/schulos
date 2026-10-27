@@ -174,7 +174,7 @@ export async function seedStundenplan(db: Db, now = new Date()) {
 
 /** Beispiel-Deputate: Schulleitung, Koordination, Altersermäßigung, eine Teilzeitkraft. */
 async function seedDeputate(db: Db, schoolYearId: string) {
-  await db.insert(timetableDeputies).values({ schoolYearId, teacherId: "u-sophie.wagner", obligation: 14 });
+  await db.insert(timetableDeputies).values({ schoolYearId, teacherId: "u-sophie.wagner", obligation: 14, employmentPercent: 55 }); // SP3-DEP: Teilzeit 55 % (25,5 × 0,55 ≈ 14)
   await db.insert(timetableReductions).values([
     { schoolYearId, teacherId: "u-petra.lindner", reason: "schulleitung", hours: 10 },
     { schoolYearId, teacherId: "u-tobias.kleine", reason: "koordination", hours: 3, note: "Stufenkoordination 8–10" },
