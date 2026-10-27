@@ -92,14 +92,20 @@ export function idWhere(source: PlanSource, id: string): SQL {
 }
 
 /**
- * Schreiben in eine Quelle: der gültige Plan immer (Rechte prüft die Action), ein Entwurf nur im Status `entwurf` (Prüfung/Freigabe
- * kommen mit SP3-03; dort entscheidet sich, ob eine Änderung den Status zurücksetzt). Liefert die Version bzw. `null` beim gültigen Plan.
+ * Schreiben in eine Quelle: der gültige Plan immer (Rechte prüft die Action), ein Entwurf nur im Status `entwurf`. SP3-03: in Prüfung und
+ * freigegeben ist der Entwurf nur lesbar – eine Änderung setzt den Status **nicht** still zurück; erst „Zurück an die Planung“ macht ihn
+ * wieder zum Entwurf (die Freigabe verfällt). Liefert die Version bzw. `null` beim gültigen Plan.
  */
 export async function requireWritable(db: Db, source: PlanSource): Promise<TimetablePlanVersion | null> {
   if (source.kind === "live") return null;
   const [v] = await db.select().from(timetablePlanVersions).where(eq(timetablePlanVersions.id, source.versionId));
   if (!v) throw new ValidationError({ version: "Den Entwurf gibt es nicht mehr" });
-  if (v.status !== "entwurf") throw new ValidationError({ version: `Version ${v.major}.${v.minor} ist kein Entwurf mehr – nur Entwürfe lassen sich bearbeiten` });
+  if (v.status !== "entwurf") throw new ValidationError({
+      version:
+        v.status === "pruefung" || v.status === "freigegeben"
+          ? `Version ${v.major}.${v.minor} ist ${v.status === "pruefung" ? "in Prüfung" : "freigegeben"} – zum Bearbeiten erst „Zurück an die Planung“`
+          : `Version ${v.major}.${v.minor} ist kein Entwurf mehr – nur Entwürfe lassen sich bearbeiten`,
+    });
   return v;
 }
 

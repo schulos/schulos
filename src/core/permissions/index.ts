@@ -79,9 +79,10 @@ export function hasExplicitGrant(perms: PermissionSet, permission: string): bool
 
 /**
  * SP-02 (Q-SP-5): Planungsrechte zählen für die 2FA-Pflicht wie Verwaltungsrechte – sie zeigen Deputate aller Lehrkräfte und
- * Abwesenheiten mit Grund „krank“. Kein Verwaltungsrecht im Sinne von S28 (keine Außen-Sperre).
+ * Abwesenheiten mit Grund „krank“. Kein Verwaltungsrecht im Sinne von S28 (keine Außen-Sperre). SP3-03: ebenso `stundenplan.review`
+ * (Planentwürfe mit Lehrkräften und Deputaten).
  */
-export const PLANNING_PERMISSIONS = ["stundenplan.manage", "stundenplan.substitute"] as const;
+export const PLANNING_PERMISSIONS = ["stundenplan.manage", "stundenplan.substitute", "stundenplan.review"] as const;
 
 /**
  * 2FA-Pflicht **sofort** (DATENSCHUTZ.md §5): Admin, Verwaltung und alle mit Verwaltungsrechten (Schulleitung bekommt

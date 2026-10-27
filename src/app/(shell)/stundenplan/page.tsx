@@ -10,6 +10,7 @@ import { TZ, addDays, fromBerlinLocal, isoWeek, mondayOf, toBerlinDate, toBerlin
 import { plannableGroups, teacherOptions, WEEKDAYS } from "@/modules/stundenplan/manage";
 import { examIndex, examLabel, listExams, type ExamRow } from "@/modules/klausurplan/service";
 import { mergeCoupled, slotDisplay, type PlanView } from "@/modules/stundenplan/display";
+import { previewVersions } from "@/modules/stundenplan/planpruefung";
 import { canViewPlan, listSlots, seesAllPlans, planOwners, timetableMasterData, weekOf, type LessonSlot, type PlanTarget } from "@/modules/stundenplan/service";
 import { Button } from "@schulos/ui/button";
 import { cn } from "@schulos/ui/cn";
@@ -74,11 +75,13 @@ export default async function StundenplanPage({ searchParams }: { searchParams: 
   const monday = /^\d{4}-\d{2}-\d{2}$/.test(sp.woche ?? "") ? mondayOf(sp.woche!) : thisWeek;
   const days = WEEKDAYS.map((_, i) => addDays(monday, i));
 
-  const [master, groupsList, teachers, cal] = await Promise.all([
+  const [master, groupsList, teachers, cal, previews] = await Promise.all([
     timetableMasterData(db),
     isStaff ? plannableGroups(db) : Promise.resolve([]),
     isStaff ? teacherOptions(db) : Promise.resolve([]),
     loadSchoolCalendar(db),
+    // SP3-03: Lehrkräfte-Vorschau „Mein Plan ab …“ (nur Lehrkräfte, nur freigeschaltete Versionen)
+    user.role === "lehrkraft" ? previewVersions(db) : Promise.resolve([]),
   ]);
   // Feiertage, Ferien, unterrichtsfreie Tage der Woche
   const offs = new Map(days.flatMap((d) => {
@@ -130,6 +133,16 @@ export default async function StundenplanPage({ searchParams }: { searchParams: 
           </>
         }
       />
+
+      {previews.length > 0 && (
+        <p role="note" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
+          Ein neuer Plan ist in Prüfung:{" "}
+          <Link href="/stundenplan/vorschau" className="font-semibold underline">
+            Vorschau „Mein Plan ab {fmt(shortDate, previews[0]!.validFrom ?? today)}“
+          </Link>{" "}
+          – nur deine eigenen Stunden, Rückmeldung an die Stundenplanung möglich.
+        </p>
+      )}
 
       {owners.length > 1 && (
         <nav aria-label="Kind wählen" className="flex flex-wrap gap-2">

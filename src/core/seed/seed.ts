@@ -345,6 +345,8 @@ export async function seedDemoSchool(
     { permission: PLAN_SUBSTITUTE, groupId: "g-schulleitung" },
     // SP2-12: Schulleitung sieht den Fachbedarf nur als Summen je Fach (keine Namen, keine Abgänge)
     { permission: "stundenplan.forecast_view", groupId: "g-schulleitung" },
+    // SP3-03 (F-10-3): Schulleitung prüft Planentwürfe und gibt sie frei (Migration 0112 auf Bestandsinstallationen)
+    { permission: "stundenplan.review", groupId: "g-schulleitung" },
   ]);
   // Rechte der Funktionsgruppe (Migration 0088 legt sie schon an, nach demo-reset fehlen sie)
   await db

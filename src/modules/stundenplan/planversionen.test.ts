@@ -200,11 +200,13 @@ describe("Querschnitt: kein fremder Leser des Entwurfs (SP3-01, §5 b)", () => {
     expect(files.find((f) => f.path === "src/core/privacy/auskunft.ts")!.text).toMatch(/EXPORT_SKIP_REFS[\s\S]*"timetable_draft_lessons\.teacher_id"/);
   });
 
-  it("im Modul nur Schema, Manifest (Löschklasse), Planquelle, Versionen und die Übernahme in den Entwurf (SP3-02) – Plan-Leser (Wochenplan, Vertretung, Monitor, Druck …) bleiben beim gültigen Plan", () => {
+  it("im Modul nur Schema, Manifest (Löschklasse), Planquelle, Versionen, die Übernahme in den Entwurf (SP3-02) und die Prüfung (SP3-03) – Plan-Leser (Wochenplan, Vertretung, Monitor, Druck …) bleiben beim gültigen Plan", () => {
     const hits = files.filter((f) => /timetableDraftLessons|timetable_draft_lessons/.test(f.text) && f.path.startsWith("src/modules/stundenplan/")).map((f) => f.path).sort();
     expect(hits).toEqual([
       "src/modules/stundenplan/manifest.ts",
       "src/modules/stundenplan/plan-quelle.ts",
+      // SP3-03: Lehrkräfte-Vorschau (nur die eigenen Stunden) und Bezugsauswahl der Kommentare
+      "src/modules/stundenplan/planpruefung.ts",
       "src/modules/stundenplan/planversionen.ts",
       "src/modules/stundenplan/schema.ts",
       "src/modules/stundenplan/solverlauf.ts",

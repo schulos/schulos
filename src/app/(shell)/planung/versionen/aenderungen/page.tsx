@@ -8,8 +8,9 @@ import { hasPermission } from "@/core/permissions";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { WEEKDAYS } from "@/modules/stundenplan/manage";
 import { comparableVersions, DIFF_FIELD_LABELS, DIFF_KIND_LABELS, diffNames, loadPlanDiff, type DiffEntry, type DiffKind, type DiffLesson, type DiffNames } from "@/modules/stundenplan/plan-diff";
-import { STATUS_LABELS, versionNumber } from "@/modules/stundenplan/planversionen";
-import { PLAN_MANAGE } from "@/modules/stundenplan/rechte";
+import { canSeeVersion, type Viewer } from "@/modules/stundenplan/planpruefung";
+import { getVersion, STATUS_LABELS, versionNumber } from "@/modules/stundenplan/planversionen";
+import { PLAN_MANAGE, PLAN_REVIEW } from "@/modules/stundenplan/rechte";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Select } from "@schulos/ui/field";
@@ -49,14 +50,23 @@ function EntryItem({ e, names }: { e: DiffEntry; names: DiffNames }) {
 
 /**
  * SP3-02 (docs/STUNDENPLAN-LEBENSZYKLUS.md §2.3, §4 Schritt 7): Änderungen einer Version gegenüber dem gültigen Plan an ihrem Stichtag oder
- * gegenüber einer anderen Version – je Lehrkraft und je Klasse/Kurs (Diff-Engine `planDiff()`). Nur `stundenplan.manage`.
+ * gegenüber einer anderen Version – je Lehrkraft und je Klasse/Kurs (Diff-Engine `planDiff()`). Nur `stundenplan.manage`; SP3-03: auch die
+ * Prüfung (`stundenplan.review`) für Versionen ab „in Prüfung“ – Vergleich nur mit Versionen, die sie sehen darf.
  */
 export default async function AenderungenPage({ searchParams }: { searchParams: Promise<{ version?: string; mit?: string; ansicht?: string }> }) {
-  const { perms } = await requireUser();
-  if (!hasPermission(perms, PLAN_MANAGE)) notFound();
+  const { user, perms } = await requireUser();
+  const viewer: Viewer = { userId: user.id, manage: hasPermission(perms, PLAN_MANAGE), review: hasPermission(perms, PLAN_REVIEW) };
+  if (!viewer.manage && !viewer.review) notFound();
   const sp = await searchParams;
   if (!sp.version) notFound();
   const db = await getDb();
+  if (!viewer.manage) {
+    // Prüfung: nur Versionen ab „in Prüfung“, auch als Vergleich (wie „gibt es nicht“)
+    for (const id of [sp.version, sp.mit && sp.mit !== "gueltig" ? sp.mit : null]) {
+      const v = id ? await getVersion(db, id) : null;
+      if (id && (!v || !canSeeVersion(viewer, v))) notFound();
+    }
+  }
   const today = toBerlinDate(new Date());
   const result = await loadPlanDiff(db, sp.version, sp.mit && sp.mit !== "gueltig" ? sp.mit : null, today);
   const back = (
@@ -76,7 +86,8 @@ export default async function AenderungenPage({ searchParams }: { searchParams: 
     );
   }
   const { before, after, diff, version } = result;
-  const [names, others] = await Promise.all([diffNames(db), comparableVersions(db, version)]);
+  const [names, comparable] = await Promise.all([diffNames(db), comparableVersions(db, version)]);
+  const others = comparable.filter((o) => canSeeVersion(viewer, o));
   const byGroup = sp.ansicht === "klassen";
   const groupsMap = byGroup ? diff.byGroup : diff.byTeacher;
   const label = (id: string) => {

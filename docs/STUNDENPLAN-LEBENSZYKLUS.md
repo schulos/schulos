@@ -1,6 +1,6 @@
 # SP3-00: Lebenszyklus des Stundenplans und Vertretung mit mehr Infos – Architekturkonzept
 
-> Stand: 2026-10-27 (SP3-02 umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
+> Stand: 2026-10-27 (SP3-03 umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
 > (Arbeitsplan ab 26.10., Phase B1; Vorgaben „Nachtrag 25.10.“, „Sicht eines Stundenplaners“ und „Antworten 25.10.“).
 > Hebt die Entscheidung Q-SP-12/Q-SP-16 („keine Plan-Versionen“) auf – ausdrücklich durch die Projektleitung 25.10.2026.
 > Aufgaben nach Abnahme: `BACKLOG.md`, Blöcke **VT** (Vertretung) und **SP3** (Lebenszyklus). Dieses Dokument ändert keinen Code
@@ -420,6 +420,42 @@ gespeichert bleibt `obligation`) · `timetable_deputies.obligation_term2 numeric
 - **Datenschutz:** keine neue Tabelle, keine Migration; Auskunft und Löschklassen unverändert. Der Querschnittstest „kein fremder Leser“ prüft
   zusätzlich, dass nur Planungs-Dateien die Planquelle benutzen (Vertretung, Wochenplan, Heute, Anzeige, Freigabe, Gong, Exporte, Periode nicht).
 
+**Umgesetzt (SP3-03, 2026-10-27, Migration 0112)** – Vorgaben für offene Detailfragen (Projektleitung kann sie ändern):
+- **Bearbeiten nur im Entwurf** (offene Frage aus SP3-02): in `pruefung`/`freigegeben` ist ein Entwurf nur lesbar; eine Änderung setzt den Status
+  **nicht** still zurück (`requireWritable` lehnt ab mit dem Hinweis, erst „Zurück an die Planung“ zu wählen). „Zurück an die Planung“ setzt `entwurf`,
+  die Freigabe (`approved_by/at`) verfällt bei **jeder** Rückkehr; Kommentare bleiben, `submitted_by/at` bleibt als „zuletzt zur Prüfung gegeben“.
+  Variante und Verwerfen gehen weiter aus allen offenen Status (die Variante ist ein neuer Entwurf).
+- **Wer darf was:** „Zur Prüfung geben“ nur `manage` und nur mit mindestens einer Stunde; „Freigeben“ nur `review` aus `pruefung`; „Zurück an die
+  Planung“ aus `pruefung` (Prüfung gibt zurück, Planung holt zurück) und aus `freigegeben` („Freigabe zurücknehmen“) – beide Rechte, optional mit
+  Begründung (wird Kommentar an die ganze Version). Statuswechsel mit Vorbedingung im UPDATE (gleichzeitige Klicks: einer gewinnt). Ohne
+  Vier-Augen-Zwang (F-10-3): wer beide Rechte hat, gibt selbst frei; „selbst“ = Freigebende:r hat eingereicht **oder** angelegt – Audit
+  `stundenplan.plan.approve` mit `self` und Zahl offener Kommentare, Karte/Prüfseite „selbst freigegeben“. Offene Kommentare blockieren die Freigabe
+  nicht (Hinweis). Audit `stundenplan.plan.submit/approve/return/preview/comment/comment_resolve/comment_reopen/preview_comment`, ohne Personen.
+- **Sicht der Prüfung:** Versionsliste (Reiter „Versionen“), Prüfseite `/planung/versionen/pruefung?version=…` und „Änderungen“ nur für Versionen ab
+  `pruefung` (auch `gueltig`/`archiviert`), sonst 404; ohne Anlegen/Variante/Verwerfen und ohne „Im Entwurf arbeiten“. Übersicht `/planung`: Kachel
+  „Planentwürfe zur Prüfung“. Eine Benachrichtigung der Schulleitung beim Einreichen gibt es nicht (Kachel und Liste reichen).
+- **Kommentare** (`timetable_plan_comments`): Bezug in eigenen Spalten statt `target jsonb` (`target_kind` `version`/`teacher`/`group`/`slot`,
+  `teacher_id`, `group_id`, `weekday`, `period_nr`) – Kontolöschung und gelöschte Gruppen leeren ihn per Fremdschlüssel. Lehrkraft/Gruppe müssen im
+  Entwurf vorkommen; eine Stunde = Wochentag + Stunde, optional mit Klasse/Kurs. Schreiben: Planung in offenen Entwürfen, Prüfung in
+  `pruefung`/`freigegeben`; erledigen/wieder öffnen nur `manage`. Kein Bearbeiten/Löschen einzelner Kommentare (sie gehen mit der Version).
+  Offene zuerst, je älteste zuerst; die Versionskarte zählt offene.
+- **Lehrkräfte-Vorschau „Mein Plan ab …“** (F-10-4): Schalter je Version (Vorgabe aus) auf der Prüfseite, schaltbar in allen offenen Status, wirkt
+  aber nur in `pruefung`/`freigegeben` (im Entwurf sieht niemand außer der Planung etwas). Seite `/stundenplan/vorschau` (nur Rolle Lehrkraft, sonst
+  404; Hinweis mit Link über dem eigenen Stundenplan): Wochenraster nur der Entwurfsstunden mit eigener `teacher_id` (Fach, Klasse/Kurs, Raum,
+  A/B-Woche, abweichender Beginn/Ende) – keine anderen Lehrkräfte, keine Herkunft, keine Diagnose, kein Diff. Banner „Entwurf – kann sich noch
+  ändern“. Rückmeldung als Kommentar an die Planung (Bezug: ganzer eigener Plan oder eine eigene Stunde; `from_preview`); die Lehrkraft sieht nur
+  eigene Kommentare (mit „erledigt“). Mehrere Versionen mit Vorschau: Auswahl nach Stichtag. Ein Gong beim Einschalten kommt nicht (F-10-4 nennt
+  nur den Gong beim Veröffentlichen, SP3-04).
+- **Recht und 2FA:** `stundenplan.review` im Manifest, Migration 0112 (Grant `g-schulleitung` nur mit fester ID und Slug, idempotent; Demo-Seed
+  ebenso), in `PLANNING_PERMISSIONS` (2FA sofort, kein Verwaltungsrecht i. S. S28). Bereich `/planung` und Menüpunkt „Stundenplanung“ auch mit
+  `review`.
+- **Datenschutz:** Löschklasse „folgt der Version“ (Manifest), DATENSCHUTZ §3.4, SICHERHEIT S86. Auskunft: eigene Kommentare (Verfasserschaft)
+  mit Text; `timetable_plan_comments.teacher_id` steht in `EXPORT_SKIP_REFS` (Prüfnotiz zum Entwurf ohne Außenwirkung, wie die Entwurfsstunden).
+  Querschnitt (Grep): Kommentare liest nur das Modul (Schema, Manifest, `planpruefung.ts`); die Prüf-Services nutzen nur Planungsseiten, der eigene
+  Stundenplan (nur die Liste freigeschalteter Versionen, nur für Lehrkräfte) und die Vorschau-Seite.
+- **Nicht in SP3-03:** Veröffentlichen (SP3-04) – eine freigegebene Version bleibt bis dahin freigegeben; Hinweis im Vertretungs-Arbeitsplatz ab
+  `freigegeben` (R2) und Quittierungen (SP3-06).
+
 **Recht `stundenplan.review`** („Planentwurf prüfen und freigeben“, SP3-03): Daten-Migration gibt es der Gruppe `g-schulleitung` (wie
 0088 `substitute`); 2FA-Pflicht wie die anderen Planungsrechte (Deputate/Namen im Entwurf). Keine Rollen-Vorgabe.
 
@@ -576,7 +612,7 @@ an die Queue andocken (DSB-Votum offen).
 | 0107 ✅ | SP3-DEP | `employment_percent`, `obligation_term2`, `obligation` nullable, `timetable_reductions.valid_from/valid_until` (tatsächlich 0107, vor VT-01) |
 | 0108 ✅ | SP3-LA | `school_year_transitions.class_map` (tatsächlich 0108; nur die Spalte – Übergänge ohne Zuordnung rekonstruiert die Übernahme zur Laufzeit per Namensregel `promotedName()`, soweit eindeutig) |
 | 0111 ✅ | SP3-01 | `plan_version_status`, `plan_version_source`, `timetable_plan_versions` (inkl. `discarded_by/at`), `timetable_draft_lessons`, `timetable_lessons.plan_version_id`, Daten-Migration „Bestand 1.0“ |
-| 0112 | SP3-03 | Recht `stundenplan.review` (Grant an `g-schulleitung`, `grants.synced`), `timetable_plan_comments` |
+| 0112 ✅ | SP3-03 | `plan_comment_target`, `timetable_plan_comments` (Bezug in Spalten), Recht `stundenplan.review` (Grant an `g-schulleitung` nur mit fester ID und Slug; keine Rollen-Vorgabe, `grants.synced` nicht nötig) |
 | 0113 | SP3-05 | `timetable_plan_changes` |
 | – | SP3-02/04/06/07/08, VT-02/03/05 | ohne Migration (SP3-06 nutzt `checklist jsonb`; SP3-07 nutzt `class_map`) |
 
@@ -634,6 +670,9 @@ aus dem Vorjahr als Vorschlag – SP3-07), **Änderung im laufenden Plan** (`liv
   `auskunft.test.ts` erweitern.
 - **Gesundheitsbezug:** `reason` ist bewusst grob (`lehrkraft_abwesend` deckt krank/fortbildung/dienstlich); `internal_note` und
   Kommentare mit Hinweis „keine Gesundheitsangaben“; Abwesenheitsgrund bleibt wie heute nur bei der Planung.
+- **Umgesetzt (SP3-03):** Rechte wie in der Tabelle; Kommentare in `timetable_plan_comments` (Bezug in Spalten), Freigabe auch bei offenen
+  Kommentaren, Schulleitung sieht Versionen ab „in Prüfung“ (Details §3.1 „Umgesetzt (SP3-03)“). Auskunft: eigene Kommentare ja, Prüfnotizen über
+  eine Lehrkraft nein (`EXPORT_SKIP_REFS`); SICHERHEIT S86.
 - **Querschnittstests:** (a) Schülersicht/Monitor/Eltern-Gong enthalten nie `internal_note`, nie Abwesenheitsgrund, nie Kommentare;
   (b) kein Leser außerhalb der Planung liest `timetable_draft_lessons` (Grep-Test wie `retention.test`); (c) Lehrkraft-Vorschau liefert nur
   eigene Stunden; (d) nach Kontolöschung keine Lehrkraft-id in `changes.before/after` und `undo`.
@@ -761,11 +800,11 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 **Stand: GATE VT erledigt (VT-05, Belege je Punkt) / GATE SP3 offen.** Ein Punkt ist erst abgehakt, wenn sein Test existiert und grün läuft; Punkte, die nur SP3 betreffen, bleiben offen. Gemischte Punkte tragen den VT-Anteil als Beleg und den SP3-Anteil als offenen Rest.
 
 - [x] **SP3-01** Kein Leser außerhalb `src/modules/stundenplan` liest `timetable_draft_lessons`; `timetable_lessons`-Leser unverändert (Grep-Test) – Belege: `planversionen.test.ts` „Querschnitt: kein fremder Leser des Entwurfs“ (außerhalb nur die Auskunft, die sie auslässt; im Modul nur Schema, Manifest, Planquelle, Versionen; keine Seite; `timetable_lessons`-Leser ohne Planquelle), „Entwurf aus dem gültigen Plan …“ (gültiger Plan und Regelplan unverändert), `planversionen.migration.test.ts`; **SP3-02:** Querschnitt „nur die Planung arbeitet mit der Planquelle“ (`planversionen.test.ts`), `entwurf.test.ts` (gültiger Plan Zeile für Zeile unverändert)
-- [x] **GATE VT** Schülersicht/Eltern-Gong/Monitor/Druck ohne `internal_note` und Abwesenheitsgrund – Belege: `vertretung-infos.test.ts` „Querschnitt: interner Hinweis nie im Vertretungsplan, Schüler-/Lehrkraftplan, Monitor oder Gong“ und „Querschnitt (GATE VT): Grund und Notiz der Abwesenheit …“, Grep-Test „nur erlaubte Dateien lesen …“ (Druck/Exporte lesen die Felder nicht), `vertretung-gong.test.ts` „GATE-031 S-05“ (Eltern ohne Hinweis), `e2e/zx-gate-vt.spec.ts` (Schülerin, Gong, Monitor). **Offen für GATE SP3:** Kommentare, Entwurfsstunden
+- [x] **GATE VT** Schülersicht/Eltern-Gong/Monitor/Druck ohne `internal_note` und Abwesenheitsgrund – Belege: `vertretung-infos.test.ts` „Querschnitt: interner Hinweis nie im Vertretungsplan, Schüler-/Lehrkraftplan, Monitor oder Gong“ und „Querschnitt (GATE VT): Grund und Notiz der Abwesenheit …“, Grep-Test „nur erlaubte Dateien lesen …“ (Druck/Exporte lesen die Felder nicht), `vertretung-gong.test.ts` „GATE-031 S-05“ (Eltern ohne Hinweis), `e2e/zx-gate-vt.spec.ts` (Schülerin, Gong, Monitor); **SP3-03:** `planpruefung.test.ts` „Querschnitt: Kommentare, Vorschau und Entwurfsstunden nie außerhalb der Planung“ (Kommentare nur im Modul, Prüf-Services nur auf Planungsseiten und der Vorschau), `e2e/planung-freigabe.spec.ts` (Schülerin: Vorschau 404). **Offen für GATE SP3:** Gesamtdurchlauf SP3-08
 - [ ] Veröffentlichen: unveränderte Stunden behalten ihre id; Klassenbuch-Einträge vor und nach dem Stichtag bleiben zugeordnet; Vertretungen/Material ziehen um oder werden gezählt
 - [ ] Zurücknehmen bis Stichtag stellt Stunden, Vertretungen und Material wieder her (SP-13-Niveau)
 - [ ] Nur eine Version `gueltig` je Tag; Varianten veröffentlichbar genau eine
-- [ ] Freigabe nur mit `stundenplan.review`; 2FA-Pflicht; Lehrkräfte-Vorschau nur eigener Plan
+- [x] **SP3-03** Freigabe nur mit `stundenplan.review`; 2FA-Pflicht; Lehrkräfte-Vorschau nur eigener Plan – Belege: `planpruefung.test.ts` „Statuswege …“, „ohne Vier-Augen-Zwang …“, „Lehrkräfte-Vorschau …“ (nur Stunden mit eigener Kennung, keine Kennungen anderer), „Recht `stundenplan.review` …“ (2FA), `permissions.test.ts` „SP3-03 …“, `planpruefung.migration.test.ts`, `e2e/planung-freigabe.spec.ts`
 - [x] **GATE VT** Kontolöschung bereinigt `substitution_changes` – Belege: `vertretung-infos.test.ts` „Kontolöschung ersetzt die Vertretungslehrkraft in der Historie …“, `loeschlauf-konto.test.ts` (DS-21-Muster), `benachrichtigung.test.ts` „Kontolöschung nimmt die Einträge der Person mit“ (Warteschlange). **Offen für GATE SP3:** `undo`, `plan_changes`
 - [x] **GATE VT** Sendewarteschlange: Ruhezeit, Endstand, genau ein Versand je Tag und Zielgruppe, zwei Instanzen senden nicht doppelt – Belege: `sendezeit.test.ts` (Zeitlogik, Ruhezeit, Sommerzeit), `benachrichtigung.test.ts` „morgen: eingereiht für den Vortag 18:00, gesendet wird nur der Endstand …, genau einmal“, „nach der Vortags-Uhrzeit sofort; in der Ruhezeit wartet die Nachricht …“, „zwei Takte gleichzeitig (zwei App-Prozesse) senden nicht doppelt“, `e2e/vertretung-benachrichtigung.spec.ts`, `e2e/zx-gate-vt.spec.ts`
 - [ ] Benchmark/Solver-Kern durch die SP3-Pakete unverändert (dieselbe Lösung wie der jeweils gültige Benchmark-Stand; neue Stände nur durch SQ-01…03) – **SP3-02:** `solver.ts` unverändert, `solver.benchmark.test.ts` grün (gleiche Lösung), Solver-Eingabe für den gültigen Plan unverändert (Vorgabe `source`), `entwurf.test.ts` (Lauf im Entwurf)

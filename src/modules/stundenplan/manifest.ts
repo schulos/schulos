@@ -19,6 +19,8 @@ export default defineModule({
     "stundenplan.absence_approve": "Selbst gemeldete Abwesenheiten von Lehrkräften genehmigen (Fortbildung, dienstlich – Schulleitung)",
     // SP2-12: Fachbedarf und Prognose lesen – nur Zahlen je Fach, keine Namen (Schulleitung); Details und Pflege bleiben bei `manage`
     "stundenplan.forecast_view": "Fachbedarf einsehen (Bedarf, Versorgung und Prognose je Fach – nur Summen, keine Namen)",
+    // SP3-03 (F-10-3): Schulleitung prüft Planentwürfe und gibt sie frei – ohne Vier-Augen-Zwang (Migration gibt es der Gruppe Schulleitung)
+    "stundenplan.review": "Planentwurf prüfen und freigeben (Entwürfe ab „in Prüfung“ lesen, kommentieren, freigeben oder zurück an die Planung)",
   },
   // SP-02 (Q-SP-3): keine Rollen-Vorgabe mehr – geplant wird über die Funktionsgruppe „Stundenplanung“ (Migration 0088 legt sie an).
   // Bestehende Installationen behalten ihren Grant `verwaltung → stundenplan.manage` (grants.synced merkt sich das Paar).
@@ -34,7 +36,7 @@ export default defineModule({
     // Q5-10: eigene Zeitwünsche, im Eingabefenster der Planung selbst eintragen
     { href: "/stundenplan/zeitwuensche", label: "Zeitwünsche", icon: "CalendarCheck", roles: ["lehrkraft"] },
     // SP-03: eigener Bereich für die Planung (Jahresplanung und Tagesgeschäft) – nicht mehr unter Verwaltung
-    { href: "/planung", label: "Stundenplanung", icon: "CalendarCog", requires: ["stundenplan.manage", "stundenplan.substitute", "stundenplan.forecast_view"] },
+    { href: "/planung", label: "Stundenplanung", icon: "CalendarCog", requires: ["stundenplan.manage", "stundenplan.substitute", "stundenplan.forecast_view", "stundenplan.review"] },
   ],
   settings: STUNDENPLAN_SETTINGS,
   retention: [
@@ -68,6 +70,14 @@ export default defineModule({
       categories: ["Gruppe", "Fach", "Lehrkraft", "Raum", "Zeit", "Herkunft im gültigen Plan"],
       follows: "timetable_plan_versions",
       note: "Entwurf ohne Außenwirkung: nur die Planung sieht ihn (kein Stundenplan, Vertretungsplan, Monitor oder Export liest ihn), bis er veröffentlicht wird; bei Kontolöschung wird die Lehrkraft leer",
+    },
+    {
+      // SP3-03: Prüfkommentare (Schulleitung, Planung) und Rückmeldungen aus der Lehrkräfte-Vorschau – gehen mit der Version
+      table: "timetable_plan_comments",
+      purpose: "Stundenplan in Versionen planen (Prüfung, Freigabe, Rückmeldung zur Vorschau)",
+      categories: ["Text (ohne Gesundheitsangaben)", "Bezug (Version, Lehrkraft, Klasse/Kurs oder Stunde)", "Verfasst von/am", "Erledigt von/am", "aus der Lehrkräfte-Vorschau"],
+      follows: "timetable_plan_versions",
+      note: "sichtbar für die Planung (`stundenplan.manage`) und die Prüfung (`stundenplan.review`, ab „in Prüfung“); eine Lehrkraft sieht nur eigene Kommentare; nie Schüler:innen, Eltern, Monitor oder Gong. Bei Kontolöschung werden Verfasser:in, Bezug und „erledigt von“ leer; der Text bleibt bis zur Löschung der Version",
     },
     {
       table: "timetable_substitutions",
