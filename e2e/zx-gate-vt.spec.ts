@@ -176,7 +176,8 @@ test("GATE VT: Morgen – Abwesenheit → Arbeitsplatz → Vorschlag per Tastatu
   const leaErrors = collectErrors(lea);
   await login(lea, "lea.schaefer");
   await lea.goto("/stundenplan/vertretungen");
-  const klasse = lea.getByRole("article", { name: "7b" }).first();
+  // mehrere Tage können Änderungen der 7b haben (Vorläufer-Specs, Mitternachtswechsel): den Tag mit dem Hinweis nehmen
+  const klasse = lea.getByRole("article", { name: "7b" }).filter({ hasText: PUBLIC }).first();
   await expect(klasse).toContainText(PUBLIC);
   await expect(klasse).toContainText("Grund: Lehrkraft abwesend");
   const main = lea.getByRole("main");
