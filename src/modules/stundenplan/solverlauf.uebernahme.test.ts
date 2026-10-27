@@ -6,7 +6,8 @@ import type { DbHandle } from "@/core/db/client";
 import { createSeededTestDb } from "@/core/db/testing";
 import { timetableLessons, timetableSolverRuns, timetableSubstitutionChanges, timetableSubstitutions } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { applyPreview, applyRun, createRun, executeRun, getRun, parseParams, planningPeriod, undoApply } from "./solverlauf";
+import { createRun, executeRun, getRun, parseParams, planningPeriod, undoApply } from "./solverlauf";
+import { applyPreview, applyRun } from "./solverlauf.testing";
 import { createAssignment, listAssignments, planningYear, updateAssignment } from "./verteilung";
 
 const today = "2026-10-05";

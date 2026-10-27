@@ -1,10 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { collectErrors, login, logoutForSwitch, openDirectApply, pickTeacher, publishIfDraft } from "./helpers";
+import { collectErrors, deDate, login, logoutForSwitch, pickTeacher, publishIfDraft, publishRun, undoAndDiscardVersion } from "./helpers";
 
 // SP-11 (docs/STUNDENPLAN-UMBAU.md §5): E2E-Gesamtszenario „Stundenplaner:in“ für GATE SP. Frank Schulte (Lehrkraft, Funktionsgruppe
 // „Stundenplanung“) plant ohne Verwaltungszugang: Übersicht → Lauf mit Parametern → Abbruch → weitere Läufe → Vergleich → Übernahme
-// ab Stichtag → zurücknehmen; dazu eine Vertretung mit Fachtausch („Mathematik statt Sport“). Das Sekretariat kommt nicht in den
+// ab Stichtag (seit SP3-04 über Entwurf, Freigabe der Schulleitung und Veröffentlichen) → zurücknehmen; dazu eine Vertretung mit Fachtausch („Mathematik statt Sport“). Das Sekretariat kommt nicht in den
 // Bereich, alte /verwaltung/…-Lesezeichen leiten weiter. A11Y-Durchgang aller Planungsseiten (hell und dunkel, auch die Detail- und
 // Vergleichsseite) und die Vergleichsseite auf 360 px ohne Seitenüberlauf.
 // 2FA: Planungsrechte verlangen die Zwei-Faktor-Anmeldung sofort (S80, `requiresTwoFactor`, permissions.test.ts). Die E2E-DB ist
@@ -57,6 +57,7 @@ const historyRow = (page: Page, label: string) =>
 
 test("GATE SP: Stundenplaner:in – Übersicht → Lauf mit Parametern → Abbruch → zwei Läufe → Vergleich → Übernahme ab Stichtag → zurücknehmen", async ({
   page,
+  browser,
 }) => {
   test.setTimeout(300_000);
   const errors = collectErrors(page);
@@ -117,43 +118,32 @@ test("GATE SP: Stundenplaner:in – Übersicht → Lauf mit Parametern → Abbru
   await expect(kenn.getByRole("row", { name: /^Bewertung/ }).getByRole("cell")).toHaveCount(2);
   await expect(page.getByRole("table", { name: /Parameter der verglichenen Läufe/ }).getByRole("row", { name: /^Gewichtung/ })).toContainText("abweichend");
 
-  // 4. Übernahme des letzten Laufs ab Stichtag (Schultag) → Plan ab Stichtag neu, Übersicht „übernommen“
-  // SP3-02 (F-10-1): „Übernehmen“ füllt einen Entwurf; die direkte Übernahme ist bis SP3-04 der eingeklappte Übergangsweg (hier geprüft)
+  // 4. Übernahme des letzten Laufs ab Stichtag (Schultag): SP3-04 (F-10-1) über einen neuen Entwurf → Prüfung/Freigabe (Schulleitung) →
+  // „Ab … veröffentlichen“ → Plan ab Stichtag neu; der Lauf bleibt „fertig“
   await page.goto(runs.C);
-  await expect(page.getByRole("form", { name: "In den Entwurf übernehmen" })).toBeVisible();
-  await openDirectApply(page);
-  const applyForm = page.getByRole("form", { name: "Vorschlag übernehmen" });
-  await expect(page.getByTestId("apply-preview")).toBeVisible();
-  await applyForm.getByLabel("ab Stichtag").fill(sundayIn(6));
-  await applyForm.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
-  const alert = page.getByRole("alert").filter({ hasText: "Stichtag" });
+  await expect(page.getByRole("form", { name: "Vorschlag übernehmen" })).toHaveCount(0);
+  const toDraft = page.getByRole("form", { name: "In den Entwurf übernehmen" });
+  await toDraft.getByLabel("Entwurf", { exact: true }).selectOption("neu");
+  await toDraft.getByLabel("Stichtag (nur neuer Entwurf)").fill(sundayIn(6));
+  await toDraft.getByRole("button", { name: "In den Entwurf übernehmen" }).click();
+  const alert = page.getByRole("alert").filter({ hasText: "kein Schultag" });
   await expect(alert).toContainText("kein Schultag");
-  const from = (await alert.textContent())!.match(/nächster Schultag: (\d{4}-\d{2}-\d{2})/)![1]!;
+  const de = (await alert.textContent())!.match(/nächster Schultag: (\d{2})\.(\d{2})\.(\d{4})/)!;
+  const from = `${de[3]}-${de[2]}-${de[1]}`;
   const planUrl = `/planung/stundenplan?gruppe=g-7b&stand=${from}`;
   const plan = page.getByRole("table", { name: "Stundenplan Klasse 7b" });
   await page.goto(planUrl);
   const before = await plan.innerText();
 
-  await page.goto(runs.C);
-  await openDirectApply(page);
-  await applyForm.getByLabel("ab Stichtag").fill(from);
-  await applyForm.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
-  await expect(page).toHaveURL(/uebernommen=\d+/);
-  await expect(page.getByRole("status").filter({ hasText: /\d+ Stunden übernommen/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Lauf löschen" })).toHaveCount(0);
+  const versionId = await publishRun(page, browser, runs.C, from);
+  await expect(page.getByRole("heading", { name: "Veröffentlichung zurücknehmen" })).toBeVisible();
   await page.goto(planUrl);
   expect(await plan.innerText()).not.toBe(before);
-  await page.goto("/planung");
-  const tile = page.locator("[data-kachel=solver]");
-  await expect(tile).toContainText("übernommen");
-  await expect(tile).toContainText("gilt ab");
+  await page.goto("/planung/versionen");
+  await expect(page.getByRole("list", { name: "Veröffentlichte Versionen" })).toContainText(`${deDate(from)} – offen`);
 
-  // 5. zurücknehmen → alter Plan, Lauf wieder „fertig“
-  await page.goto(runs.C);
-  page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "Übernahme zurücknehmen" }).click();
-  await expect(page).toHaveURL(/zurueckgenommen=\d+/);
-  await expect(page.getByRole("status").filter({ hasText: "Übernahme zurückgenommen" })).toBeVisible();
+  // 5. zurücknehmen → alter Plan; Version verwerfen, Lauf weiter „fertig“
+  await undoAndDiscardVersion(page, versionId);
   await page.goto(planUrl);
   expect(await plan.innerText()).toBe(before);
   await page.goto("/planung");

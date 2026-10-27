@@ -25,6 +25,7 @@ import { runDunning } from "@/modules/buecherei/mahnungen";
 import { cleanupRuns, executeQueued } from "@/modules/stundenplan/solverlauf";
 import { cleanupVersions } from "@/modules/stundenplan/planversionen";
 import { runSubstitutionQueue } from "@/modules/stundenplan/benachrichtigung";
+import { runPlanNotifications } from "@/modules/stundenplan/veroeffentlichen";
 
 export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   {
@@ -247,9 +248,19 @@ export function startSubstitutionGong(db: Db, everyMs = 60_000): void {
     try {
       const m = MODULES.find((x) => x.id === "stundenplan");
       if (!m || !isEnabled(m, await loadModuleStates(db))) return;
-      const r = await runExclusive(db, "vertretung-gong", () => runSubstitutionQueue(db, new Date()), { ttlMs: 5 * 60_000 });
+      // SP3-04: im selben Takt die Änderungslisten veröffentlichter Planversionen an Schüler:innen/Eltern (Vortags-Uhrzeit)
+      const r = await runExclusive(
+        db,
+        "vertretung-gong",
+        async () => {
+          const now = new Date();
+          return { ...(await runSubstitutionQueue(db, now)), plans: await runPlanNotifications(db, now) };
+        },
+        { ttlMs: 5 * 60_000 },
+      );
       if (r.error) console.error(`[schulos] Vertretungsnachrichten fehlgeschlagen: ${r.error}`);
       else if (r.result?.sent) console.log(`[schulos] Vertretungsnachrichten: ${r.result.sent} gesendet (${r.result.days} Tage)`);
+      if (r.result?.plans) console.log(`[schulos] Änderungslisten neuer Stundenpläne: ${r.result.plans} gesendet`);
     } catch (err) {
       console.error("[schulos] Vertretungsnachrichten fehlgeschlagen:", err instanceof Error ? err.message : err);
     } finally {

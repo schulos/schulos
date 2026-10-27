@@ -45,6 +45,7 @@ import Link from "next/link";
 import type { ComponentProps } from "react";
 import { suggestSubstitutes } from "@/modules/stundenplan/vorschlaege";
 import { weekNeeds } from "@/modules/stundenplan/dauervertretung";
+import { pendingPublications } from "@/modules/stundenplan/plan-archiv";
 import { KIND_LABEL as EXAM_KIND } from "@/modules/klausurplan/service";
 import { materialsFor } from "@/modules/stundenplan/selbstmeldung";
 import { AbsenceForm } from "./absence-form";
@@ -139,6 +140,8 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
     // VT-04: eingeplante Vertretungsnachrichten („geplant für …“, „jetzt senden“)
     plannedNotifications(db),
   ]);
+  // SP3-04 (R2): freigegebene, noch nicht veröffentlichte Planversionen – ab ihrem Stichtag kann sich der Plan noch ändern
+  const pending = await pendingPublications(db, today);
   // VT-03a: aufgehobene Vertretungen des Tages – die Zeile fehlt in „Alle Änderungen“, der Verlauf bleibt über die Stunde erreichbar
   const removed = await removedSubstitutions(db, history, new Set(changes.map((c) => c.lessonId)));
   const actorIds = [...new Set([...history.map((h) => h.actorId), ...removed.map((r) => r.actorId)].filter((x): x is string => !!x))];
@@ -263,6 +266,14 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
           {sp.fehler}
         </p>
       )}
+      {pending.map((p) => (
+        <p key={p.id} role="note" data-testid="versionsgrenze" className="rounded-xl border border-warn-border bg-warn-soft px-4 py-3 text-sm">
+          Ab {longDay.format(fromBerlinLocal(p.validFrom))} soll Version {p.label} „{p.name}“ gelten (freigegeben, noch nicht veröffentlicht).
+          {date >= p.validFrom ? " Der gewählte Tag liegt danach: " : " "}
+          Vertretungen für Tage ab dann ziehen beim Veröffentlichen an die neue Stunde mit, wenn sie an dem Tag stattfindet – sonst werden sie gezählt und
+          gesichert (Zurücknehmen bis zum Stichtag).
+        </p>
+      ))}
       {notified !== null && (
         <p role="status" className="rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
           Veröffentlicht{notified > 0 ? ` – Nachricht an ${notified === 1 ? "1 Person" : `${notified} Personen`} eingeplant (siehe „Nachrichten“).` : "."}

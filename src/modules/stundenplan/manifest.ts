@@ -58,6 +58,7 @@ export default defineModule({
         "Angelegt, zur Prüfung gegeben, freigegeben, veröffentlicht, verworfen – von und am",
         "Fahrplan-Häkchen und Quittierungen",
         "Rücknahme-Daten der Veröffentlichung (Stunden mit Lehrkraft, nur bis zum Stichtag)",
+        "Änderungsliste an Schüler:innen/Eltern (Zeilen je Klasse/Kurs mit Kürzeln, nur bis zum Versand)",
       ],
       class: "LK-SJ-1J",
       start: "school_year_id",

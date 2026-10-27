@@ -210,6 +210,8 @@ describe("Querschnitt: kein fremder Leser des Entwurfs (SP3-01, §5 b)", () => {
       "src/modules/stundenplan/planversionen.ts",
       "src/modules/stundenplan/schema.ts",
       "src/modules/stundenplan/solverlauf.ts",
+      // SP3-04: Veröffentlichen liest die Entwurfsstunden der Version (Diff gegen den gültigen Plan)
+      "src/modules/stundenplan/veroeffentlichen.ts",
     ]);
     // Seiten lesen Entwürfe nur über Services des Moduls (Quelle als URL-Wert)
     const pages = files.filter((f) => f.path.startsWith("src/app/") && DRAFT.test(f.text)).map((f) => f.path);

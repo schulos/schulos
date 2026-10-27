@@ -937,6 +937,13 @@ export const timetablePlanVersions = pgTable(
     discardedAt: timestamp("discarded_at", { withTimezone: true }),
     /** Rücknahme-Daten der Veröffentlichung (SP3-04) – nur bis zum Stichtag, der Nachtjob leert sie */
     undo: jsonb("undo"),
+    /**
+     * SP3-04 (F-10-4): Änderungsliste an Schüler:innen/Eltern – Zeilen je Klasse/Kurs (`{ groups: { <Gruppen-id>: string[] } }`, Kürzel
+     * statt Namen), versendet zur Vortags-Uhrzeit vor dem Stichtag (`notify_at`, Einstellung „Lernende“); nach dem Versand geleert.
+     */
+    notify: jsonb("notify"),
+    notifyAt: timestamp("notify_at", { withTimezone: true }),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
   },
   (t) => [
     check("timetable_plan_versions_valid", sql`${t.validUntil} is null or ${t.validFrom} is null or ${t.validUntil} >= ${t.validFrom}`),

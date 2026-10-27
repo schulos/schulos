@@ -11,10 +11,11 @@ import { plannableGroups, teacherOptions, WEEKDAYS } from "@/modules/stundenplan
 import { examIndex, examLabel, listExams, type ExamRow } from "@/modules/klausurplan/service";
 import { mergeCoupled, slotDisplay, type PlanView } from "@/modules/stundenplan/display";
 import { previewVersions } from "@/modules/stundenplan/planpruefung";
+import { versionOn } from "@/modules/stundenplan/plan-archiv";
 import { canViewPlan, listSlots, seesAllPlans, planOwners, timetableMasterData, weekOf, type LessonSlot, type PlanTarget } from "@/modules/stundenplan/service";
 import { Button } from "@schulos/ui/button";
 import { cn } from "@schulos/ui/cn";
-import { Select } from "@schulos/ui/field";
+import { Input, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { PlanPicker } from "./plan-picker";
 
@@ -109,6 +110,13 @@ export default async function StundenplanPage({ searchParams }: { searchParams: 
     q.set("woche", ymd);
     return `/stundenplan?${q}`;
   };
+  // SP3-04: welche veröffentlichte Version in dieser Woche gilt (wechselt sie mitten in der Woche, beide)
+  const [vStart, vEnd] = target ? await Promise.all([versionOn(db, days[0]!), versionOn(db, days[4]!)]) : [null, null];
+  const versionText = !vStart && !vEnd
+    ? null
+    : vStart && vEnd && vStart.id !== vEnd.id
+      ? `Plan-Version ${vStart.label} bis ${fmt(shortDate, vStart.validUntil ?? days[0]!)}, ab ${fmt(shortDate, vEnd.validFrom ?? days[4]!)} Version ${vEnd.label} „${vEnd.name}“`
+      : `Plan-Version ${(vStart ?? vEnd)!.label} „${(vStart ?? vEnd)!.name}“`;
   const isNow = (s: LessonSlot) => s.date === today && s.startsAt <= hm && hm < s.endsAt;
   // leere Stunden am Ende (z. B. 8. Stunde ohne Unterricht) ausblenden, mindestens bis zur 6.
   const lastPeriod = Math.max(6, ...slots.map((x) => x.periodNr));
@@ -214,12 +222,32 @@ export default async function StundenplanPage({ searchParams }: { searchParams: 
                 </span>
               </h2>
             </div>
-            {monday !== thisWeek && (
-              <Button asChild size="sm">
-                <Link href={weekHref(thisWeek)}>Diese Woche</Link>
-              </Button>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* SP3-04: Plan am Tag X – auch vergangene Tage (der gültige Plan ist seine eigene Historie) und künftige (ab Stichtag) */}
+              <form action="/stundenplan" method="get" aria-label="Plan am Tag" className="flex items-center gap-2">
+                {[...keep].map(([k, v]) => (
+                  <input key={k} type="hidden" name={k} value={v} />
+                ))}
+                <label className="text-sm text-muted" htmlFor="plan-tag">
+                  Plan am
+                </label>
+                <Input id="plan-tag" type="date" name="woche" defaultValue={monday} className="w-auto" />
+                <Button type="submit" size="sm" variant="ghost">
+                  Plan zeigen
+                </Button>
+              </form>
+              {monday !== thisWeek && (
+                <Button asChild size="sm">
+                  <Link href={weekHref(thisWeek)}>Diese Woche</Link>
+                </Button>
+              )}
+            </div>
           </div>
+          {versionText && (
+            <p className="-mt-3 text-sm text-muted" data-testid="plan-version">
+              {versionText}
+            </p>
+          )}
 
           {slots.length === 0 ? (
             offs.size === days.length ? (

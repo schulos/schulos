@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Browser, type Locator, type Page } from "@playwright/test";
 
 export const DEMO_PASSWORD = "schulos";
 
@@ -56,16 +56,68 @@ export async function publishIfDraft(page: Page) {
   }
 }
 
+/** „2027-02-01“ → „01.02.2027“ (Anzeige auf den Planungsseiten). */
+export const deDate = (ymd: string) => `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}.${ymd.slice(0, 4)}`;
+
 /**
- * SP3-02 (F-10-1): „Übernehmen“ füllt einen Entwurf; die direkte Übernahme in den gültigen Plan ist bis zum Veröffentlichen (SP3-04) nur
- * noch ein eingeklappter Übergangsweg auf der Seite eines Laufs. Klappt ihn auf (falls zu), damit Formular „Vorschlag übernehmen“ und
- * Hinweis `apply-preview` bedienbar sind.
+ * SP3-04 (F-10-1): ein Solver-Lauf kommt nur über eine Planversion in den gültigen Plan – „In den Entwurf übernehmen“ (neuer Entwurf ab
+ * Stichtag) → „Zur Prüfung geben“ → „Freigeben“ (Schulleitung `petra.lindner` in einem zweiten Kontext, wenn die angemeldete Person kein
+ * Prüfrecht hat) → „Ab … veröffentlichen“. Liefert die Versions-id; die Seite steht danach auf der Veröffentlichungsseite (Status „Veröffentlicht“).
  */
-export async function openDirectApply(page: Page) {
-  const details = page.locator("details").filter({ hasText: "direkt in den gültigen Plan" });
-  await expect(details).toHaveCount(1);
-  if (!(await details.evaluate((d) => (d as HTMLDetailsElement).open))) await details.locator("summary").click();
-  await expect(page.getByRole("form", { name: "Vorschlag übernehmen" })).toBeVisible();
+export async function publishRun(page: Page, browser: Browser, runUrl: string, from: string): Promise<string> {
+  await page.goto(runUrl);
+  const toDraft = page.getByRole("form", { name: "In den Entwurf übernehmen" });
+  await toDraft.getByLabel("Entwurf", { exact: true }).selectOption("neu");
+  await toDraft.getByLabel("Stichtag (nur neuer Entwurf)").fill(from);
+  await toDraft.getByRole("button", { name: "In den Entwurf übernehmen" }).click();
+  await expect(page).toHaveURL(/[?&]entwurf=[\w-]+/);
+  const versionId = new URL(page.url()).searchParams.get("entwurf")!;
+  await approveVersion(page, browser, versionId);
+  await publishVersionAt(page, versionId, from);
+  return versionId;
+}
+
+/** Entwurf zur Prüfung geben und freigeben (ohne eigenes Prüfrecht: als Schulleitung in einem zweiten Kontext). */
+export async function approveVersion(page: Page, browser: Browser, versionId: string) {
+  const review = `/planung/versionen/pruefung?version=${versionId}`;
+  await page.goto(review);
+  await page.getByRole("button", { name: "Zur Prüfung geben" }).click();
+  await expect(page.getByRole("status")).toContainText("Zur Prüfung gegeben");
+  if ((await page.getByRole("button", { name: "Freigeben" }).count()) > 0) {
+    await page.getByRole("button", { name: "Freigeben" }).click();
+  } else {
+    const ctx = await browser.newContext();
+    const sl = await ctx.newPage();
+    await login(sl, "petra.lindner");
+    await sl.goto(review);
+    await sl.getByRole("button", { name: "Freigeben" }).click();
+    await expect(sl.getByRole("status")).toContainText("Freigegeben");
+    await ctx.close();
+  }
+}
+
+/** Freigegebene Version ab Stichtag veröffentlichen (Vorschau → „Ab … veröffentlichen“). */
+export async function publishVersionAt(page: Page, versionId: string, from: string) {
+  await page.goto(`/planung/versionen/veroeffentlichen?version=${versionId}&ab=${from}`);
+  await page.getByRole("button", { name: `Ab ${deDate(from)} veröffentlichen` }).click();
+  await expect(page.getByRole("status")).toContainText("Veröffentlicht");
+}
+
+/** Veröffentlichung zurücknehmen (mit Rückfrage) und die Version anschließend verwerfen (aufräumen für folgende Specs). */
+export async function undoAndDiscardVersion(page: Page, versionId: string) {
+  await page.goto(`/planung/versionen/veroeffentlichen?version=${versionId}`);
+  if ((await page.getByRole("button", { name: "Veröffentlichung zurücknehmen" }).count()) > 0) {
+    page.once("dialog", (d) => d.accept());
+    await page.getByRole("button", { name: "Veröffentlichung zurücknehmen" }).click();
+    await expect(page.getByRole("status")).toContainText("Veröffentlichung zurückgenommen");
+  }
+  await page.goto("/planung/versionen");
+  const card = page.locator("article").filter({ has: page.locator(`a[href*="version=${versionId}"]`) }).first();
+  if ((await card.getByRole("button", { name: "Verwerfen" }).count()) > 0) {
+    page.once("dialog", (d) => d.accept());
+    await card.getByRole("button", { name: "Verwerfen" }).click();
+    await expect(page.getByRole("status")).toContainText("verworfen");
+  }
 }
 
 /**

@@ -59,6 +59,9 @@ const noQuiet: ModuleSettingOption = { value: "aus", label: "keine Ruhezeit" };
 const onChange = async (db: Db) => {
   const { reschedulePending } = await import("./benachrichtigung");
   await reschedulePending(db);
+  // SP3-04: noch nicht versandte Änderungslisten veröffentlichter Planversionen ebenso
+  const { reschedulePlanNotifications } = await import("./veroeffentlichen");
+  await reschedulePlanNotifications(db);
 };
 
 /** VT-04 (F-10-11): Uhrzeit der Vortags-Nachricht an Lehrkräfte (Vorgabe 18:00). */

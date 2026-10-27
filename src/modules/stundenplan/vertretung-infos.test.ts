@@ -353,6 +353,9 @@ describe("VT-01 Leser interner Angaben (Grep)", () => {
       "src/modules/stundenplan/vertretung-historie.ts",
       "src/modules/stundenplan/vertretung-konto.ts",
       "src/modules/stundenplan/solverlauf.ts",
+      // SP3-04: Rücknahme-Daten des Veröffentlichens (Vertretungen vollständig, wie beim Solver) und die frühere direkte Übernahme (nur Tests)
+      "src/modules/stundenplan/veroeffentlichen.ts",
+      "src/modules/stundenplan/solverlauf.testing.ts",
       "src/modules/stundenplan/actions.ts",
       "src/modules/stundenplan/dauervertretung.ts",
       "src/app/(shell)/planung/vertretungen/page.tsx",

@@ -6,7 +6,8 @@ import { timetableLessons, timetableSolverRuns, users } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { deleteAccounts } from "@/core/privacy/konto";
 import { runDeletion } from "@/core/privacy/loeschlauf";
-import { applyRun, createRun, executeRun, getRun, proposedLessons } from "./solverlauf";
+import { createRun, executeRun, getRun, proposedLessons } from "./solverlauf";
+import { applyRun } from "./solverlauf.testing";
 import { DELETED_TEACHER, labelPattern, runTeacherLabel, scrubIds } from "./solverlauf-konto";
 import { planningYear } from "./verteilung";
 

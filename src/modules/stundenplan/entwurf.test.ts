@@ -14,7 +14,7 @@ import { createDraft, createVariant, discardVersion } from "./planversionen";
 import { resolveQuelle, writableSource } from "./quelle";
 import { moveLesson, openAssignments, placeAssignment, assignmentPlacement, placementGrid } from "./setzhilfe";
 import { solverInputFromDb } from "./solver-input";
-import { applyRun, applyRunToDraft, createRun, executeRun, getRun, proposalDiagnosis, proposedLessons, setFixed } from "./solverlauf";
+import { applyRunToDraft, createRun, executeRun, getRun, proposalDiagnosis, proposedLessons, setFixed } from "./solverlauf";
 import { loadVersionComparison } from "./solververgleich";
 import { distribution, planningYear } from "./verteilung";
 
@@ -171,9 +171,6 @@ describe("Arbeiten im Entwurf (SP3-02, Demo-Schule)", () => {
     // behaltene Stunden der Vorschau/Diagnose kommen aus dem Entwurf
     expect(await proposalDiagnosis(h.db, run.stored!)).toEqual(expect.any(Array));
     expect(run.stored!.result.unplaced).toEqual([]);
-
-    // direkt in den gültigen Plan geht ein Entwurfs-Lauf nicht
-    expect(await errorOf(applyRun(h.db, "u-frank.schulte", id, "2027-02-08", today))).toMatch(/in den Entwurf übernehmen/);
 
     const before = await liveSnapshot();
     const res = await applyRunToDraft(h.db, "u-frank.schulte", id, { versionId: draftId }, today);

@@ -6,7 +6,7 @@
 // weil die Kontolöschung (`src/core/privacy/konto.ts`) es aufruft.
 import { inArray, or, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { timetableSolverRuns, users } from "@/core/db/schema";
+import { timetablePlanVersions, timetableSolverRuns, users } from "@/core/db/schema";
 
 /** Platzhalter für die Kennung einer gelöschten Lehrkraft in Solver-Läufen – zugleich ihre Anzeige. */
 export const DELETED_TEACHER = "gelöschte Lehrkraft";
@@ -124,6 +124,39 @@ export async function scrubSolverRuns(db: Db, ids: readonly string[]): Promise<n
   for (const r of rows) {
     const patch: Partial<Record<(typeof FIELDS)[number], unknown>> = {};
     for (const f of FIELDS) {
+      if (r[f] === null || r[f] === undefined) continue;
+      const next = scrubIds(r[f], set, labels);
+      if (JSON.stringify(next) !== JSON.stringify(r[f])) patch[f] = next;
+    }
+    if (!Object.keys(patch).length) continue;
+    await db.update(t).set(patch).where(sql`${t.id} = ${r.id}`);
+    changed++;
+  }
+  return changed;
+}
+
+/**
+ * SP3-04 (§5 Querschnitt d): dieselbe Bereinigung für Planversionen – Rücknahme-Daten der Veröffentlichung (`undo`: Stunden mit Lehrkraft,
+ * Vertretungen, Material) und die noch nicht versandte Änderungsliste (`notify`: Kürzel in den Zeilen). Das Zurücknehmen behandelt den
+ * Platzhalter wie eine gelöschte Lehrkraft (Stunde bzw. Vertretung ohne Lehrkraft). Gibt die Zahl der geänderten Versionen zurück.
+ */
+export async function scrubPlanVersions(db: Db, ids: readonly string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const set = new Set(ids);
+  const people = await db.select({ code: users.shortCode, name: users.name }).from(users).where(inArray(users.id, [...ids]));
+  const shown = people.map((p) => p.code?.trim() || p.name);
+  const labels = labelPattern(shown);
+  const t = timetablePlanVersions;
+  const text = sql`coalesce(${t.undo}::text, '') || coalesce(${t.notify}::text, '')`;
+  const needles = [...ids.map((id) => JSON.stringify(id)), ...shown.filter(Boolean)];
+  const rows = await db
+    .select({ id: t.id, undo: t.undo, notify: t.notify })
+    .from(t)
+    .where(or(...needles.map((n) => sql`strpos(${text}, ${n}) > 0`)));
+  let changed = 0;
+  for (const r of rows) {
+    const patch: { undo?: unknown; notify?: unknown } = {};
+    for (const f of ["undo", "notify"] as const) {
       if (r[f] === null || r[f] === undefined) continue;
       const next = scrubIds(r[f], set, labels);
       if (JSON.stringify(next) !== JSON.stringify(r[f])) patch[f] = next;
