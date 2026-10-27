@@ -768,7 +768,7 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 - [ ] Freigabe nur mit `stundenplan.review`; 2FA-Pflicht; Lehrkräfte-Vorschau nur eigener Plan
 - [x] **GATE VT** Kontolöschung bereinigt `substitution_changes` – Belege: `vertretung-infos.test.ts` „Kontolöschung ersetzt die Vertretungslehrkraft in der Historie …“, `loeschlauf-konto.test.ts` (DS-21-Muster), `benachrichtigung.test.ts` „Kontolöschung nimmt die Einträge der Person mit“ (Warteschlange). **Offen für GATE SP3:** `undo`, `plan_changes`
 - [x] **GATE VT** Sendewarteschlange: Ruhezeit, Endstand, genau ein Versand je Tag und Zielgruppe, zwei Instanzen senden nicht doppelt – Belege: `sendezeit.test.ts` (Zeitlogik, Ruhezeit, Sommerzeit), `benachrichtigung.test.ts` „morgen: eingereiht für den Vortag 18:00, gesendet wird nur der Endstand …, genau einmal“, „nach der Vortags-Uhrzeit sofort; in der Ruhezeit wartet die Nachricht …“, „zwei Takte gleichzeitig (zwei App-Prozesse) senden nicht doppelt“, `e2e/vertretung-benachrichtigung.spec.ts`, `e2e/zx-gate-vt.spec.ts`
-- [x] **SP3-02** Benchmark/Solver-Kern unverändert (dieselbe Lösung) – Belege: `solver.ts` unverändert, `solver.benchmark.test.ts` grün (gleiche Lösung), Solver-Eingabe für den gültigen Plan unverändert (Vorgabe `source`), `entwurf.test.ts` (Lauf im Entwurf)
+- [ ] Benchmark/Solver-Kern durch die SP3-Pakete unverändert (dieselbe Lösung wie der jeweils gültige Benchmark-Stand; neue Stände nur durch SQ-01…03) – **SP3-02:** `solver.ts` unverändert, `solver.benchmark.test.ts` grün (gleiche Lösung), Solver-Eingabe für den gültigen Plan unverändert (Vorgabe `source`), `entwurf.test.ts` (Lauf im Entwurf)
 - [ ] Fahrplan: jeder Schritt-Status aus Demo-Daten nachvollziehbar; Warnung ohne Quittierung blockiert Schritt 8
 - [ ] Doku: STUNDENPLAN.md, DATENSCHUTZ §3.4, SICHERHEIT S8x, DSB-FRAGEN §13-Hinweis, Release-Notes – **VT-Teil erledigt:** `STUNDENPLAN.md` §0 „Vertretung als Arbeitsplatz“, `DATENSCHUTZ.md` §3.4 (VT-01, VT-04) und DSB-Checkliste Thema 13, `SICHERHEIT.md` S85, Release-Notes `release/notes/0.10.0.json` (Vorschlag). **Offen für GATE SP3:** Versionen, Prüfung/Freigabe, Archiv, Fahrplan (S8x, Release-Notes v0.11)
 
@@ -778,7 +778,7 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 
 Versionierte Lehraufträge/Zeitwünsche (F-10-5), Mehrarbeits-Abrechnung aus der Historie, Import/Export fremder Formate, Web-Push (Queue
 ist vorbereitet, DSB-Votum offen), ICS-Abo des eigenen Plans (SP-G-21, passt später an „Plan am Tag X“), Oberstufen-Blockung, Solver-
-Warmstart aus dem Entwurf (Kann: Lauf „ab aktuellem Entwurf verbessern“), Personalrats-Schritt (Entscheidung Projektleitung 25.10.),
+Warmstart aus dem Entwurf (jetzt eigener Block SQ im BACKLOG, Projektleitung 2026-10-27), Personalrats-Schritt (Entscheidung Projektleitung 25.10.),
 große Sperrzeiten-Erfassung (nur die bestehenden Zeitwünsche + Raumsperren), Lehrkräfte-Kommentare untereinander.
 
 ---

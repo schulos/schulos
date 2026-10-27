@@ -10,7 +10,10 @@
     { "kind": "neu", "text": "Benachrichtigungen zur sinnvollen Zeit: Änderungen für morgen gehen gebündelt am Vortag um 18:00 raus, nicht in der Ruhezeit, mit dem letzten Stand; Änderungen für heute sofort. „Jetzt senden“ löst den Versand je Tag und Zielgruppe von Hand aus; Zeiten und Zielgruppen sind einstellbar" },
     { "kind": "neu", "text": "Lehraufträge schnell anlegen: Die Matrix Klasse × Fach zeigt das Soll der Stundentafel, schlägt nur Lehrkräfte mit dem Lehrfach vor und rechnet die Deputatsbilanz live mit; Übernahme aus dem 1. Halbjahr oder dem Vorjahr als Vorschlag" },
     { "kind": "neu", "text": "Deputatsmodell: Teilzeit-Anteil mit Rechenhilfe, eigene Pflicht im 2. Halbjahr und Anrechnungen mit Gültigkeit; das Deputat gilt zum Stichtag der Unterrichtsverteilung" },
+    { "kind": "verbessert", "text": "Klassenleitungen finden die Bücherei im Menü, auch ohne eigenes Bücherei-Recht, und kommen so zu „Meine Klasse“" },
+    { "kind": "verbessert", "text": "Protokoll: alle Aktionen mit deutscher Beschriftung; neue Filter für Anmeldung, Bücherei, Foren, Gebäude, Kalender und Umfragen" },
     { "kind": "sicherheit", "text": "Interne Notiz, Abwesenheitsgrund und Änderungsverlauf der Vertretungen sind nur für die Vertretungsplanung (und die Notiz für die Vertretungslehrkraft) sichtbar – nie für Schüler:innen, Eltern, Monitore, Druck oder Benachrichtigungen" },
-    { "kind": "sicherheit", "text": "Datenschutz: Bei der Kontolöschung wird die Lehrkraft im Änderungsverlauf der Vertretungen durch „gelöschte Lehrkraft“ ersetzt; die Sendewarteschlange wird mit dem Konto gelöscht" }
+    { "kind": "sicherheit", "text": "Datenschutz: Bei der Kontolöschung wird die Lehrkraft im Änderungsverlauf der Vertretungen durch „gelöschte Lehrkraft“ ersetzt; die Sendewarteschlange wird mit dem Konto gelöscht" },
+    { "kind": "sicherheit", "text": "Mitgelieferte Images (Node, Caddy, Postgres) auf aktuelle Stände angehoben" }
   ]
 }

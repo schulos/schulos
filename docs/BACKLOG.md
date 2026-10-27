@@ -615,6 +615,14 @@ vor dem PR auf aktuellem `main`.
 - [ ] **SP3-07** (M) Schuljahresabschluss + Übertrag: Entwurf aus Vorjahr hochgestuft (`class_map`, „Lehrkraft folgt Klasse“, Kurse/Bänder nicht)
 - [ ] **SP3-08** (S) E2E-Gesamtszenario + Review-PR **GATE SP3** → Release v0.11
 
+**Solver-Qualität (SQ)** – Läufe finden bessere Pläne und bauen aufeinander auf (Projektleitung 2026-10-27: freigegeben, zügig
+einarbeiten). SQ-01 läuft parallel zu SP3 (nur Solver-Kern), SQ-02/SQ-03 nach SP3-02 (brauchen den Entwurf). Jede Änderung wird am
+Benchmark gemessen; SQ setzt bewusst einen neuen Benchmark-Stand, die SP3-Pakete ändern den Solver-Kern nicht.
+
+- [ ] **SQ-01** (S) Bessere Zugwahl der lokalen Suche: Zulässigkeit vor der Bewertung prüfen (schneller bei gleichem Ergebnis) und beim Verschieben mehrere Zielplätze ziehen, bis einer zulässig ist (heute sind ~88 % der Schritte wirkungslos); deterministisch je Startwert; Vorher/Nachher-Messung im Benchmark im PR. Gemessen und verworfen: Late Acceptance / Simulated Annealing (kein Gewinn – die Suche hängt nicht in lokalen Optima, sondern verschwendet Schritte) (Projektleitung 2026-10-27)
+- [ ] **SQ-02** (M) Warmstart „ab aktuellem Entwurf verbessern“: Lauf startet vom Entwurf statt von null, löst wiederholt einen Teil heraus (Tag, Lehrkraft, Jahrgang) und setzt ihn neu (Large Neighbourhood Search), übernimmt nur Verbesserungen; fixierte und von Hand gesetzte Stunden bleiben; Übernahme in den Entwurf mit Diff (Projektleitung 2026-10-27)
+- [ ] **SQ-03** (S) Mehrfachlauf: mehrere Startwerte nacheinander (bzw. Ketten von Warmstarts), der beste Lauf wird behalten und im Vergleich markiert; Abbrechen und Fortschritt wie beim Einzellauf (Projektleitung 2026-10-27)
+
 ## Schulbücherei – Modul `buecherei` (freigegeben von der Projektleitung 2026-10-19, nach INST-08)
 Konzept, Datenmodell, Rechte und Entscheidungen: [`BUECHEREI.md`](BUECHEREI.md). Läuft parallel zum Stundenplan-Umbau (eigene
 Migrationen, Nummer jeweils erst direkt vor dem PR auf aktuellem `main` erzeugen). Reihenfolge Stufe 1: BU-01 → BU-02 + BU-07 →
