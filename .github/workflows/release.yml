@@ -21,6 +21,13 @@ on:
   schedule:
     - cron: "0 4 * * 1"
   workflow_dispatch:
+    inputs:
+      # TD-13: Patch-Release von Hand mit der Workflow-Version von main – für Patch-Tags auf Release-Commits, deren eigene
+      # release.yml den Patch-Pfad noch nicht kennt (bis v0.9.x), oder zum Wiederholen eines gescheiterten Patch-Laufs
+      patch_tag:
+        description: "Vorhandener Patch-Tag (z. B. v0.9.1) – leer = Prüflauf"
+        required: false
+        default: ""
 
 concurrency:
   group: release
@@ -88,10 +95,19 @@ jobs:
 
       - name: Planen
         id: plan
+        env:
+          PATCH_TAG: ${{ inputs.patch_tag }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-            version="${GITHUB_REF_NAME#v}"
-            ref="$GITHUB_SHA"
+          if [ "$GITHUB_EVENT_NAME" = push ] || [ -n "$PATCH_TAG" ]; then
+            tagname="${PATCH_TAG:-$GITHUB_REF_NAME}"
+            if [ -n "$PATCH_TAG" ]; then
+              [[ "$PATCH_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::patch_tag muss vX.Y.Z sein"; exit 1; }
+              git fetch --force origin "refs/tags/$PATCH_TAG:refs/tags/$PATCH_TAG"
+              ref="$(git rev-parse "refs/tags/$PATCH_TAG^{commit}")"
+            else
+              ref="$GITHUB_SHA"
+            fi
+            version="${tagname#v}"
             # self-hosted: .git bleibt zwischen Läufen, checkout löscht nur den Ordner – verwaiste Registrierung entfernen
             git worktree prune && git worktree add --force --detach build "$ref"
             core="${version%%-*}"
@@ -104,15 +120,16 @@ jobs:
               prev_commit="$( [ -n "$latest" ] && node -p 'require("./previous/release.json").commit' || true)"
               next="$( [ -n "$latest" ] && node -p 'const v=require("./previous/release.json").version.split(".");v[2]=+v[2]+1;v.join(".")' || true)"
               if [ -z "$latest" ] || [ "$version" != "$next" ] || [ "$ref" != "$prev_commit" ]; then
-                echo "::error::Tag $GITHUB_REF_NAME passt nicht zu package.json ($pkg) und ist kein Patch-Tag (erwartet v$next auf $prev_commit)"
+                echo "::error::Tag $tagname passt nicht zu package.json ($pkg) und ist kein Patch-Tag (erwartet v$next auf $prev_commit)"
                 exit 1
               fi
               mode=patch
-              echo "Patch-Release $GITHUB_REF_NAME aus $latest ($ref)"
+              echo "Patch-Release $tagname aus $latest ($ref)"
             else
+              [ -z "$PATCH_TAG" ] || { echo "::error::$PATCH_TAG passt zu package.json – kein Patch-Tag, Release per Tag-Push"; exit 1; }
               $TSX scripts/release-manifest.ts --check "$version"
             fi
-            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "tag=$tagname" >> "$GITHUB_OUTPUT"
           else
             mode=check
             latest="$(gh release list --limit 100 --json tagName --jq '.[].tagName' | $TSX scripts/release-manifest.ts --latest)"
