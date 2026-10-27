@@ -73,14 +73,14 @@ export async function decideAbsenceAction(id: string, approve: boolean): Promise
 }
 
 /** Material zu einer Stunde: Text, Datei (optional), Häkchen „Schüler:innen dürfen es sehen“, „Datei entfernen“. */
-export async function saveMaterialAction(absenceId: string, lessonId: string, date: string, _prev: FormState, form: FormData): Promise<FormState> {
+export async function saveMaterialAction(absenceId: string | null, lessonId: string, date: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { perms } = await requireUser();
   const f = form.get("file");
   const file = f instanceof File && f.size > 0 ? { name: f.name, type: f.type, data: new Uint8Array(await f.arrayBuffer()) } : null;
   let id: string | null;
   try {
     id = await saveMaterial(await getDb(), getStorage(), perms, {
-      absenceId,
+      absenceId: absenceId || null,
       lessonId,
       date,
       text: String(form.get("text") ?? ""),
@@ -92,5 +92,7 @@ export async function saveMaterialAction(absenceId: string, lessonId: string, da
     return fail(err, form);
   }
   revalidatePath(PAGE);
+  // VT-03b: Material ohne Abwesenheit wird im Vertretungs-Arbeitsplatz gepflegt
+  revalidatePath("/planung/vertretungen");
   return { ok: true, values: { saved: id ? "1" : "0" } };
 }

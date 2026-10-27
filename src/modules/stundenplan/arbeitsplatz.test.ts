@@ -7,7 +7,7 @@ import { createSeededTestDb } from "@/core/db/testing";
 import { OPEN_CALENDAR } from "@/core/school/calendar";
 import { fromBerlinLocal } from "@/core/time";
 import { loadPermissions } from "@/core/permissions";
-import { buildTeacherDay, classDay, dayPosition, gongSummary, lessonGroup, needUrgency, removedLessons, removedSubstitutions, stepSchoolDay, teacherDayContext } from "./arbeitsplatz";
+import { buildTeacherDay, classDay, dayPosition, gongSummary, lessonGroup, needUrgency, openNeighbours, removedLessons, removedSubstitutions, stepSchoolDay, teacherDayContext } from "./arbeitsplatz";
 import { deleteSubstitution, saveSubstitution } from "./vertretung";
 import { substitutionHistory } from "./vertretung-historie";
 import { schoolYearOn } from "./vertretung-regeln";
@@ -34,6 +34,18 @@ describe("VT-03a rein", () => {
     expect(stepSchoolDay(OPEN_CALENDAR, "2026-10-09", 1)).toBe("2026-10-12");
     expect(stepSchoolDay(OPEN_CALENDAR, "2026-10-12", -1)).toBe("2026-10-09");
     expect(stepSchoolDay(OPEN_CALENDAR, MO, 1)).toBe("2026-10-06");
+  });
+
+  it("VT-03b: Nachbarn der offenen Stunden für ↑/↓ und „nächste offene Stunde“ nach dem Speichern", () => {
+    const ids = ["a", "b", "c"];
+    expect(openNeighbours(ids, "b")).toEqual({ prev: "a", next: "c", afterSave: "c" });
+    expect(openNeighbours(ids, "a")).toEqual({ prev: null, next: "b", afterSave: "b" });
+    // letzte offene Stunde: nach dem Speichern zurück zur ersten anderen, ↓ hat kein Ziel
+    expect(openNeighbours(ids, "c")).toEqual({ prev: "b", next: null, afterSave: "a" });
+    // geregelte (nicht mehr offene) Stunde: ↓ springt zur ersten offenen
+    expect(openNeighbours(ids, "z")).toEqual({ prev: null, next: "a", afterSave: "a" });
+    expect(openNeighbours(["a"], "a")).toEqual({ prev: null, next: null, afterSave: null });
+    expect(openNeighbours([], null)).toEqual({ prev: null, next: null, afterSave: null });
   });
 
   it("Kopfleiste: nächster Termin mit allen Personen, heute nur die Uhrzeit, fällig ohne Uhrzeit", () => {

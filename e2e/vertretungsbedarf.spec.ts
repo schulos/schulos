@@ -78,7 +78,7 @@ test("Vertretungsvorschläge mit Punkten übernehmen, Statistik zählt die Vertr
   await expect(group).toContainText(/Randstunde|Hohlstunde|unterrichtet|hat sonst frei|Freisetzung/);
   await page.screenshot({ path: ".data/shots/e2e/vertretung-vorschlaege.png", fullPage: true });
   const first = group.getByRole("button", { name: /übernehmen/ }).first();
-  const code = (await first.textContent())!.replace(" übernehmen", "").trim();
+  const code = (await first.textContent())!.replace(/ (mit .+ )?übernehmen$/, "").trim();
   await first.click();
   await expect(page.getByRole("table").last().getByRole("cell", { name: code }).first()).toBeVisible();
 
@@ -102,7 +102,7 @@ test("SP-12 Fachtausch: Vertretung mit anderem Fach – Klasse, Eltern, Druck un
   const form = lessons.getByRole("form", { name: label, exact: true });
   const regular = label.split(" · ")[1]!;
   expect(regular).not.toBe("Informatik");
-  await form.getByLabel("Art").selectOption("substitute");
+  await form.getByRole("radio", { name: "Vertretung", exact: true }).check();
   const teacher = form.getByLabel("Vertretung durch");
   await teacher.selectOption((await teacher.locator('optgroup[label="Frei"] option').first().getAttribute("value"))!);
   // Vorgabe ist das reguläre Fach

@@ -450,8 +450,32 @@ an die Queue andocken (DSB-Votum offen).
   Uhrzeit, sonst mit Wochentag) und alle eingeplanten Personen bzw. „Gong fällig (n)“; darunter die Liste „Nachrichten“ mit „jetzt senden“,
   „Noch nicht bestätigt“ (Links öffnen die Stunde) und die Tagesmitteilungen. Ein eigener Datumswähler entfällt in der Kopfleiste (Datum
   bleibt unter „Anzeigen“).
-- **Nicht in VT-03a (→ VT-03b):** Vorschlagskarten mit Hauptknopf, kompaktes Formular/Segment-Schalter, Material ohne Abwesenheit,
-  Speichern → nächste offene Stunde, Tastatur.
+- **Nicht in VT-03a (→ VT-03b, umgesetzt):** Vorschlagskarten mit Hauptknopf, kompaktes Formular/Segment-Schalter, Material ohne
+  Abwesenheit, Speichern → nächste offene Stunde, Tastatur.
+
+**Umgesetzt mit VT-03b (2026-10-27, ohne Migration, Rechte unverändert) – Vorgaben zu Detailfragen (Projektleitung kann sie ändern):**
+- **Vorschlagskarten:** die drei besten Vorschläge als Karten (nebeneinander, mobil untereinander) mit Rang, Name/Kürzel, Badges
+  „Bereitschaft“, „Fachtausch: <Fach>“ und Punkten; Gründe stehen in einem Aufklapper („Gründe (n)“), „Tag von …“ markiert die Lehrkraft im
+  Kontext. Hauptknopf „<Kürzel> übernehmen“ nimmt bei Fachtausch das eigene Fach der Lehrkraft mit („<Kürzel> mit <Fach> übernehmen“),
+  daneben „nur Lehrkraft“ (Fach bleibt). Ohne Fachtausch gibt es nur den Hauptknopf.
+- **Segment-Schalter „Art“:** Vertretung · Nur Betreuung · Entfall · Raumänderung · Verlegung · Zusammenlegung. „Nur Betreuung“ ist keine
+  neue Art im Datenmodell, sondern Vertretung mit dem Merkmal „nur Betreuung“ (F-10-9); der Schalter setzt beides. Es erscheinen nur die
+  Felder der Art (Vertretung: Lehrkraft, Fach, Raum · Betreuung: Lehrkraft, Raum · Entfall: keine · Raumänderung: Raum · Verlegung:
+  Zielstunde, Tauschen, Raum · Zusammenlegung: Stunde); immer sichtbar: Grund (öffentlich), Hinweis für Schüler:innen, interne Notiz;
+  „Dauervertretung“ bei Vertretung/Betreuung mit mehrtägiger Abwesenheit. Wechselt man die Art, gehen Eingaben in Feldern, die dabei
+  verschwinden, verloren.
+- **Material:** eigener Aufklapper „Material für die Vertretung“ unter dem Formular (Dateien brauchen ein eigenes Formular; offen, wenn schon
+  Material vorliegt). Gehört die Stunde zur Abwesenheit ihrer Lehrkraft, hängt das Material an der Abwesenheit, sonst wird es „ohne
+  Abwesenheit“ an (Stunde, Tag) gespeichert (F-10-12, Recht `substitute`). Leer speichern löscht es, wie auf „Abwesenheit melden“.
+- **Nächste offene Stunde:** Reihenfolge der Ampel (dringend zuerst). Nach „Speichern“ und nach „übernehmen“ (Knopf oder Taste) geht es zur
+  folgenden offenen Stunde, sonst zur ersten anderen; ohne weitere offene Stunde bleibt die Stunde stehen. Die Zielseite meldet „Gespeichert –
+  das ist die nächste offene Stunde.“ (`?gespeichert=1`). „Aufheben“ und Material speichern bleiben in der Stunde. Ohne gewählte Stunde
+  (Ansicht „alle Stunden der Lehrkraft/Klasse“) bleibt „übernehmen“ wie bisher auf der Seite.
+- **Tastatur:** ↑/↓ = vorherige/nächste offene Stunde (ohne Umbruch; ist die Stunde nicht offen, springt ↓ zur ersten offenen), 1–3 = Vorschlag
+  1–3 übernehmen, Esc = Stunde schließen. Nur wenn kein Eingabefeld (Textfeld, Auswahl, Radio-Gruppe, Textbereich) den Fokus hat und ohne
+  Strg/Alt/Meta/Umschalt. Sichtbar erklärt im Aufklapper „Tastenkürzel“; der Schalter „Tastenkürzel verwenden“ (Vorgabe an, im Browser
+  gemerkt) erfüllt WCAG 2.1.4. Ziele tragen `aria-keyshortcuts` (Knöpfe `1`–`3`, Links `ArrowUp`/`ArrowDown`/`Escape`). Screenreader-Tasten im
+  Lesemodus (Pfeile, Ziffern) erreichen die Seite nicht, im Formularmodus gehören sie dem Feld; es gibt dieselben Links und Knöpfe zum Anklicken.
 
 ### 3.3 Migrationsfolge (Vorschlag, Nummern endgültig beim PR)
 

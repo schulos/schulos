@@ -54,7 +54,7 @@ test("SP-09/SP-13: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nic
   await page.goto(subsUrl);
   const subLabel = (await lessons.getByRole("form").filter({ hasNot: page.getByRole("button", { name: "Aufheben" }) }).first().getAttribute("aria-label"))!;
   const subForm = lessons.getByRole("form", { name: subLabel, exact: true });
-  await subForm.getByLabel("Art").selectOption("cancel");
+  await subForm.getByRole("radio", { name: "Entfall" }).check();
   await subForm.getByRole("button", { name: "Speichern" }).click();
   await expect(subForm.getByRole("status")).toContainText("Gespeichert");
   await page.goto(subsUrl);

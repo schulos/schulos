@@ -79,9 +79,9 @@ test("VT-03a: offene Stunde wählen → Formular und Kontext, Deeplink und Zurü
     await expect(marks.first()).toHaveAttribute("aria-current", "true");
   }
 
-  // Vorschlag übernehmen → Stunde bleibt gewählt, Zeile „Vertretung“, Tag veröffentlichen → „Gong geplant …“ in der Kopfleiste
+  // Vorschlag übernehmen (VT-03b: weiter zur nächsten offenen Stunde, sonst bleibt sie) → Zeile „Vertretung“, Tag veröffentlichen → „Gong geplant …“ in der Kopfleiste
   const best = chosen.getByRole("group", { name: /^Vorschläge:/ }).getByRole("button", { name: /übernehmen/ }).first();
-  const code = (await best.textContent())!.replace(" übernehmen", "").trim();
+  const code = (await best.textContent())!.replace(/ (mit .+ )?übernehmen$/, "").trim();
   await best.click();
   await expect(page).toHaveURL(/stunde=/);
   await expect(page.getByRole("region", { name: /^Alle Änderungen am/ }).getByRole("row").filter({ hasText: code }).first()).toBeVisible();

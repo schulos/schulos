@@ -233,12 +233,12 @@ test("SP2-11: Tagesgeschäft – Bereitschaft oben in den Vorschlägen, Verlegun
   const forms = lessonForms(page);
   const last = forms.last();
   const lastLabel = (await last.getAttribute("aria-label"))!;
-  await last.getByLabel("Art").selectOption("move");
+  await last.getByRole("radio", { name: "Verlegung" }).check();
   const targets = await last.getByLabel("Verlegen in").locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter(Boolean));
   let movedTo = "";
   for (const t of targets.reverse()) {
     const f = page.getByRole("form", { name: lastLabel });
-    await f.getByLabel("Art").selectOption("move");
+    await f.getByRole("radio", { name: "Verlegung" }).check();
     await f.getByLabel("Verlegen in").selectOption(t);
     await f.getByRole("button", { name: "Speichern" }).click();
     await expect(f.getByRole("status").or(f.getByRole("alert"))).toBeVisible();

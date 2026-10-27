@@ -66,6 +66,52 @@ export function Field({
 }
 
 /**
+ * Segment-Schalter (Einfachauswahl als Knopfleiste, VT-03b): echte Radio-Knöpfe in einer Gruppe mit Legende – Pfeiltasten,
+ * Screenreader und Formular verhalten sich wie bei Radio-Knöpfen. Der Knopf bleibt unsichtbar über dem Segment liegen.
+ * `name` ist optional (ohne Namen wird nichts abgeschickt, die Auswahl führt der Aufrufer).
+ */
+export function Segmented<T extends string>({
+  legend,
+  name,
+  value,
+  onChange,
+  options,
+  className,
+}: {
+  legend: string;
+  name?: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: readonly { value: T; label: string }[];
+  className?: string;
+}) {
+  const group = useId();
+  return (
+    <fieldset className={cn("min-w-0 border-0 p-0", className)}>
+      <legend className="mb-1.5 p-0 text-sm font-medium">{legend}</legend>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => (
+          <label
+            key={o.value}
+            className="relative flex min-h-11 cursor-pointer items-center rounded-xl border border-border bg-surface px-3 text-sm font-medium has-checked:border-accent has-checked:bg-accent-soft has-checked:text-accent-ink has-focus-visible:ring-2 has-focus-visible:ring-accent/40"
+          >
+            <input
+              type="radio"
+              name={name ?? group}
+              value={o.value}
+              checked={value === o.value}
+              onChange={() => onChange(o.value)}
+              className="absolute inset-0 cursor-pointer appearance-none opacity-0"
+            />
+            {o.label}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+/**
  * Knopfzeile in einem mehrspaltigen Formular-Raster aus `Field`s. Solche Raster richten sich oben aus (kein
  * `items-end`): Felder mit und ohne Hinweis/Fehler stehen dann auf einer Linie (#16). Ein leerer Platzhalter in
  * Label-Höhe setzt den Knopf auf Höhe der Eingabefelder; einspaltig (mobil) entfällt er.

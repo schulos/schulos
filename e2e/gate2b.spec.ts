@@ -26,7 +26,7 @@ test("Gate 2b – Lehrkraft krank → offene Stunden → Vorschlag übernehmen �
   const suggestions = page.getByRole("group", { name: new RegExp(`^Vorschläge: ${period.replace(".", "\\.")} Std · .* · ${groupName}$`) });
   await expect(suggestions.getByText(/Punkte$/).first()).toBeVisible();
   const best = suggestions.getByRole("button", { name: /übernehmen/ }).first();
-  const code = (await best.textContent())!.replace(" übernehmen", "").trim();
+  const code = (await best.textContent())!.replace(/ (mit .+ )?übernehmen$/, "").trim();
   await best.click();
   await expect(open.getByRole("row").filter({ hasText: groupName }).filter({ hasText: period }).getByText("Vertretung")).toBeVisible();
   await page.screenshot({ path: ".data/shots/e2e/gate2b-vertretung.png", fullPage: true });

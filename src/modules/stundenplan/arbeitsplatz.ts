@@ -244,3 +244,14 @@ export async function lessonGroup(db: Db, lessonId: string): Promise<string | nu
   const [l] = await db.select({ groupId: timetableLessons.groupId }).from(timetableLessons).where(eq(timetableLessons.id, lessonId));
   return l?.groupId ?? null;
 }
+
+/**
+ * VT-03b: Nachbarn der gewählten Stunde in der Reihenfolge der offenen Stunden (Ampel). `prev`/`next` für ↑/↓ ohne Umbruch.
+ * `afterSave` = nächste offene Stunde nach dem Speichern: die folgende, sonst die erste andere; null, wenn keine andere offen ist.
+ */
+export function openNeighbours(openIds: readonly string[], current: string | null): { prev: string | null; next: string | null; afterSave: string | null } {
+  const i = current ? openIds.indexOf(current) : -1;
+  const others = openIds.filter((id) => id !== current);
+  if (i < 0) return { prev: null, next: openIds[0] ?? null, afterSave: others[0] ?? null };
+  return { prev: openIds[i - 1] ?? null, next: openIds[i + 1] ?? null, afterSave: openIds[i + 1] ?? others[0] ?? null };
+}
