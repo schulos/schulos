@@ -16,6 +16,9 @@
 // lokale Suche (Verschieben/Tauschen, nur Verbesserungen oder Gleichstand; SQ-01: je Schritt bis zu acht Zielplätze, bis einer zulässig
 // ist, Kosten erst für zulässige Kandidaten). Beides läuft in Schritten, damit ein
 // Hintergrundlauf (solverlauf.ts) zwischendurch die Ereignisschleife freigibt.
+// SQ-02 Warmstart: statt der Konstruktion startet der Solver von gegebenen Platzierungen (Entwurf) und verbessert in Runden
+// (Large Neighbourhood Search): einen Teil herauslösen (Tag, Lehrkraft, Klasse/Jahrgang), mit Konstruktion/Reparatur neu setzen,
+// kurz lokal verbessern, nur echte Verbesserungen behalten (sonst zurück).
 
 import { ruleSummary, type DayRule } from "./tagesgrenzen";
 import { teacherRuleSummary, type TeacherDayRule } from "./lehrkraftregeln";
@@ -253,7 +256,24 @@ export interface SolverResult {
   items: CostItem[];
   stats: { units: number; iterations: number; improved: number };
   gaps: GapStats;
+  /** SQ-02: Kennzahlen des Warmstarts (fehlt bei einem Neu-Lauf) */
+  warm?: WarmStats;
 }
+
+/** SQ-02: Warmstart – Bewertung und „nicht gesetzt“ am Start, Runden und davon übernommene Verbesserungen. */
+export interface WarmStats {
+  /** Einheiten, die vom Start übernommen wurden (zulässig) */
+  startPlaced: number;
+  startUnplaced: number;
+  startScore: number;
+  rounds: number;
+  accepted: number;
+  /** nur nicht gesetzte und schwache Bereiche (Kosten > 0) durften sich ändern */
+  scope: WarmScope;
+}
+
+/** SQ-02: was ein Warmstart ändern darf – alles außer Fixiertem, oder nur nicht gesetzte Einheiten und Stunden mit Kosten. */
+export type WarmScope = "alle" | "schwach";
 
 // ---------------------------------------------------------------- Hilfen
 
@@ -942,6 +962,40 @@ const MOVE_TRIES = 8;
 const SWAP_TRIES = 1;
 
 /**
+ * SQ-02 (Warmstart): Runden je Einheit beim Richtwert (Gründlichkeit „normal“), höchstens `WARM_ROUNDS_MAX` (wie die 40 000 Schritte der
+ * lokalen Suche bei großen Schulen) – ein Warmstart rechnet auf den Benchmark-Schulen in derselben Größenordnung wie ein Neu-Lauf derselben
+ * Gründlichkeit (0,7–2×, docs/LASTTEST.md). `input.iterations` zählt im Warmstart Runden statt Schritte.
+ */
+const WARM_ROUNDS_PER_UNIT = 0.4;
+const WARM_ROUNDS_MAX = 400;
+/** SQ-02: so viele Einheiten löst eine Runde höchstens heraus – ein Anteil aller Einheiten, mindestens/höchstens */
+const HOOD_SHARE = 0.03;
+const HOOD_MIN = 8;
+const HOOD_MAX = 15;
+/** SQ-02: Schritte der lokalen Suche je neu gesetzter Einheit am Ende einer Runde */
+const WARM_STEPS_PER_UNIT = 6;
+
+/** SQ-02: Nachbarschaft einer Runde – ein Tag, eine Lehrkraft oder eine Klasse (mit den Kursen ihres Jahrgangs) bzw. ein Kurs-Jahrgang. */
+type HoodKind = "day" | "teacher" | "class";
+
+interface WarmState {
+  scope: WarmScope;
+  /** Einheiten, die gerade nicht gesetzt sind */
+  unplaced: Set<string>;
+  /** Gewichte der Nachbarschaften (je Startwert zufällig) */
+  kinds: [HoodKind, number][];
+  byTeacher: [string, SolverUnit[]][];
+  byClass: [string, SolverUnit[]][];
+  cap: number;
+  /** aktuelle Bewertung (nach der letzten übernommenen Runde) */
+  score: number;
+  accepted: number;
+  startPlaced: number;
+  startUnplaced: number;
+  startScore: number;
+}
+
+/**
  * Solver in Schritten (für Hintergrundjobs mit Fortschritt): construct() → improve(n) beliebig oft → result().
  * Gleicher Input und Startwert ergeben dieselbe Lösung, egal in wie vielen Schritten konstruiert oder verbessert wird.
  */
@@ -959,6 +1013,8 @@ export function createSolver(input: SolverInput) {
   const rank = new Map<string, number>();
   let order: SolverUnit[] | null = null;
   let constructed = 0;
+  /** SQ-02: Zustand des Warmstarts (null = Neu-Lauf mit Konstruktion) */
+  let warm: WarmState | null = null;
 
   /** Günstigster zulässiger Slot für eine Einheit (oder null). */
   function bestSlot(u: SolverUnit): Placement | null {
@@ -1006,12 +1062,16 @@ export function createSolver(input: SolverInput) {
     return out;
   }
 
-  /** Reparatur: bis zu zwei blockierende Einheiten verdrängen, `u` setzen, die Verdrängten anderswo neu setzen. */
-  function repair(u: SolverUnit): boolean {
+  /**
+   * Reparatur: bis zu zwei blockierende Einheiten verdrängen, `u` setzen, die Verdrängten anderswo neu setzen. SQ-02: mit `movable`
+   * werden nur diese Einheiten verdrängt (Warmstart „nur schwache Bereiche“).
+   */
+  function repair(u: SolverUnit, movable?: ReadonlySet<string>): boolean {
     for (const wd of input.weekdays) {
       for (const nr of input.periods) {
         const blockers = blockersAt(u, wd, nr);
         if (!blockers || !blockers.length || blockers.length > 2) continue;
+        if (movable && blockers.some((v) => !movable.has(v.id))) continue;
         const old = blockers.map((v) => s.place.get(v.id)!);
         blockers.forEach((v) => s.unapply(v.id));
         if (s.feasible(u, wd, nr)) {
@@ -1081,8 +1141,8 @@ export function createSolver(input: SolverInput) {
    * zulässige Kandidaten gerechnet) und bis zu `MOVE_TRIES` bzw. `SWAP_TRIES` Kandidaten ziehen, bis einer zulässig ist – vorher
    * war die große Mehrheit der Schritte wirkungslos (Zielplatz unzulässig).
    */
-  function step() {
-    const u = placedUnits[Math.floor(random() * placedUnits.length)]!;
+  function step(pool: SolverUnit[] = placedUnits, movable?: ReadonlySet<string>, strict = false) {
+    const u = pool[Math.floor(random() * pool.length)]!;
     const old = s.place.get(u.id)!;
     if (random() < 0.6) {
       // Verschieben: zulässigen Zielplatz suchen (mit `u` herausgenommen, sonst stünde es sich selbst im Weg)
@@ -1098,7 +1158,7 @@ export function createSolver(input: SolverInput) {
       s.unapply(u.id);
       s.apply(s.placeAt(u, t.wd, t.nr));
       const after = s.localCost([u], [old.weekday, t.wd]);
-      if (after <= before) {
+      if (after < before || (!strict && after === before)) {
         if (after < before) improved++;
       } else {
         s.unapply(u.id);
@@ -1107,7 +1167,8 @@ export function createSolver(input: SolverInput) {
       return;
     }
     // Tauschen mit einer anderen Einheit derselben Gruppe (gleiche Länge): zulässigen Partner suchen
-    const peers = (byGroup.get(u.groupIds[0]!) ?? []).filter((v) => v.id !== u.id && v.length === u.length);
+    // SQ-02: im Warmstart sind nicht alle Einheiten gesetzt bzw. beweglich (im Neu-Lauf ändert der Filter nichts)
+    const peers = (byGroup.get(u.groupIds[0]!) ?? []).filter((v) => v.id !== u.id && v.length === u.length && (!warm || (s.place.has(v.id) && (!movable || movable.has(v.id)))));
     if (!peers.length) return;
     let v: SolverUnit | null = null;
     let pv: Placement | null = null;
@@ -1127,7 +1188,7 @@ export function createSolver(input: SolverInput) {
     s.apply(s.placeAt(u, pv.weekday, pv.periodNr));
     s.apply(s.placeAt(v, old.weekday, old.periodNr));
     const after = s.localCost([u, v], days);
-    if (after <= before) {
+    if (after < before || (!strict && after === before)) {
       if (after < before) improved++;
       return;
     }
@@ -1153,6 +1214,187 @@ export function createSolver(input: SolverInput) {
     return ok;
   }
 
+  // ------------------------------------------------------------ SQ-02: Warmstart (Large Neighbourhood Search)
+
+  /**
+   * Startet von gegebenen Platzierungen (z. B. den Stunden eines Entwurfs) statt von null. Übernommen wird, was die harten Regeln
+   * erfüllt (in der Reihenfolge der Einheiten); passt ein Raum nicht (belegt, gesperrt, nicht aktiv), wählt der Solver ihn neu.
+   * Einheiten ohne (zulässige) Platzierung gelten als nicht gesetzt und kommen in den Runden bevorzugt dran. Danach `lns()`.
+   */
+  function warmStart(start: Placement[], scope: WarmScope = "alle"): WarmStats {
+    if (order || warm) throw new Error("Warmstart nur auf einem frischen Solver");
+    const at = new Map(start.map((p) => [p.unitId, p]));
+    const roomIds = new Set(input.rooms.map((r) => r.id));
+    const missing = new Set<string>();
+    for (const u of input.units) {
+      const p = at.get(u.id);
+      if (!p || !s.feasible(u, p.weekday, p.periodNr)) {
+        missing.add(u.id);
+        continue;
+      }
+      const span = s.span(u, p.periodNr)!;
+      const rooms = placementRooms(p, u.parts.length);
+      const roomsOk = rooms.every((r) => r !== null && roomIds.has(r) && span.every((nr) => !s.isBusy(`r:${r}`, p.weekday, nr) && !s.blocked("room", r, p.weekday, nr)));
+      s.apply(roomsOk ? { unitId: u.id, weekday: p.weekday, periodNr: p.periodNr, roomId: rooms[0] ?? null, roomIds: rooms } : s.placeAt(u, p.weekday, p.periodNr));
+    }
+    for (const u of input.units) for (const g of u.groupIds) byGroup.set(g, [...(byGroup.get(g) ?? []), u]);
+    // Nachbarschaften: Lehrkräfte; Klassen mit den Kursen ihres Jahrgangs; Jahrgänge nur aus Kursen (Oberstufe)
+    const byTeacher = new Map<string, SolverUnit[]>();
+    for (const u of input.units) for (const t of u.teacherIds) byTeacher.set(t, [...(byTeacher.get(t) ?? []), u]);
+    const gradeOf = input.gradeOf ?? new Map<string, number>();
+    const classGrades = new Set([...input.classIds].map((c) => gradeOf.get(c)).filter((x) => x !== undefined));
+    const byClass = new Map<string, SolverUnit[]>();
+    for (const u of input.units) {
+      const keys = new Set<string>();
+      for (const g of u.groupIds) {
+        if (input.classIds.has(g)) keys.add(g);
+        const grade = input.classIds.has(g) ? undefined : gradeOf.get(g);
+        if (grade === undefined) continue;
+        if (classGrades.has(grade)) for (const c of input.classIds) if (gradeOf.get(c) === grade) keys.add(c);
+        if (!classGrades.has(grade)) keys.add(`@${grade}`);
+      }
+      for (const k of keys) byClass.set(k, [...(byClass.get(k) ?? []), u]);
+    }
+    const sorted = <T>(m: Map<string, T>) => [...m].sort((a, b) => a[0].localeCompare(b[0]));
+    // je Startwert andere Gewichte der Nachbarschaften (0,5 … 1,5)
+    const kinds: [HoodKind, number][] = [
+      ["day", 0.5 + random()],
+      ["teacher", byTeacher.size ? 0.5 + random() : 0],
+      ["class", byClass.size ? 0.5 + random() : 0],
+    ];
+    const score = s.total();
+    warm = {
+      scope,
+      unplaced: missing,
+      kinds,
+      byTeacher: sorted(byTeacher),
+      byClass: sorted(byClass),
+      cap: Math.max(HOOD_MIN, Math.min(HOOD_MAX, Math.round(input.units.length * HOOD_SHARE))),
+      score,
+      accepted: 0,
+      startPlaced: s.place.size,
+      startUnplaced: missing.size,
+      startScore: score,
+    };
+    total = input.iterations ?? Math.max(1, Math.min(WARM_ROUNDS_MAX, Math.round(input.units.length * WARM_ROUNDS_PER_UNIT)));
+    return warmStats()!;
+  }
+
+  function warmStats(): WarmStats | undefined {
+    if (!warm) return undefined;
+    return { startPlaced: warm.startPlaced, startUnplaced: warm.startUnplaced, startScore: warm.startScore, rounds: done, accepted: warm.accepted, scope: warm.scope };
+  }
+
+  /** Zufällige Teilmenge (höchstens `n`, deterministisch über den Startwert). */
+  function sample<T>(xs: T[], n: number): T[] {
+    if (xs.length <= n) return xs;
+    const a = [...xs];
+    for (let i = 0; i < n; i++) {
+      const j = i + Math.floor(random() * (a.length - i));
+      [a[i], a[j]] = [a[j]!, a[i]!];
+    }
+    return a.slice(0, n);
+  }
+
+  /** „Schwach“: die Einheit oder ihr Tag (Lehrkräfte, Gruppen) kostet etwas. */
+  function weak(u: SolverUnit): boolean {
+    return s.localCost([u], [s.place.get(u.id)!.weekday]) > 0;
+  }
+
+  /** Nachbarschaft einer Runde: Art nach den Gewichten, darin ein zufälliger Tag/eine Lehrkraft/Klasse; gesetzte Einheiten, höchstens `cap`. */
+  function neighbourhood(w: WarmState): SolverUnit[] {
+    let r = random() * w.kinds.reduce((a, k) => a + k[1], 0);
+    const kind = w.kinds.find((k) => (r -= k[1]) < 0)?.[0] ?? "day";
+    let cand: SolverUnit[];
+    if (kind === "teacher") cand = w.byTeacher[Math.floor(random() * w.byTeacher.length)]![1];
+    else if (kind === "class") cand = w.byClass[Math.floor(random() * w.byClass.length)]![1];
+    else {
+      const wd = input.weekdays[Math.floor(random() * input.weekdays.length)]!;
+      cand = input.units.filter((u) => s.place.get(u.id)?.weekday === wd);
+    }
+    cand = cand.filter((u) => s.place.has(u.id));
+    if (w.scope === "schwach") cand = cand.filter(weak);
+    return sample(cand, w.cap);
+  }
+
+  /**
+   * Eine Runde: Nachbarschaft herauslösen, mit nicht gesetzten Einheiten (bevorzugt, zuerst) neu setzen – günstigster Slot, sonst
+   * Reparatur –, die neu gesetzten kurz lokal verbessern (nur echte Verbesserungen), dann vergleichen: weniger nicht gesetzt oder
+   * bei gleich vielen eine bessere Bewertung → behalten, sonst zurück auf den Stand vor der Runde.
+   */
+  function round(w: WarmState) {
+    const out = neighbourhood(w);
+    const free = sample(
+      input.units.filter((u) => w.unplaced.has(u.id)),
+      Math.max(1, Math.floor(w.cap / 2)),
+    );
+    if (!out.length && !free.length) return;
+    const snap = new Map(s.place);
+    const movable = w.scope === "schwach" ? new Set([...out, ...free].map((u) => u.id)) : undefined;
+    for (const u of out) s.unapply(u.id);
+    const byDifficulty = (us: SolverUnit[]) =>
+      us
+        .map((u) => ({ u, k: difficulty(s, u) + random() * 10 }))
+        .sort((a, b) => b.k - a.k || a.u.id.localeCompare(b.u.id))
+        .map((x) => x.u);
+    const rebuild = [...byDifficulty(free), ...byDifficulty(out)];
+    const unplacedNow = new Set(w.unplaced);
+    for (const u of rebuild) {
+      const p = bestSlot(u);
+      if (p) {
+        s.apply(p);
+        unplacedNow.delete(u.id);
+      } else if (repair(u, movable)) unplacedNow.delete(u.id);
+      else unplacedNow.add(u.id);
+    }
+    const pool = rebuild.filter((u) => s.place.has(u.id));
+    for (let i = 0; i < pool.length * WARM_STEPS_PER_UNIT; i++) step(pool, movable, true);
+    // Bewertung nur über das, was sich geändert hat (Einheiten und ihre alten/neuen Tage) – gleich dem Unterschied der Gesamtbewertung
+    const changed: SolverUnit[] = [];
+    const days = new Set<number>();
+    const fresh = new Map<string, Placement>();
+    for (const u of input.units) {
+      const before = snap.get(u.id);
+      const after = s.place.get(u.id);
+      if (before === after) continue;
+      changed.push(u);
+      if (before) days.add(before.weekday);
+      if (after) {
+        days.add(after.weekday);
+        fresh.set(u.id, after);
+      }
+    }
+    if (!changed.length) return;
+    const wds = [...days];
+    const after = s.localCost(changed, wds);
+    // zurück auf den Stand vor der Runde …
+    for (const u of changed) s.unapply(u.id);
+    for (const u of changed) {
+      const p = snap.get(u.id);
+      if (p) s.apply(p);
+    }
+    const delta = after - s.localCost(changed, wds);
+    // … und den neuen Stand wieder setzen, wenn er besser ist: weniger nicht gesetzt, bei gleich vielen eine bessere Bewertung
+    if (unplacedNow.size < w.unplaced.size || (unplacedNow.size === w.unplaced.size && delta < 0)) {
+      for (const u of changed) s.unapply(u.id);
+      for (const u of changed) {
+        const p = fresh.get(u.id);
+        if (p) s.apply(p);
+      }
+      w.unplaced = unplacedNow;
+      w.score += delta;
+      w.accepted++;
+    }
+  }
+
+  /** SQ-02: `n` Runden (`Infinity` = bis zum Richtwert `total`); liefert die bis `total` verbleibenden Runden. */
+  function lns(n: number): number {
+    if (!warm) throw new Error("Erst warmStart()");
+    const stop = Number.isFinite(n) ? done + n : Math.max(total, done);
+    for (; done < stop; done++) round(warm);
+    return Math.max(0, total - done);
+  }
+
   /** Aktuelle Bewertung ohne Einzelposten (Zwischenstand im Protokoll). */
   function score(): number {
     return s.total();
@@ -1165,30 +1407,63 @@ export function createSolver(input: SolverInput) {
     const score = s.total(items, (_kind, id, wd) => `${input.names?.get(id) ?? id} ${wdName[wd] ?? wd}`);
     const breakdown = Object.fromEntries(Object.keys(COST_LABELS).map((k) => [k, 0])) as SolverResult["breakdown"];
     for (const i of items) breakdown[i.category] += i.cost;
+    // Warmstart: „nicht gesetzt“ ist der aktuelle Stand (Gründe mit allem, was jetzt liegt)
+    const open = warm
+      ? input.units
+          .filter((u) => warm!.unplaced.has(u.id))
+          .map((u) => {
+            const causes = s.explain(u);
+            return { unitId: u.id, label: u.label, reason: unplacedReason(causes), causes };
+          })
+      : unplaced;
     return {
       placements: input.units.filter((u) => s.place.has(u.id)).map((u) => s.place.get(u.id)!),
-      unplaced,
+      unplaced: open,
       score,
       breakdown,
       items: items.filter((i) => i.cost > 0).sort((a, b) => b.cost - a.cost),
-      stats: { units: input.units.length, iterations: done, improved },
+      stats: { units: input.units.length, iterations: done, improved: warm ? warm.accepted : improved },
       gaps: s.gapStats(),
+      ...(warm ? { warm: warmStats() } : {}),
     };
   }
 
   return {
     construct,
     improve,
+    warmStart,
+    lns,
     score,
     result,
     get total() {
       return total;
     },
-    /** Zahl der gesetzten Einheiten nach der Konstruktion */
+    /** Zahl der gesetzten Einheiten nach der Konstruktion bzw. (Warmstart) gerade */
     get placed() {
-      return placedUnits.length;
+      return warm ? s.place.size : placedUnits.length;
+    },
+    /** SQ-02: Runden/übernommene Verbesserungen bisher (Warmstart) */
+    get warm() {
+      return warmStats();
     },
   };
+}
+
+/** SQ-02: Warmstart von `start` mit `n` Runden (Vorgabe: Richtwert) – deterministisch bei gleichem Input, Start und Startwert. */
+export function solveWarm(input: SolverInput, start: Placement[], scope: WarmScope = "alle", rounds = Number.POSITIVE_INFINITY): SolverResult {
+  const solver = createSolver(input);
+  solver.warmStart(start, scope);
+  solver.lns(rounds);
+  return solver.result();
+}
+
+/** SQ-02: Zahl der Einheiten aus `before`, die in `after` im selben Slot (Tag, Stunde) liegen – Maß für die Stabilität. */
+export function unchangedUnits(before: Pick<Placement, "unitId" | "weekday" | "periodNr">[], after: Pick<Placement, "unitId" | "weekday" | "periodNr">[]): number {
+  const at = new Map(after.map((p) => [p.unitId, p]));
+  return before.filter((p) => {
+    const q = at.get(p.unitId);
+    return q !== undefined && q.weekday === p.weekday && q.periodNr === p.periodNr;
+  }).length;
 }
 
 /** Erstellt einen Stundenplan aus den Einheiten (deterministisch bei gleichem Input und Startwert). */

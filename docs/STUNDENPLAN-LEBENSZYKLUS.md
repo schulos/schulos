@@ -778,7 +778,8 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 
 Versionierte Lehraufträge/Zeitwünsche (F-10-5), Mehrarbeits-Abrechnung aus der Historie, Import/Export fremder Formate, Web-Push (Queue
 ist vorbereitet, DSB-Votum offen), ICS-Abo des eigenen Plans (SP-G-21, passt später an „Plan am Tag X“), Oberstufen-Blockung, Solver-
-Warmstart aus dem Entwurf (jetzt eigener Block SQ im BACKLOG, Projektleitung 2026-10-27), Personalrats-Schritt (Entscheidung Projektleitung 25.10.),
+Warmstart aus dem Entwurf (jetzt eigener Block SQ im BACKLOG, Projektleitung 2026-10-27 – umgesetzt mit SQ-02: „ab aktuellem Entwurf verbessern“,
+docs/STUNDENPLAN.md), Personalrats-Schritt (Entscheidung Projektleitung 25.10.),
 große Sperrzeiten-Erfassung (nur die bestehenden Zeitwünsche + Raumsperren), Lehrkräfte-Kommentare untereinander.
 
 ---

@@ -29,7 +29,8 @@ import { loadSchoolCalendar } from "@/core/school/calendar";
 import { addDays, fromBerlinLocal, isCalendarDate, toBerlinDate, TZ, weekdayMon0 } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { diagnose, type DiagLesson, type Finding } from "./diagnose";
-import { createSolver, DEFAULT_WEIGHTS, placementRooms, unitParts, type GapStats, type SolverResult, type SolverWeights, type UnitPart } from "./solver";
+import { createSolver, DEFAULT_WEIGHTS, placementRooms, unchangedUnits, unitParts, type GapStats, type SolverResult, type SolverWeights, type UnitPart, type WarmScope } from "./solver";
+import { startPlacements } from "./warmstart";
 import { precheck, type PrecheckFinding } from "./solver-check";
 import { solverInputFromDb } from "./solver-input";
 import { distribution, planningYear } from "./verteilung";
@@ -51,6 +52,11 @@ export const WEIGHT_PRESETS = {
   raumtreu: { ...DEFAULT_WEIGHTS, roomWish: 10, noRoom: 40 },
 } as const satisfies Record<string, SolverWeights>;
 export type WeightPreset = keyof typeof WEIGHT_PRESETS | "eigene";
+
+/** SQ-02: Vorgehen eines Laufs – neu planen (Konstruktion + lokale Suche) oder ab dem aktuellen Entwurf verbessern (Warmstart). */
+export type RunMode = "neu" | "entwurf";
+export const MODE_LABELS: Record<RunMode, string> = { neu: "neu planen", entwurf: "ab aktuellem Entwurf verbessern" };
+export const SCOPE_LABELS: Record<WarmScope, string> = { alle: "alles außer Fixiertem", schwach: "nur nicht gesetzte und schwache Bereiche" };
 export const PRESET_LABELS: Record<WeightPreset, string> = {
   ausgewogen: "ausgewogen",
   lehrkraefteschonend: "lehrkräfteschonend",
@@ -69,6 +75,10 @@ export interface RunParams {
   refYmd?: string;
   /** SP3-02: gerechnet gegen den Entwurf dieser Planversion (fixierte/behaltene Stunden aus dem Entwurf); fehlt = gültiger Plan */
   versionId?: string;
+  /** SQ-02: „entwurf“ = Warmstart ab den Stunden des Entwurfs (nur mit `versionId`); fehlt = neu planen */
+  mode?: "entwurf";
+  /** SQ-02: was der Warmstart ändern darf (fehlt = alles außer Fixiertem) */
+  scope?: WarmScope;
 }
 
 export interface RunLogEntry {
@@ -99,6 +109,11 @@ export interface RunMetrics {
   cancelledAt?: number;
   /** Fehler und Warnungen der Vorprüfung */
   precheck: { errors: number; warnings: number };
+  /**
+   * SQ-02: Warmstart – Bewertung und „nicht gesetzt“ am Start, Runden und übernommene Verbesserungen, Einheiten im selben Slot wie
+   * im Entwurf (von `startUnits`, die der Entwurf gesetzt hatte)
+   */
+  warm?: { startScore: number; startUnplaced: number; rounds: number; accepted: number; unchanged: number; startUnits: number; scope: WarmScope };
 }
 
 /** Einheit, wie sie im Lauf gespeichert wird. `parts` fehlt bei Läufen vor SP-06 (dann ein Teil aus den flachen Feldern). */
@@ -353,6 +368,10 @@ export interface CreateRunOptions {
   refYmd?: string | null;
   /** SP3-02: im Entwurf dieser Planversion rechnen (leer = gegen den gültigen Plan) */
   versionId?: string | null;
+  /** SQ-02: „neu“ (Vorgabe) oder „entwurf“ = ab aktuellem Entwurf verbessern (nur mit `versionId`) */
+  mode?: string | null;
+  /** SQ-02: „alle“ (Vorgabe) oder „schwach“ = nur nicht gesetzte und schwache Bereiche (nur mit `mode: "entwurf"`) */
+  scope?: string | null;
 }
 
 /** Rein: Parameter aus der Eingabe (Formular/Test) – ungültige Werte werden gemeldet, nicht still ersetzt. */
@@ -376,9 +395,16 @@ export function parseParams(opts: CreateRunOptions): RunParams {
   }
   const refYmd = opts.refYmd || undefined;
   if (refYmd && !isCalendarDate(refYmd)) errors.refYmd = "Datum angeben";
-  if (Object.keys(errors).length) throw new ValidationError(errors);
   const versionId = opts.versionId?.trim() || undefined;
-  return { effort, seed, weights, preset, ...(refYmd ? { refYmd } : {}), ...(versionId ? { versionId } : {}) };
+  // SQ-02: Warmstart nur im Entwurf (seine Stunden sind der Start)
+  const mode = (opts.mode || "neu") as RunMode;
+  if (!(mode in MODE_LABELS)) errors.mode = "Unbekanntes Vorgehen";
+  else if (mode === "entwurf" && !versionId) errors.mode = "„Ab aktuellem Entwurf verbessern“ geht nur in einem Entwurf – unter „Planen im“ einen Entwurf wählen";
+  const scope = (opts.scope || "alle") as WarmScope;
+  if (!(scope in SCOPE_LABELS)) errors.scope = "Unbekannter Umfang";
+  if (Object.keys(errors).length) throw new ValidationError(errors);
+  const warm = mode === "entwurf" ? { mode, ...(scope === "schwach" ? { scope } : {}) } : {};
+  return { effort, seed, weights, preset, ...(refYmd ? { refYmd } : {}), ...(versionId ? { versionId } : {}), ...warm };
 }
 
 /**
@@ -429,7 +455,7 @@ export async function createRun(db: Db, actorId: string, opts: CreateRunOptions,
     .insert(timetableSolverRuns)
     .values({ schoolYearId: year.id, status: "queued", seed: params.seed, createdBy: actorId, iterations: 0, label, params, log })
     .returning({ id: timetableSolverRuns.id });
-  await audit(db, actorId, "stundenplan.solver.start", null, { run: row!.id, seed: params.seed, effort: params.effort, preset: params.preset, label, ...(params.versionId ? { draft: params.versionId } : {}) });
+  await audit(db, actorId, "stundenplan.solver.start", null, { run: row!.id, seed: params.seed, effort: params.effort, preset: params.preset, label, ...(params.versionId ? { draft: params.versionId } : {}), ...(params.mode ? { mode: params.mode } : {}) });
   return row!.id;
 }
 
@@ -586,7 +612,7 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
     const refYmd = params.refYmd ?? todayYmd;
     note(
       "start",
-      `Berechnung gestartet (${EFFORT_LABELS[params.effort]}, Startwert ${params.seed}, Gewichtung ${PRESET_LABELS[params.preset]}${params.refYmd ? `, Lehraufträge am ${dayFmt.format(fromBerlinLocal(params.refYmd))}` : ""})`,
+      `Berechnung gestartet (${params.mode === "entwurf" ? `${MODE_LABELS.entwurf}${params.scope === "schwach" ? `, ${SCOPE_LABELS.schwach}` : ""}, ` : ""}${EFFORT_LABELS[params.effort]}, Startwert ${params.seed}, Gewichtung ${PRESET_LABELS[params.preset]}${params.refYmd ? `, Lehraufträge am ${dayFmt.format(fromBerlinLocal(params.refYmd))}` : ""})`,
     );
     await set({ status: "running", progress: 1, heartbeatAt: new Date(), log });
 
@@ -639,10 +665,19 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
       return row?.cancel ?? false;
     };
 
-    // 1. Konstruktion in Zeitscheiben (5 … 30 %)
+    // 1. Konstruktion in Zeitscheiben (5 … 30 %) – SQ-02: im Warmstart stattdessen die Stunden des Entwurfs als Start
     const solver = createSolver(input);
+    const warm = params.mode === "entwurf" && params.versionId ? startPlacements(input, input.current) : null;
     let cancelled = false;
-    for (;;) {
+    if (warm) {
+      const w = solver.warmStart(warm.placements, params.scope ?? "alle");
+      note(
+        "construct",
+        `Start aus dem Entwurf: ${w.startPlaced} von ${input.units.length} Einheiten übernommen${w.startUnplaced ? `, ${w.startUnplaced} nicht gesetzt (offen im Entwurf oder dort nicht zulässig – werden bevorzugt eingeplant)` : ""}${warm.unused ? `, ${warm.unused} Entwurfsstunden ohne passende Einheit (werden ersetzt)` : ""}, Bewertung ${w.startScore}`,
+        { placed: w.startPlaced, unplaced: w.startUnplaced, unused: warm.unused, score: w.startScore },
+      );
+    }
+    while (!warm) {
       const start = performance.now();
       const remaining = solver.construct(() => performance.now() - start < sliceMs);
       opts.onSlice?.("construct");
@@ -661,17 +696,19 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
       return "cancelled";
     }
     await tick();
-    const built = solver.result();
-    note(
-      "construct",
-      `Konstruktion fertig: ${built.placements.length} von ${input.units.length} Einheiten gesetzt${built.unplaced.length ? `, ${built.unplaced.length} nicht gesetzt (${built.unplaced
-        .slice(0, 3)
-        .map((u) => `${u.label}: ${u.reason}`)
-        .join("; ")}${built.unplaced.length > 3 ? "; …" : ""})` : ""}, Bewertung ${built.score}`,
-      { placed: built.placements.length, unplaced: built.unplaced.length, score: built.score },
-    );
+    if (!warm) {
+      const built = solver.result();
+      note(
+        "construct",
+        `Konstruktion fertig: ${built.placements.length} von ${input.units.length} Einheiten gesetzt${built.unplaced.length ? `, ${built.unplaced.length} nicht gesetzt (${built.unplaced
+          .slice(0, 3)
+          .map((u) => `${u.label}: ${u.reason}`)
+          .join("; ")}${built.unplaced.length > 3 ? "; …" : ""})` : ""}, Bewertung ${built.score}`,
+        { placed: built.placements.length, unplaced: built.unplaced.length, score: built.score },
+      );
+    }
 
-    // 2. Verbesserung in Zeitscheiben (30 … 95 %), alle 10 % eine Zwischenbewertung
+    // 2. Verbesserung in Zeitscheiben (30 … 95 %), alle 10 % eine Zwischenbewertung – SQ-02: im Warmstart Runden statt Schritte
     const factor = EFFORTS[params.effort];
     const steps = Math.max(1, Math.round(solver.total * factor));
     await set({ progress: 30, iterations: steps, heartbeatAt: new Date(), log });
@@ -684,14 +721,17 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
     while (earlyAt === null && done < steps) {
       const start = performance.now();
       while (done < steps && performance.now() - start < sliceMs) {
-        const n = Math.min(20, steps - done);
-        solver.improve(n);
+        const n = Math.min(warm ? 1 : 20, steps - done);
+        if (warm) solver.lns(n);
+        else solver.improve(n);
         done += n;
       }
       opts.onSlice?.("improve");
       const pct = Math.round((done / steps) * 100);
       if (pct >= nextMark && done < steps) {
-        note("progress", `${pct} % – Bewertung ${solver.score()}`, { percent: pct, score: solver.score() });
+        const score = solver.score();
+        const w = solver.warm;
+        note("progress", `${pct} % – Bewertung ${score}${w ? ` (${w.accepted} von ${w.rounds} Runden übernommen)` : ""}`, { percent: pct, score });
         nextMark = Math.floor(pct / 10) * 10 + 10;
         await set({ log });
       }
@@ -734,8 +774,19 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
       pauses,
       ...(earlyAt !== null ? { cancelledAt: earlyAt } : {}),
     };
+    if (warm && result.warm) {
+      const w = result.warm;
+      metrics.warm = { startScore: w.startScore, startUnplaced: w.startUnplaced, rounds: w.rounds, accepted: w.accepted, unchanged: unchangedUnits(warm.placements, result.placements), startUnits: warm.placements.length, scope: w.scope };
+    }
     if (earlyAt !== null) note("cancel", `Vorzeitig beendet bei ${earlyAt} % – der bisherige Stand ist ein gültiger Plan`, { percent: earlyAt });
-    note("done", `Fertig: Bewertung ${result.score}, ${result.unplaced.length} nicht gesetzt, ${result.stats.iterations} Verbesserungsschritte (${result.stats.improved} Verbesserungen), ${Math.round(metrics.durationMs / 100) / 10} s${pauses ? `, ${pauses} Pausen für Anfragen` : ""}`, { score: result.score, durationMs: metrics.durationMs, pauses });
+    if (metrics.warm) {
+      const w = metrics.warm;
+      note(
+        "done",
+        `Fertig: Bewertung ${w.startScore} → ${result.score}, nicht gesetzt ${w.startUnplaced} → ${result.unplaced.length}, ${w.rounds} Runden (${w.accepted} Verbesserungen übernommen), ${w.unchanged} von ${w.startUnits} Einheiten des Entwurfs unverändert, ${Math.round(metrics.durationMs / 100) / 10} s${pauses ? `, ${pauses} Pausen für Anfragen` : ""}`,
+        { score: result.score, startScore: w.startScore, rounds: w.rounds, accepted: w.accepted, unchanged: w.unchanged, durationMs: metrics.durationMs, pauses },
+      );
+    } else note("done", `Fertig: Bewertung ${result.score}, ${result.unplaced.length} nicht gesetzt, ${result.stats.iterations} Verbesserungsschritte (${result.stats.improved} Verbesserungen), ${Math.round(metrics.durationMs / 100) / 10} s${pauses ? `, ${pauses} Pausen für Anfragen` : ""}`, { score: result.score, durationMs: metrics.durationMs, pauses });
     await set({ status: "done", progress: 100, result: stored, metrics, log, finishedAt: new Date(), heartbeatAt: new Date() });
     return "done";
   } catch (err) {

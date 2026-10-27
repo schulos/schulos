@@ -12,7 +12,7 @@ import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { applySolverAction, applySolverToDraftAction, cancelSolverAction } from "@/modules/stundenplan/actions";
 import { DIAGNOSIS_LABELS } from "@/modules/stundenplan/diagnose";
 import { COST_LABELS, type CostItem } from "@/modules/stundenplan/solver";
-import { applyPreview, canDeleteRun, draftTargets, EFFORT_LABELS, getRun, isUndoable, precheckOf, PRESET_LABELS, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
+import { applyPreview, canDeleteRun, draftTargets, EFFORT_LABELS, getRun, isUndoable, MODE_LABELS, precheckOf, PRESET_LABELS, SCOPE_LABELS, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
 import { getVersion, versionNumber } from "@/modules/stundenplan/planversionen";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -258,7 +258,7 @@ export default async function SolverRunPage({
           </p>
         )}
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card aria-labelledby="params-title">
             <h2 id="params-title" className="text-base font-semibold">
               Parameter
@@ -266,6 +266,11 @@ export default async function SolverRunPage({
             {run.params ? (
               <>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                  <dt className="text-muted">Vorgehen</dt>
+                  <dd>
+                    {MODE_LABELS[run.params.mode ?? "neu"]}
+                    {run.params.mode === "entwurf" ? ` (${SCOPE_LABELS[run.params.scope ?? "alle"]})` : ""}
+                  </dd>
                   <dt className="text-muted">Gründlichkeit</dt>
                   <dd>{EFFORT_LABELS[run.params.effort]}</dd>
                   <dt className="text-muted">Startwert</dt>
@@ -305,7 +310,10 @@ export default async function SolverRunPage({
             {m ? (
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                 <dt className="text-muted">Bewertung</dt>
-                <dd className="tabular-nums">{num.format(m.score)} (kleiner ist besser)</dd>
+                <dd className="tabular-nums">
+                  {m.warm ? `${num.format(m.warm.startScore)} → ` : ""}
+                  {num.format(m.score)} (kleiner ist besser)
+                </dd>
                 <dt className="text-muted">Einheiten</dt>
                 <dd className="tabular-nums">
                   {m.units - m.unplaced} von {m.units} gesetzt
@@ -335,9 +343,17 @@ export default async function SolverRunPage({
                 <dd>
                   {m.precheck.errors} Fehler, {m.precheck.warnings} {m.precheck.warnings === 1 ? "Warnung" : "Warnungen"}
                 </dd>
+                {m.warm && (
+                  <>
+                    <dt className="text-muted">Ab Entwurf</dt>
+                    <dd className="tabular-nums">
+                      nicht gesetzt {m.warm.startUnplaced} → {m.unplaced}, {num.format(m.warm.unchanged)} von {num.format(m.warm.startUnits)} Einheiten des Entwurfs unverändert
+                    </dd>
+                  </>
+                )}
                 <dt className="text-muted">Verbesserung</dt>
                 <dd className="tabular-nums">
-                  {num.format(m.steps)} Schritte, {num.format(m.improved)} Verbesserungen
+                  {m.warm ? `${num.format(m.steps)} Runden, ${num.format(m.improved)} übernommen` : `${num.format(m.steps)} Schritte, ${num.format(m.improved)} Verbesserungen`}
                   {m.pauses ? `, ${num.format(m.pauses)} Pausen für Anfragen` : ""}
                 </dd>
               </dl>

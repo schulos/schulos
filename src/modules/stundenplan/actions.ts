@@ -1008,7 +1008,7 @@ export async function startSolverAction(_prev: FormState, form: FormData): Promi
     id = await createRun(
       db,
       user.id,
-      { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights, refYmd: str("refYmd") || null, versionId: str("versionId") && str("versionId") !== QUELLE_LIVE ? str("versionId") : null },
+      { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights, refYmd: str("refYmd") || null, versionId: str("versionId") && str("versionId") !== QUELLE_LIVE ? str("versionId") : null, mode: str("mode") || null, scope: str("scope") || null },
       today,
     );
   } catch (err) {
