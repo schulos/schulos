@@ -18,6 +18,9 @@ import { myDutiesBetween } from "./aufsichten";
 import { listSlots, planOwners, weekOf } from "./service";
 import { dayStrip, firstDayWithLessons, type StripItem } from "./today";
 import { materialsFor } from "./selbstmeldung";
+import { dayNotesOn } from "./tagesmitteilungen";
+import { acknowledgeEnabled, ownSubstitutions } from "./vertretung";
+import { isStaffRole } from "@/core/roles";
 
 const dayFmt = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 const untilFmt = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric", timeZone: TZ });
@@ -58,6 +61,7 @@ function StripCard({ item, staff, exam, href, open }: { item: StripItem; staff: 
         {d.detail}
         {item.state === "now" && !d.struck && ` · noch ${item.minutesLeft} Min.`}
       </span>
+      {d.reason && <span className="text-xs text-muted">{d.reason}</span>}
       {d.note && <span className="text-sm">{d.note}</span>}
       {exam && <span className="text-sm font-semibold text-danger">{examLabel(exam, item.subjectId)}</span>}
       {open && <span className="text-xs font-semibold text-warn">Klassenbuch offen</span>}
@@ -101,6 +105,7 @@ async function Tagesleiste({ current }: { current: CurrentUser }) {
   // Feiertag/Ferien heute: Grund und Ende statt „kein Unterricht“
   const off = (await loadSchoolCalendar(db)).dayOff(today);
   const offText = off && `${dayOffLabel(off)}${off.until > today ? ` · bis ${untilFmt.format(fromBerlinLocal(off.until))}` : ""}`;
+  const ack = staff && (await acknowledgeEnabled(db));
 
   const strips = await Promise.all(
     owners.map(async (o) => {
@@ -141,14 +146,18 @@ async function Tagesleiste({ current }: { current: CurrentUser }) {
         const m = mats.get(`${i.lessonId}:${i.date}`);
         return m ? [{ id: m.id, label: `${i.periodNr}. Std ${i.groupName}` }] : [];
       });
-      return { owner: o, day, items, exams, links, duties, seatPlans, materials };
+      // VT-02: Tagesmitteilungen des gezeigten Tages; Lehrkräfte: eigene Vertretungen, die noch nicht bestätigt sind (F-10-10)
+      const notes = day ? await dayNotesOn(db, [day], { staff: isStaffRole(current.user.role) }) : [];
+      const unconfirmed =
+        staff && o.id === current.user.id && day && ack ? (await ownSubstitutions(db, o.id, [day])).filter((e) => !e.internal?.acknowledgedAt) : [];
+      return { owner: o, day, items, exams, links, duties, seatPlans, materials, notes, unconfirmed };
     }),
   );
 
   return (
     <div className="flex flex-col gap-6">
       <AutoRefresh />
-      {strips.map(({ owner, day, items, exams, links, duties, seatPlans, materials }) => (
+      {strips.map(({ owner, day, items, exams, links, duties, seatPlans, materials, notes, unconfirmed }) => (
         <section key={owner.id} aria-label={owners.length > 1 ? `Tagesleiste ${owner.name}` : "Tagesleiste"} data-day={day ?? undefined} className="flex flex-col gap-3">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <h2 className="text-base font-semibold">
@@ -167,6 +176,29 @@ async function Tagesleiste({ current }: { current: CurrentUser }) {
               Wochenplan
             </Link>
           </div>
+          {notes.length > 0 && (
+            <ul aria-label="Tagesmitteilungen" className="flex flex-col gap-1.5">
+              {notes.map((n) => (
+                <li key={n.id} className="rounded-lg bg-accent-soft px-3 py-1.5 text-sm font-medium text-accent-ink">
+                  {n.body}
+                </li>
+              ))}
+            </ul>
+          )}
+          {unconfirmed.length > 0 && (
+            <ul aria-label="Vertretungen bestätigen" className="flex flex-wrap gap-2">
+              {unconfirmed.map((e) => (
+                <li key={e.id}>
+                  <Link
+                    href="/stundenplan/vertretungen#meine-vertretungen"
+                    className="rounded-full border border-warn-border bg-warn-soft px-3 py-1 text-sm font-medium text-warn hover:border-border-strong"
+                  >
+                    Vertretung {e.periodNr}. Std {e.groupName} – bitte bestätigen
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
           {duties.length > 0 && (
             <ul aria-label="Meine Aufsichten" className="flex flex-wrap gap-2">
               {duties.map((d) => (

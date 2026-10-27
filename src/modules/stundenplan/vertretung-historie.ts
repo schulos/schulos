@@ -100,6 +100,72 @@ export async function moveChangeHistory(db: Db, fromId: string, toId: string, fr
     .where(and(eq(timetableSubstitutionChanges.lessonId, fromId), gte(timetableSubstitutionChanges.date, fromYmd)));
 }
 
+/** VT-02: Verlauf je Stunde (nur Planung) – was ist passiert? */
+export const CHANGE_ACTION_LABEL: Record<SubstitutionChangeAction, string> = {
+  create: "angelegt",
+  update: "geändert",
+  delete: "aufgehoben",
+  plan_publish: "durch Planübernahme entfernt",
+  plan_undo: "Planübernahme zurückgenommen",
+};
+
+/** VT-02: Feldnamen im Verlauf. */
+export const CHANGE_FIELD_LABEL: Record<keyof SubstitutionSnapshot, string> = {
+  lessonId: "Stunde",
+  kind: "Art",
+  substituteId: "Vertretung",
+  roomId: "Raum",
+  subjectId: "Fach",
+  targetPeriod: "Zielstunde",
+  mergeLessonId: "Zusammenlegung",
+  note: "Hinweis",
+  internalNote: "interne Notiz",
+  reason: "Grund",
+  supervisionOnly: "Betreuung",
+};
+
+/** Rein: Zeile im Verlauf – „geändert: Vertretung, Raum“, „angelegt“. */
+export function describeChange(c: Pick<SubstitutionChangeView, "action" | "changed">): string {
+  // feste Reihenfolge (jsonb ordnet die Schlüssel selbst)
+  const order = Object.keys(CHANGE_FIELD_LABEL) as (keyof SubstitutionSnapshot)[];
+  const fields = c.action === "update" ? order.filter((f) => c.changed.includes(f)).map((f) => CHANGE_FIELD_LABEL[f]) : [];
+  return fields.length ? `${CHANGE_ACTION_LABEL[c.action]}: ${fields.join(", ")}` : CHANGE_ACTION_LABEL[c.action];
+}
+
+/** VT-02: Felder, die nur intern sind – eine Änderung nur daran löst keinen öffentlichen Marker aus. */
+const INTERNAL_FIELDS: ReadonlySet<keyof SubstitutionSnapshot> = new Set(["internalNote"]);
+
+/** Rein: ist der Eintrag für den öffentlichen Marker „geändert“ relevant (nicht gelöscht, nicht nur interne Felder)? */
+export function publicChange(before: SubstitutionSnapshot | null, after: SubstitutionSnapshot | null): boolean {
+  if (!after) return false;
+  if (!before) return true;
+  return changedFields(before, after).some((f) => !INTERNAL_FIELDS.has(f));
+}
+
+/**
+ * VT-02 (F-10-13): Stunden (`lessonId:date`), deren Vertretung seit `since` sichtbar geändert wurde – Grundlage des Markers
+ * „geändert“ in Vertretungsplan und Monitor. Liefert nur die Schlüssel, keine Inhalte (auch kein interner Hinweis).
+ */
+export async function changedSince(db: Db, keys: readonly { lessonId: string; date: string }[], since: Date): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!keys.length) return out;
+  const t = timetableSubstitutionChanges;
+  const wanted = new Set(keys.map((k) => `${k.lessonId}:${k.date}`));
+  const lessonIds = [...new Set(keys.map((k) => k.lessonId))];
+  const dates = [...new Set(keys.map((k) => k.date))];
+  for (let i = 0; i < lessonIds.length; i += 500) {
+    const rows = await db
+      .select({ lessonId: t.lessonId, date: t.date, before: t.before, after: t.after })
+      .from(t)
+      .where(and(inArray(t.lessonId, lessonIds.slice(i, i + 500)), inArray(t.date, dates), gte(t.createdAt, since)));
+    for (const r of rows) {
+      const key = `${r.lessonId}:${r.date}`;
+      if (wanted.has(key) && publicChange((r.before as SubstitutionSnapshot | null) ?? null, (r.after as SubstitutionSnapshot | null) ?? null)) out.add(key);
+    }
+  }
+  return out;
+}
+
 export interface SubstitutionChangeView {
   id: string;
   action: SubstitutionChangeAction;

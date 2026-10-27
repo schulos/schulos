@@ -12,7 +12,8 @@ import { timeRange } from "@/modules/kalender/format";
 import { schoolOccurrences } from "@/modules/kalender/service";
 import { weekOf } from "@/modules/stundenplan/service";
 import { planDays, substitutionsOn } from "@/modules/stundenplan/vertretung";
-import { changeLabel, changeOff, changeRoom, changeTeacher } from "@/modules/stundenplan/display";
+import { changeLabel, changeOff, changeRoom, changeTeacher, markerSince, reasonLabel, roomShift, type ChangeMarker } from "@/modules/stundenplan/display";
+import { dayNotesOn } from "@/modules/stundenplan/tagesmitteilungen";
 import { dutiesOn } from "@/modules/stundenplan/aufsichten";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { boardForMonitor, monitorBoards } from "@/modules/pinnwaende/service";
@@ -100,6 +101,13 @@ export interface MonitorEntry {
   /** Stunde fällt hier aus (Entfall, verlegt) */
   off: boolean;
   room: string | null;
+  /** VT-02: Raum einheitlich „alt → neu“ (wie Vertretungsplan/Druck); ohne Raumwechsel nur der Raum */
+  roomShift: string | null;
+  /** VT-02 (F-10-8): öffentliche Grund-Kategorie */
+  reason: string | null;
+  /** VT-02: „neu“/„geändert“ seit dem letzten Vortags-Versand */
+  marker: ChangeMarker | null;
+  /** öffentlicher Hinweis (nie der interne) */
   note: string | null;
   /** vertretende Lehrkraft (Kürzel) */
   substitute: string | null;
@@ -116,7 +124,8 @@ export interface MonitorData {
   week: "A" | "B";
   /** heute kein Unterricht, z. B. „Herbstferien“ */
   todayOff: string | null;
-  days: { date: string; entries: MonitorEntry[] }[];
+  /** VT-02: Tagesmitteilungen je Tag (Foyer: an alle; Lehrerzimmer: auch „nur Beschäftigte“) */
+  days: { date: string; entries: MonitorEntry[]; notes: string[] }[];
   events: { title: string; time: string }[];
   ticker: string[];
   /** P3-09: freigegebene Pinnwand (nur freigegebene Karten, ohne Namen) */
@@ -136,8 +145,8 @@ export async function monitorData(db: Db, screen: Pick<MonitorScreen, "profile">
   const staffRoom = screen.profile === "lehrerzimmer";
   const [settings, cal] = await Promise.all([cachedSchoolSettings(db), loadSchoolCalendar(db)]);
   const days = planDays(today, cal);
-  const [subs, occ, news] = await Promise.all([
-    substitutionsOn(db, days),
+  const [subs, occ, news, notes] = await Promise.all([
+    substitutionsOn(db, days, { since: markerSince(now).since }),
     schoolOccurrences(db, today, addDays(today, 1)),
     db
       .select({ id: newsPosts.id, title: newsPosts.title, role: newsTargets.role, groupId: newsTargets.groupId })
@@ -145,6 +154,7 @@ export async function monitorData(db: Db, screen: Pick<MonitorScreen, "profile">
       .leftJoin(newsTargets, eq(newsTargets.postId, newsPosts.id))
       .where(and(eq(newsPosts.onMonitor, true), lte(newsPosts.publishedAt, now), or(isNull(newsPosts.expiresAt), gt(newsPosts.expiresAt, now))))
       .orderBy(desc(newsPosts.pinned), desc(newsPosts.publishedAt)),
+    dayNotesOn(db, days, { staff: staffRoom }),
   ]);
   // Laufband: Beiträge an alle (keine Zielgruppe); im Lehrerzimmer auch Beiträge, die sich an Lehrkräfte richten
   const ticker = new Map<string, { title: string; ok: boolean }>();
@@ -185,10 +195,14 @@ export async function monitorData(db: Db, screen: Pick<MonitorScreen, "profile">
           label: changeLabel(s),
           off: changeOff(s),
           room: changeRoom(s),
+          roomShift: changeOff(s) ? null : roomShift(s.roomId, changeRoom(s)),
+          reason: reasonLabel(s.reason),
+          marker: s.marker,
           note: s.note,
           substitute: changeTeacher(s),
           ...(staffRoom ? { absent: s.teacherCode, substituteName: s.kind === "substitute" ? s.substituteName : null } : {}),
         })),
+      notes: notes.filter((n) => n.date === date).map((n) => n.body),
     })),
     events: occ.map((o) => ({ title: o.title, time: timeRange(o) })),
     ticker: [...ticker.values()].filter((t) => t.ok).map((t) => t.title),

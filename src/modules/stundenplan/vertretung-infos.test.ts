@@ -34,7 +34,7 @@ import { listSlots } from "./service";
 import { SUBSTITUTION_ACK } from "./settings";
 import { DELETED_TEACHER } from "./solverlauf-konto";
 import { dayNotesOn, deleteDayNote, saveDayNote } from "./tagesmitteilungen";
-import { acknowledgeSubstitution, defaultReason, deleteSubstitution, publishDay, saveSubstitution, substitutionsOn } from "./vertretung";
+import { acknowledgeSubstitution, defaultReason, deleteSubstitution, lessonSubstitution, ownSubstitutions, publishDay, saveSubstitution, substitutionsOn } from "./vertretung";
 import { changedFields, snapshotOf, substitutionHistory } from "./vertretung-historie";
 
 const MO = "2026-10-05";
@@ -239,6 +239,12 @@ describe("VT-01 Vertretung mehr Infos", () => {
       await monitorData(h.db, { profile: "foyer" }, new Date("2026-10-05T06:00:00Z")),
       await monitorData(h.db, { profile: "lehrerzimmer" }, new Date("2026-10-05T06:00:00Z")),
       await h.db.select().from(notifications).where(eq(notifications.moduleId, "stundenplan")),
+      // VT-02: Vertretungsplan mit Marker, „Meine Vertretungen“ einer anderen Lehrkraft, Klassenbuch-Hinweis für Schülerin/fremde Lehrkraft
+      await substitutionsOn(h.db, [MO], { since: new Date(0) }),
+      await ownSubstitutions(h.db, RIC, [MO]),
+      await lessonSubstitution(h.db, await p(LEA), ids["7b-5"]!, MO),
+      await lessonSubstitution(h.db, await p(RIC), ids["7b-5"]!, MO),
+      await lessonSubstitution(h.db, await p(BRA), ids["7b-5"]!, MO),
     ];
     expect((outside[0] as unknown[]).length).toBeGreaterThan(0);
     expect((outside[7] as unknown[]).length).toBeGreaterThan(0);
@@ -246,6 +252,10 @@ describe("VT-01 Vertretung mehr Infos", () => {
     // nur die Vertretungsplanung bekommt ihn ausdrücklich
     const internal = await substitutionsOn(h.db, [MO], { drafts: true, internal: true });
     expect(internal.find((e) => e.lessonId === ids["7b-5"])?.internal?.note).toBe(SECRET);
+    // VT-02: … und die vertretende Lehrkraft dieser Stunde („Meine Vertretungen“, Klassenbuch-Hinweis)
+    expect((await ownSubstitutions(h.db, WAG, [MO])).map((e) => e.internal?.note)).toEqual([SECRET]);
+    expect((await lessonSubstitution(h.db, await p(WAG), ids["7b-5"]!, MO))?.internal?.note).toBe(SECRET);
+    expect((await lessonSubstitution(h.db, await p(PLANUNG), ids["7b-5"]!, MO))?.internal?.note).toBe(SECRET);
   });
 
   it("Material ohne Abwesenheit: Lehrkraft der Stunde, Vertretung und Planung dürfen; andere nicht; Schüler:innen nur mit Häkchen", async () => {
@@ -320,6 +330,10 @@ describe("VT-01 Leser interner Angaben (Grep)", () => {
       "src/modules/stundenplan/dauervertretung.ts",
       "src/app/(shell)/planung/vertretungen/page.tsx",
       "src/app/(shell)/planung/vertretungen/substitution-form.tsx",
+      // VT-02: „Meine Vertretungen“ und Klassenbuch-Hinweis – interner Hinweis nur für die vertretende Lehrkraft (über
+      // `ownSubstitutions`/`lessonSubstitution`, Querschnittstest oben)
+      "src/app/(shell)/stundenplan/vertretungen/page.tsx",
+      "src/app/(shell)/klassenbuch/eintrag/page.tsx",
     ].map((f) => f.split("/").join(sep)),
   );
   const root = join(__dirname, "..", "..", "..");
@@ -331,9 +345,9 @@ describe("VT-01 Leser interner Angaben (Grep)", () => {
     }
     return out;
   }
-  it("nur erlaubte Dateien lesen `internalNote`, `internal_note` oder `timetableSubstitutionChanges`", () => {
+  it("nur erlaubte Dateien lesen `internalNote`, `internal_note`, `internal.note` oder `timetableSubstitutionChanges`", () => {
     const hits = walk(join(root, "src"))
-      .filter((f) => /internalNote|internal_note|timetableSubstitutionChanges/.test(readFileSync(f, "utf8")))
+      .filter((f) => /internalNote|internal_note|internal\??\.note|timetableSubstitutionChanges/.test(readFileSync(f, "utf8")))
       .map((f) => relative(root, f))
       .filter((f) => !ALLOWED.has(f));
     expect(hits).toEqual([]);

@@ -48,7 +48,7 @@ function LessonChip({ s, view, now, exam }: { s: LessonSlot; view: PlanView; now
       <span className="flex min-w-0 flex-col">
         <span className={cn("font-medium [overflow-wrap:anywhere]", d.struck && "text-muted line-through")}>{s.subjectName}</span>
         <span className="text-xs text-muted">{d.detail}</span>
-        {d.tag && <span className={cn("text-xs font-semibold", d.tone === "sub" ? "text-warn" : "text-muted")}>{d.tag}{d.note ? ` · ${d.note}` : ""}</span>}
+        {d.tag && <span className={cn("text-xs font-semibold", d.tone === "sub" ? "text-warn" : "text-muted")}>{[d.tag, d.reason, d.note].filter(Boolean).join(" · ")}</span>}
         {exam && <span className="text-xs font-semibold text-danger">{examLabel(exam, s.subjectId)}</span>}
       </span>
     </div>

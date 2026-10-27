@@ -233,7 +233,7 @@ export async function deleteSubstitutionAction(id: string): Promise<void> {
   revalidatePath("/", "layout");
 }
 
-/** VT-01 (F-10-10): Kenntnisnahme der eigenen Vertretung (Bedienung für Lehrkräfte folgt mit VT-02 in „Meine Vertretungen“/Gong). */
+/** VT-01 (F-10-10): Kenntnisnahme der eigenen Vertretung – Knopf „Gesehen“ in „Meine Vertretungen“ (VT-02). */
 export async function acknowledgeSubstitutionAction(id: string): Promise<void> {
   const { user } = await requireUser();
   try {

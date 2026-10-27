@@ -11,12 +11,36 @@ import { planForLesson } from "@/modules/sitzplan/service";
 import { canRead, canWrite, lessonContext, type LessonContext } from "@/modules/klassenbuch/service";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
-import { coupledGroupLabel } from "@/modules/stundenplan/display";
+import { changeLabel, changeRoomShift, changeTeacher, coupledGroupLabel, reasonLabel } from "@/modules/stundenplan/display";
+import { lessonSubstitution, type DaySubstitution } from "@/modules/stundenplan/vertretung";
 import { materialsFor } from "@/modules/stundenplan/selbstmeldung";
 import Link from "next/link";
 import { EntryForm } from "./entry-form";
 
 export const metadata: Metadata = { title: "Klassenbuch-Eintrag" };
+
+/**
+ * VT-02: Hinweis zur Änderung der Stunde (Vertretung, Betreuung, Raum) mit Grund-Kategorie und Hinweis für Schüler:innen; den
+ * internen Hinweis sehen nur die vertretende Lehrkraft und die Planung (`lessonSubstitution` lässt ihn sonst weg).
+ */
+function ChangeNotice({ change }: { change: DaySubstitution }) {
+  const room = changeRoomShift(change);
+  const who = changeTeacher(change, true);
+  return (
+    <Card aria-label="Änderung der Stunde" className="gap-1.5 border-warn-border bg-warn-soft">
+      <p className="text-sm font-semibold">
+        {[changeLabel(change), who && (change.kind === "substitute" ? `durch ${who}` : who), room && room !== change.roomId && `Raum ${room}`].filter(Boolean).join(" · ")}
+      </p>
+      {change.reason && <p className="text-sm">Grund: {reasonLabel(change.reason)}</p>}
+      {change.note && <p className="text-sm [overflow-wrap:anywhere]">Hinweis für Schüler:innen: {change.note}</p>}
+      {change.internal?.note && (
+        <p className="text-sm [overflow-wrap:anywhere]">
+          <span className="font-semibold">Interner Hinweis:</span> {change.internal.note}
+        </p>
+      )}
+    </Card>
+  );
+}
 
 const longDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
 
@@ -78,9 +102,11 @@ export default async function EintragPage({ searchParams }: { searchParams: Prom
     : null;
   // Q5-12: Vertretungsmaterial der abwesenden Lehrkraft (für die Vertretung bzw. die Lehrkraft selbst)
   const material = (await materialsFor(db, perms, [{ lessonId: ctx.lessonId, date: ctx.date }])).get(`${ctx.lessonId}:${ctx.date}`);
+  const change = await lessonSubstitution(db, perms, ctx.lessonId, ctx.date);
   return (
     <main className="flex flex-col gap-6">
       <PageHeader eyebrow={eyebrow} title={title} />
+      {change && <ChangeNotice change={change} />}
       {material && (
         <Card aria-label="Vertretungsmaterial" className="gap-2 border-warn-border bg-warn-soft">
           <p className="text-sm font-semibold">Vertretungsmaterial liegt vor</p>
