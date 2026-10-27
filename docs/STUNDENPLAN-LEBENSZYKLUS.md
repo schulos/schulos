@@ -1,6 +1,6 @@
 # SP3-00: Lebenszyklus des Stundenplans und Vertretung mit mehr Infos – Architekturkonzept
 
-> Stand: 2026-10-27 (VT-04 umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
+> Stand: 2026-10-27 (VT-03a umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
 > (Arbeitsplan ab 26.10., Phase B1; Vorgaben „Nachtrag 25.10.“, „Sicht eines Stundenplaners“ und „Antworten 25.10.“).
 > Hebt die Entscheidung Q-SP-12/Q-SP-16 („keine Plan-Versionen“) auf – ausdrücklich durch die Projektleitung 25.10.2026.
 > Aufgaben nach Abnahme: `BACKLOG.md`, Blöcke **VT** (Vertretung) und **SP3** (Lebenszyklus). Dieses Dokument ändert keinen Code
@@ -427,6 +427,31 @@ an die Queue andocken (DSB-Votum offen).
   Nachricht dieses Tages (in der Regel der Vortags-Nachricht), ohne eigene Erinnerung und ohne Eskalation.
 - **Marker „neu/geändert“:** Stichzeit = letzter Vortags-Termin nach der Einstellung der Lehrkräfte; ging die zu diesem Termin geplante
   Nachricht tatsächlich später raus (Takt verzögert), gilt der Versandzeitpunkt (`markerSinceDb`).
+
+**Umgesetzt mit VT-03a (2026-10-27, ohne Migration) – Vorgaben zu Detailfragen (Projektleitung kann sie ändern):**
+- **Aufteilung:** Kopfleiste und Wochenblick oben, darunter (1) Vertretungsbedarf + „Anzeigen“ + „Abwesenheit eintragen“, (2) „Stunden am …“
+  (gewählte Stunde), (3) „Kontext“, unten „Alle Änderungen“. Ab 1536 px drei Spalten, ab 1280 px zwei (Kontext unter der Stunde), schmaler
+  untereinander (mobil: Liste → Detail über den Sprung `#lessons-title`). Formulare richten sich nach der Spaltenbreite (Container-Query).
+- **Auswahl per URL:** `?stunde=<Stunde>` (dazu `datum`, `lehrkraft`/`gruppe`), `?vorschlag=<Lehrkraft>` für den Kontext. Ohne Lehrkraft/Gruppe
+  gilt die Gruppe der Stunde; gehört die Stunde nicht zur Lehrkraft im Link, ebenfalls. Ohne `stunde` zeigt „Anzeigen“ wie bisher alle Stunden
+  der Lehrkraft/Gruppe (je mit „Wählen“). „Vorschlag übernehmen“ und „jetzt senden“ bleiben in der gewählten Stunde; „Tag veröffentlichen“
+  kehrt zum Tag zurück.
+- **Ampel:** offen und Beginn in ≤ 2 Stunden oder läuft → „dringend“ (rot); offen später am selben Tag → „heute“, an einem kommenden Tag →
+  „noch Zeit“ (gelb); geregelt (grün); offen, aber vorbei (grau). Sortierung dringend → heute → noch Zeit → geregelt → vorbei, dann Stunde.
+  Die Schwelle (`SOON_MINUTES` = 120) ist fest, keine Einstellung.
+- **Kontext:** markiert ist `vorschlag`, sonst die eingetragene Vertretung, sonst der beste Vorschlag; Auswahl unter den drei besten
+  Vorschlägen (+ eingetragene Vertretung). Angezeigt: gehaltene Stunden des Tages (+1 mit Vertretung), Lage (Hohl-/Randstunde, „hat sonst
+  frei“; „hat zu der Zeit Unterricht“ bzw. „abwesend“), Bereitschaft (in dieser Stunde bzw. welche), Tagesregel mit Hinweis „mit Vertretung
+  darüber“, Aufsichten des Tages (eigene, nicht abwesend, plus übernommene), dazu der Tagesablauf. Entwurfstage zählen mit (nur Planung).
+- **„Gesehen“ und Verlauf** stehen in der Stunde (Spalte und Aufklapper in „Alle Änderungen“ entfallen; dort neu „Öffnen“). Aufgehobene
+  Vertretungen (letzter Verlaufseintrag „aufgehoben“, keine Änderung mehr) stehen unter „Alle Änderungen“ als „Aufgehoben“ mit „Verlauf ansehen“.
+- **Kopfleiste:** Tag mit „Vortag“/„Nächster Tag“ (Schultage nach dem Schulkalender) und „Heute“, Freigabe-Stand, Zähler (Abwesenheiten,
+  offen/dringend, unbestätigt, Tagesmitteilungen) als Sprungmarken, „Gong geplant 18:00 (34)“ = nächster Termin der Warteschlange (heute nur
+  Uhrzeit, sonst mit Wochentag) und alle eingeplanten Personen bzw. „Gong fällig (n)“; darunter die Liste „Nachrichten“ mit „jetzt senden“,
+  „Noch nicht bestätigt“ (Links öffnen die Stunde) und die Tagesmitteilungen. Ein eigener Datumswähler entfällt in der Kopfleiste (Datum
+  bleibt unter „Anzeigen“).
+- **Nicht in VT-03a (→ VT-03b):** Vorschlagskarten mit Hauptknopf, kompaktes Formular/Segment-Schalter, Material ohne Abwesenheit,
+  Speichern → nächste offene Stunde, Tastatur.
 
 ### 3.3 Migrationsfolge (Vorschlag, Nummern endgültig beim PR)
 

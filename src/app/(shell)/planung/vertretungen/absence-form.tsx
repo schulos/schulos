@@ -47,7 +47,7 @@ export function AbsenceForm({
         key={JSON.stringify(state.values ?? null) + String(state.ok ?? "")}
         action={formAction}
         aria-label="Abwesenheit eintragen"
-        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        className="grid gap-3 @xs:grid-cols-2 @3xl:grid-cols-4"
       >
         {who === "teacher" ? (
           <Field label="Lehrkraft" error={fe.target}>
@@ -117,12 +117,12 @@ export function AbsenceForm({
           </Button>
         </FieldActions>
         {state.error && (
-          <p role="alert" className="text-sm text-danger sm:col-span-2 lg:col-span-4">
+          <p role="alert" className="text-sm text-danger @xs:col-span-2 @3xl:col-span-4">
             {state.error}
           </p>
         )}
         {state.ok && (
-          <p role="status" className="text-sm text-success sm:col-span-2 lg:col-span-4">
+          <p role="status" className="text-sm text-success @xs:col-span-2 @3xl:col-span-4">
             Abwesenheit eingetragen.
           </p>
         )}
