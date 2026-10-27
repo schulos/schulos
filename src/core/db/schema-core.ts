@@ -370,6 +370,11 @@ export const schoolYearTransitions = pgTable("school_year_transitions", {
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "set null" }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  /**
+   * SP3-LA (F-10-7): Klassen-Zuordnung alt → neu aus der Versetzung (`{ "<alte Gruppen-id>": "<neue Gruppen-id>" }`) für „Lehrkraft folgt
+   * der Klasse“. `null` = Übergang vor SP3-LA – dann rekonstruiert die Übernahme die Zuordnung über die Namensregel.
+   */
+  classMap: jsonb("class_map").$type<Record<string, string>>(),
   createdAt: createdAt(),
 });
 

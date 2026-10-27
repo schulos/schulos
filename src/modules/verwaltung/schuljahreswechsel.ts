@@ -207,7 +207,9 @@ export async function promote(db: Db, actorId: string, transitionId: string, inp
     }
     const rows = [...assignment].filter(([, v]) => v !== LEAVE).map(([userId, name]) => ({ groupId: out.get(name)!, userId, role: "member" as const }));
     if (rows.length) await tx.insert(groupMembers).values(rows).onConflictDoNothing();
-    await tx.update(schoolYearTransitions).set({ promotedAt: new Date(), leavers }).where(eq(schoolYearTransitions.id, t.id));
+    // SP3-LA (F-10-7): Zuordnung alte → neue Klasse für „Lehrkraft folgt der Klasse“ bei der Übernahme der Lehraufträge
+    const classMap = Object.fromEntries(targets.flatMap((target) => target.sources.map((src) => [src, out.get(target.name)!] as const)));
+    await tx.update(schoolYearTransitions).set({ promotedAt: new Date(), leavers, classMap }).where(eq(schoolYearTransitions.id, t.id));
     return out;
   });
   await audit(db, actorId, "verwaltung.schuljahreswechsel.versetzung", null, {

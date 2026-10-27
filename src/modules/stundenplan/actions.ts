@@ -41,6 +41,7 @@ import { permanentMessage, savePermanentSubstitution } from "./dauervertretung";
 import { audit } from "@/core/audit";
 import { checkSubjectFit, executeTeacherSubjectImport, offSubjectConfirmed, MAX_TEACHER_SUBJECT_CSV_BYTES, planTeacherSubjectImport, setTeacherSubjects, type TeacherSubjectPreview } from "./lehrfaecher";
 import { addStaffChange, deleteStaffChange, saveForecastGrades } from "./fachbedarf";
+import { parseEdits, saveMatrixEdits, type MatrixSaveResult } from "./matrix";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
 
@@ -371,6 +372,26 @@ export async function deleteAssignmentAction(id: string, back: string): Promise<
   await deleteAssignment(await getDb(), user.id, id);
   revalidatePath("/planung/unterricht");
   redirect(backTo(back));
+}
+
+/**
+ * SP3-LA: Änderungen aus der Matrix speichern (zellweise oder gesammelt). Rückgabe je Zelle; die Seite lädt danach neu (Bilanz vom Server).
+ * `source` nur fürs Protokoll (Übernahme aus Vorjahr/Halbjahr).
+ */
+export async function saveMatrixAction(rawEdits: unknown, refYmd: string, source: string): Promise<{ results: MatrixSaveResult[]; error?: string }> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const db = await getDb();
+  const year = await planningYear(db);
+  if (!year) return { results: [], error: "Kein Schuljahr angelegt" };
+  try {
+    const edits = parseEdits(rawEdits);
+    const results = await saveMatrixEdits(db, user.id, year, String(refYmd), edits, source === "vorjahr" || source === "halbjahr" ? source : "matrix");
+    revalidatePath("/planung/unterricht");
+    return { results };
+  } catch (err) {
+    if (err instanceof ValidationError) return { results: [], error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen" };
+    throw err;
+  }
 }
 
 export async function importAssignmentsAction(): Promise<void> {
