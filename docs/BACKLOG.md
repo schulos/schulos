@@ -592,6 +592,29 @@ Reihenfolge: SP2-01 → SP2-02 → SP2-05 → SP2-09; SP2-03 → SP2-04; SP2-07 
 - [x] **RS-01** (S) Raumsteckbrief-Fix, Teil 1 (Board-Idee „Raumsteckbrief“; Steckbrief, Fotos und Layout bleiben offen): Knopf „Bearbeiten“ in der Raumliste, Links „Bearbeiten“ aus Raumbelegung und Raumsuche (`/stundenplan/raeume`) zu `/verwaltung/stammdaten/raeume/[id]` nur mit `verwaltung.school`, „Raum stilllegen“ / „wieder in Betrieb nehmen“ auf der Bearbeitungsseite (`setRoomActive`, Audit `verwaltung.room.deactivate`/`activate`; bisher nur über die Checkbox „aktiv“) · ✅ 2026-10-26, ohne Migration. Tests: `rooms.test`, E2E `stammdaten.spec.ts`
 Nur auf Nachfrage (Kann): A/B-Wochen im Solver (SP-G-17), Lehrbefähigung (SP-G-18), Wertrechnung (SP-G-19), faire Aufsichtsverteilung (SP-G-20), ICS-Abo Stundenplan (SP-G-21), Matrix Lehrkraft × Fach (SP-G-22). Oberstufen-Blockung aus Kurswahlen (SP-G-24): eigene Phase nach SP2.
 
+## SP3/VT – Lebenszyklus des Stundenplans und Vertretung mit mehr Infos (Projektleitung 2026-10-25/26)
+Konzept, Datenmodell und Akzeptanz je Paket: [`STUNDENPLAN-LEBENSZYKLUS.md`](STUNDENPLAN-LEBENSZYKLUS.md) §7 (SP3-00, abgenommen
+2026-10-26, Fragebogen Runde 10: alle Empfehlungen angenommen). Hebt Q-SP-12/Q-SP-16 („keine Plan-Versionen“) auf. Reihenfolge (F-10-14):
+SP3-DEP + SP3-LA → Block VT → GATE VT → Release v0.10 → Block SP3 → GATE SP3 → Release v0.11. Je Paket ein PR, Migrationsnummer erst direkt
+vor dem PR auf aktuellem `main`.
+
+- [ ] **SP3-DEP** (M) Deputatsmodell: Teilzeit-Anteil, Pflicht 2. Halbjahr, Anrechnungen mit Gültigkeit; Deputat am Stichtag, Karte mit beiden Halbjahren, Diagnose „Deputat“ (F-10-6)
+- [ ] **SP3-LA** (M) Lehraufträge schnell anlegen: Matrix Klasse × Fach mit Stundentafel-Soll, Lehrkraft-Typeahead nur mit Lehrfach, live Deputatsbilanz; Übernahme Vorhalbjahr/Vorjahr (F-10-7)
+- [ ] **VT-01** (M) Vertretung Datenmodell „mehr Infos“: Grund-Kategorie (öffentlich nur grob, F-10-8), interner Hinweis, „nur Betreuung“ (F-10-9), Kenntnisnahme (F-10-10), Material ohne Abwesenheit (F-10-12), Historie mit Vorher/Nachher + Scrub (F-10-13)
+- [ ] **VT-02** (M) Anzeige überall: Vertretungsplan, Monitor, Druck, Kursseite, Heute/Widgets, Klassenbuch-Hinweis; Marker „neu/geändert“
+- [ ] **VT-03a** (M) Arbeitsplatz `/planung/vertretungen`: offene Stunden, gewählte Stunde, Tagesplan + Kontext der vorgeschlagenen Lehrkraft
+- [ ] **VT-03b** (M) Vorschlagskarten, kompaktes Formular, Tastaturbedienung
+- [ ] **VT-04** (M) Benachrichtigung zur sinnvollen Zeit: Warteschlange, Sendezeit 18:00, Ruhe 20:00–06:30, „heute“ sofort, je Zielgruppe einstellbar (F-10-11)
+- [ ] **VT-05** (S) E2E-Szenario „Morgen“ + Review-PR **GATE VT** → Release v0.10
+- [ ] **SP3-01** (L) Planversionen + Entwurfsbereich, Daten-Migration „Bestand 1.0“, Entwurf aus gültigem Plan/leer/Vorversion, Varianten optional
+- [ ] **SP3-02** (L, Kern) Arbeiten im Entwurf: Setzhilfe, Pflege, Diagnose, Solver-Lauf und -Übernahme nur in den Entwurf (F-10-1)
+- [ ] **SP3-03** (M) Prüfung & Freigabe: Recht `stundenplan.review` (Schulleitung, ohne Vier-Augen-Zwang, F-10-3), Kommentare, Lehrkräfte-Vorschau je Version (Vorgabe aus, F-10-4)
+- [ ] **SP3-04** (L, Kern) Veröffentlichen ab Stichtag + Archiv, Rücknahme bis zum Stichtag, Diff-Benachrichtigung (Lehrkräfte sofort, Lernende/Eltern am Vortag)
+- [ ] **SP3-05** (M) Änderungen während der Laufzeit: Folgeversion, Sofort-Korrektur als Split + Protokoll + Benachrichtigung (F-10-2), Halbjahr
+- [ ] **SP3-06** (M) Planungsfahrplan als Checkliste mit Status (`/planung/fahrplan`, Vorlagen „Neues Halbjahr/Schuljahr“) – Priorität 1 der Projektleitung
+- [ ] **SP3-07** (M) Schuljahresabschluss + Übertrag: Entwurf aus Vorjahr hochgestuft (`class_map`, „Lehrkraft folgt Klasse“, Kurse/Bänder nicht)
+- [ ] **SP3-08** (S) E2E-Gesamtszenario + Review-PR **GATE SP3** → Release v0.11
+
 ## Schulbücherei – Modul `buecherei` (freigegeben von der Projektleitung 2026-10-19, nach INST-08)
 Konzept, Datenmodell, Rechte und Entscheidungen: [`BUECHEREI.md`](BUECHEREI.md). Läuft parallel zum Stundenplan-Umbau (eigene
 Migrationen, Nummer jeweils erst direkt vor dem PR auf aktuellem `main` erzeugen). Reihenfolge Stufe 1: BU-01 → BU-02 + BU-07 →
@@ -639,3 +662,8 @@ BU-03 ‖ BU-04 → BU-05 ‖ BU-06 → **GATE BU1**; Stufe 2 (Schalter `buecher
   für alle Aktionen aus Stundenplan, Kurswahl, Räume, Ersatzforderungen (Quelltext-Scan als Test). **N7** BU-14-E2E mit Rückgabetag relativ
   zu heute. DSB-FRAGEN §18: Zahl offener Ersatzforderungen für die Klassenleitung entschieden (ja). Tests `offline-queue.test`,
   `offline-sync.test`, `leave.test`, `baender-ansicht.test`, `audit-view.test`; E2E `offline-notenbuch`, `texte`, `unterricht`, `buecherei`
+- [ ] **TD-09** E2E-Reihenfolge, Rest aus TD-07: `gate2b` lässt eine Vertretung (Di, 7a, 1. Stunde) stehen, `zz-gate4c` hängt davon bzw. von `schuljahreswechsel.spec` ab – Specs legen ihre Daten selbst an und räumen auf
+- [ ] **TD-10** Lint-Reste: ungenutztes `eq` in `planung/vertretungen/page.tsx`, `parentChild` in `news/service.ts`
+- [ ] **TD-11** Bücherei-Menüpunkt für die Klassenleitung ohne `buecherei.use` (BU-16 zeigt die Zahlen unter „Meine Klasse“; Sidebar-Eintrag prüfen)
+- [ ] **TD-12** Ältere Audit-Aktionen ohne deutsche Beschriftung nachziehen (R3 hat 58 ergänzt)
+- [ ] **TD-13** Wöchentliches Auto-Patch-Release (`release.yml`, Mo) scheitert: das Ruleset „Release-Tags nur Admins“ lässt den Actions-Token keinen Tag anlegen (v0.8.1 am 2026-10-26) – Entscheidung der Projektleitung: Ausnahme für Actions oder Auto-Patch nur melden ❓
