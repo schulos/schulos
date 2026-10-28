@@ -139,7 +139,8 @@ async function yearFigures(db: Db, year: PlanningYearInfo, today: string, given?
     given ?? distribution(db, year, today),
     readSchoolSettings(db),
     readPrefWindow(db),
-    submissions(db),
+    // SP3-09b: Rücklauf im gewählten Jahr (auch im Folgejahr)
+    submissions(db, year.id),
     activeTeachers(db),
     lastSolverRun(db, year.id),
   ]);

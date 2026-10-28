@@ -9,6 +9,7 @@ import { hasPermission } from "@/core/permissions";
 import { closePrefWindowAction, savePrefsAction, setPrefWindowAction } from "@/modules/stundenplan/actions";
 import { REMIND_DAYS_BEFORE, formatDay, readPrefWindow, submissions, windowState } from "@/modules/stundenplan/zeitwunsch-fenster";
 import { addDays, toBerlinDate } from "@/core/time";
+import { planningYearForPage } from "../planungsjahr";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { plannableGroups, teacherOptions, WEEKDAYS } from "@/modules/stundenplan/manage";
 import { timetableMasterData } from "@/modules/stundenplan/service";
@@ -24,22 +25,39 @@ const WINDOW_TEXT = { none: "Kein Eingabefenster – Lehrkräfte sehen ihre Zeit
 
 export const metadata: Metadata = { title: "Zeitwünsche" };
 
-/** Zeitwünsche je Lehrkraft, Klasse/Kurs, Raum, Fach: −3 … +3 oder gesperrt je Stunde. */
-export default async function ZeitwuenschePage({ searchParams }: { searchParams: Promise<{ art?: string; id?: string }> }) {
+/**
+ * Zeitwünsche je Lehrkraft, Klasse/Kurs, Raum, Fach: −3 … +3 oder gesperrt je Stunde. SP3-09b: im gewählten Planungsjahr (auch im Folgejahr;
+ * abgeschlossene Schuljahre nur lesbar), das Eingabefenster für Lehrkräfte gilt für ein Schuljahr.
+ */
+export default async function ZeitwuenschePage({ searchParams }: { searchParams: Promise<{ art?: string; id?: string; jahr?: string }> }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
   const sp = await searchParams;
   const db = await getDb();
+  const py = await planningYearForPage(db, "/planung/zeitwuensche", sp);
+  if (!py) {
+    return (
+      <main className="flex flex-col gap-6">
+        <PageHeader eyebrow="Stundenplanung" title="Zeitwünsche" />
+        <EmptyState title="Kein Schuljahr angelegt">Zuerst unter Verwaltung → Stammdaten ein Schuljahr anlegen.</EmptyState>
+      </main>
+    );
+  }
+  const year = py.year;
+  const ro = !py.writable;
   const kind = (TIME_PREF_KINDS as readonly string[]).includes(sp.art ?? "") ? (sp.art as TimePrefKind) : "teacher";
   const today = toBerlinDate(new Date());
-  const [teachers, groupList, master, prefs, window, submitted] = await Promise.all([
+  const [teachers, groupList, master, prefs, anyWindow, submitted] = await Promise.all([
     teacherOptions(db),
-    plannableGroups(db),
+    plannableGroups(db, year.id),
     timetableMasterData(db),
-    allPrefs(db),
+    allPrefs(db, year.id),
     readPrefWindow(db),
-    submissions(db),
+    submissions(db, year.id),
   ]);
+  // ein Fenster für die ganze Schule: hier nur, wenn es zu diesem Schuljahr gehört
+  const window = anyWindow && anyWindow.schoolYearId === year.id ? anyWindow : null;
+  const otherWindow = anyWindow && !window ? { ...anyWindow, state: windowState(anyWindow, today), yearName: py.choices.find((c) => c.id === anyWindow.schoolYearId)?.name ?? null } : null;
   const wState = windowState(window, today);
   const missing = teachers.filter((t) => !submitted.has(t.id));
   const targets: Record<TimePrefKind, { id: string; label: string }[]> = {
@@ -49,7 +67,7 @@ export default async function ZeitwuenschePage({ searchParams }: { searchParams:
     subject: master.subjects.map((s) => ({ id: s.id, label: s.name })),
   };
   const target = targets[kind].find((t) => t.id === sp.id);
-  const grid = target ? await prefsOf(db, kind, target.id) : new Map();
+  const grid = target ? await prefsOf(db, kind, target.id, year.id) : new Map();
   const initial = Object.fromEntries([...grid].map(([k, v]) => [k, v === null ? "x" : String(v)]));
   // Übersicht: wer hat schon Wünsche?
   const withPrefs = targets[kind]
@@ -64,15 +82,29 @@ export default async function ZeitwuenschePage({ searchParams }: { searchParams:
       </Link>
       <PageHeader eyebrow="Stundenplanung" title="Zeitwünsche" />
       <p className="-mt-3 text-sm text-muted">
-        −3 = sehr ungünstig … +3 = sehr erwünscht. „Gesperrt“ ist eine harte Regel: Setzhilfe und automatische Planung legen dort keine Stunde hin.
+        Schuljahr {year.name} · −3 = sehr ungünstig … +3 = sehr erwünscht. „Gesperrt“ ist eine harte Regel: Setzhilfe und automatische Planung legen dort
+        keine Stunde hin.
+        {!py.isBase && py.writable && " Zeitwünsche gelten je Schuljahr – die des laufenden Jahres bleiben unverändert."}
       </p>
-      <Card aria-label="Eingabefenster für Lehrkräfte" className="gap-3">
-        <CardHeader title="Eingabefenster für Lehrkräfte" />
-        <p className="-mt-2 text-sm text-muted">
-          Solange das Fenster offen ist, tragen Lehrkräfte ihre Zeitwünsche unter Stundenplan → Zeitwünsche selbst ein (nur die eigenen). Du siehst
-          den Stand und kannst jederzeit überschreiben. Beim Öffnen bekommen alle Lehrkräfte einen Gong, {REMIND_DAYS_BEFORE} Tage vor dem letzten Tag eine
-          Erinnerung, wer noch nicht abgegeben hat.
+      {ro && (
+        <p role="status" className="rounded-xl border border-border bg-surface-2 px-4 py-3 text-sm">
+          Das Schuljahr {year.name} ist abgeschlossen – Zeitwünsche sind nur lesbar.
         </p>
+      )}
+      <Card aria-label="Eingabefenster für Lehrkräfte" className="gap-3">
+        <CardHeader title={`Eingabefenster für Lehrkräfte · ${year.name}`} />
+        <p className="-mt-2 text-sm text-muted">
+          Solange das Fenster offen ist, tragen Lehrkräfte ihre Zeitwünsche für das Schuljahr {year.name} unter Stundenplan → Zeitwünsche selbst ein (nur
+          die eigenen). Du siehst den Stand und kannst jederzeit überschreiben. Beim Öffnen bekommen alle Lehrkräfte einen Gong, {REMIND_DAYS_BEFORE} Tage
+          vor dem letzten Tag eine Erinnerung, wer noch nicht abgegeben hat. Es gibt ein Fenster für die ganze Schule.
+        </p>
+        {otherWindow && (
+          <p data-testid="fenster-anderes-jahr" className="rounded-lg bg-warn-soft px-3 py-2 text-sm">
+            Das Eingabefenster gilt gerade für das Schuljahr {otherWindow.yearName ?? "eines anderen Jahres"} ({WINDOW_TEXT[otherWindow.state].toLowerCase()},{" "}
+            {formatDay(otherWindow.opensOn)} – {formatDay(otherWindow.closesOn)}).
+            {py.writable && ` Ein Fenster hier ersetzt es – abgegebene Wünsche bleiben in ihrem Schuljahr.`}
+          </p>
+        )}
         <p className="flex flex-wrap items-center gap-2 text-sm">
           <Badge tone={wState === "open" ? "success" : wState === "planned" ? "soft" : "neutral"}>{WINDOW_TEXT[wState]}</Badge>
           {window && (
@@ -86,8 +118,8 @@ export default async function ZeitwuenschePage({ searchParams }: { searchParams:
             </span>
           )}
         </p>
-        <WindowForm action={setPrefWindowAction} opensOn={window?.opensOn ?? today} closesOn={window?.closesOn ?? addDays(today, 14)} />
-        {window && (
+        {py.writable && <WindowForm action={setPrefWindowAction.bind(null, year.id)} opensOn={window?.opensOn ?? today} closesOn={window?.closesOn ?? addDays(today, 14)} />}
+        {window && py.writable && (
           <form action={closePrefWindowAction}>
             <Button type="submit" size="sm" variant="ghost">
               Fenster schließen
@@ -128,11 +160,12 @@ export default async function ZeitwuenschePage({ searchParams }: { searchParams:
             {target.label}
           </h2>
           <PrefGrid
-            action={savePrefsAction.bind(null, kind, target.id)}
+            action={savePrefsAction.bind(null, year.id, kind, target.id)}
             weekdays={[...WEEKDAYS]}
             periods={master.periods.map((p) => ({ nr: p.nr, label: `${p.nr}. (${p.startsAt})` }))}
             initial={initial}
             title={target.label}
+            readOnly={ro}
           />
         </section>
       ) : (

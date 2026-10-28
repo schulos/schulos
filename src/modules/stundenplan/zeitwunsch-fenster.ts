@@ -10,6 +10,7 @@ import { notifyBundled } from "@/core/notifications";
 import { ForbiddenError, type PermissionSet } from "@/core/permissions";
 import { TZ, addDays, fromBerlinLocal, isCalendarDate, toBerlinDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { requireWritableYear, resolvePlanningYear, type SchoolYear } from "./planungsjahr";
 import { planningYear } from "./verteilung";
 import { savePrefs, type PrefGrid } from "./zeitwuensche";
 
@@ -57,33 +58,57 @@ async function writeWindow(db: Db, w: PrefWindow): Promise<void> {
     .onConflictDoUpdate({ target: appSettings.key, set: { value: w, updatedAt: new Date() } });
 }
 
-/** Ist das Fenster für das aktuelle Planungsjahr offen? (Ein Fenster aus einem anderen Schuljahr gilt als geschlossen.) */
+/**
+ * Schuljahr eines Fensters, solange es beschreibbar ist (laufendes oder Folgejahr – SP3-09b); gelöscht oder inzwischen abgeschlossen → `null`.
+ */
+export async function windowYear(db: Db, w: PrefWindow | null): Promise<SchoolYear | null> {
+  if (!w) return null;
+  const state = await resolvePlanningYear(db, w.schoolYearId);
+  return state && state.year.id === w.schoolYearId && state.writable ? state.year : null;
+}
+
+/**
+ * Ist das Fenster offen? SP3-09b: Es gilt für sein Schuljahr – das laufende oder ein Folgejahr (Zeitwünsche für den nächsten Plan); ein
+ * Fenster eines abgeschlossenen oder gelöschten Schuljahrs gilt als geschlossen.
+ */
 export async function openWindow(db: Db, today: string): Promise<PrefWindow | null> {
   const w = await readPrefWindow(db);
   if (windowState(w, today) !== "open") return null;
-  const year = await planningYear(db);
-  return year && year.id === w!.schoolYearId ? w : null;
+  return (await windowYear(db, w)) ? w : null;
+}
+
+/**
+ * SP3-09b: Für welches Schuljahr sieht bzw. pflegt eine Lehrkraft ihre Zeitwünsche? Das des Fensters (geplant, offen oder abgelaufen –
+ * auch das Folgejahr), solange dessen Schuljahr nicht abgeschlossen ist; sonst das laufende Schuljahr.
+ */
+export async function ownPrefYear(db: Db, today: string): Promise<{ year: SchoolYear | null; window: PrefWindow | null; state: PrefWindowState }> {
+  const w = await readPrefWindow(db);
+  const wy = await windowYear(db, w);
+  if (wy) return { year: wy, window: w, state: windowState(w, today) };
+  return { year: await planningYear(db), window: null, state: "none" };
 }
 
 export async function activeTeachers(db: Db): Promise<string[]> {
   return (await db.select({ id: users.id }).from(users).where(and(eq(users.role, "lehrkraft"), eq(users.status, "active")))).map((r) => r.id);
 }
 
-/** Wer hat im Planungsjahr schon abgegeben? teacherId → Zeitpunkt. */
-export async function submissions(db: Db): Promise<Map<string, Date>> {
-  const year = await planningYear(db);
-  if (!year) return new Map();
-  const rows = await db.select().from(timetableTimePrefSubmissions).where(eq(timetableTimePrefSubmissions.schoolYearId, year.id));
+/** Wer hat im Schuljahr `yearId` (leer = laufendes) schon abgegeben? teacherId → Zeitpunkt. */
+export async function submissions(db: Db, yearId?: string | null): Promise<Map<string, Date>> {
+  const y = yearId ?? (await planningYear(db))?.id;
+  if (!y) return new Map();
+  const rows = await db.select().from(timetableTimePrefSubmissions).where(eq(timetableTimePrefSubmissions.schoolYearId, y));
   return new Map(rows.map((r) => [r.teacherId, r.submittedAt]));
 }
 
 async function announce(db: Db, w: PrefWindow, today: string, recipients: string[], reminder: boolean): Promise<number> {
+  // SP3-09b: der Gong nennt das Schuljahr (das Fenster kann fürs Folgejahr offen sein)
+  const yearName = (await windowYear(db, w))?.name;
   const n = await notifyBundled(
     db,
     recipients.map((userId) => ({
       userId,
       title: `${reminder ? "Erinnerung: " : ""}Zeitwünsche bis ${formatDay(w.closesOn)} abgeben`,
-      body: "Trage deine Zeitwünsche für den nächsten Stundenplan selbst ein – die Stundenplanung sieht sie und plant damit.",
+      body: `Trage deine Zeitwünsche für den nächsten Stundenplan${yearName ? ` (Schuljahr ${yearName})` : ""} selbst ein – die Stundenplanung sieht sie und plant damit.`,
       href: OWN_PREFS_HREF,
     })),
     { moduleId: "stundenplan", bundleKey: BUNDLE_KEY },
@@ -113,14 +138,18 @@ export async function markWindow(db: Db, w: PrefWindow, field: "announcedOn" | "
   return rows.length > 0;
 }
 
-/** Planung öffnet (bzw. ändert) das Eingabefenster; beginnt es heute oder früher, geht der Gong sofort raus. */
-export async function setPrefWindow(db: Db, actorId: string, input: { opensOn: string; closesOn: string }, today: string): Promise<PrefWindow> {
+/**
+ * Planung öffnet (bzw. ändert) das Eingabefenster; beginnt es heute oder früher, geht der Gong sofort raus. SP3-09b: für das Schuljahr
+ * `schoolYearId` (Planungsjahr der Seite, auch das Folgejahr; leer = laufendes). Es gibt **ein** Fenster für die ganze Schule – ein neues für
+ * ein anderes Schuljahr ersetzt das bisherige (abgegebene Wünsche bleiben in ihrem Schuljahr).
+ */
+export async function setPrefWindow(db: Db, actorId: string, input: { opensOn: string; closesOn: string; schoolYearId?: string | null }, today: string): Promise<PrefWindow> {
   const fe: Record<string, string> = {};
   if (!isCalendarDate(input.opensOn)) fe.opensOn = "Ersten Tag angeben";
   if (!isCalendarDate(input.closesOn)) fe.closesOn = "Letzten Tag angeben";
   else if (input.closesOn < today) fe.closesOn = "Der letzte Tag liegt in der Vergangenheit";
   else if (isCalendarDate(input.opensOn) && input.closesOn < input.opensOn) fe.closesOn = "Der letzte Tag liegt vor dem ersten";
-  const year = await planningYear(db);
+  const year = input.schoolYearId ? await requireWritableYear(db, input.schoolYearId) : await planningYear(db);
   if (!year) fe.opensOn = "Zuerst ein Schuljahr anlegen";
   if (Object.keys(fe).length) throw new ValidationError(fe);
   const prev = await readPrefWindow(db);
@@ -158,7 +187,7 @@ export async function runPrefWindowReminders(db: Db, now = new Date()): Promise<
   if (!w) return 0;
   if (!w.announcedOn) return announce(db, w, today, await activeTeachers(db), false);
   if (w.remindedOn || today < addDays(w.closesOn, -REMIND_DAYS_BEFORE)) return 0;
-  const done = await submissions(db);
+  const done = await submissions(db, w.schoolYearId);
   const open = (await activeTeachers(db)).filter((id) => !done.has(id));
   return announce(db, w, today, open, true);
 }
@@ -172,7 +201,8 @@ export async function saveOwnPrefs(db: Db, viewer: PermissionSet, grid: PrefGrid
   const w = await openWindow(db, today);
   if (!w) throw new ValidationError({ grid: "Das Eingabefenster für Zeitwünsche ist geschlossen" });
   // GATE-4f C-07: nur die eigenen Wünsche – Vorgaben der Planung (z. B. Sperren) bleiben
-  const n = await savePrefs(db, viewer.userId, "teacher", viewer.userId, grid, "lehrkraft");
+  // SP3-09b: ins Schuljahr des Fensters (laufendes oder Folgejahr)
+  const n = await savePrefs(db, viewer.userId, "teacher", viewer.userId, grid, "lehrkraft", w.schoolYearId);
   await db
     .insert(timetableTimePrefSubmissions)
     .values({ schoolYearId: w.schoolYearId, teacherId: viewer.userId })

@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { buildExport, canExport, isExportArt } from "@/modules/stundenplan/exporte";
+import { buildExport, canExport, exportQuery, isExportArt } from "@/modules/stundenplan/exporte";
 import { Button } from "@schulos/ui/button";
 import { PrintButton } from "@schulos/ui/print-button";
 import { DruckKopf } from "@/ui/druck-kopf";
@@ -18,7 +18,7 @@ const shortDate = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-d
  * SP2-10: Druckansicht der Gesamtübersichten, Unterrichtsverteilung, Deputate, des Aufsichtsplans und der Vertretungsstatistik
  * (A4 quer). Dieselbe Tabelle wie die CSV (`/api/stundenplan/export/<art>`); Rechte je Art in `canExport`.
  */
-export default async function UebersichtDruckPage({ searchParams }: { searchParams: Promise<{ art?: string; zeitraum?: string }> }) {
+export default async function UebersichtDruckPage({ searchParams }: { searchParams: Promise<{ art?: string; zeitraum?: string; jahr?: string; quelle?: string }> }) {
   await requireModulePage("stundenplan");
   const { perms } = await requireUser();
   const sp = await searchParams;
@@ -26,9 +26,10 @@ export default async function UebersichtDruckPage({ searchParams }: { searchPara
   if (!isExportArt(art) || !canExport(art, perms)) notFound();
   const today = toBerlinDate(new Date());
   const monat = sp.zeitraum === "monat";
-  const table = await buildExport(await getDb(), art, { today, monat });
+  // SP3-09b: Verteilung/Deputate im gewählten Schuljahr (`jahr=`, `quelle=` – das Cookie der Jahreswahl gilt nur unter /planung)
+  const table = await buildExport(await getDb(), art, { today, monat, yearId: sp.jahr ?? null, quelle: sp.quelle ?? null });
   const dense = table.head.length > 12;
-  const csv = `/api/stundenplan/export/${art}${monat ? "?zeitraum=monat" : ""}`;
+  const csv = `/api/stundenplan/export/${art}${exportQuery({ zeitraum: sp.zeitraum, jahr: sp.jahr, quelle: sp.quelle })}`;
   const back = art.startsWith("statistik")
     ? "/planung/vertretungen/statistik"
     : art === "aufsichten"

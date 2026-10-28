@@ -37,6 +37,7 @@ import { distribution, planningYear } from "./verteilung";
 import { moveChangeHistory, recordLessonCascade, recordSubstitutionChanges, snapshotOf } from "./vertretung-historie";
 import { draftOf, idWhere, insertLessonRows, lessonCols, LIVE, requireWritable, versionWhere, type NewLessonRow, type PlanSource } from "./plan-quelle";
 import { createDraft, getVersion, OPEN_STATUSES, versionNumber } from "./planversionen";
+import { requireWritableYear, resolvePlanningYear, yearOfVersion, type SchoolYear } from "./planungsjahr";
 import { timetableDraftLessons, timetablePlanVersions } from "./schema";
 
 export const EFFORTS = { schnell: 0.25, normal: 1, gruendlich: 4 } as const;
@@ -389,6 +390,33 @@ export interface CreateRunOptions {
   scope?: string | null;
   /** SQ-03: Zahl der Durchgänge eines Mehrfachlaufs (3, 5 oder 10); leer = Einzellauf */
   passes?: number | null;
+  /** SP3-09b: Planungsjahr der Seite (leer = laufendes Schuljahr); im Entwurf muss es dessen Schuljahr sein */
+  schoolYearId?: string | null;
+}
+
+/**
+ * SP3-09b: Schuljahr eines neuen Laufs – das Planungsjahr der Seite (leer = laufendes), beschreibbar (nicht abgeschlossen). Mit Entwurf
+ * zählt dessen Schuljahr (es muss zum gewählten passen); außerhalb des laufenden Schuljahrs rechnet der Solver **nur in einem Entwurf**
+ * (der gültige Plan gehört zum laufenden Jahr).
+ */
+async function runYear(db: Db, schoolYearId: string | null | undefined, versionId: string | undefined): Promise<SchoolYear> {
+  const base = await planningYear(db);
+  if (!base) throw new ValidationError({ year: "Zuerst ein Schuljahr anlegen" });
+  const draftYear = versionId ? await yearOfVersion(db, versionId) : null;
+  if (versionId && !draftYear) throw new ValidationError({ versionId: "Entwurf des Planungsjahrs wählen" });
+  if (schoolYearId && draftYear && draftYear.id !== schoolYearId) throw new ValidationError({ versionId: "Entwurf des Planungsjahrs wählen" });
+  const year = await requireWritableYear(db, draftYear?.id ?? schoolYearId ?? base.id);
+  if (year.id !== base.id && !versionId) throw new ValidationError({ versionId: `Im Schuljahr ${year.name} rechnet die automatische Planung nur in einem Entwurf – unter „Planen im“ einen Entwurf wählen` });
+  return year;
+}
+
+/**
+ * SP3-09b: Schuljahr eines bestehenden Laufs zum Rechnen bzw. Übernehmen – sein eigenes (laufendes oder Folgejahr), solange es beschreibbar
+ * ist; gelöscht oder inzwischen abgeschlossen → Fehler.
+ */
+async function writableRunYear(db: Db, run: { schoolYearId: string }): Promise<SchoolYear | null> {
+  const state = await resolvePlanningYear(db, run.schoolYearId);
+  return state && state.year.id === run.schoolYearId && state.writable ? state.year : null;
 }
 
 /** Rein: Parameter aus der Eingabe (Formular/Test) – ungültige Werte werden gemeldet, nicht still ersetzt. */
@@ -455,9 +483,8 @@ export const logEntry = (kind: RunLogEntry["kind"], text: string, data?: Record<
  * (Kurse ohne Mitglieder, A/B-Stunden) stehen im Protokoll.
  */
 export async function createRun(db: Db, actorId: string, opts: CreateRunOptions, todayYmd?: string): Promise<string> {
-  const year = await planningYear(db);
-  if (!year) throw new ValidationError({ year: "Zuerst ein Schuljahr anlegen" });
   const params = parseParams(opts);
+  const year = await runYear(db, opts.schoolYearId, params.versionId);
   if (params.refYmd && (params.refYmd < year.startsOn || params.refYmd > year.endsOn)) throw new ValidationError({ refYmd: "Der Planungsstand muss im Schuljahr liegen" });
   const label = opts.label?.trim() ? opts.label.trim().slice(0, 120) : null;
   // SP3-02: im Entwurf ist der Planungsstand mindestens sein Stichtag (und wird mitgespeichert, damit der Lauf reproduzierbar bleibt)
@@ -623,8 +650,9 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
     const run = await getRun(db, runId);
     if (!run) throw new Error("Lauf fehlt");
     if (run.status !== "queued" && run.status !== "running") return "skipped";
-    const year = await planningYear(db);
-    if (!year || year.id !== run.schoolYearId) throw new Error("Das Schuljahr des Laufs ist nicht mehr das Planungsjahr");
+    // SP3-09b: im Schuljahr des Laufs (auch im Folgejahr), solange es nicht abgeschlossen ist
+    const year = await writableRunYear(db, run);
+    if (!year) throw new Error("Das Schuljahr des Laufs ist abgeschlossen oder gibt es nicht mehr");
     log = run.log;
     const params: RunParams = run.params ?? { effort: "normal", seed: run.seed, weights: { ...DEFAULT_WEIGHTS }, preset: "ausgewogen" };
     // SP2-09: Lehraufträge am gewählten Planungsstand (sonst am Tag der Berechnung)
@@ -1216,10 +1244,11 @@ export async function applyRunToDraft(db: Db, actorId: string, runId: string, ta
   if (run.stored.result.unplaced.length)
     throw new ValidationError({ run: `${run.stored.result.unplaced.length} Stunden ließen sich nicht setzen – erst Lehraufträge oder Sperrzeiten anpassen` });
   const stored = run.stored;
-  const year = await planningYear(db);
-  if (!year || year.id !== run.schoolYearId) throw new ValidationError({ run: "Der Lauf gehört nicht zum Planungsjahr" });
+  // SP3-09b: in einen Entwurf des Schuljahrs des Laufs (auch im Folgejahr); abgeschlossene Schuljahre nur lesbar
+  const year = await writableRunYear(db, run);
+  if (!year) throw new ValidationError({ run: "Das Schuljahr dieses Laufs ist abgeschlossen – nur noch lesbar" });
   let version = "versionId" in target ? await requireWritable(db, draftOf(target.versionId)) : null;
-  if (version && version.schoolYearId !== year.id) throw new ValidationError({ versionId: "Entwurf des Planungsjahrs wählen" });
+  if (version && version.schoolYearId !== year.id) throw new ValidationError({ versionId: `Entwurf des Schuljahrs ${year.name} wählen (das Schuljahr des Laufs)` });
   const fromYmd = version ? version.validFrom : "newDraft" in target ? target.newDraft.validFrom : null;
   if (!fromYmd || !isCalendarDate(fromYmd)) throw new ValidationError({ from: "Stichtag wählen" });
 

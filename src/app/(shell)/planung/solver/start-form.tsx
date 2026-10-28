@@ -50,7 +50,9 @@ export function SolverStartForm({
   const [source, setSource] = useState(v.versionId ?? defaultSource ?? sources[0]?.value ?? "");
   const [mode, setMode] = useState(v.mode ?? "neu");
   const [kind, setKind] = useState(v.lauf ?? "einzel");
-  const inDraft = sources.length > 1 && source !== liveSource;
+  // SP3-09b: im Folgejahr gibt es keinen „Gültigen Plan“ zur Wahl – dann steht auch ein einzelner Entwurf im Wähler (und wird mitgeschickt)
+  const choose = sources.length > 1 || (sources.length === 1 && sources[0]!.value !== liveSource);
+  const inDraft = choose && source !== liveSource;
   return (
     <form key={JSON.stringify(state.values ?? null)} action={formAction} aria-label="Lauf starten" className="flex flex-col gap-4">
       {state.error && (
@@ -116,7 +118,7 @@ export function SolverStartForm({
         <Field label="Lehraufträge am" hint="leer = heute, im Entwurf sein Stichtag; z. B. Beginn des 2. Halbjahrs" error={fe.refYmd}>
           <Input type="date" name="refYmd" defaultValue={v.refYmd ?? ""} />
         </Field>
-        {sources.length > 1 && (
+        {choose && (
           <Field label="Planen im" hint="fixierte Stunden und Stunden ohne Lehrauftrag kommen aus diesem Plan" error={fe.versionId} className="sm:col-span-2">
             <Select name="versionId" value={source} onChange={(e) => setSource(e.target.value)}>
               {sources.map((s) => (

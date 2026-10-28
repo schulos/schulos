@@ -68,8 +68,11 @@ test("SP3-09a: Planungsjahr im Kopf wechseln, Matrix und Deputat im Folgejahr, l
     await page.goto("/planung/stundenplan");
     await expect(page.getByText("Noch kein Entwurf für 2027/28", { exact: true })).toBeVisible();
     await expect(page.getByRole("main").getByRole("link", { name: "Planversionen" })).toHaveAttribute("href", "/planung/versionen#vorlagen");
-    // Seiten, die (noch) im laufenden Schuljahr arbeiten, sagen es
+    // SP3-09b: Automatisch planen folgt der Wahl – ohne Entwurf der Weg zur Vorlage; Seiten des Tagesgeschäfts arbeiten im laufenden Schuljahr und sagen es
     await page.goto("/planung/solver");
+    await expect(page.getByText("Noch kein Entwurf für 2027/28", { exact: true })).toBeVisible();
+    await expect(page.getByRole("form", { name: "Lauf starten" })).toHaveCount(0);
+    await page.goto("/planung/aufsichten");
     await expect(bar.getByTestId("planungsjahr-hinweis")).toContainText("Diese Seite arbeitet immer im laufenden Schuljahr 2026/27");
 
     // 360 px, dunkel – derselbe Kontext (Cookie) im schmalen Fenster

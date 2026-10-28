@@ -472,7 +472,8 @@ export async function diagnoseYear(
     db.select({ groupId: groupMembers.groupId, n: count() }).from(groupMembers).where(eq(groupMembers.role, "member")).groupBy(groupMembers.groupId),
     deputyAccounts(db, year.id, d.teachers, fallbackObligation, ref),
     loadDayLimits(db),
-    allPrefs(db),
+    // SP3-09b: Zeitwünsche des diagnostizierten Schuljahrs (im Folgejahr dessen Wünsche)
+    allPrefs(db, year.id),
   ]);
   // Schüler:innen der Band-Gruppen (SP2-02): gemeinsame Mitglieder in zwei Mitgliedern eines Bands
   const assignmentOf = new Map(d.assignments.map((a) => [a.id, a]));

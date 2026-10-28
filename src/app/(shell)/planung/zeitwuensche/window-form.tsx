@@ -26,7 +26,7 @@ export function WindowForm({ action, opensOn, closesOn }: { action: (prev: FormS
           Gespeichert. Beginnt das Fenster heute, haben alle Lehrkräfte einen Gong bekommen.
         </p>
       )}
-      {state.error && !Object.keys(fe).length && (
+      {state.error && !fe.opensOn && !fe.closesOn && (
         <p role="alert" className="text-sm text-danger sm:col-span-3">
           {state.error}
         </p>

@@ -5,6 +5,7 @@ import { audit } from "@/core/audit";
 import { groups, periods, rooms, subjects, timetableTimePrefs, users } from "@/core/db/schema";
 import { TIME_PREF_KINDS, type TimePrefKind, type TimePrefSource } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { requireWritableYear } from "./planungsjahr";
 import { planningYear } from "./verteilung";
 
 export const TIME_PREF_LABELS: Record<TimePrefKind, string> = { teacher: "Lehrkraft", group: "Klasse/Kurs", room: "Raum", subject: "Fach" };
@@ -30,26 +31,34 @@ export function parsePref(raw: string): PrefValue | undefined {
   return Number.isInteger(n) && n >= -3 && n <= 3 ? n : undefined;
 }
 
-export async function prefsOf(db: Db, kind: TimePrefKind, targetId: string): Promise<PrefGrid> {
-  return new Map([...(await prefsWithSource(db, kind, targetId))].map(([k, x]) => [k, x.value]));
+/** SP3-09b: Zeitwünsche gelten je Schuljahr – `yearId` leer = laufendes Schuljahr (`planningYear`). */
+async function yearIdOf(db: Db, yearId: string | null | undefined): Promise<string | null> {
+  return yearId ?? (await planningYear(db))?.id ?? null;
 }
 
-/** Raster mit Herkunft je Slot (GATE-4f C-07): Vorgabe der Planung oder Wunsch der Lehrkraft. */
-export async function prefsWithSource(db: Db, kind: TimePrefKind, targetId: string): Promise<Map<string, { value: PrefValue; source: TimePrefSource }>> {
-  const year = await planningYear(db);
-  if (!year) return new Map();
+export async function prefsOf(db: Db, kind: TimePrefKind, targetId: string, yearId?: string | null): Promise<PrefGrid> {
+  return new Map([...(await prefsWithSource(db, kind, targetId, yearId))].map(([k, x]) => [k, x.value]));
+}
+
+/** Raster mit Herkunft je Slot (GATE-4f C-07): Vorgabe der Planung oder Wunsch der Lehrkraft. SP3-09b: im Schuljahr `yearId`. */
+export async function prefsWithSource(db: Db, kind: TimePrefKind, targetId: string, yearId?: string | null): Promise<Map<string, { value: PrefValue; source: TimePrefSource }>> {
+  const y = await yearIdOf(db, yearId);
+  if (!y) return new Map();
   const rows = await db
     .select()
     .from(timetableTimePrefs)
-    .where(and(eq(timetableTimePrefs.schoolYearId, year.id), eq(timetableTimePrefs.kind, kind), eq(timetableTimePrefs.targetId, targetId)));
+    .where(and(eq(timetableTimePrefs.schoolYearId, y), eq(timetableTimePrefs.kind, kind), eq(timetableTimePrefs.targetId, targetId)));
   return new Map(rows.map((r) => [prefKey(r.weekday, r.periodNr), { value: r.blocked ? null : r.value, source: r.source }]));
 }
 
-/** Alle Zeitwünsche des Planungsjahres (für Setzhilfe und Solver): `${kind}:${id}` → Raster. */
-export async function allPrefs(db: Db): Promise<Map<string, PrefGrid>> {
-  const year = await planningYear(db);
-  if (!year) return new Map();
-  const rows = await db.select().from(timetableTimePrefs).where(eq(timetableTimePrefs.schoolYearId, year.id));
+/**
+ * Alle Zeitwünsche eines Schuljahres (für Setzhilfe, Diagnose, Fahrplan und Solver – SP3-09b: das Jahr des Entwurfs bzw. Laufs, leer =
+ * laufendes Schuljahr): `${kind}:${id}` → Raster.
+ */
+export async function allPrefs(db: Db, yearId?: string | null): Promise<Map<string, PrefGrid>> {
+  const y = await yearIdOf(db, yearId);
+  if (!y) return new Map();
+  const rows = await db.select().from(timetableTimePrefs).where(eq(timetableTimePrefs.schoolYearId, y));
   const out = new Map<string, PrefGrid>();
   for (const r of rows) {
     const k = `${r.kind}:${r.targetId}`;
@@ -59,9 +68,13 @@ export async function allPrefs(db: Db): Promise<Map<string, PrefGrid>> {
   return out;
 }
 
-async function targetExists(db: Db, kind: TimePrefKind, id: string): Promise<boolean> {
+async function targetExists(db: Db, kind: TimePrefKind, id: string, yearId: string): Promise<boolean> {
   if (kind === "teacher") return (await db.select({ role: users.role }).from(users).where(eq(users.id, id)))[0]?.role === "lehrkraft";
-  if (kind === "group") return (await db.select({ id: groups.id }).from(groups).where(eq(groups.id, id))).length > 0;
+  // SP3-09b: Klassen/Kurse nur des Schuljahrs (oder ohne Schuljahr)
+  if (kind === "group") {
+    const [g] = await db.select({ y: groups.schoolYearId }).from(groups).where(eq(groups.id, id));
+    return !!g && (g.y === null || g.y === yearId);
+  }
   if (kind === "room") return (await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, id))).length > 0;
   return (await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.id, id))).length > 0;
 }
@@ -74,12 +87,21 @@ async function targetExists(db: Db, kind: TimePrefKind, id: string): Promise<boo
  *  · Lehrkraft (`source: "lehrkraft"`, Q5-10): ersetzt nur die eigenen Wünsche; Slots mit einer Vorgabe der Planung bleiben
  *    unverändert (ein anderer Wert dort wird ignoriert).
  */
-export async function savePrefs(db: Db, actorId: string, kind: string, targetId: string, grid: PrefGrid, source: TimePrefSource = "planung"): Promise<number> {
+export async function savePrefs(
+  db: Db,
+  actorId: string,
+  kind: string,
+  targetId: string,
+  grid: PrefGrid,
+  source: TimePrefSource = "planung",
+  yearId?: string | null,
+): Promise<number> {
   if (!(TIME_PREF_KINDS as readonly string[]).includes(kind)) throw new ValidationError({ kind: "Art wählen" });
   const k = kind as TimePrefKind;
-  const year = await planningYear(db);
+  // SP3-09b: Schuljahr der Seite bzw. des Eingabefensters (leer = laufendes); abgeschlossene Schuljahre sind nur lesbar
+  const year = yearId ? await requireWritableYear(db, yearId) : await planningYear(db);
   if (!year) throw new ValidationError({ kind: "Zuerst ein Schuljahr anlegen" });
-  if (!(await targetExists(db, k, targetId))) throw new ValidationError({ targetId: `${TIME_PREF_LABELS[k]} wählen` });
+  if (!(await targetExists(db, k, targetId, year.id))) throw new ValidationError({ targetId: `${TIME_PREF_LABELS[k]} wählen` });
   const nrs = new Set((await db.select({ nr: periods.nr }).from(periods)).map((p) => p.nr));
   const slots: [string, number, number, PrefValue][] = [];
   for (const [key, v] of grid) {
@@ -111,7 +133,7 @@ export async function savePrefs(db: Db, actorId: string, kind: string, targetId:
     }
     if (rows.length) await tx.insert(timetableTimePrefs).values(rows);
     count = rows.filter((r) => r.source === source && (r.value !== 0 || r.blocked)).length;
-    await audit(tx, actorId, "stundenplan.timepref.save", targetId, { kind: k, source, slots: count, blocked: rows.filter((r) => r.blocked && r.source === source).length });
+    await audit(tx, actorId, "stundenplan.timepref.save", targetId, { kind: k, source, year: year.id, slots: count, blocked: rows.filter((r) => r.blocked && r.source === source).length });
   });
   return count;
 }

@@ -14,6 +14,7 @@ import { DIAGNOSIS_LABELS } from "@/modules/stundenplan/diagnose";
 import { COST_LABELS, type CostItem } from "@/modules/stundenplan/solver";
 import { canDeleteRun, draftTargets, EFFORT_LABELS, getRun, isUndoable, MODE_LABELS, precheckOf, PRESET_LABELS, SCOPE_LABELS, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
 import { getVersion, versionNumber } from "@/modules/stundenplan/planversionen";
+import { resolvePlanningYear } from "@/modules/stundenplan/planungsjahr";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -108,7 +109,11 @@ export default async function SolverRunPage({
     const s = q.toString();
     return s ? `${base}?${s}` : base;
   };
-  const defaultFrom = cal?.nextSchoolDay(addDays(today, 1)) ?? addDays(today, 1);
+  // SP3-09b: Schuljahr des Laufs – im Folgejahr beginnt ein neuer Entwurf frühestens am ersten Schultag dieses Jahrs; abgeschlossen → nur lesen
+  const runYear = await resolvePlanningYear(db, run.schoolYearId);
+  const ownYear = runYear && runYear.year.id === run.schoolYearId ? runYear : null;
+  const fromBase = ownYear && addDays(today, 1) < ownYear.year.startsOn ? ownYear.year.startsOn : addDays(today, 1);
+  const defaultFrom = cal?.nextSchoolDay(fromBase) ?? fromBase;
   // SP-09: was das Zurücknehmen einer (vor SP3-04 direkt übernommenen) Übernahme tun würde – nur in diesem Zustand
   const undo = undoable ? await undoPreview(db, run, today) : null;
   // SP3-02 (F-10-1): Übernahme in einen Entwurf – offene Entwürfe des Schuljahrs, der Entwurf, in dem gerechnet wurde, und der zuletzt gefüllte
@@ -126,8 +131,11 @@ export default async function SolverRunPage({
   return (
     <RunLiveProvider key={`${run.id}:${run.status}`} initial={liveInitial}>
       <main className="flex flex-col gap-6">
-        <Link href="/planung/solver" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
-          <ArrowLeft aria-hidden className="size-4" /> Alle Läufe
+        <Link
+          href={ownYear && !ownYear.isBase ? `/planung/solver?jahr=${encodeURIComponent(run.schoolYearId)}` : "/planung/solver"}
+          className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink"
+        >
+          <ArrowLeft aria-hidden className="size-4" /> Alle Läufe{ownYear && !ownYear.isBase ? ` im Schuljahr ${ownYear.year.name}` : ""}
         </Link>
         <PageHeader
           eyebrow="Stundenplanung · Automatisch planen"
@@ -537,7 +545,7 @@ export default async function SolverRunPage({
           </section>
         )}
 
-        {run.status === "done" && stored && (
+        {run.status === "done" && stored && ownYear?.writable && (
           <Card aria-labelledby="apply-title">
             <h2 id="apply-title" className="text-base font-semibold">
               Übernehmen
@@ -547,6 +555,7 @@ export default async function SolverRunPage({
               bleiben. Der gültige Plan, Vertretungen und Klassenbuch ändern sich erst, wenn der Entwurf veröffentlicht wird (Prüfung, Freigabe, dann
               „Veröffentlichen ab …“ unter Planversionen). Den alten Stand sichert vorher eine Variante des Entwurfs.
               {runDraft ? ` Gerechnet im ${targetLabel(runDraft)}.` : ""}
+              {ownYear && !ownYear.isBase ? ` Schuljahr ${ownYear.year.name} (Folgejahr): nur Entwürfe dieses Jahrs – das laufende Schuljahr bleibt unverändert.` : ""}
             </p>
             <form action={applySolverToDraftAction.bind(null, run.id)} aria-label="In den Entwurf übernehmen" className="flex flex-wrap items-end gap-3">
               <Field label="Entwurf" className="w-full sm:w-96">

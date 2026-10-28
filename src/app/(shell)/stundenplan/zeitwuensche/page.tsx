@@ -8,7 +8,7 @@ import { saveOwnPrefsAction } from "@/modules/stundenplan/actions";
 import { WEEKDAYS } from "@/modules/stundenplan/manage";
 import { timetableMasterData } from "@/modules/stundenplan/service";
 import { prefsWithSource } from "@/modules/stundenplan/zeitwuensche";
-import { formatDay, openWindow, readPrefWindow, submissions, windowState } from "@/modules/stundenplan/zeitwunsch-fenster";
+import { formatDay, openWindow, ownPrefYear, submissions } from "@/modules/stundenplan/zeitwunsch-fenster";
 import { Badge } from "@schulos/ui/badge";
 import { PageHeader } from "@schulos/ui/misc";
 
@@ -20,17 +20,23 @@ export default async function MeineZeitwuenschePage() {
   if (user.role !== "lehrkraft") notFound();
   const db = await getDb();
   const today = toBerlinDate(new Date());
-  const [open, window, master, grid, done] = await Promise.all([openWindow(db, today), readPrefWindow(db), timetableMasterData(db), prefsWithSource(db, "teacher", user.id), submissions(db)]);
+  // SP3-09b: Schuljahr des Eingabefensters (z. B. das Folgejahr), sonst das laufende
+  const { year, window, state } = await ownPrefYear(db, today);
+  const [open, master, grid, done] = await Promise.all([openWindow(db, today), timetableMasterData(db), prefsWithSource(db, "teacher", user.id, year?.id), submissions(db, year?.id)]);
   const initial = Object.fromEntries([...grid].map(([k, x]) => [k, x.value === null ? "x" : String(x.value)]));
   // GATE-4f C-07: Vorgaben der Planung (z. B. Sperren) sieht die Lehrkraft, ändert sie aber nicht
   const locked = [...grid].filter(([, x]) => x.source === "planung").map(([k]) => k);
-  const state = windowState(window, today);
   const submittedAt = done.get(user.id);
 
   return (
     <main className="flex flex-col gap-6">
       <PageHeader eyebrow="Stundenplan" title="Meine Zeitwünsche" />
       <p className="-mt-3 text-sm text-muted">
+        {year && (
+          <strong data-testid="zeitwunsch-schuljahr" className="block text-ink">
+            Für den Stundenplan im Schuljahr {year.name}
+          </strong>
+        )}
         −3 = sehr ungünstig … +3 = sehr erwünscht, „gesperrt“ = dann geht es gar nicht (bitte sparsam). Nur die Stundenplanung sieht deine Wünsche;
         sie kann sie anpassen, wenn der Plan sonst nicht aufgeht.
         {locked.length > 0 && " Gestrichelte Felder hat die Stundenplanung festgelegt – sie bleiben, wenn du speicherst."}
