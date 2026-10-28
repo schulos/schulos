@@ -15,6 +15,10 @@
 > Hinweis unter Verwaltung → System bestätigt (einmal je Fassung, Protokoll `system.disclaimer.ack`); die Karte bleibt dort
 > dauerhaft – so kommt der Hinweis auch per Update auf bestehende Server. Entfällt mit v1.0 nach dem Pilot.
 
+> **Betrieb und Datenpanne:** Das [Betriebshandbuch](BETRIEBSHANDBUCH.md) fasst die Betriebskapitel dieses Dokuments (§4 Backup und
+> Wiederherstellung, §5 Betrieb, §5a Updates) als Rahmen zusammen und enthält den Leitfaden bei Datenpannen (Art. 33 DSGVO, 72 Stunden)
+> mit Sofortmaßnahmen in SchulOS und der Kurzseite Ransomware; Vorlagen unter [`vorlagen/`](vorlagen/).
+
 ---
 
 ## 1. Ziel
