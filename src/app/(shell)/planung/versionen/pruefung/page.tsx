@@ -175,6 +175,12 @@ export default async function PruefungPage({ searchParams }: { searchParams: Pro
               Im Entwurf arbeiten
             </Link>
           )}
+          {/* SP3-04: Veröffentlichen (nur Planung) */}
+          {viewer.manage && (v.status === "freigegeben" || v.status === "gueltig") && (
+            <Link href={`/planung/versionen/veroeffentlichen?version=${encodeURIComponent(v.id)}`} className="font-semibold text-accent-ink hover:underline">
+              {v.status === "freigegeben" ? "Veröffentlichen …" : "Veröffentlichung ansehen"}
+            </Link>
+          )}
         </nav>
         {(can.submit || can.approve || can.giveBack) && (
           <section aria-labelledby="schritte-title" className="flex flex-col gap-3 border-t border-border pt-4">

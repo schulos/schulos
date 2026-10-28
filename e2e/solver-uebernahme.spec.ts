@@ -1,12 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { collectErrors, login, openDirectApply } from "./helpers";
+import { approveVersion, collectErrors, deDate, login, publishVersionAt, undoAndDiscardVersion } from "./helpers";
 
-// SP-09 (docs/STUNDENPLAN-UMBAU.md §3.2, „Umsetzungsstand SP-09“): Lauf ab einem Stichtag (Schultag) übernehmen → der Plan zeigt ab dem
-// Stichtag die neuen Stunden → der Lauf ist bis zum Stichtag nicht löschbar → Übernahme zurücknehmen → alter Stand.
-// SP-13: eine Vertretung (Entfall) am Stichtag entfällt mit der Übernahme und ist nach dem Zurücknehmen wieder da.
-// SP3-02 (F-10-1): „Übernehmen“ füllt einen Entwurf; die direkte Übernahme bleibt bis SP3-04 als eingeklappter Übergangsweg – diese
-// Spec prüft ihn samt Rücknahme (`openDirectApply`), der Weg in den Entwurf steht in `planung-entwurf.spec.ts`.
+// SP-09/SP-13 auf dem Versionsweg (SP3-04, F-10-1): ein Lauf geht in einen neuen Entwurf ab Stichtag (Schultag) → Prüfung/Freigabe →
+// „Ab … veröffentlichen“ → der Plan zeigt ab dem Stichtag die neuen Stunden → bis zum Stichtag zurücknehmen → alter Stand. Eine
+// Vertretung (Entfall) am Stichtag zieht beim Veröffentlichen mit oder wird gesichert und ist nach dem Zurücknehmen wieder an ihrer Stunde.
+// Die frühere direkte Übernahme in den gültigen Plan gibt es nicht mehr; der Weg in den Entwurf steht auch in `planung-entwurf.spec.ts`.
 
 const tag = Date.now().toString(36);
 const LABEL = `E2E Übernahme ${tag}`;
@@ -20,9 +19,10 @@ function sundayIn(weeks: number): string {
   while (d.getDay() !== 0) d.setDate(d.getDate() + 1);
   return ymd(d);
 }
+const isoOf = (de: string) => `${de.slice(6, 10)}-${de.slice(3, 5)}-${de.slice(0, 2)}`;
 
-test("SP-09/SP-13: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nicht löschbar → zurücknehmen → alter Stand mit Vertretung", async ({ page }) => {
-  test.setTimeout(180_000);
+test("SP-09/SP-13 über SP3-04: Lauf → Entwurf → veröffentlichen ab Stichtag → Plan ab Stichtag neu → zurücknehmen → alter Stand mit Vertretung", async ({ page, browser }) => {
+  test.setTimeout(240_000);
   const errors = collectErrors(page);
   await login(page, "frank.schulte");
 
@@ -38,18 +38,17 @@ test("SP-09/SP-13: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nic
     await page.reload();
     await expect(page.getByRole("heading", { name: "Übernehmen" })).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 90_000 });
-  // Hinweis, was die Übernahme ab dem vorgeschlagenen Stichtag ändert (Übergangsweg aufgeklappt)
-  await openDirectApply(page);
-  await expect(page.getByTestId("apply-preview")).toContainText(/Stunden? end(et|en) am Vortag/);
+  // die direkte Übernahme in den gültigen Plan gibt es nicht mehr
+  await expect(page.getByRole("form", { name: "Vorschlag übernehmen" })).toHaveCount(0);
 
   // Stichtag muss ein Schultag sein: ein Sonntag wird abgelehnt, der Fehler nennt den nächsten Schultag
-  const sunday = sundayIn(8);
-  const applyForm = page.getByRole("form", { name: "Vorschlag übernehmen" });
-  await applyForm.getByLabel("ab Stichtag").fill(sunday);
-  await applyForm.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
-  const alert = page.getByRole("alert").filter({ hasText: "Stichtag" });
+  const toDraft = page.getByRole("form", { name: "In den Entwurf übernehmen" });
+  await toDraft.getByLabel("Entwurf", { exact: true }).selectOption("neu");
+  await toDraft.getByLabel("Stichtag (nur neuer Entwurf)").fill(sundayIn(8));
+  await toDraft.getByRole("button", { name: "In den Entwurf übernehmen" }).click();
+  const alert = page.getByRole("alert").filter({ hasText: "kein Schultag" });
   await expect(alert).toContainText("kein Schultag (Wochenende)");
-  const from = (await alert.textContent())!.match(/nächster Schultag: (\d{4}-\d{2}-\d{2})/)![1]!;
+  const from = isoOf((await alert.textContent())!.match(/nächster Schultag: (\d{2}\.\d{2}\.\d{4})/)![1]!);
 
   // SP-13: Entfall für eine Stunde der 7b am Stichtag
   const subsUrl = `/planung/vertretungen?datum=${from}&gruppe=g-7b`;
@@ -70,48 +69,42 @@ test("SP-09/SP-13: Lauf ab Stichtag übernehmen → Plan ab Stichtag neu → nic
   await expect(plan).toBeVisible();
   const before = await plan.innerText();
 
-  // übernehmen
+  // Lauf in einen neuen Entwurf ab Stichtag – der gültige Plan bleibt
   await page.goto(url);
-  await openDirectApply(page);
-  await applyForm.getByLabel("ab Stichtag").fill(from);
-  await applyForm.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
-  await expect(page).toHaveURL(/uebernommen=\d+/);
-  await expect(page.getByRole("status").filter({ hasText: /\d+ Stunden übernommen/ })).toBeVisible();
-  await expect(page.getByRole("status").filter({ hasText: "Bis zum Stichtag lässt sich die Übernahme zurücknehmen" })).toBeVisible();
-  // Löschsperre: kein Lösch-Knopf, dafür die Rücknahme mit Erklärung
-  await expect(page.getByRole("button", { name: "Lauf löschen" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Übernahme zurücknehmen" })).toBeVisible();
-  await expect(page.getByText(/beendete Stunden gelten wieder bis zu ihrem früheren Ende/)).toBeVisible();
-  await expect(page.getByRole("list", { name: "Was beim Zurücknehmen zu beachten ist" })).toContainText(/\d+ bei der Übernahme entfernte Vertretunge?n? (wird|werden) wiederhergestellt/);
+  await toDraft.getByLabel("Entwurf", { exact: true }).selectOption("neu");
+  await toDraft.getByLabel("Stichtag (nur neuer Entwurf)").fill(from);
+  await toDraft.getByRole("button", { name: "In den Entwurf übernehmen" }).click();
+  await expect(page).toHaveURL(/[?&]entwurf=[\w-]+/);
+  const versionId = new URL(page.url()).searchParams.get("entwurf")!;
+  await page.goto(planUrl);
+  expect(await plan.innerText()).toBe(before);
+
+  // Prüfung und Freigabe (Schulleitung), Vorschau der Veröffentlichung mit Zahlen
+  await approveVersion(page, browser, versionId);
+  await page.goto(`/planung/versionen/veroeffentlichen?version=${versionId}&ab=${from}`);
+  await expect(page.getByTestId("zahl-geändert")).toHaveText(/^\d+$/);
+  await expect(page.getByTestId("vertretungen")).toContainText("Vertretungen ab dem Stichtag:");
+  await expect(page.getByRole("button", { name: `Ab ${deDate(from)} veröffentlichen` })).toBeVisible();
   const axe = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
-  // Historie: übernommen ab Stichtag, zurücknehmbar
-  await page.goto("/planung/solver");
-  const row = page.getByRole("table", { name: /Läufe der automatischen Planung/ }).getByRole("row").filter({ has: page.getByRole("link", { name: LABEL }) });
-  await expect(row).toContainText("übernommen");
-  await expect(row).toContainText("zurücknehmbar");
-  // die Vertretung ist mit der Übernahme entfallen (ihre Stunde gilt ab dem Stichtag nicht mehr)
-  await page.goto(subsUrl);
-  await expect(lessons.getByRole("form", { name: subLabel, exact: true }).getByRole("button", { name: "Aufheben" })).toHaveCount(0);
-  // der Plan zeigt ab dem Stichtag den Vorschlag (anders als vorher), vor dem Stichtag unverändert
+
+  // veröffentlichen → zurücknehmbar bis zum Stichtag; der Plan zeigt ab dem Stichtag den Vorschlag
+  await publishVersionAt(page, versionId, from);
+  await expect(page.getByRole("heading", { name: "Veröffentlichung zurücknehmen" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Was beim Zurücknehmen zu beachten ist" })).toContainText(/zurück an die bisherige Stunde/);
   await page.goto(planUrl);
   await expect(plan).toBeVisible();
   expect(await plan.innerText()).not.toBe(before);
   await page.screenshot({ path: ".data/shots/e2e/solver-uebernahme.png", fullPage: true });
-
-  // zurücknehmen (mit Rückfrage) → wieder „fertig“, löschbar, alter Plan
+  // der Lauf bleibt „fertig“ (in weitere Entwürfe übernehmbar)
   await page.goto(url);
-  page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "Übernahme zurücknehmen" }).click();
-  await expect(page).toHaveURL(/zurueckgenommen=\d+/);
-  await expect(page.getByRole("status").filter({ hasText: "Übernahme zurückgenommen" })).toContainText(/Vertretunge?n? wiederhergestellt/);
   await expect(page.getByRole("heading", { name: "Übernehmen" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Lauf löschen" })).toBeVisible();
-  await expect(page.getByText(/Zurückgenommen/).first()).toBeVisible();
+
+  // zurücknehmen (mit Rückfrage) → alter Plan, der Entfall ist wieder an seiner Stunde – aufheben; Version verwerfen
+  await undoAndDiscardVersion(page, versionId);
   await page.goto(planUrl);
   await expect(plan).toBeVisible();
   expect(await plan.innerText()).toBe(before);
-  // SP-13: der Entfall ist wieder da – aufheben
   await page.goto(subsUrl);
   const back = lessons.getByRole("form", { name: subLabel, exact: true });
   await expect(back.getByRole("button", { name: "Aufheben" })).toBeVisible();

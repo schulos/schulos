@@ -7,7 +7,8 @@ import { timetableAssignments, timetableLessons, timetableSolverRuns } from "@/c
 import { ValidationError } from "@/modules/verwaltung/users";
 import { clipValidity } from "./setzhilfe";
 import { solverInputFromDb } from "./solver-input";
-import { applyRun, createRun, executeRun, getRun, parseParams } from "./solverlauf";
+import { createRun, executeRun, getRun, parseParams } from "./solverlauf";
+import { applyRun } from "./solverlauf.testing";
 import { activeOn, createAssignment, distribution, listAssignments, planningYear, updateAssignment, validityOverlaps, type Assignment } from "./verteilung";
 
 const today = "2026-10-05";

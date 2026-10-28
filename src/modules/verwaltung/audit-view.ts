@@ -102,6 +102,9 @@ export const ACTION_LABELS: Record<string, string> = {
   "stundenplan.plan.comment_resolve": "Kommentar zu einem Stundenplan-Entwurf erledigt",
   "stundenplan.plan.comment_reopen": "Kommentar zu einem Stundenplan-Entwurf wieder geöffnet",
   "stundenplan.plan.preview_comment": "Rückmeldung aus der Lehrkräfte-Vorschau",
+  // SP3-04: Veröffentlichen
+  "stundenplan.plan.publish": "Stundenplan-Version veröffentlicht",
+  "stundenplan.plan.unpublish": "Veröffentlichung einer Stundenplan-Version zurückgenommen",
   "stundenplan.draft.lesson.create": "Stunde im Entwurf angelegt",
   "stundenplan.draft.lesson.update": "Stunde im Entwurf geändert",
   "stundenplan.draft.lesson.delete": "Stunde im Entwurf gelöscht",

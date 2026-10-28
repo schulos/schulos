@@ -21,8 +21,6 @@ import { SCHEDULED_JOBS } from "@/core/scheduler";
 import { createSeededTestDb, createTestDb } from "@/core/db/testing";
 import { ValidationError } from "@/modules/verwaltung/users";
 import {
-  applyPreview,
-  applyRun,
   canDeleteRun,
   cancelRun,
   cleanupRuns,
@@ -44,6 +42,7 @@ import {
   WEIGHT_PRESETS,
   type StoredResult,
 } from "./solverlauf";
+import { applyPreview, applyRun } from "./solverlauf.testing";
 import { distribution, planningYear } from "./verteilung";
 
 const today = "2026-10-05";

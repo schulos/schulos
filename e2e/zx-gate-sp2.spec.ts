@@ -1,12 +1,12 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { collectErrors, login, openDirectApply } from "./helpers";
+import { collectErrors, login, publishRun, undoAndDiscardVersion } from "./helpers";
 
 // SP2-11 (docs/STUNDENPLAN-UMBAU.md §7): E2E-Gesamtszenario „Gesamtschule“ für GATE SP2. Das Sekretariat legt für Jahrgang 7 zwei
 // Mathe-Kurse (E/G) und zwei Wahlpflichtkurse an; die Stundenplanung (frank.schulte) liest die Unterrichtsverteilung per CSV ein
 // (zwei neue Bänder), sieht sie im Fachbedarf und im CSV-Export (der sich wieder einlesen lässt), stellt die Tagesgrenze des
-// Jahrgangs ein, rechnet einen Lauf, übernimmt ihn ab Stichtag (Bänder als Kopplung, Tagesgrenzen eingehalten) und nimmt ihn
-// zurück. Im Tagesgeschäft steht eine Bereitschaft oben in den Vorschlägen, eine Stunde wird verlegt; die Vertretungsseite der 7b
+// Jahrgangs ein, rechnet einen Lauf, übernimmt ihn ab Stichtag (seit SP3-04: Entwurf → Freigabe → Veröffentlichen; Bänder als Kopplung,
+// Tagesgrenzen eingehalten) und nimmt ihn zurück. Im Tagesgeschäft steht eine Bereitschaft oben in den Vorschlägen, eine Stunde wird verlegt; die Vertretungsseite der 7b
 // läuft auf 360 px nicht seitlich über. Dazu ein A11Y-Durchgang der SP2-Seiten (hell und dunkel).
 // TD-07: die Spec legt alle Daten selbst an und räumt sie wieder weg – sie hängt nicht von anderen Specs ab.
 // „zx-gate-sp2“: läuft nach zx-gate-sp und vor zy-/zz- (Schuljahreswechsel).
@@ -27,6 +27,7 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-prac
 
 const ids: Partial<Record<keyof typeof COURSES, string>> = {};
 let runUrl = "";
+let versionId = "";
 
 async function axe(page: Page, where: string) {
   const r = await new AxeBuilder({ page }).withTags(TAGS).analyze();
@@ -118,7 +119,7 @@ test("SP2-11: Kurse des Jahrgangs 7 → CSV-Import mit zwei Bändern → Bänder
   expect(errors).toEqual([]);
 });
 
-test("SP2-11: Tagesgrenze Jahrgang 7 → Lauf → Übernahme ab Stichtag (Bänder als Kopplung, Grenzen eingehalten) → zurücknehmen", async ({ page }) => {
+test("SP2-11: Tagesgrenze Jahrgang 7 → Lauf → Übernahme ab Stichtag (Bänder als Kopplung, Grenzen eingehalten) → zurücknehmen", async ({ page, browser }) => {
   test.setTimeout(300_000);
   const errors = collectErrors(page);
   await login(page, "frank.schulte");
@@ -143,18 +144,14 @@ test("SP2-11: Tagesgrenze Jahrgang 7 → Lauf → Übernahme ab Stichtag (Bände
   runUrl = page.url();
   await expect(async () => {
     await page.reload();
-    // SP3-02: „Übernehmen“ füllt einen Entwurf – die direkte Übernahme (Übergangsweg bis SP3-04) ist eingeklappt
+    // SP3-02/SP3-04: „Übernehmen“ füllt einen Entwurf; in den gültigen Plan kommt er über Freigabe und Veröffentlichen
     await expect(page.getByRole("form", { name: "In den Entwurf übernehmen" })).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 150_000 });
   await expect(page.getByRole("region", { name: "Protokoll" })).toContainText(/Tagesgrenzen für \d+ Klassen/);
 
-  // Übernahme ab einem Montag in sechs Wochen
+  // Übernahme ab einem Montag in sechs Wochen: Entwurf → Prüfung/Freigabe (Schulleitung) → veröffentlichen
   const from = mondayIn(6);
-  await openDirectApply(page);
-  const applyForm = page.getByRole("form", { name: "Vorschlag übernehmen" });
-  await applyForm.getByLabel("ab Stichtag").fill(from);
-  await applyForm.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
-  await expect(page).toHaveURL(/uebernommen=\d+/);
+  versionId = await publishRun(page, browser, runUrl, from);
 
   // Bänder liegen als Kopplung im Plan – jede Mathe-Stunde des E-Kurses mit dem G-Kurs, jede WP-Stunde mit dem Partnerkurs
   for (const [key, subject, partner] of [
@@ -177,11 +174,10 @@ test("SP2-11: Tagesgrenze Jahrgang 7 → Lauf → Übernahme ab Stichtag (Bände
   await expect(page.getByRole("main")).not.toContainText(BAND_M);
   await expect(page.getByRole("main")).not.toContainText(BAND_WP);
 
-  // zurücknehmen und Lauf löschen
+  // zurücknehmen (Version verwerfen) und Lauf löschen
+  await undoAndDiscardVersion(page, versionId);
+  versionId = "";
   await page.goto(runUrl);
-  page.once("dialog", (d) => d.accept());
-  await page.getByRole("button", { name: "Übernahme zurücknehmen" }).click();
-  await expect(page).toHaveURL(/zurueckgenommen=\d+/);
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Lauf löschen" }).click();
   await expect(page).toHaveURL(/\/planung\/solver\?geloescht=1$/);
@@ -318,13 +314,9 @@ test("SP2-11: A11Y-Durchgang der SP2-Seiten – hell und dunkel", async ({ page 
 test("SP2-11: Aufräumen – Lauf, Lehraufträge, Bänder, Kurse, Tagesgrenze", async ({ page, browser }) => {
   test.setTimeout(120_000);
   await login(page, "frank.schulte");
+  if (versionId) await undoAndDiscardVersion(page, versionId);
   if (runUrl) {
     await page.goto(runUrl);
-    if ((await page.getByRole("button", { name: "Übernahme zurücknehmen" }).count()) > 0) {
-      page.once("dialog", (d) => d.accept());
-      await page.getByRole("button", { name: "Übernahme zurücknehmen" }).click();
-      await expect(page).toHaveURL(/zurueckgenommen=\d+/);
-    }
     page.once("dialog", (d) => d.accept());
     await page.getByRole("button", { name: "Lauf löschen" }).click();
   }

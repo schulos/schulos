@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectErrors, login, openDirectApply, pickTeacher, publishIfDraft, sendPlannedNow } from "./helpers";
+import { collectErrors, login, pickTeacher, publishIfDraft, sendPlannedNow } from "./helpers";
 
 test("Stundenplanung pflegt den Stundenplan und bekommt Kollisionen gemeldet", async ({ page }) => {
   const errors = collectErrors(page);
@@ -407,13 +407,13 @@ test("Automatisch planen: Stunde fixieren, Lauf mit Fortschritt, Bewertung und V
   await expect(preview.getByText(/BRA · 106 · bleibt/)).toHaveCount(1);
   await page.screenshot({ path: ".data/shots/e2e/solver.png", fullPage: true });
 
-  // Stichtag in der Vergangenheit wird abgelehnt (der Demo-Plan bleibt für die anderen Tests unverändert) – SP3-02: im eingeklappten
-  // Übergangsweg „direkt in den gültigen Plan“ (Vorgabe ist die Übernahme in einen Entwurf)
-  await expect(page.getByRole("form", { name: "In den Entwurf übernehmen" })).toBeVisible();
-  await openDirectApply(page);
-  const apply = page.getByRole("form", { name: "Vorschlag übernehmen" });
-  await apply.getByLabel("ab Stichtag").fill("2020-01-06");
-  await apply.getByRole("button", { name: "Ab Stichtag übernehmen" }).click();
+  // Stichtag in der Vergangenheit wird abgelehnt (der Demo-Plan bleibt für die anderen Tests unverändert) – SP3-04: übernommen wird nur
+  // in einen Entwurf (neuer Entwurf ab Stichtag), die direkte Übernahme in den gültigen Plan gibt es nicht mehr
+  await expect(page.getByRole("form", { name: "Vorschlag übernehmen" })).toHaveCount(0);
+  const apply = page.getByRole("form", { name: "In den Entwurf übernehmen" });
+  await apply.getByLabel("Entwurf", { exact: true }).selectOption("neu");
+  await apply.getByLabel("Stichtag (nur neuer Entwurf)").fill("2020-01-06");
+  await apply.getByRole("button", { name: "In den Entwurf übernehmen" }).click();
   await expect(page.getByRole("alert").filter({ hasText: /Stichtag/ })).toBeVisible();
   await page.getByRole("link", { name: "Alle Läufe" }).click();
   await expect(page.getByRole("table", { name: /Läufe der automatischen Planung/ }).getByText("fertig").first()).toBeVisible();

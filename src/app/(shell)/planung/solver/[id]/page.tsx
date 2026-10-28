@@ -9,10 +9,10 @@ import { users } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { applySolverAction, applySolverToDraftAction, cancelSolverAction } from "@/modules/stundenplan/actions";
+import { applySolverToDraftAction, cancelSolverAction } from "@/modules/stundenplan/actions";
 import { DIAGNOSIS_LABELS } from "@/modules/stundenplan/diagnose";
 import { COST_LABELS, type CostItem } from "@/modules/stundenplan/solver";
-import { applyPreview, canDeleteRun, draftTargets, EFFORT_LABELS, getRun, isUndoable, MODE_LABELS, precheckOf, PRESET_LABELS, SCOPE_LABELS, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
+import { canDeleteRun, draftTargets, EFFORT_LABELS, getRun, isUndoable, MODE_LABELS, precheckOf, PRESET_LABELS, SCOPE_LABELS, undoPreview, type RunLogEntry } from "@/modules/stundenplan/solverlauf";
 import { getVersion, versionNumber } from "@/modules/stundenplan/planversionen";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -57,15 +57,16 @@ const n = (count: number, one: string, many: string) => `${count} ${count === 1 
 /**
  * SP-07: ein Solver-Lauf – Status/Fortschritt live, Parameter, Kennzahlen (aus `metrics`, keine Diagnose je Aufruf), Vorprüfung,
  * nicht gesetzte Einheiten mit Grund je Beteiligtem (SP-G-03), Kostenposten mit Filter, Vorschau je Klasse oder Lehrkraft
- * (erst auf Wunsch), Protokoll, Abbrechen, Löschen, Übernahme ab Stichtag (Schultag) mit Hinweis, was sich ändert, und
- * „Übernahme zurücknehmen“ bis zum Stichtag (SP-09).
+ * (erst auf Wunsch), Protokoll, Abbrechen, Löschen und Übernahme in einen Entwurf (SP3-02, F-10-1). In den gültigen Plan kommt ein Lauf
+ * nur noch über das Veröffentlichen des Entwurfs (SP3-04); „Übernahme zurücknehmen“ bleibt für Läufe, die vorher direkt übernommen wurden,
+ * bis zu ihrem Stichtag (SP-09).
  */
 export default async function SolverRunPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ vorschau?: string; kategorie?: string; fehler?: string; uebernommen?: string; entfallen?: string; zurueckgenommen?: string; wiederhergestellt?: string; vertretungen?: string; entwurf?: string; gesetzt?: string; ersetzt?: string }>;
+  searchParams: Promise<{ vorschau?: string; kategorie?: string; fehler?: string; zurueckgenommen?: string; wiederhergestellt?: string; vertretungen?: string; entwurf?: string; gesetzt?: string; ersetzt?: string }>;
 }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
@@ -108,8 +109,8 @@ export default async function SolverRunPage({
     return s ? `${base}?${s}` : base;
   };
   const defaultFrom = cal?.nextSchoolDay(addDays(today, 1)) ?? addDays(today, 1);
-  // SP-09: was die Übernahme ab dem vorgeschlagenen Stichtag ändert bzw. was das Zurücknehmen tun würde – nur in dem jeweiligen Zustand
-  const [applyHint, undo] = await Promise.all([run.status === "done" && stored ? applyPreview(db, run, defaultFrom) : null, undoable ? undoPreview(db, run, today) : null]);
+  // SP-09: was das Zurücknehmen einer (vor SP3-04 direkt übernommenen) Übernahme tun würde – nur in diesem Zustand
+  const undo = undoable ? await undoPreview(db, run, today) : null;
   // SP3-02 (F-10-1): Übernahme in einen Entwurf – offene Entwürfe des Schuljahrs, der Entwurf, in dem gerechnet wurde, und der zuletzt gefüllte
   const [targets, runDraft, filled] = await Promise.all([
     run.status === "done" && stored ? draftTargets(db, run.schoolYearId) : Promise.resolve([]),
@@ -169,11 +170,6 @@ export default async function SolverRunPage({
             <Link href={`/planung/versionen/aenderungen?version=${encodeURIComponent(filled.id)}`} className="font-medium underline">
               Änderungen zum gültigen Plan
             </Link>
-          </p>
-        )}
-        {sp.uebernommen && (
-          <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
-            {sp.uebernommen} Stunden übernommen{Number(sp.entfallen) > 0 ? `, ${n(Number(sp.entfallen), "Vertretung ab dem Stichtag entfallen", "Vertretungen ab dem Stichtag entfallen")}` : ""}.
           </p>
         )}
         {sp.zurueckgenommen && (
@@ -504,8 +500,8 @@ export default async function SolverRunPage({
             </h2>
             <p className="text-sm text-muted">
               Der Vorschlag kommt in einen Entwurf: ab dessen Stichtag ersetzt er dort die Stunden mit Lehrauftrag – fixierte Stunden und Stunden ohne Lehrauftrag
-              bleiben. Der gültige Plan, Vertretungen und Klassenbuch ändern sich erst, wenn der Entwurf veröffentlicht wird. Den alten Stand sichert vorher eine Variante
-              des Entwurfs.
+              bleiben. Der gültige Plan, Vertretungen und Klassenbuch ändern sich erst, wenn der Entwurf veröffentlicht wird (Prüfung, Freigabe, dann
+              „Veröffentlichen ab …“ unter Planversionen). Den alten Stand sichert vorher eine Variante des Entwurfs.
               {runDraft ? ` Gerechnet im ${targetLabel(runDraft)}.` : ""}
             </p>
             <form action={applySolverToDraftAction.bind(null, run.id)} aria-label="In den Entwurf übernehmen" className="flex flex-wrap items-end gap-3">
@@ -526,35 +522,6 @@ export default async function SolverRunPage({
                 In den Entwurf übernehmen
               </Button>
             </form>
-            {!stored.versionId && (
-              <details className="flex flex-col gap-3 rounded-card border border-border p-3 text-sm">
-                <summary className="cursor-pointer font-medium">Übergang bis zum Veröffentlichen: direkt in den gültigen Plan</summary>
-                <p className="mt-2 text-muted">
-                  Nur bis Entwürfe veröffentlicht werden können (danach entfällt dieser Weg). Ab dem Stichtag (ein Schultag) gilt der Vorschlag; der bisherige Plan
-                  endet am Vortag (Klassenbuch und Vertretungen davor bleiben). Vertretungen ab dem Stichtag an ersetzten Stunden entfallen. Bis zum Stichtag lässt
-                  sich die Übernahme zurücknehmen – die entfallenen Vertretungen kommen dabei zurück, sofern ihre Stunde dann wieder gilt.
-                </p>
-            {applyHint && (
-              <p className="text-sm" data-testid="apply-preview">
-                Ab {dayFmt.format(fromBerlinLocal(applyHint.from))}: {n(applyHint.ended, "Stunde endet am Vortag", "Stunden enden am Vortag")}
-                {applyHint.deleted ? `, ${n(applyHint.deleted, "später beginnende Stunde entfällt", "später beginnende Stunden entfallen")}` : ""}, {n(applyHint.substitutions, "Vertretung ab dem Stichtag entfällt", "Vertretungen ab dem Stichtag entfallen")}
-                {applyHint.roomClashes.bookings || applyHint.roomClashes.exams
-                  ? `; der Vorschlag belegt Räume, in denen ${[applyHint.roomClashes.bookings ? n(applyHint.roomClashes.bookings, "Raumbuchung", "Raumbuchungen") : null, applyHint.roomClashes.exams ? n(applyHint.roomClashes.exams, "Klausur", "Klausuren") : null].filter(Boolean).join(" und ")} ab dem Stichtag liegen – Räume prüfen`
-                  : ""}
-                {applyHint.until ? `. Der Lauf ersetzt den Plan nur bis ${dayFmt.format(fromBerlinLocal(applyHint.until))} – danach gelten Lehraufträge, die er nicht kennt, und der Plan bleibt dort, wie er ist` : ""}
-                . Bei einem späteren Stichtag können die Zahlen abweichen.
-              </p>
-            )}
-            <form action={applySolverAction.bind(null, run.id)} aria-label="Vorschlag übernehmen" className="flex flex-wrap items-end gap-3">
-              <Field label="ab Stichtag" className="w-48">
-                <Input type="date" name="from" defaultValue={defaultFrom} required />
-              </Field>
-              <Button type="submit">
-                Ab Stichtag übernehmen
-              </Button>
-            </form>
-              </details>
-            )}
           </Card>
         )}
 

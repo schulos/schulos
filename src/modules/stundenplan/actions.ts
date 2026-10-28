@@ -13,7 +13,8 @@ import { ABSENCE_LABELS, createAbsence, deleteAbsence, needsOn, shortenAbsence }
 import { addDuty, clearDutyChange, createArea, deleteArea, removeDuty, setDutyChange } from "./aufsichten";
 import { copyPeriod } from "./periode";
 import { createDraft as createPlanDraft, createVariant as createPlanVariant, discardVersion as discardPlanVersion, getVersion as getPlanVersion, type DraftSource } from "./planversionen";
-import { applyRun, applyRunToDraft, cancelRun, createRun, deleteRun, executeQueued, setFixed, undoApply } from "./solverlauf";
+import { applyRunToDraft, cancelRun, createRun, deleteRun, executeQueued, setFixed, undoApply } from "./solverlauf";
+import { publishVersion, undoPublish } from "./veroeffentlichen";
 import { QUELLE_LIVE, quelleQuery, writableSource } from "./quelle";
 import type { PlanSource } from "./plan-quelle";
 import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
@@ -1061,21 +1062,6 @@ export async function deleteSolverAction(runId: string): Promise<void> {
   redirect(`${SOLVER_PAGE}?geloescht=1`);
 }
 
-/** Vorschlag ab Stichtag übernehmen (Stichtag = Schultag in der Zukunft); Rücknahme-Daten werden am Lauf gespeichert (SP-09). */
-export async function applySolverAction(runId: string, form: FormData): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
-  const from = String(form.get("from") ?? "");
-  let res: Awaited<ReturnType<typeof applyRun>>;
-  try {
-    res = await applyRun(await getDb(), user.id, runId, from, toBerlinDate(new Date()));
-  } catch (err) {
-    if (err instanceof ValidationError) redirect(withQuery(runPage(runId), "fehler", firstError(err)));
-    throw err;
-  }
-  revalidatePath("/", "layout");
-  redirect(withQuery(withQuery(runPage(runId), "uebernommen", String(res.created)), "entfallen", String(res.removedSubstitutions)));
-}
-
 /**
  * SP3-02 (F-10-1): Vorschlag in einen Entwurf übernehmen – in einen offenen Entwurf (`ziel` = Versions-id) oder in einen neuen Entwurf aus
  * dem gültigen Plan ab Stichtag (`ziel` = `neu`, `from`). Weiter zur Pflege-Seite im Entwurf; der gültige Plan bleibt unverändert.
@@ -1095,7 +1081,7 @@ export async function applySolverToDraftAction(runId: string, form: FormData): P
   redirect(withQuery(withQuery(withQuery(runPage(runId), "entwurf", res.versionId), "gesetzt", String(res.created)), "ersetzt", String(res.replaced)));
 }
 
-/** „Übernahme zurücknehmen“ (SP-09) – nur solange der Stichtag in der Zukunft liegt. */
+/** „Übernahme zurücknehmen“ (SP-09) – nur noch für Läufe, die vor SP3-04 direkt übernommen wurden, und nur bis zu ihrem Stichtag. */
 export async function undoSolverAction(runId: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   let res: Awaited<ReturnType<typeof undoApply>>;
@@ -1326,4 +1312,41 @@ export async function addPreviewCommentAction(versionId: string, _prev: FormStat
   }
   revalidatePath("/stundenplan/vorschau");
   redirect(`/stundenplan/vorschau?version=${encodeURIComponent(versionId)}&gesendet=1`);
+}
+
+// ---------------------------------------------------------------- Veröffentlichen (SP3-04)
+
+const publishPage = (versionId: string, key?: string, value?: string) => {
+  const q = new URLSearchParams({ version: versionId });
+  if (key && value !== undefined) q.set(key, value);
+  return `/planung/versionen/veroeffentlichen?${q}`;
+};
+
+/** Freigegebene Version ab Stichtag veröffentlichen (nur `stundenplan.manage`); Fehler als Hinweis auf der Seite der Veröffentlichung. */
+export async function publishVersionAction(versionId: string, form: FormData): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const from = String(form.get("from") ?? "").trim();
+  let res: Awaited<ReturnType<typeof publishVersion>>;
+  try {
+    res = await publishVersion(await getDb(), user.id, versionId, from, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(withQuery(publishPage(versionId, "ab", from), "fehler", firstError(err)));
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(withQuery(publishPage(versionId, "ok", "veroeffentlicht"), "lehrkraefte", String(res.notifiedTeachers)));
+}
+
+/** „Veröffentlichung zurücknehmen“ – nur die gültige Version und nur bis zu ihrem Stichtag. */
+export async function undoPublishAction(versionId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  let res: Awaited<ReturnType<typeof undoPublish>>;
+  try {
+    res = await undoPublish(await getDb(), user.id, versionId, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(withQuery(publishPage(versionId), "fehler", firstError(err)));
+    throw err;
+  }
+  revalidatePath("/", "layout");
+  redirect(withQuery(withQuery(publishPage(versionId, "ok", "zurueckgenommen"), "vertretungen", String(res.substitutionsBack + res.restoredSubstitutions)), "material", String(res.materialsBack + res.restoredMaterials)));
 }

@@ -8,19 +8,21 @@ import { getDb } from "@/core/db/client";
 import { isStaffRole } from "@/core/roles";
 import { groups, users } from "@/core/db/schema";
 import { dayOffLabel, loadSchoolCalendar } from "@/core/school/calendar";
-import { TZ, addDays, fromBerlinLocal, isoWeek, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
+import { TZ, addDays, fromBerlinLocal, isCalendarDate, isoWeek, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { mergeCoupled, slotDisplay, type PlanView } from "@/modules/stundenplan/display";
 import { WEEKDAYS } from "@/modules/stundenplan/manage";
+import { versionOn } from "@/modules/stundenplan/plan-archiv";
 import { myDutiesBetween, myDutyWeek } from "@/modules/stundenplan/aufsichten";
 import { canViewPlan, listSlots, seesAllPlans, regularSlots, timetableMasterData, weekOf, type LessonSlot, type PlanTarget } from "@/modules/stundenplan/service";
 import { Button } from "@schulos/ui/button";
+import { Input } from "@schulos/ui/field";
 import { cn } from "@schulos/ui/cn";
 import { PrintButton } from "@schulos/ui/print-button";
 import { DruckKopf } from "@/ui/druck-kopf";
 
 export const metadata: Metadata = { title: "Stundenplan drucken" };
 
-type Params = { gruppe?: string; lehrkraft?: string; raum?: string; person?: string; woche?: string; art?: string };
+type Params = { gruppe?: string; lehrkraft?: string; raum?: string; person?: string; woche?: string; art?: string; tag?: string };
 
 const shortDate = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TZ });
 const fmt = (ymd: string) => shortDate.format(fromBerlinLocal(ymd));
@@ -45,10 +47,13 @@ export default async function StundenplanDruckPage({ searchParams }: { searchPar
 
   const today = toBerlinDate(new Date());
   const thisWeek = weekdayMon0(today) >= 5 ? addDays(mondayOf(today), 7) : mondayOf(today);
-  const monday = YMD.test(sp.woche ?? "") ? mondayOf(sp.woche!) : thisWeek;
+  // SP3-04: „Plan am Tag X“ – ein gewählter Tag bestimmt Woche und Stand des Regelplans (auch vergangene: Archiv)
+  const day = YMD.test(sp.tag ?? "") && isCalendarDate(sp.tag!) ? sp.tag! : null;
+  const monday = day ? mondayOf(day) : YMD.test(sp.woche ?? "") ? mondayOf(sp.woche!) : thisWeek;
   const regular = sp.art !== "woche";
-  // Regelplan: Stand = heute, bei einer späteren Woche deren Montag
-  const ref = monday > today ? monday : today;
+  // Regelplan: Stand = gewählter Tag, sonst heute bzw. bei einer späteren Woche deren Montag
+  const ref = day ?? (monday > today ? monday : today);
+  const version = await versionOn(db, regular ? ref : monday);
 
   const [master, cal] = await Promise.all([timetableMasterData(db), loadSchoolCalendar(db)]);
   let title = "Stundenplan";
@@ -72,7 +77,10 @@ export default async function StundenplanDruckPage({ searchParams }: { searchPar
   const slots = view === "teacher" || view === "room" ? mergeCoupled(raw) : raw;
   const days = WEEKDAYS.map((_, i) => addDays(monday, i));
   const lastPeriod = Math.max(6, ...slots.map((x) => x.periodNr));
-  const subtitle = regular ? `Regelplan · Stand ${fmt(ref)}` : `KW ${isoWeek(monday)} (${weekOf(monday)}-Woche) · ${fmt(monday)} – ${fmt(days[4]!)} · mit Vertretungen`;
+  const versionText = version ? ` · Version ${version.label}` : "";
+  const subtitle = regular
+    ? `Regelplan · Stand ${fmt(ref)}${versionText}`
+    : `KW ${isoWeek(monday)} (${weekOf(monday)}-Woche) · ${fmt(monday)} – ${fmt(days[4]!)}${versionText} · mit Vertretungen`;
 
   // Q5-09: Pausenaufsichten der Lehrkraft (eigener Plan oder Kollegium; Schüler:innen/Eltern sehen sie nicht)
   const dutyTeacher = view === "teacher" && (target.kind === "teacher" || target.kind === "user") && (target.id === user.id || seesAllPlans(perms)) ? target.id : null;
@@ -82,7 +90,7 @@ export default async function StundenplanDruckPage({ searchParams }: { searchPar
       ? (await myDutyWeek(db, dutyTeacher)).map((d) => ({ ...d, key: `${d.weekday}-${d.afterPeriod}`, covering: false }))
       : (await myDutiesBetween(db, dutyTeacher, monday, addDays(monday, 5))).map((d) => ({ ...d, weekday: weekdayMon0(d.date), key: `${d.date}-${d.afterPeriod}-${d.dutyId}`, covering: d.kind === "covering" }));
 
-  const keep = Object.fromEntries(Object.entries(sp).filter(([k, v]) => v && k !== "art" && k !== "woche")) as Record<string, string>;
+  const keep = Object.fromEntries(Object.entries(sp).filter(([k, v]) => v && k !== "art" && k !== "woche" && k !== "tag")) as Record<string, string>;
   const link = (p: Record<string, string>) => `/druck/stundenplan?${new URLSearchParams({ ...keep, ...p })}`;
   const back = `/stundenplan?${new URLSearchParams({ ...keep, woche: monday })}`;
 
@@ -123,6 +131,20 @@ export default async function StundenplanDruckPage({ searchParams }: { searchPar
             Woche mit Vertretungen
           </Link>
         </Button>
+        {/* SP3-04: Plan am Tag X (auch vergangene Tage – der Plan ist seine eigene Historie) */}
+        <form action="/druck/stundenplan" method="get" aria-label="Plan am Tag" className="flex items-center gap-2">
+          {Object.entries(keep).map(([k, v]) => (
+            <input key={k} type="hidden" name={k} value={v} />
+          ))}
+          {!regular && <input type="hidden" name="art" value="woche" />}
+          <label className="text-sm" htmlFor="druck-tag">
+            Plan am
+          </label>
+          <Input id="druck-tag" type="date" name="tag" defaultValue={regular ? ref : monday} className="w-auto" />
+          <Button type="submit" size="sm" variant="ghost">
+            Plan zeigen
+          </Button>
+        </form>
         <PrintButton />
       </nav>
       <main className="mx-auto flex max-w-[277mm] flex-col gap-3">

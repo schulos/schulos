@@ -214,7 +214,7 @@ function cleanName(name: string | null | undefined): string | null {
 }
 
 /** Stichtag prüfen: echtes Datum, nach heute, im Schuljahr, Schultag (wie die Übernahme eines Solver-Laufs, SP-09). */
-async function checkValidFrom(db: Db, year: { startsOn: string; endsOn: string }, ymd: string, todayYmd: string) {
+export async function checkValidFrom(db: Db, year: { startsOn: string; endsOn: string }, ymd: string, todayYmd: string) {
   if (!isCalendarDate(ymd)) throw new ValidationError({ validFrom: "Datum wählen" });
   if (ymd <= todayYmd) throw new ValidationError({ validFrom: "Der Stichtag muss in der Zukunft liegen" });
   if (ymd < year.startsOn || ymd > year.endsOn) throw new ValidationError({ validFrom: `Der Stichtag muss im Schuljahr liegen (${fmt(year.startsOn)} – ${fmt(year.endsOn)})` });

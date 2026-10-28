@@ -183,7 +183,7 @@ export async function dayChanges(db: Db, date: string): Promise<DayChange[]> {
 }
 
 /** Eltern, die über diese Schüler:innen informiert werden (Moduleinstellung), mit allen ihren berechtigten Kindern. */
-async function informedParents(db: Db, studentIds: readonly string[]): Promise<Map<string, Set<string>>> {
+export async function informedParents(db: Db, studentIds: readonly string[]): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
   if (studentIds.length === 0) return out;
   const max = await readGradeSetting(db, PARENTS_SUBSTITUTION);

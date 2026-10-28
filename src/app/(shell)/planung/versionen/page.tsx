@@ -13,6 +13,8 @@ import { actorNames, canSeeVersion, openCommentCounts, selfApproved, type Viewer
 import { ensureBaseVersions, listVersions, nextNumber, OPEN_STATUSES, STATUS_LABELS, suggestedValidFrom, versionNumber, type VersionSummary } from "@/modules/stundenplan/planversionen";
 import type { PlanVersionSource, PlanVersionStatus } from "@/modules/stundenplan/schema";
 import { planningYear } from "@/modules/stundenplan/verteilung";
+import { publishedTimeline } from "@/modules/stundenplan/plan-archiv";
+import { isPublishUndoable } from "@/modules/stundenplan/veroeffentlichen";
 import { Badge } from "@schulos/ui/badge";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
@@ -60,7 +62,7 @@ function approvalText(v: VersionSummary["version"], approver: string | null): st
   return `${v.approvedAt ? dateTimeFmt.format(v.approvedAt) : ""} · ${approver ?? "Konto gelöscht"}${selfApproved(v) ? " (selbst freigegeben)" : ""}`;
 }
 
-function VersionCard({ s, manage, openComments, approver }: { s: VersionSummary; manage: boolean; openComments: number; approver: string | null }) {
+function VersionCard({ s, manage, openComments, approver, undoable }: { s: VersionSummary; manage: boolean; openComments: number; approver: string | null; undoable: boolean }) {
   const v = s.version;
   const f = s.figures;
   const titleId = `version-${v.id}`;
@@ -132,6 +134,19 @@ function VersionCard({ s, manage, openComments, approver }: { s: VersionSummary;
             <Link href={`/planung/versionen/aenderungen?version=${encodeURIComponent(v.id)}`} className="font-medium text-accent-ink hover:underline">
               Änderungen zum gültigen Plan
             </Link>
+            {/* SP3-04: freigegebene Versionen veröffentlicht die Planung */}
+            {manage && v.status === "freigegeben" && (
+              <Link href={`/planung/versionen/veroeffentlichen?version=${encodeURIComponent(v.id)}`} className="font-semibold text-accent-ink hover:underline">
+                Veröffentlichen …
+              </Link>
+            )}
+          </nav>
+        )}
+        {manage && v.status === "gueltig" && v.source !== "bestand" && (
+          <nav aria-label={`Version ${s.label}`} className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <Link href={`/planung/versionen/veroeffentlichen?version=${encodeURIComponent(v.id)}`} className="font-medium text-accent-ink hover:underline">
+              {undoable ? "Veröffentlichung ansehen / zurücknehmen" : "Veröffentlichung ansehen"}
+            </Link>
           </nav>
         )}
         {open && manage && <VersionActions id={v.id} label={`${s.label} „${v.name}“`} />}
@@ -146,6 +161,8 @@ function VersionCard({ s, manage, openComments, approver }: { s: VersionSummary;
  * SP3-02: je Entwurf „Im Entwurf arbeiten“ und „Änderungen zum gültigen Plan“, Variantenvergleich; Veröffentlichen mit SP3-04.
  * SP3-03: je Entwurf „Prüfung & Kommentare“; die Prüfung (`stundenplan.review`, Schulleitung) sieht die Liste ab „in Prüfung“ – ohne
  * Entwürfe in Arbeit, Verworfenes, Anlegen, Variante und Verwerfen.
+ * SP3-04: „Veröffentlichen …“ an freigegebenen Versionen, „Veröffentlichung ansehen / zurücknehmen“ an der gültigen, Zeitstrahl der
+ * veröffentlichten Versionen.
  */
 export default async function VersionenPage({ searchParams }: { searchParams: Promise<{ jahr?: string; angelegt?: string; verworfen?: string; fehler?: string; zurueck?: string }> }) {
   const { user, perms } = await requireUser();
@@ -168,11 +185,12 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
   }
   // neue Installation oder Demo: der vorhandene Plan wird „Bestand 1.0“ (idempotent)
   await ensureBaseVersions(db, today);
-  const [all, suggestion, nextMajor, nextMinor] = await Promise.all([
+  const [all, suggestion, nextMajor, nextMinor, timeline] = await Promise.all([
     listVersions(db, year.id, today),
     suggestedValidFrom(db, year, today),
     nextNumber(db, year.id, "major"),
     nextNumber(db, year.id, "minor"),
+    publishedTimeline(db, year.id),
   ]);
   // SP3-03: die Prüfung sieht nur Versionen ab „in Prüfung“ (§5)
   const versions = all.filter((s) => canSeeVersion(viewer, s.version));
@@ -243,13 +261,20 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
         ) : (
           <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {versions.map((s) => (
-              <VersionCard key={s.version.id} s={s} manage={manage} openComments={comments.get(s.version.id) ?? 0} approver={s.version.approvedBy ? (approvers.get(s.version.approvedBy) ?? null) : null} />
+              <VersionCard
+                key={s.version.id}
+                s={s}
+                manage={manage}
+                openComments={comments.get(s.version.id) ?? 0}
+                approver={s.version.approvedBy ? (approvers.get(s.version.approvedBy) ?? null) : null}
+                undoable={isPublishUndoable(s.version, today)}
+              />
             ))}
           </ul>
         )}
         {manage && drafts.length > 1 && (
           <p className="text-sm text-muted">
-            {drafts.length} offene Entwürfe – veröffentlicht wird genau einer, die anderen bleiben stehen, bis sie verworfen werden.{" "}
+            {drafts.length} offene Entwürfe – veröffentlicht wird genau einer: Varianten derselben Nummer verwirft das Veröffentlichen, andere Entwürfe bleiben stehen, bis sie verworfen werden.{" "}
             <Link
               href={`/planung/solver/vergleich?versionen=${drafts
                 .slice(0, 3)
@@ -262,6 +287,27 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
           </p>
         )}
       </section>
+
+      {timeline.length > 0 && (
+        <section aria-labelledby="timeline-title" className="flex flex-col gap-2">
+          <h2 id="timeline-title" className="font-display text-xl font-bold">
+            Zeitstrahl
+          </h2>
+          <p className="-mt-1 text-sm text-muted">Welche Version wann gilt – je Tag genau eine. Den Plan an einem Tag zeigen Stundenplan und Druck über „Plan am …“.</p>
+          <ol aria-label="Veröffentlichte Versionen" className="flex flex-col gap-1 text-sm">
+            {timeline.map((t) => (
+              <li key={t.id} className="flex flex-wrap items-baseline gap-2">
+                <Badge tone={t.status === "gueltig" ? "success" : "neutral"}>{STATUS_LABELS[t.status]}</Badge>
+                <span className="font-medium">Version {t.label}</span>
+                <span className="text-muted">„{t.name}“</span>
+                <span className="tabular-nums">
+                  {t.validFrom ? date(t.validFrom) : "…"} – {t.validUntil ? date(t.validUntil) : "offen"}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {manage && (
       <Card aria-labelledby="draft-title">
@@ -282,17 +328,18 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
       {manage ? (
       <p className="text-sm text-muted">
         Gearbeitet wird im Entwurf über „Im Entwurf arbeiten“ (Stundenplan, Setzhilfe, Diagnose) oder „Automatisch planen“ (Übernahme in den Entwurf).
-        Zum Halbjahreswechsel teilt „Neue Periode“ unter{" "}
+        Bearbeiten lässt sich nur ein Entwurf; nach „Zur Prüfung geben“ ist er nur lesbar, bis er zurück an die Planung geht (eine Freigabe verfällt
+        dabei). Eine freigegebene Version veröffentlicht die Planung ab einem Stichtag – unveränderte Stunden bleiben, Vertretungen und Material ziehen um;
+        bis zum Stichtag lässt sich das zurücknehmen. „Neue Periode“ unter{" "}
         <Link href="/planung/stundenplan" className="font-medium text-accent-ink hover:underline">
           Stundenplan
         </Link>{" "}
-        weiterhin den gültigen Plan direkt, bis Entwürfe veröffentlicht werden können. Bearbeiten lässt sich nur ein Entwurf; nach „Zur Prüfung geben“
-        ist er nur lesbar, bis er zurück an die Planung geht (eine Freigabe verfällt dabei).
+        teilt den gültigen Plan weiterhin direkt (bis zur Halbjahres-Vorlage).
       </p>
       ) : (
         <p className="text-sm text-muted">
           Hier erscheinen Entwürfe, sobald die Stundenplanung sie zur Prüfung gibt. Unter „Prüfen“ stehen Änderungen und Kommentare; freigeben oder
-          zurück an die Planung geben geht dort. Veröffentlicht wird später von der Stundenplanung.
+          zurück an die Planung geben geht dort. Veröffentlicht wird danach von der Stundenplanung.
         </p>
       )}
     </main>
