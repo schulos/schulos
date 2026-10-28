@@ -1,0 +1,16 @@
+{
+  "minVersion": "0.5.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Planversionen: Der Stundenplan hat einen Lebenszyklus mit Entwurf, Prüfung, Freigabe und Veröffentlichung ab einem Stichtag. Gearbeitet wird im Entwurf (Setzhilfe, Pflege, Diagnose, automatische Planung); der gültige Plan bleibt bis zum Stichtag unverändert. Varianten lassen sich vergleichen" },
+    { "kind": "neu", "text": "Freigabe durch die Schulleitung: Die Planung gibt einen Entwurf zur Prüfung, die Schulleitung kommentiert, gibt zurück oder frei. Lehrkräfte können sich optional ihren eigenen Plan ab dem Stichtag ansehen und der Planung Rückmeldung geben" },
+    { "kind": "neu", "text": "Veröffentlichen mit Vorschau: Zahlen zu geänderten, neuen und entfallenden Stunden und zu Vertretungen und Material, die mitziehen. Klassenbuch-Einträge, Vertretungen und Material bleiben zugeordnet; bis zum Stichtag lässt sich die Veröffentlichung zurücknehmen" },
+    { "kind": "neu", "text": "Plan am Tag X: Stundenplan und Druck zeigen den Plan an jedem beliebigen Tag, auch vergangene und künftige; der Zeitstrahl in der Versionsliste zeigt, welche Version wann gilt. Lehrkräfte bekommen die Änderungen sofort, Lernende und Eltern am Vortag" },
+    { "kind": "neu", "text": "Änderungen im laufenden Betrieb: Sofort-Korrekturen im gültigen Plan gelten ab dem nächsten Schultag und stehen im Korrektur-Protokoll; für größere Änderungen gibt es die Folgeversion („Änderung im laufenden Plan“), für den Halbjahreswechsel die Vorlage „Neues Halbjahr“;„Periode kopieren“ entfällt" },
+    { "kind": "neu", "text": "Planungsfahrplan: Eine Checkliste mit acht Schritten führt von den Rahmendaten bis zum Veröffentlichen, mit Ampel je Schritt aus den echten Daten. Warnungen der Diagnose lassen sich mit Begründung quittieren; ohne Quittierung wird nicht veröffentlicht" },
+    { "kind": "neu", "text": "Neues Schuljahr: Nach der Versetzung entsteht der Entwurf aus dem Plan des Vorjahrs, hochgestuft (die Lehrkraft folgt der Klasse); Lehraufträge des Vorjahrs kommen als Vorschlag in die Matrix. Abgelaufene Schuljahre lassen sich archivieren; eine Kurzstatistik zeigt Ausfall und Vertretung" },
+    { "kind": "verbessert", "text": "Die automatische Planung findet bessere Pläne (bessere Zugwahl) und kann ab dem aktuellen Entwurf weiterverbessern; mehrere Durchgänge in einem Lauf" },
+    { "kind": "sicherheit", "text": "Entwürfe, Prüfkommentare, Quittierungen und das Korrektur-Protokoll sehen nur Planung und Schulleitung; Schüler:innen, Eltern, Monitore, Druck und Benachrichtigungen enthalten sie nie. Die Auskunft nach Art. 15 lässt Prüfnotizen über Lehrkräfte aus" },
+    { "kind": "sicherheit", "text": "Datenschutz: Bei der Kontolöschung werden Lehrkräfte in Planversionen, Rücknahme-Daten, Fahrplan-Quittierungen und im Korrektur-Protokoll durch neutrale Werte ersetzt" }
+  ]
+}
