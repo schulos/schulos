@@ -46,6 +46,7 @@ import { seedPinnwaende } from "@/modules/pinnwaende/seed";
 import { seedTafeln } from "@/modules/tafeln/seed";
 import { seedTexte } from "@/modules/texte/seed";
 import { seedNews } from "@/modules/news/seed";
+import { seedHilfe } from "@/modules/hilfe/seed";
 import { seedStundenplan } from "@/modules/stundenplan/seed";
 import { PLAN_SUBSTITUTE, PLANNING_GROUP, PLANNING_GROUP_PERMISSIONS } from "@/modules/stundenplan/rechte";
 import { applyCurriculumTemplate, ensureGradeLevels } from "@/modules/verwaltung/stammdaten";
@@ -375,6 +376,7 @@ export async function seedDemoSchool(
   await seedBuchungen(db);
   await seedKlausurplan(db);
   await seedMonitor(db);
+  await seedHilfe(db);
   // neue Module kommen per Update ausgeschaltet (B-34) – die Demo zeigt Gebäude & Technik eingeschaltet
   await setModuleEnabled(db, gebaeude, true);
   // Schulanmeldung: in der Demo an (ohne SMTP bleiben Mails in der Warteschlange), offenes Verfahren mit 30 Anträgen (P4-41)

@@ -6,6 +6,7 @@ import { aufgabenWidgets } from "./aufgaben/widgets";
 import { buechereiWidgets } from "./buecherei/widgets";
 import { gebaeudeWidgets } from "./gebaeude/widgets";
 import { heuteWidgets } from "./heute/widgets";
+import { hilfeWidgets } from "./hilfe/widgets";
 import { kalenderWidgets } from "./kalender/widgets";
 import { klassenbuchWidgets } from "./klassenbuch/widgets";
 import { kurseWidgets } from "./kurse/widgets";
@@ -29,4 +30,5 @@ export const WIDGETS: readonly WidgetDef[] = [
   ...anmeldungWidgets,
   ...buechereiWidgets,
   ...verwaltungWidgets,
+  ...hilfeWidgets,
 ];

@@ -11,6 +11,7 @@ import { MobileTabBar, SidebarNav } from "./_shell/nav";
 import { CommandPalette } from "./_shell/palette";
 import { DisclaimerBand } from "./_shell/disclaimer";
 import { Gong } from "./_shell/gong";
+import { HelpButton } from "./_shell/help-button";
 import { LiveEvents } from "./_shell/live";
 import { SearchButton } from "./_shell/topbar";
 import { UserMenu } from "./_shell/user-menu";
@@ -62,6 +63,7 @@ export default async function ShellLayout({ children }: { children: React.ReactN
             </Link>
             <SearchButton />
             <div className="ml-auto flex items-center gap-2">
+              {shell.help && <HelpButton />}
               <Gong initialUnread={shell.unread} />
               <UserMenu user={shell.user} userId={current.perms.userId} demoAccounts={demoAccounts} source={sourceLink()}
                 issue={ISSUE_ROLES.includes(current.user.role) ? issueLink() : undefined}

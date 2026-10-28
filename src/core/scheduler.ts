@@ -18,6 +18,7 @@ import { runGapReminders } from "@/modules/klassenbuch/luecken";
 import { runPrefWindowReminders } from "@/modules/stundenplan/zeitwunsch-fenster";
 import { runSprechtagReminders } from "@/modules/sprechtag/erinnerung";
 import { runKurswahlReminders } from "@/modules/kurswahl/erinnerung";
+import { runReviewReminders } from "@/modules/hilfe/service";
 import { purgeExpiredOfflineDevices } from "@/modules/notenbuch/offline";
 import { runReservations } from "@/modules/buecherei/reservations";
 import { runSchoolbookDunning } from "@/modules/buecherei/ausgabe";
@@ -121,6 +122,18 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
       const m = MODULES.find((x) => x.id === "kurswahl");
       if (!m || !isEnabled(m, await loadModuleStates(db))) return;
       return runKurswahlReminders(db, now);
+    },
+  },
+  {
+    // HB-04: Handbuchseiten nach der eingestellten Frist (Vorgabe 12 Monate, abschaltbar) – einmal ein Gong an die Ansprechperson
+    name: "hilfe-ueberpruefung",
+    at: "07:15",
+    until: "20:00",
+    ttlMs: 10 * 60_000,
+    run: async (db, now) => {
+      const m = MODULES.find((x) => x.id === "hilfe");
+      if (!m || !isEnabled(m, await loadModuleStates(db))) return;
+      return runReviewReminders(db, now);
     },
   },
   {

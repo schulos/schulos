@@ -271,6 +271,19 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
       "Datenpanne: Wer den Verdacht hat, dass personenbezogene Daten verloren gegangen, an Unbefugte gelangt oder verändert worden sind (z. B. falscher Empfänger, verlorener Stick oder Laptop, fremder Zugriff auf ein Konto, ungewollt sichtbare Inhalte), meldet das **sofort** – am selben Tag, auch außerhalb der Dienstzeit – an die Schulleitung und die bzw. den Datenschutzbeauftragten (Kontakt: <Name, Telefon, E-Mail eintragen>). Die Meldung ist keine Schuldzuweisung; eine späte Meldung gefährdet die Frist von 72 Stunden. Bis zur Klärung nichts löschen oder „reparieren“, Geräte und Nachrichten unverändert lassen; ist ein Konto betroffen, das Passwort nur auf Anweisung ändern lassen und Hilfe über die Admin-Stelle holen (<Kontakt eintragen>).",
     where: { label: "Betriebshandbuch (docs/BETRIEBSHANDBUCH.md), Kapitel Datenpanne", href: "/verwaltung/datenschutz/einrichtung" },
   },
+  {
+    id: "handbuch",
+    nr: 20,
+    title: "Handbuch: interne Anleitungen mit Ansprechperson",
+    schulos:
+      "Schulinternes Handbuch (Bereich → Seite) nur für angemeldete Personen; jede Seite hat Zielgruppen (Rollen oder Gruppen, Eltern sehen Seiten für die Klassen ihrer Kinder mit), Entwürfe sehen nur Pflegende und die Ansprechperson. Personenbezug nur über Ansprechperson und „angelegt/geändert von“ – diese Verweise werden bei der Kontolöschung geleert, die Seiten bleiben (keine automatische Löschfrist). Der Editor weist darauf hin, keine Schülerdaten sowie keine Gesundheits- oder Notendaten einzutragen. Die Erinnerung „Überprüfung fällig“ geht einmal je Frist als Gong nur an die Ansprechperson.",
+    vorgabe:
+      "Pflege mit „Handbuch bearbeiten“ (Verwaltung; Funktionsgruppen über Gruppenrechte), die Ansprechperson darf ihre eigene Seite bearbeiten (nur Titel und Text). Neue Seiten sind zunächst nur für Personal sichtbar. Erinnerung zur Überprüfung nach 12 Monaten.",
+    schule:
+      "Legt fest, wer das Handbuch pflegt, und vergibt „Handbuch bearbeiten“ an Funktionsgruppen; benennt Ansprechpersonen nur mit deren Wissen; nimmt das Handbuch als Verarbeitungstätigkeit „interne Hilfe und Anleitungen“ ins VVT auf; prüft, ob Seiten für Schüler:innen und Eltern freigegeben werden. Rechtliche Einordnung: zu prüfen.",
+    settings: ["hilfe.review_months"],
+    where: { label: "Verwaltung → Rechte & Module → Handbuch", href: "/verwaltung/rechte" },
+  },
 ];
 
 /** Rein: die Kurzfassung eines Themas für docs/DSB-FRAGEN.md (zwischen den Markern). */

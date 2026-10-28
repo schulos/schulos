@@ -267,6 +267,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   buecherei_stats: "Bücherei: Zahl der Ausleihen und Verlängerungen je Monat und Medienart – keine Personen",
   buecherei_teaching_materials: "Schulbuchausleihe: Lernmittel je Jahrgang/Fach/Kurs (bibliografische Angaben, Preis) – keine Personen",
   buecherei_material_copies: "Schulbuchausleihe: Exemplare mit Inventarnummer, Zustand (Vermerk zur Sache), Aussonderung – keine Personen",
+  hilfe_sections: "Handbuch: Bereiche (Titel, Reihenfolge) – keine Personen",
   buecherei_booklists: "Schulbuchausleihe: Hinweistext der Bücherliste je Jahrgang – keine Personen",
 };
 
