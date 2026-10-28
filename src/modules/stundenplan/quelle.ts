@@ -6,6 +6,7 @@ import type { Db } from "@/core/db/client";
 import { timetablePlanVersions, type TimetablePlanVersion } from "./schema";
 import { draftOf, LIVE, requireWritable, type PlanSource } from "./plan-quelle";
 import { OPEN_STATUSES, STATUS_LABELS, versionNumber } from "./planversionen";
+import { requireWritableYear, yearOfVersion } from "./planungsjahr";
 
 /** URL-Wert des gültigen Plans (Vorgabe, steht nicht in der URL). */
 export const QUELLE_LIVE = "gueltig";
@@ -54,11 +55,15 @@ export async function resolveQuelle(db: Db, raw: string | null | undefined, scho
   return { value: hit.value, source: draftOf(hit.value), label: hit.label, version: version ?? null, editable: hit.editable, options };
 }
 
-/** Für Server Actions: Quelle zum Schreiben – leer/`gueltig` = gültiger Plan, sonst ein Entwurf im Status `entwurf` (sonst Fehler). */
+/**
+ * Für Server Actions: Quelle zum Schreiben – leer/`gueltig` = gültiger Plan, sonst ein Entwurf im Status `entwurf` (sonst Fehler).
+ * SP3-09a: Entwürfe auch im Folgejahr; Entwürfe abgeschlossener Schuljahre sind nur lesbar.
+ */
 export async function writableSource(db: Db, raw: string | null | undefined): Promise<PlanSource> {
   if (!raw || raw === QUELLE_LIVE) return LIVE;
   const source = draftOf(raw);
   await requireWritable(db, source);
+  await requireWritableYear(db, (await yearOfVersion(db, raw))?.id);
   return source;
 }
 

@@ -12,7 +12,8 @@ import { afterOf, createLesson, defaultValidity, liveUnitPlan, saveCoupling, slo
 import { idWhere, lessonCols, LIVE, overlapWhere, requireWritable, type PlanSource } from "./plan-quelle";
 import { timetableLessons, type LESSON_WEEKS } from "./schema";
 import { applyLiveUnits, type LiveOptions } from "./sofortkorrektur";
-import { distribution, planningYear, type Assignment } from "./verteilung";
+import { distribution, type Assignment } from "./verteilung";
+import { yearOfSource } from "./planungsjahr";
 import { allPrefs, blockedReasons } from "./zeitwuensche";
 import { dayLimitReasons, type DayLimits } from "./tagesgrenzen";
 import { loadDayLimits } from "./jahrgangsregeln";
@@ -261,10 +262,11 @@ export interface OpenAssignment extends Assignment {
 
 /**
  * Lehraufträge der Gruppe im Planungsjahr mit noch offenen Wochenstunden (Stichtag heute). Ein Lehrauftrag im Band ist offen,
- * solange das Band offen ist (schwächstes Mitglied) – gesetzt wird dann das ganze Band.
+ * solange das Band offen ist (schwächstes Mitglied) – gesetzt wird dann das ganze Band. SP3-09a: im Entwurf die Lehraufträge seines
+ * Schuljahrs (auch im Folgejahr).
  */
 export async function openAssignments(db: Db, groupId: string, todayYmd: string, source: PlanSource = LIVE): Promise<OpenAssignment[]> {
-  const year = await planningYear(db);
+  const year = await yearOfSource(db, source);
   if (!year) return [];
   const d = await distribution(db, year, todayYmd, { source });
   const byId = new Map(d.assignments.map((a) => [a.id, a]));
@@ -360,7 +362,7 @@ export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssig
     rooms: roomList,
     blocked,
     dayLimits: await loadDayLimits(db),
-    teacherLimits: await loadTeacherLimits(db),
+    teacherLimits: await loadTeacherLimits(db, (await yearOfSource(db, source))?.id),
   };
 }
 
@@ -430,7 +432,7 @@ export async function movePlacement(db: Db, lessonId: string, source: PlanSource
   const targets = lessonPrefTargets(unit);
   const blocked = (weekday: number, periodNr: number) => blockedReasons(prefs, targets, weekday, periodNr);
   const blockedFor = (ls: GridLesson[], weekday: number, periodNr: number) => unique(blockedReasons(prefs, lessonPrefTargets(ls), weekday, periodNr));
-  return { lessons, unit, rooms: roomList, blocked, blockedFor, dayLimits: await loadDayLimits(db), teacherLimits: await loadTeacherLimits(db) };
+  return { lessons, unit, rooms: roomList, blocked, blockedFor, dayLimits: await loadDayLimits(db), teacherLimits: await loadTeacherLimits(db, (await yearOfSource(db, source))?.id) };
 }
 
 export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number[], periods: number[]): GridInput {

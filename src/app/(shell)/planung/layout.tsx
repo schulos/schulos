@@ -1,15 +1,22 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
+import { getDb } from "@/core/db/client";
 import { requireModulePage } from "@/core/modules/guard";
 import { hasPermission } from "@/core/permissions";
 import { PLAN_FORECAST, PLAN_MANAGE, PLAN_REVIEW, PLAN_SUBSTITUTE } from "@/modules/stundenplan/rechte";
+import { ROLE_LABELS } from "@/modules/stundenplan/planungsjahr";
 import { SubNav } from "@schulos/ui/sub-nav";
+import { PLANNING_YEAR_COOKIE, selectedPlanningYear } from "./planungsjahr";
+import { PlanningYearBar } from "./planungsjahr-wahl";
 
 /**
  * SP-03 (docs/STUNDENPLAN-UMBAU.md §2.3): eigener Bereich „Stundenplanung“ statt Reiter in der Verwaltung. Zugang nur mit einem der
  * beiden Planungsrechte (sonst 404) – `verwaltung.access` ist nicht nötig. Die Seiten prüfen ihr Recht zusätzlich selbst.
  * SP2-12: auch mit „Fachbedarf einsehen“ (Schulleitung) – dann nur Übersicht und Fachbedarf (Summen je Fach).
  * SP3-03: auch mit „Planentwurf prüfen und freigeben“ (Schulleitung) – dann Übersicht und Versionen (ab „in Prüfung“).
+ * SP3-09a: Kopf mit dem Planungsjahr (Vorgabe: laufendes Schuljahr; Folgejahr wählbar, sobald angelegt; vergangene nur lesend) für die
+ * Jahresplanung und die Prüfung.
  */
 export default async function PlanungLayout({ children }: { children: React.ReactNode }) {
   await requireModulePage("stundenplan");
@@ -34,9 +41,20 @@ export default async function PlanungLayout({ children }: { children: React.Reac
     substitute && { href: "/planung/vertretungen", label: "Vertretungen" },
     (manage || substitute) && { href: "/planung/aufsichten", label: "Aufsichten" },
   ].filter((t): t is { href: string; label: string } => Boolean(t));
+  const py = manage || review ? await selectedPlanningYear(await getDb()) : null;
   return (
     <div className="flex flex-col gap-6">
       <SubNav tabs={tabs} label="Stundenplanung" root="/planung" />
+      {py && (
+        <Suspense fallback={null}>
+          <PlanningYearBar
+            initialYearId={py.year.id}
+            baseId={py.base.id}
+            cookieName={PLANNING_YEAR_COOKIE}
+            choices={py.choices.map((c) => ({ id: c.id, name: c.name, role: c.role, roleLabel: ROLE_LABELS[c.role] }))}
+          />
+        </Suspense>
+      )}
       {children}
     </div>
   );

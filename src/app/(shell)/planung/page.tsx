@@ -12,6 +12,8 @@ import { planningOverview, type FahrplanSummary, type SubstituteFigures, type Ye
 import { AMPEL_LABELS, type Ampel } from "@/modules/stundenplan/fahrplan";
 import { STATUS_LABELS } from "@/modules/stundenplan/planversionen";
 import { distribution, planningYear } from "@/modules/stundenplan/verteilung";
+import { ROLE_LABELS } from "@/modules/stundenplan/planungsjahr";
+import { selectedPlanningYear } from "./planungsjahr";
 import { Badge } from "@schulos/ui/badge";
 import { PageHeader } from "@schulos/ui/misc";
 
@@ -304,14 +306,17 @@ export default async function PlanungPage() {
   // R2-P12: die Unterrichtsverteilung nur einmal rechnen – Kennzahlen und Fachbedarf teilen sie
   const year = manage || forecast ? await planningYear(db) : null;
   const dist = year ? await distribution(db, year, today) : undefined;
+  // SP3-09a: die Jahresplanung folgt dem gewählten Planungsjahr (Kopf des Bereichs); der Fachbedarf bleibt die Prognose aus dem laufenden
+  const sel = manage ? await selectedPlanningYear(db) : null;
+  const other = sel && !sel.isBase ? sel.year : null;
+  const selDist = other ? await distribution(db, other, today) : dist;
   const [o, need, queue] = await Promise.all([
-    planningOverview(db, today, { manage, substitute }, dist),
+    planningOverview(db, today, { manage, substitute }, selDist, other),
     manage || forecast ? loadFachbedarf(db, today, { details: false, distribution: dist }) : null,
     review ? reviewQueue(db) : null,
   ]);
-  const yearLine = o.year
-    ? `Schuljahr ${o.year.name} · ${date(o.year.startsOn)} – ${date(o.year.endsOn)}${o.year.isCurrent ? "" : " (nicht als aktuell markiert)"}`
-    : null;
+  const yearNote = other && sel ? ` (${ROLE_LABELS[sel.role]})` : o.year?.isCurrent ? "" : " (nicht als aktuell markiert)";
+  const yearLine = o.year ? `Schuljahr ${o.year.name} · ${date(o.year.startsOn)} – ${date(o.year.endsOn)}${yearNote}` : null;
   return (
     <main className="flex flex-col gap-7">
       <div className="flex flex-col gap-2">

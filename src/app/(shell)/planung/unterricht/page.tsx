@@ -34,7 +34,9 @@ import { DIAGNOSIS_CATEGORIES, diagnoseYear, type DiagnosisCategory } from "@/mo
 import { defaultObligation, deputyAccounts, REDUCTION_LABELS, reductionKind, type DeputyAccount, type Reduction } from "@/modules/stundenplan/deputate";
 import { timetableMasterData } from "@/modules/stundenplan/service";
 import { bandMembers, freeAssignments, validityLabel as validityText } from "@/modules/stundenplan/baender-ansicht";
-import { distribution, planningYear, PLANNED_GROUP_KINDS, type Assignment, type Distribution } from "@/modules/stundenplan/verteilung";
+import { distribution, PLANNED_GROUP_KINDS, type Assignment, type Distribution } from "@/modules/stundenplan/verteilung";
+import { yearOfVersion } from "@/modules/stundenplan/planungsjahr";
+import { planningYearForPage } from "../planungsjahr";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -55,7 +57,7 @@ import type { PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 
 export const metadata: Metadata = { title: "Unterrichtsverteilung" };
 
-type Search = { jahrgang?: string; vorschlag?: string; ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string; stichtag?: string; quelle?: string };
+type Search = { jahrgang?: string; vorschlag?: string; ansicht?: string; kategorie?: string; art?: string; gruppe?: string; lehrkraft?: string; neu?: string; auftrag?: string; uebernommen?: string; band?: string; gespeichert?: string; stichtag?: string; quelle?: string; jahr?: string };
 
 const num = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "UTC" });
@@ -83,8 +85,11 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
   const sp = await searchParams;
   const db = await getDb();
-  const year = await planningYear(db);
-  if (!year) {
+  // SP3-09a: Planungsjahr aus dem Kopf des Bereichs (Cookie); ein Entwurf in der URL bzw. `jahr=` stellt es um (Deeplink)
+  const draftYear = sp.quelle && sp.quelle !== QUELLE_LIVE ? ((await yearOfVersion(db, sp.quelle))?.id ?? null) : null;
+  const py = await planningYearForPage(db, "/planung/unterricht", sp, draftYear);
+  const year = py?.year ?? null;
+  if (!py || !year) {
     return (
       <main className="flex flex-col gap-6">
         <PageHeader eyebrow="Stundenplanung" title="Unterrichtsverteilung" />
@@ -93,6 +98,8 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
     );
   }
   const today = toBerlinDate(new Date());
+  /** abgeschlossenes Schuljahr: nur lesbar (die Actions lehnen ebenfalls ab) */
+  const ro = !py.writable;
   // SP2-09: Verteilung an einem wählbaren Stichtag (Lehraufträge mit Gültigkeit, z. B. 2. Halbjahr)
   const stichtag = sp.stichtag && /^\d{4}-\d{2}-\d{2}$/.test(sp.stichtag) ? sp.stichtag : undefined;
   // SP3-02: „verplant“, Deputat-Ist und Diagnose wahlweise gegen einen Entwurf (Vorgabe-Stichtag: der des Entwurfs)
@@ -124,9 +131,9 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
   const back = href(current);
 
   // ------------------------------------------------------------ Formular
-  const editing = sp.auftrag ? [...d.assignments, ...d.otherTime].find((a) => a.id === sp.auftrag) : undefined;
+  const editing = !ro && sp.auftrag ? [...d.assignments, ...d.otherTime].find((a) => a.id === sp.auftrag) : undefined;
   let form: React.ReactNode = null;
-  if (editing || sp.neu !== undefined) {
+  if (editing || (!ro && sp.neu !== undefined)) {
     const initial: AssignmentFormValues = {
       groupId: editing?.groups[0]?.id ?? group?.id ?? "",
       bandId: editing?.bandId ?? "",
@@ -147,7 +154,7 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         </h2>
         <AssignmentForm
           key={editing?.id ?? "neu"}
-          action={saveAssignmentAction.bind(null, editing?.id ?? null)}
+          action={saveAssignmentAction.bind(null, year.id, editing?.id ?? null)}
           deleteAction={editing ? deleteAssignmentAction.bind(null, editing.id, back) : undefined}
           initial={initial}
           back={back}
@@ -168,8 +175,10 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
     );
   }
 
-  // „Aus Stundenplan übernehmen“ liest den gültigen Plan – im Entwurf ausgeblendet
-  const unmatchedCount = q.version ? 0 : d.unmatched.length;
+  // „Aus Stundenplan übernehmen“ liest den gültigen Plan – im Entwurf und außerhalb des laufenden Schuljahrs ausgeblendet
+  const unmatchedCount = q.version || !py.isBase ? 0 : d.unmatched.length;
+  // SP3-09a: im Folgejahr gibt es Klassen erst nach der Versetzung (Schuljahreswechsel)
+  const noClasses = !d.groups.some((g) => g.kind === "klasse");
   return (
     <main className="flex flex-col gap-6">
       <PageHeader
@@ -179,22 +188,26 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
           <>
             <ExportMenu arts={["verteilung", "deputate"]} perms={perms} />
             {unmatchedCount > 0 && (
-              <form action={importAssignmentsAction}>
+              <form action={importAssignmentsAction.bind(null, year.id)}>
                 <Button type="submit">
                   <Wand2 aria-hidden /> Aus Stundenplan übernehmen ({unmatchedCount} Std.)
                 </Button>
               </form>
             )}
-            <Button asChild>
-              <Link href="/planung/unterricht/import">
-                <Upload aria-hidden /> CSV-Import
-              </Link>
-            </Button>
-            <Button asChild variant="primary">
-              <Link href={href({ ...current, neu: "1" })}>
-                <Plus aria-hidden /> Lehrauftrag anlegen
-              </Link>
-            </Button>
+            {!ro && (
+              <>
+                <Button asChild>
+                  <Link href="/planung/unterricht/import">
+                    <Upload aria-hidden /> CSV-Import
+                  </Link>
+                </Button>
+                <Button asChild variant="primary">
+                  <Link href={href({ ...current, neu: "1" })}>
+                    <Plus aria-hidden /> Lehrauftrag anlegen
+                  </Link>
+                </Button>
+              </>
+            )}
           </>
         }
       />
@@ -233,6 +246,12 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
           </Button>
         )}
       </form>
+      {ro && (
+        <p role="note" data-testid="nur-lesbar" className="rounded-xl border border-warn-border bg-warn-soft px-4 py-3 text-sm">
+          Das Schuljahr {year.name} ist abgeschlossen – Lehraufträge, Matrix, Bänder und Deputate sind nur lesbar.
+        </p>
+      )}
+      {noClasses && !py.isBase && <NoClassesNote yearName={year.name} />}
       {sp.uebernommen !== undefined && (
         <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
           {sp.uebernommen === "0" ? "Alle Stunden des Stundenplans haben schon einen Lehrauftrag." : `${sp.uebernommen} Lehraufträge aus dem Stundenplan übernommen.`}
@@ -275,17 +294,17 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
       </nav>
       {form}
       {matrixView ? (
-        <MatrixView d={d} year={year} accounts={accounts} teachers={pickList(accounts, fakultas, active)} gradeParam={sp.jahrgang} vorschlag={sp.vorschlag} stichtag={stichtag} />
+        <MatrixView d={d} year={year} accounts={accounts} teachers={pickList(accounts, fakultas, active)} gradeParam={sp.jahrgang} vorschlag={sp.vorschlag} stichtag={stichtag} readOnly={ro} />
       ) : limitsView ? (
         <LimitsView saved={sp.gespeichert} />
       ) : bandsView ? (
-        <BandsView d={d} bandParam={sp.band} />
+        <BandsView d={d} bandParam={sp.band} yearId={year.id} readOnly={ro} />
       ) : report ? (
         <DiagnosisView report={report} category={category} refLabel={`Stand ${dateFmt.format(new Date(`${d.refYmd}T00:00:00Z`))}`} />
       ) : group ? (
         <GroupDetail d={d} groupId={group.id} current={current} />
       ) : teacher ? (
-        <TeacherDetail d={d} year={year} account={accounts.find((a) => a.id === teacher.id)!} fallback={fallback} current={current} subjects={subjectOptions} selected={fakultas.get(teacher.id) ?? []} />
+        <TeacherDetail d={d} year={year} account={accounts.find((a) => a.id === teacher.id)!} fallback={fallback} current={current} subjects={subjectOptions} selected={fakultas.get(teacher.id) ?? []} readOnly={ro} />
       ) : teachersView ? (
         <TeacherOverview accounts={accounts} fakultas={fakultas} />
       ) : (
@@ -296,6 +315,20 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
 }
 
 type Current = Record<string, string | undefined>;
+
+/** SP3-09a: Leerzustand im Folgejahr – Klassen entstehen mit der Versetzung im Schuljahreswechsel. */
+function NoClassesNote({ yearName }: { yearName: string }) {
+  return (
+    <p role="note" data-testid="folgejahr-ohne-klassen" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
+      Im Schuljahr {yearName} gibt es noch keine Klassen. Sie entstehen mit der Versetzung im{" "}
+      <Link href="/verwaltung/schuljahreswechsel" className="font-medium underline">
+        Schuljahreswechsel
+      </Link>{" "}
+      (Verwaltung) bzw. werden dort angelegt. Lehraufträge für Kurse und AGs ohne Schuljahr gehen schon jetzt; die Matrix füllt sich, sobald es Klassen gibt –
+      danach „Aus dem Vorjahr übernehmen“.
+    </p>
+  );
+}
 
 function GroupOverview({ d, art, stichtag, quelle }: { d: Distribution; art?: string; stichtag?: string; quelle?: string }) {
   const kinds = PLANNED_GROUP_KINDS.filter((k) => d.groups.some((g) => g.kind === k));
@@ -604,7 +637,7 @@ function GroupDetail({ d, groupId, current }: { d: Distribution; groupId: string
   );
 }
 
-type DeputyYear = { startsOn: string; endsOn: string; term2StartsOn: string | null };
+type DeputyYear = { id: string; startsOn: string; endsOn: string; term2StartsOn: string | null };
 
 const ymdDe = (ymd: string) => dateFmt.format(new Date(`${ymd}T00:00:00Z`));
 
@@ -615,7 +648,7 @@ function reductionValidity(r: Reduction): string {
   return r.validFrom ? `ab ${ymdDe(r.validFrom)}` : `bis ${ymdDe(r.validUntil!)}`;
 }
 
-function DeputyCard({ account: a, fallback, year, refYmd }: { account: DeputyAccount; fallback: number; year: DeputyYear; refYmd: string }) {
+function DeputyCard({ account: a, fallback, year, refYmd, readOnly }: { account: DeputyAccount; fallback: number; year: DeputyYear; refYmd: string; readOnly: boolean }) {
   const reductionSum = a.reductions.reduce((s, r) => s + r.hours, 0);
   const all = [...a.reductions.map((r) => ({ r, active: true })), ...a.otherReductions.map((r) => ({ r, active: false }))];
   const term2From = year.term2StartsOn && year.term2StartsOn > year.startsOn && year.term2StartsOn <= year.endsOn ? year.term2StartsOn : null;
@@ -661,17 +694,26 @@ function DeputyCard({ account: a, fallback, year, refYmd }: { account: DeputyAcc
           </tbody>
         </Table>
       )}
-      <ObligationForm
-        key={a.id}
-        action={saveObligationAction.bind(null, a.id)}
-        value={a.settings.obligation === null ? "" : num.format(a.settings.obligation)}
-        percent={a.settings.employmentPercent === null ? "" : num.format(a.settings.employmentPercent)}
-        term2={a.settings.obligationTerm2 === null ? "" : num.format(a.settings.obligationTerm2)}
-        term2From={term2From ? ymdDe(term2From) : null}
-        fallback={fallback}
-      />
+      {!readOnly && (
+        <ObligationForm
+          key={`${year.id}|${a.id}`}
+          action={saveObligationAction.bind(null, year.id, a.id)}
+          value={a.settings.obligation === null ? "" : num.format(a.settings.obligation)}
+          percent={a.settings.employmentPercent === null ? "" : num.format(a.settings.employmentPercent)}
+          term2={a.settings.obligationTerm2 === null ? "" : num.format(a.settings.obligationTerm2)}
+          term2From={term2From ? ymdDe(term2From) : null}
+          fallback={fallback}
+        />
+      )}
       {/* SP2-04: Tagesregel (hart im Solver und in der Setzhilfe, geprüft in der Diagnose) */}
-      <TeacherDayRuleForm action={saveTeacherDayRuleAction.bind(null, a.id)} maxPerDay={a.dayRule?.maxPerDay?.toString() ?? ""} maxDays={a.dayRule?.maxDays?.toString() ?? ""} />
+      {!readOnly && (
+        <TeacherDayRuleForm
+          key={`regel|${year.id}|${a.id}`}
+          action={saveTeacherDayRuleAction.bind(null, year.id, a.id)}
+          maxPerDay={a.dayRule?.maxPerDay?.toString() ?? ""}
+          maxDays={a.dayRule?.maxDays?.toString() ?? ""}
+        />
+      )}
       {all.length > 0 && (
         <Table scrollLabel="Ermäßigungen und Anrechnungen (Tabelle)">
           <caption className="sr-only">Ermäßigungen und Anrechnungen</caption>
@@ -705,24 +747,29 @@ function DeputyCard({ account: a, fallback, year, refYmd }: { account: DeputyAcc
                 </td>
                 <td className="text-right tabular-nums">{num.format(r.hours)}</td>
                 <td className="text-right">
-                  <form action={deleteReductionAction.bind(null, r.id, a.id)}>
-                    <Button type="submit" size="sm" variant="ghost" aria-label={`${REDUCTION_LABELS[r.reason]} entfernen`}>
-                      Entfernen
-                    </Button>
-                  </form>
+                  {!readOnly && (
+                    <form action={deleteReductionAction.bind(null, r.id, a.id)}>
+                      <Button type="submit" size="sm" variant="ghost" aria-label={`${REDUCTION_LABELS[r.reason]} entfernen`}>
+                        Entfernen
+                      </Button>
+                    </form>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </Table>
       )}
-      <ReductionForm
-        action={addReductionAction.bind(null, a.id)}
-        reasons={REDUCTION_REASONS.map((r) => ({ value: r, label: `${REDUCTION_LABELS[r]} (${reductionKind(r)})` }))}
-        min={year.startsOn}
-        max={year.endsOn}
-        term2From={term2From ? ymdDe(term2From) : null}
-      />
+      {!readOnly && (
+        <ReductionForm
+          key={`erm|${year.id}|${a.id}`}
+          action={addReductionAction.bind(null, year.id, a.id)}
+          reasons={REDUCTION_REASONS.map((r) => ({ value: r, label: `${REDUCTION_LABELS[r]} (${reductionKind(r)})` }))}
+          min={year.startsOn}
+          max={year.endsOn}
+          term2From={term2From ? ymdDe(term2From) : null}
+        />
+      )}
     </Card>
   );
 }
@@ -735,6 +782,7 @@ function TeacherDetail({
   current,
   subjects,
   selected,
+  readOnly,
 }: {
   d: Distribution;
   year: DeputyYear;
@@ -743,6 +791,7 @@ function TeacherDetail({
   current: Current;
   subjects: { value: string; label: string; color: string }[];
   selected: string[];
+  readOnly: boolean;
 }) {
   const t = account;
   const teacherId = t.id;
@@ -765,7 +814,7 @@ function TeacherDetail({
         </h3>
         <TeacherSubjectsForm action={saveTeacherSubjectsAction.bind(null, t.id)} subjects={subjects} selected={selected} />
       </Card>
-      <DeputyCard account={account} fallback={fallback} year={year} refYmd={d.refYmd} />
+      <DeputyCard account={account} fallback={fallback} year={year} refYmd={d.refYmd} readOnly={readOnly} />
       <AssignmentTable rows={rows} bands={d.bands} current={current} caption={`Lehraufträge ${t.name}`} show="groups" />
       <Unmatched rows={d.unmatched.filter((l) => l.teacherId === teacherId)} />
     </section>
@@ -781,9 +830,9 @@ function assignmentLabel(a: Assignment): string {
  * SP2-01: Bänder – Lehraufträge, die zur selben Zeit liegen. Soll = Wochenstunden des Bands, verplant = das am wenigsten verplante
  * Mitglied, dazu „zur selben Zeit“ = Stunden, in denen alle Mitglieder im selben Slot liegen.
  */
-function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
-  const editing = d.bands.find((b) => b.id === bandParam);
-  const creating = bandParam === "neu";
+function BandsView({ d, bandParam, yearId, readOnly }: { d: Distribution; bandParam?: string; yearId: string; readOnly: boolean }) {
+  const editing = readOnly ? undefined : d.bands.find((b) => b.id === bandParam);
+  const creating = !readOnly && bandParam === "neu";
   // Review R3 N4: Mitglieder und „frei“ über alle Zeiträume, nicht nur die am Stichtag gültigen Lehraufträge
   const all: Assignment[] = [...d.assignments, ...d.otherTime];
   const plannedOf = new Map(d.assignments.map((a) => [a.id, a.planned]));
@@ -800,7 +849,7 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
         </h3>
         <BandForm
           key={editing?.id ?? "neu"}
-          action={saveBandAction.bind(null, editing?.id ?? null)}
+          action={saveBandAction.bind(null, yearId, editing?.id ?? null)}
           deleteAction={editing && members.length === 0 ? deleteBandAction.bind(null, editing.id) : undefined}
           initial={{ name: editing?.name ?? "", hours: String(editing?.hours ?? 2), doubleLessons: String(editing?.doubleLessons ?? 0) }}
           back={back}
@@ -852,11 +901,13 @@ function BandsView({ d, bandParam }: { d: Distribution; bandParam?: string }) {
         <h2 id="bands" className="font-display text-xl font-bold">
           Bänder
         </h2>
-        <Button asChild>
-          <Link href={href({ ansicht: "baender", band: "neu" })}>
-            <Plus aria-hidden /> Band anlegen
-          </Link>
-        </Button>
+        {!readOnly && (
+          <Button asChild>
+            <Link href={href({ ansicht: "baender", band: "neu" })}>
+              <Plus aria-hidden /> Band anlegen
+            </Link>
+          </Button>
+        )}
       </div>
       <p className="-mt-2 text-sm text-muted">
         Ein Band bündelt Lehraufträge, die zur selben Zeit liegen: Religion/Philosophie, Wahlpflicht, E-/G-Kurse, Oberstufen-Schienen oder eine Lehrkraft für mehrere
@@ -936,6 +987,7 @@ async function MatrixView({
   gradeParam,
   vorschlag,
   stichtag,
+  readOnly,
 }: {
   d: Distribution;
   year: { id: string; name: string; startsOn: string; endsOn: string; term2StartsOn: string | null };
@@ -944,15 +996,25 @@ async function MatrixView({
   gradeParam?: string;
   vorschlag?: string;
   stichtag?: string;
+  readOnly: boolean;
 }) {
   const db = await getDb();
   const classes = matrixClasses(d);
   const grades = matrixGrades(classes);
-  if (!grades.length) return <EmptyState title="Noch keine Klassen">Die Matrix zeigt Klassen des Schuljahrs – lege zuerst Klassen an.</EmptyState>;
+  if (!grades.length)
+    return (
+      <EmptyState title={`Noch keine Klassen im Schuljahr ${year.name}`}>
+        Die Matrix zeigt Klassen des Schuljahrs. Im Folgejahr entstehen sie mit der Versetzung im{" "}
+        <Link href="/verwaltung/schuljahreswechsel" className="font-medium text-accent-ink underline">
+          Schuljahreswechsel
+        </Link>
+        , sonst unter Verwaltung → Gruppen.
+      </EmptyState>
+    );
   const grade = grades.find((g) => gradeParamOf(g) === gradeParam) ?? grades[0]!;
   const gradeName = (g: number | null) => (g === null ? "ohne Jahrgang" : `Jahrgang ${g}`);
   const matrix = await loadMatrix(db, d, grade);
-  const source = vorschlag === "vorjahr" || vorschlag === "halbjahr" ? vorschlag : null;
+  const source = !readOnly && (vorschlag === "vorjahr" || vorschlag === "halbjahr") ? vorschlag : null;
   const result: SuggestionResult | null = source ? await matrixSuggestions(db, year, d.refYmd, matrix, source) : null;
   const term2 = year.term2StartsOn && year.term2StartsOn > year.startsOn && d.refYmd >= year.term2StartsOn;
   const base = { ansicht: "matrix", jahrgang: gradeParamOf(grade), stichtag };
@@ -964,7 +1026,7 @@ async function MatrixView({
         <h2 id="mx" className="font-display text-xl font-bold">
           Matrix Klasse × Fach · {gradeName(grade)}
         </h2>
-        <div className="flex flex-wrap gap-2">
+        <div className={readOnly ? "hidden" : "flex flex-wrap gap-2"}>
           {term2 && (
             <Button asChild size="sm" variant={source === "halbjahr" ? "secondary" : "ghost"}>
               <Link href={href({ ...base, vorschlag: "halbjahr" })}>Aus dem 1. Halbjahr übernehmen</Link>
@@ -999,9 +1061,13 @@ async function MatrixView({
       )}
       {matrix.rows.length === 0 || matrix.columns.length === 0 ? (
         <EmptyState title="Keine Fächer">Für {gradeName(grade)} gibt es weder Stundentafel noch Lehraufträge – Stundentafel unter Stammdaten pflegen.</EmptyState>
+      ) : readOnly ? (
+        <p role="note" className="text-sm text-muted">
+          Abgeschlossenes Schuljahr: die Matrix ist nur lesbar – die Lehraufträge stehen unter „Klassen &amp; Kurse“.
+        </p>
       ) : (
         <MatrixEditor
-          key={`${gradeParamOf(grade)}|${d.refYmd}|${source ?? ""}`}
+          key={`${year.id}|${gradeParamOf(grade)}|${d.refYmd}|${source ?? ""}`}
           matrix={matrix}
           accounts={accounts.map(({ id, code, name, target, assigned }) => ({ id, code, name, target, assigned }))}
           teachers={teachers}
@@ -1009,7 +1075,7 @@ async function MatrixView({
           suggestions={result?.suggestions ?? []}
           source={source ?? "matrix"}
           editHref={editHref}
-          save={saveMatrixAction}
+          save={saveMatrixAction.bind(null, year.id)}
         />
       )}
     </section>

@@ -261,6 +261,6 @@ export async function saveMatrixEdits(
       results.push({ key, ok: false, error: msg, needsConfirm: /Trotzdem zuweisen/.test(msg) || undefined });
     }
   }
-  if (counts.created + counts.updated + counts.deleted > 0) await audit(db, actorId, "stundenplan.assignment.matrix", null, { ...counts, source });
+  if (counts.created + counts.updated + counts.deleted > 0) await audit(db, actorId, "stundenplan.assignment.matrix", null, { ...counts, source, year: year.id });
   return results;
 }

@@ -191,9 +191,10 @@ describe("SP3-LA Matrix (Demo-Schule)", () => {
 
     const rows = await h.db.select().from(auditLog).where(eq(auditLog.action, "stundenplan.assignment.matrix"));
     expect(rows.map((r) => r.meta)).toEqual([
-      { created: 0, updated: 1, deleted: 0, failed: 1, source: "matrix" },
-      { created: 0, updated: 1, deleted: 1, failed: 0, source: "matrix" },
-      { created: 1, updated: 0, deleted: 0, failed: 0, source: "matrix" },
+      // SP3-09a: mit dem Schuljahr
+      { created: 0, updated: 1, deleted: 0, failed: 1, source: "matrix", year: year.id },
+      { created: 0, updated: 1, deleted: 1, failed: 0, source: "matrix", year: year.id },
+      { created: 1, updated: 0, deleted: 0, failed: 0, source: "matrix", year: year.id },
     ]);
     expect((await h.db.select().from(auditLog).where(eq(auditLog.action, "stundenplan.assignment.off_subject"))).length).toBeGreaterThan(0);
   });

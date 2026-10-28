@@ -581,9 +581,7 @@ gespeichert bleibt `obligation`) · `timetable_deputies.obligation_term2 numeric
   2026/27 hochgestuft (Version 1.0)“). Alternativ **leer** (`empty`). Die Karte zeigt vorher die Zahlen (übernommen, je Grund ausgelassen, ohne Lehrkraft).
 - **Lehraufträge des Vorjahrs als Vorschlag:** nicht im Entwurf (unversioniert, F-10-5), sondern über SP3-LA „Aus dem Vorjahr übernehmen“ – die Karte nennt die Zahl
   möglicher Vorschläge, nach dem Anlegen verlinkt sie die Matrix mit `vorschlag=vorjahr` und dem Entwurf als Quelle.
-- **Planungsjahr (bekannte Grenze, SP3-08 dokumentiert, nicht gebaut; Backlog-Kandidat „Planen im Folgejahr“, offene Frage an die Projektleitung, §9):** Stundenplan, Unterrichtsverteilung, Matrix und Solver arbeiten im **aktuellen** Schuljahr (`planningYear`).
-  Den Entwurf fürs Folgejahr kann man nach der Versetzung schon anlegen (und prüfen/veröffentlichen); bearbeiten lässt er sich erst, wenn der Schuljahreswechsel
-  abgeschlossen ist – Karte und Hinweis nach dem Anlegen sagen das. Planen im Folgejahr vor dem Abschluss braucht eine Jahreswahl in den Planungsseiten.
+- **Planungsjahr:** ~~bekannte Grenze (SP3-08)~~ – seit **SP3-09a** gibt es die Jahreswahl (unten); die Grenze gilt nur noch für die Teile von SP3-09b.
 - **Veröffentlichen** wie jede Version (SP3-04): unbefristete Stunden des Vorjahrs, die ins neue Schuljahr reichen, enden am Vortag des Stichtags („entfällt“).
 - **Schuljahr archivieren** (`schuljahresabschluss.ts`, nur `manage`, erst **nach** dem Schuljahresende): die gültige Version wird `archiviert` (gültig bis höchstens
   Schuljahresende, `undo` geleert), offene Entwürfe werden verworfen (wie der Nachtjob); unter der Sperre des Veröffentlichens. „Archiviert“ ist kein eigenes Feld,
@@ -595,6 +593,37 @@ gespeichert bleibt `obligation`) · `timetable_deputies.obligation_term2 numeric
   Vertretungsstatistik (`substitute`, verlinkt nur im aktuellen Schuljahr). Wird bei jedem Aufruf gerechnet, nichts gespeichert.
 - **Datenschutz:** keine neue Tabelle, keine Migration. Archivieren ändert keine Löschfrist (Versionen LK-SJ-1J ab Schuljahr, Entwurfsstunden folgen der Version);
   die Statistik verschwindet mit den Vertretungen (LK-SJ-1J ab Datum). DATENSCHUTZ §3.4.
+
+**Umgesetzt (SP3-09a, 2026-10-28, ohne Migration)** – Planen im Folgejahr, Teil a (freigegeben von der Projektleitung 2026-10-28). Vorgaben für Detailfragen:
+- **Jahreswahl im Kopf des Planungsbereichs** (Layout, für `manage` und `review`): „Du planst das Schuljahr 2027/28 · Folgejahr“ mit Auswahl und „Wechseln“.
+  Vorgabe ist das laufende Schuljahr (`planningYear`); jedes angelegte künftige Schuljahr ist wählbar (Rolle „Folgejahr“, orange mit Hinweis „das laufende
+  Schuljahr bleibt unverändert“), vergangene Schuljahre sind wählbar, aber **nur lesbar** (`planungsjahr.ts`: `resolvePlanningYear`, `yearRole`).
+- **Cookie statt URL-Parameter** (weniger Brüche: die Planungsseiten verlinken sich vielfach ohne Jahr – Reiter, Ansichten, Rücksprünge der Actions):
+  Sitzungs-Cookie `schulos-planungsjahr` (Pfad `/planung`, ohne Ablauf – nach dem Schließen des Browsers gilt wieder das laufende Jahr; nicht `httpOnly`, damit
+  der Kopf die Wahl nach Seitenwechseln im Browser liest, das Layout rendert bei Navigation nicht neu). Gesetzt nur über die Route
+  `/planung/planungsjahr?jahr=<id>&weiter=<pfad>` (angemeldet mit Planungsrecht; nur bekannte Schuljahre; Rücksprung nur unter `/planung`). **Deeplinks:**
+  `jahr=<id>` bzw. ein Entwurf in der URL (`quelle=` in Pflege und Unterrichtsverteilung, `version=` im Fahrplan – der Entwurf kennt sein Jahr) stellen das
+  Jahr über diese Route um und kehren ohne `jahr` zurück (`planningYearForPage`); die Jahres-Links der Versionsliste und des Korrektur-Protokolls tun das ebenso.
+- **Schreiben nur ins Jahr der Seite:** Die Actions bekommen das Planungsjahr ausdrücklich (gebunden: `saveAssignmentAction`, `saveBandAction`,
+  `saveMatrixAction`, CSV-Import, `saveObligationAction`, `saveTeacherDayRuleAction`, `addReductionAction`) – nicht aus dem Cookie, damit zwei Tabs mit
+  verschiedenen Jahren nichts verwechseln – und prüfen es mit `requireWritableYear` (abgeschlossen → Fehler „… ist abgeschlossen und nur noch lesbar“);
+  Aktionen über eine id (Lehrauftrag/Band/Anrechnung löschen, Band-Mitglieder) prüfen das Jahr des Datensatzes (`requireWritableRecordYear`), Entwürfe das
+  Jahr ihrer Version (`writableSource`). Rechte unverändert (`stundenplan.manage`). Zusätzlich im Service: ein Lehrauftrag nimmt nur Gruppen seines Schuljahrs
+  (oder ohne Schuljahr) und wechselt beim Ändern nie das Schuljahr.
+- **Umgestellt auf das gewählte Jahr:** Unterrichtsverteilung (Klassen & Kurse, Lehraufträge, Bänder, Lehrkräfte/Deputate/Anrechnungen/Tagesregeln, Matrix inkl.
+  „Aus dem Vorjahr übernehmen“, CSV-Import, Diagnose-Ansicht), Übersicht `/planung` (Jahresplanung bzw. Fahrplan-Status; der Fachbedarf bleibt die Prognose aus
+  dem laufenden Jahr), Versionsliste, Korrektur-Protokoll, Fahrplan (Vorgabe-Jahr) und die **Stundenplan-Pflege**: im laufenden Jahr wie bisher (gültiger
+  Plan oder Entwurf), in anderen Jahren **nur im Entwurf** (Vorgabe: der neueste offene), Gruppen nur des gewählten Jahrs (`plannableGroups(db, jahr)`), Setzhilfe
+  mit den Lehraufträgen und Tagesregeln des Entwurfsjahrs (`yearOfSource`), Gültigkeit neuer Stunden bis zum Ende des Entwurfsjahrs (`defaultValidity`),
+  Restdeputate des Jahrs (`loadPickList(…, jahr)`), Plan-Hinweise der Gruppe im Entwurfsjahr. „Aus Stundenplan übernehmen“ nur im laufenden Jahr.
+- **Leerzustände:** Folgejahr ohne Klassen (vor der Versetzung) → Hinweis und Matrix-Leerzustand mit Link zum Schuljahreswechsel; Pflege ohne Entwurf im
+  Folgejahr → Weg zur Vorlage „Neues Schuljahr“; abgeschlossenes Jahr → nur lesbar (Formulare, Matrix-Editor, Import und Anlegen ausgeblendet, Pflege verweist
+  auf die Versionsliste). Seiten, die noch im laufenden Jahr arbeiten, sagen es im Kopf („Diese Seite arbeitet immer im laufenden Schuljahr …“).
+- **Audit mit Jahr:** `stundenplan.assignment.create/update/delete/matrix/import/csv_import`, `stundenplan.band.*`, `stundenplan.deputy.obligation/day_rule/
+  reduction_add/reduction_delete` tragen `year` (Schuljahres-id).
+- **Grenze (SP3-09b, offen):** „Automatisch planen“ (Lauf, Übernahme in den Entwurf, Warmstart), Zeitwünsche und Zeitwunsch-Fenster, Diagnose/Fahrplan-Schritte
+  im Folgejahr prüfen (Diagnose-Ansicht folgt der Wahl schon, ungetestet im Folgejahr), Exporte (Verteilung/Deputate/Aufsichten) und das E2E-Gesamtszenario
+  „Folgejahr planen“. Weiter im laufenden Jahr (bewusst): Vertretungen, Bereitschaft, Vertretungsstatistik, Aufsichten, Fachbedarf, „Mein Deputat“, Kurswahl-Übernahme.
 
 **Recht `stundenplan.review`** („Planentwurf prüfen und freigeben“, SP3-03): Daten-Migration gibt es der Gruppe `g-schulleitung` (wie
 0088 `substitute`); 2FA-Pflicht wie die anderen Planungsrechte (Deputate/Namen im Entwurf). Keine Rollen-Vorgabe.
@@ -1025,7 +1054,7 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 - [x] Doku: STUNDENPLAN.md, DATENSCHUTZ §3.4, SICHERHEIT S8x, DSB-FRAGEN §13-Hinweis, Release-Notes – **VT-Teil:** `STUNDENPLAN.md` §0 „Vertretung als Arbeitsplatz“, `DATENSCHUTZ.md` §3.4 (VT-01, VT-04) und DSB-Checkliste Thema 13, `SICHERHEIT.md` S85, Release-Notes `release/notes/0.10.0.json`. **SP3-Teil:** `STUNDENPLAN.md` (Planen in acht Schritten, Versionen, Veröffentlichen, Schuljahresabschluss), `DATENSCHUTZ.md` §3.4 (Versionen, Entwurfsstunden, Protokoll, Checkliste), `SICHERHEIT.md` S86 (SP3-01…04), **S87** (SP3-05 … SP3-07: Sofort-Korrektur, Protokoll, Quittierungen, Schuljahresabschluss), Release-Notes-Entwurf `release/notes/0.11.0.json` (Version und Tag erst im Release-PR)
 
 **Offene Fragen an die Projektleitung (nicht Teil der Prüfliste):**
-1. **Planungsjahr:** Stundenplan, Unterrichtsverteilung, Matrix und Solver arbeiten nur im *aktuellen* Schuljahr (`planningYear`, ~86 Stellen). Ein Entwurf fürs Folgejahr (Vorlage „Neues Schuljahr“) lässt sich anlegen, prüfen und veröffentlichen, aber erst nach dem Schuljahreswechsel bearbeiten. Eine Jahreswahl in allen Planungsseiten wäre ein eigenes Paket (Backlog-Kandidat „Planen im Folgejahr“ – Entscheidung, ob und wann).
+1. ~~**Planungsjahr:** Stundenplan, Unterrichtsverteilung, Matrix und Solver arbeiten nur im *aktuellen* Schuljahr (`planningYear`, ~86 Stellen). … Backlog-Kandidat „Planen im Folgejahr“ – Entscheidung, ob und wann.~~ **Entschieden 2026-10-28 (Projektleitung): freigegeben, „asap umsetzen“** – SP3-09a (Jahreswahl, Verteilung/Matrix/Deputate/Pflege im Entwurf) umgesetzt, §3.1 „Umgesetzt (SP3-09a)“; SP3-09b (Solver, Zeitwünsche, Diagnose/Fahrplan im Folgejahr, E2E-Gesamtszenario) offen.
 2. **Release v0.11.0** mit dem Notizen-Entwurf; vorab `/code-review ultra` auf den Block?
 
 ---

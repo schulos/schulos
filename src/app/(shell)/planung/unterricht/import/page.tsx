@@ -6,7 +6,7 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { hasPermission } from "@/core/permissions";
 import { previewAssignmentCsvAction, runAssignmentCsvAction } from "@/modules/stundenplan/actions";
-import { planningYear } from "@/modules/stundenplan/verteilung";
+import { planningYearForPage } from "../../planungsjahr";
 import { ASSIGNMENT_CSV_HEADER } from "@/modules/stundenplan/verteilung-import";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -15,11 +15,15 @@ import { AssignmentImportForm } from "./import-form";
 
 export const metadata: Metadata = { title: "Unterrichtsverteilung importieren" };
 
-/** SP2-06 (Q-SP-14): Lehraufträge aus einer CSV-Datei – Vorschau mit Fehlern je Zeile, Übernehmen nur ohne Fehler. */
-export default async function AssignmentImportPage() {
+/**
+ * SP2-06 (Q-SP-14): Lehraufträge aus einer CSV-Datei – Vorschau mit Fehlern je Zeile, Übernehmen nur ohne Fehler. SP3-09a: ins gewählte
+ * Planungsjahr (auch das Folgejahr); abgeschlossene Schuljahre nur lesbar.
+ */
+export default async function AssignmentImportPage({ searchParams }: { searchParams: Promise<{ jahr?: string }> }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
-  const year = await planningYear(await getDb());
+  const py = await planningYearForPage(await getDb(), "/planung/unterricht/import", await searchParams);
+  const year = py?.year ?? null;
   return (
     <main className="flex flex-col gap-6">
       <Link href="/planung/unterricht" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
@@ -38,6 +42,8 @@ export default async function AssignmentImportPage() {
       />
       {!year ? (
         <EmptyState title="Kein Schuljahr angelegt">Lege unter Stammdaten → Schuljahre zuerst ein Schuljahr an.</EmptyState>
+      ) : !py?.writable ? (
+        <EmptyState title={`Schuljahr ${year.name} abgeschlossen`}>Abgeschlossene Schuljahre sind nur lesbar – im Kopf ein laufendes oder künftiges Schuljahr wählen.</EmptyState>
       ) : (
         <>
           <Card aria-labelledby="hinweise">
@@ -59,7 +65,7 @@ export default async function AssignmentImportPage() {
               <li>Nur Lehraufträge – Stunden im Stundenplan entstehen erst beim Planen. Mit Fehlern wird nichts übernommen.</li>
             </ul>
           </Card>
-          <AssignmentImportForm preview={previewAssignmentCsvAction} run={runAssignmentCsvAction} />
+          <AssignmentImportForm key={year.id} preview={previewAssignmentCsvAction.bind(null, year.id)} run={runAssignmentCsvAction.bind(null, year.id)} />
         </>
       )}
     </main>

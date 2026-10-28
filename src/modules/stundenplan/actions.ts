@@ -65,6 +65,7 @@ import {
   type Viewer,
 } from "./planpruefung";
 import { parseEdits, saveMatrixEdits, type MatrixSaveResult } from "./matrix";
+import { requireWritableRecordYear, requireWritableYear } from "./planungsjahr";
 
 const { requirePermission, requireUser } = moduleActions("stundenplan");
 
@@ -394,13 +395,16 @@ function backTo(raw: string): string {
   return raw.startsWith("/planung/unterricht") ? raw : "/planung/unterricht";
 }
 
-export async function saveAssignmentAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+/**
+ * SP3-09a: `yearId` = Planungsjahr der Seite (gebunden) – nicht das Cookie, damit ein zweiter Tab mit anderem Jahr nichts verwechselt;
+ * abgeschlossene Schuljahre lehnt `requireWritableYear` ab.
+ */
+export async function saveAssignmentAction(yearId: string, id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const str = (k: string) => String(form.get(k) ?? "").trim();
   const db = await getDb();
-  const year = await planningYear(db);
   const input: AssignmentInput = {
-    schoolYearId: year?.id ?? "",
+    schoolYearId: yearId,
     groupId: str("groupId"),
     subjectId: str("subjectId"),
     // im Band zählen die Stunden des Bands (das Formular schickt dann keine)
@@ -414,6 +418,7 @@ export async function saveAssignmentAction(id: string | null, _prev: FormState, 
     validUntil: str("validUntil") || null,
   };
   try {
+    await requireWritableYear(db, yearId);
     // SP2-12: fachfremde Lehrkraft nur mit Bestätigung („Trotzdem zuweisen“), ohne gepflegte Lehrfächer nur ein Hinweis
     // R2-P3: je Lehrkraft-Feld eine eigene Bestätigung
     const off = [
@@ -435,14 +440,15 @@ export async function saveAssignmentAction(id: string | null, _prev: FormState, 
 
 const bandsPage = (bandId?: string) => `/planung/unterricht?ansicht=baender${bandId ? `&band=${encodeURIComponent(bandId)}` : ""}`;
 
-export async function saveBandAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+export async function saveBandAction(yearId: string, id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const str = (k: string) => String(form.get(k) ?? "").trim();
   const db = await getDb();
-  const year = await planningYear(db);
-  const input: BandInput = { schoolYearId: year?.id ?? "", name: str("name"), hours: Number(str("hours")), doubleLessons: Number(str("doubleLessons") || "0") };
+  const input: BandInput = { schoolYearId: yearId, name: str("name"), hours: Number(str("hours")), doubleLessons: Number(str("doubleLessons") || "0") };
   let bandId = id;
   try {
+    await requireWritableYear(db, yearId);
+    if (id) await requireWritableRecordYear(db, "band", id);
     if (id) await updateBand(db, user.id, id, input);
     else bandId = await createBand(db, user.id, input);
   } catch (err) {
@@ -456,6 +462,7 @@ export async function saveBandAction(id: string | null, _prev: FormState, form: 
 export async function deleteBandAction(id: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   try {
+    await requireWritableRecordYear(await getDb(), "band", id);
     // Review R3 N4: nur ohne Mitglieder (auch aus anderen Zeiträumen) – sonst zurück zum Band, das sie anzeigt
     await deleteBand(await getDb(), user.id, id, { onlyEmpty: true });
   } catch (err) {
@@ -471,6 +478,7 @@ export async function addBandMemberAction(bandId: string, _prev: FormState, form
   const assignmentId = String(form.get("assignmentId") ?? "").trim();
   if (!assignmentId) return { error: "Lehrauftrag wählen", fieldErrors: { assignmentId: "Lehrauftrag wählen" } };
   try {
+    await requireWritableRecordYear(await getDb(), "band", bandId);
     await setBandMember(await getDb(), user.id, assignmentId, bandId);
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors };
@@ -482,6 +490,7 @@ export async function addBandMemberAction(bandId: string, _prev: FormState, form
 
 export async function removeBandMemberAction(bandId: string, assignmentId: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
+  await requireWritableRecordYear(await getDb(), "assignment", assignmentId);
   await setBandMember(await getDb(), user.id, assignmentId, null);
   revalidatePath("/planung/unterricht");
   redirect(bandsPage(bandId));
@@ -489,6 +498,7 @@ export async function removeBandMemberAction(bandId: string, assignmentId: strin
 
 export async function deleteAssignmentAction(id: string, back: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
+  await requireWritableRecordYear(await getDb(), "assignment", id);
   await deleteAssignment(await getDb(), user.id, id);
   revalidatePath("/planung/unterricht");
   redirect(backTo(back));
@@ -498,12 +508,12 @@ export async function deleteAssignmentAction(id: string, back: string): Promise<
  * SP3-LA: Änderungen aus der Matrix speichern (zellweise oder gesammelt). Rückgabe je Zelle; die Seite lädt danach neu (Bilanz vom Server).
  * `source` nur fürs Protokoll (Übernahme aus Vorjahr/Halbjahr).
  */
-export async function saveMatrixAction(rawEdits: unknown, refYmd: string, source: string): Promise<{ results: MatrixSaveResult[]; error?: string }> {
+export async function saveMatrixAction(yearId: string, rawEdits: unknown, refYmd: string, source: string): Promise<{ results: MatrixSaveResult[]; error?: string }> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
-  const year = await planningYear(db);
-  if (!year) return { results: [], error: "Kein Schuljahr angelegt" };
   try {
+    // SP3-09a: Planungsjahr der Seite (auch das Folgejahr); abgeschlossene Schuljahre nur lesbar
+    const year = await requireWritableYear(db, String(yearId));
     const edits = parseEdits(rawEdits);
     const results = await saveMatrixEdits(db, user.id, year, String(refYmd), edits, source === "vorjahr" || source === "halbjahr" ? source : "matrix");
     revalidatePath("/planung/unterricht");
@@ -514,11 +524,13 @@ export async function saveMatrixAction(rawEdits: unknown, refYmd: string, source
   }
 }
 
-export async function importAssignmentsAction(): Promise<void> {
+/** „Aus Stundenplan übernehmen“ liest den gültigen Plan – nur im laufenden Schuljahr (die Seite bietet es sonst nicht an). */
+export async function importAssignmentsAction(yearId: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
   const year = await planningYear(db);
-  const n = year ? await assignmentsFromTimetable(db, user.id, year, toBerlinDate(new Date())) : 0;
+  if (!year || year.id !== yearId) redirect("/planung/unterricht");
+  const n = await assignmentsFromTimetable(db, user.id, year, toBerlinDate(new Date()));
   revalidatePath("/planung/unterricht");
   redirect(`/planung/unterricht?uebernommen=${n}`);
 }
@@ -535,28 +547,40 @@ export interface AssignmentImportState {
 }
 
 /** Schritt 1: Datei lesen (UTF-8 oder Windows-1252) und prüfen – nichts wird gespeichert. */
-export async function previewAssignmentCsvAction(_prev: AssignmentImportState, form: FormData): Promise<AssignmentImportState> {
+/** SP3-09a: `yearId` = Planungsjahr der Import-Seite (gebunden); abgeschlossene Schuljahre nur lesbar. */
+async function importYear(yearId: string): Promise<{ year: Awaited<ReturnType<typeof requireWritableYear>> } | { error: string }> {
+  try {
+    return { year: await requireWritableYear(await getDb(), yearId) };
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Schuljahr prüfen" };
+    throw err;
+  }
+}
+
+export async function previewAssignmentCsvAction(yearId: string, _prev: AssignmentImportState, form: FormData): Promise<AssignmentImportState> {
   await requirePermission("stundenplan.manage");
   const file = form.get("file");
   if (!(file instanceof File) || file.size === 0) return { error: "Bitte eine CSV-Datei wählen" };
   if (file.size > MAX_ASSIGNMENT_CSV_BYTES) return { error: "Datei zu groß (höchstens 512 KB)" };
   const db = await getDb();
-  const year = await planningYear(db);
-  if (!year) return { error: "Kein Schuljahr angelegt" };
+  const y = await importYear(yearId);
+  if ("error" in y) return { error: y.error };
+  const year = y.year;
   const { text, encoding } = decodeCsvBytes(new Uint8Array(await file.arrayBuffer()));
   const plan = await planAssignmentImport(db, year, text);
   return { preview: plan.preview, text, encoding };
 }
 
 /** Schritt 2: plant serverseitig NEU (der Vorschau aus dem Browser wird nicht vertraut) und übernimmt nur ohne Fehler – ganz oder gar nicht. */
-export async function runAssignmentCsvAction(_prev: AssignmentImportState, form: FormData): Promise<AssignmentImportState> {
+export async function runAssignmentCsvAction(yearId: string, _prev: AssignmentImportState, form: FormData): Promise<AssignmentImportState> {
   const { user } = await requirePermission("stundenplan.manage");
   const text = String(form.get("text") ?? "");
   const encoding = form.get("encoding") === "cp1252" ? "cp1252" : "utf8";
   if (!text || text.length > MAX_ASSIGNMENT_CSV_BYTES) return { error: "Datei fehlt oder ist zu groß – bitte neu wählen" };
   const db = await getDb();
-  const year = await planningYear(db);
-  if (!year) return { error: "Kein Schuljahr angelegt" };
+  const y = await importYear(yearId);
+  if ("error" in y) return { error: y.error };
+  const year = y.year;
   const plan = await planAssignmentImport(db, year, text);
   if (!plan.preview.ok) return { preview: plan.preview, text, encoding, error: "Die Datei hat Fehler bzw. nichts zu übernehmen – nichts übernommen" };
   const done = await executeAssignmentImport(db, user.id, year, plan);
@@ -570,10 +594,9 @@ export async function runAssignmentCsvAction(_prev: AssignmentImportState, form:
 const hoursOf = (raw: string) => Number(raw.replace(",", "."));
 const teacherPage = (teacherId: string) => `/planung/unterricht?ansicht=lehrkraefte&lehrkraft=${encodeURIComponent(teacherId)}`;
 
-export async function saveObligationAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
+export async function saveObligationAction(yearId: string, teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
-  const year = await planningYear(db);
   const opt = (k: string) => {
     const raw = String(form.get(k) ?? "")
       .replace("%", "")
@@ -583,10 +606,11 @@ export async function saveObligationAction(teacherId: string, _prev: FormState, 
   // SP3-DEP: Teilzeit-Anteil (Rechenhilfe) und Pflicht 2. Halbjahr (Feld fehlt ohne Beginn des 2. Halbjahrs → leer)
   const fallback = defaultObligation((await readSchoolSettings(db)).profile.form);
   try {
+    await requireWritableYear(db, yearId);
     await setDeputy(
       db,
       user.id,
-      year?.id ?? "",
+      yearId,
       teacherId,
       {
         obligation: opt("obligation"),
@@ -604,16 +628,16 @@ export async function saveObligationAction(teacherId: string, _prev: FormState, 
 }
 
 /** SP2-04: Tagesregel der Lehrkraft (höchstens Stunden am Tag / Anwesenheitstage); leer = keine Grenze. */
-export async function saveTeacherDayRuleAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
+export async function saveTeacherDayRuleAction(yearId: string, teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
-  const year = await planningYear(db);
   const int = (k: string) => {
     const raw = String(form.get(k) ?? "").trim();
     return raw ? Number(raw) : null;
   };
   try {
-    await saveTeacherRule(db, user.id, year?.id ?? "", teacherId, { maxPerDay: int("maxPerDay"), maxDays: int("maxDays") });
+    await requireWritableYear(db, yearId);
+    await saveTeacherRule(db, user.id, yearId, teacherId, { maxPerDay: int("maxPerDay"), maxDays: int("maxDays") });
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
@@ -622,14 +646,14 @@ export async function saveTeacherDayRuleAction(teacherId: string, _prev: FormSta
   return { ok: true };
 }
 
-export async function addReductionAction(teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
+export async function addReductionAction(yearId: string, teacherId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
-  const year = await planningYear(db);
   const str = (k: string) => String(form.get(k) ?? "").trim();
   try {
+    await requireWritableYear(db, yearId);
     await addReduction(db, user.id, {
-      schoolYearId: year?.id ?? "",
+      schoolYearId: yearId,
       teacherId,
       reason: str("reason"),
       hours: hoursOf(str("hours")),
@@ -647,6 +671,7 @@ export async function addReductionAction(teacherId: string, _prev: FormState, fo
 
 export async function deleteReductionAction(id: string, teacherId: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
+  await requireWritableRecordYear(await getDb(), "reduction", id);
   await deleteReduction(await getDb(), user.id, id);
   revalidatePath("/planung/unterricht");
   redirect(teacherPage(teacherId));

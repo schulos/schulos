@@ -5,7 +5,7 @@
 // SP3-05: im gültigen Plan ist jede Änderung eine Sofort-Korrektur (`sofortkorrektur.ts`) – laufende Stunden werden ab dem nächsten Schultag
 // geteilt statt in place geändert (Klassenbuch, Vertretungen und Material davor bleiben), mit Protokoll und Gong; in place bleibt nur, was
 // keinen Vergangenheitsbezug hat.
-import { and, asc, eq, gte, inArray, isNull, ne, notInArray, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, ne, notInArray, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
 import { groups, periods, rooms, schoolYears, subjects, users, type TimetableLesson } from "@/core/db/schema";
@@ -427,12 +427,12 @@ export function suggestRoom(subject: { roomKind: string | null } | undefined, ho
   return homeRoomId;
 }
 
-/** Gruppen, für die ein Stundenplan gepflegt wird. */
-export async function plannableGroups(db: Db) {
+/** Gruppen, für die ein Stundenplan gepflegt wird; SP3-09a: mit `schoolYearId` nur die des Schuljahrs (und die ohne Schuljahr). */
+export async function plannableGroups(db: Db, schoolYearId?: string) {
   return db
     .select({ id: groups.id, name: groups.name, kind: groups.kind, homeRoomId: groups.homeRoomId })
     .from(groups)
-    .where(inArray(groups.kind, [...PLANNED_GROUP_KINDS]))
+    .where(and(inArray(groups.kind, [...PLANNED_GROUP_KINDS]), schoolYearId ? or(eq(groups.schoolYearId, schoolYearId), isNull(groups.schoolYearId)) : undefined))
     .orderBy(asc(groups.kind), asc(groups.gradeLevel), de(groups.name));
 }
 
@@ -474,9 +474,13 @@ export async function lessonsOfGroup(db: Db, groupId: string, todayYmd: string, 
   return rows.map(({ subjectName, color, teacherCode, ...l }) => ({ l, subjectName, color, teacherCode }));
 }
 
-/** Vorbelegung für neue Stunden: laufendes Schuljahr; mit `from` (Planungsstand einer neuen Periode bzw. Stichtag des Entwurfs) erst ab diesem Tag. */
+/**
+ * Vorbelegung für neue Stunden: laufendes Schuljahr; mit `from` (Planungsstand einer neuen Periode bzw. Stichtag des Entwurfs) erst ab diesem
+ * Tag. SP3-09a: liegt `from` in einem anderen Schuljahr (Entwurf im Folgejahr), gilt dessen Ende.
+ */
 export async function defaultValidity(db: Db, todayYmd: string, from?: string): Promise<{ validFrom: string; validUntil: string | null }> {
-  const [y] = await db.select().from(schoolYears).where(eq(schoolYears.isCurrent, true));
+  const [other] = from ? await db.select().from(schoolYears).where(and(lte(schoolYears.startsOn, from), gte(schoolYears.endsOn, from), eq(schoolYears.isCurrent, false))).orderBy(asc(schoolYears.startsOn)) : [];
+  const [y] = other ? [other] : await db.select().from(schoolYears).where(eq(schoolYears.isCurrent, true));
   const v = y ? { validFrom: y.startsOn, validUntil: y.endsOn } : { validFrom: todayYmd, validUntil: null };
   return from && from > v.validFrom && (v.validUntil === null || from <= v.validUntil) ? { ...v, validFrom: from } : v;
 }

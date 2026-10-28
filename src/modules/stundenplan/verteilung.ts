@@ -445,7 +445,7 @@ async function validate(db: Db, input: AssignmentInput, excludeId?: string): Pro
   const [[y], [s], gs, ts, r] = await Promise.all([
     db.select({ id: schoolYears.id, startsOn: schoolYears.startsOn, endsOn: schoolYears.endsOn }).from(schoolYears).where(eq(schoolYears.id, input.schoolYearId)),
     db.select({ id: subjects.id }).from(subjects).where(eq(subjects.id, input.subjectId)),
-    input.groupId ? db.select({ id: groups.id, kind: groups.kind }).from(groups).where(eq(groups.id, input.groupId)) : Promise.resolve([]),
+    input.groupId ? db.select({ id: groups.id, kind: groups.kind, schoolYearId: groups.schoolYearId }).from(groups).where(eq(groups.id, input.groupId)) : Promise.resolve([]),
     teacherIds.length ? db.select({ id: users.id, role: users.role }).from(users).where(inArray(users.id, teacherIds)) : Promise.resolve([]),
     input.roomId ? db.select({ id: rooms.id, active: rooms.active }).from(rooms).where(eq(rooms.id, input.roomId)) : Promise.resolve([{ id: "", active: true }]),
   ]);
@@ -458,6 +458,8 @@ async function validate(db: Db, input: AssignmentInput, excludeId?: string): Pro
   if (!s) fe.subjectId = "Fach wählen";
   if (!input.groupId) fe.groupId = "Eine Klasse oder einen Kurs wählen";
   else if (!gs[0] || !(PLANNED_GROUP_KINDS as readonly string[]).includes(gs[0].kind)) fe.groupId = "Gruppe ist keine Klasse und kein Kurs";
+  // SP3-09a: Klassen/Kurse eines anderen Schuljahrs nicht (ohne Schuljahr – z. B. AGs – gelten in jedem)
+  else if (gs[0].schoolYearId !== null && gs[0].schoolYearId !== input.schoolYearId) fe.groupId = "Die Gruppe gehört zu einem anderen Schuljahr";
   if (!fe.teacherIds && (ts.length !== teacherIds.length || ts.some((t) => t.role !== "lehrkraft"))) fe.teacherIds = "Lehrkraft wählen";
   if (!r[0]?.active) fe.roomId = "Raum gibt es nicht oder ist inaktiv";
   if (Object.keys(fe).length) throw new ValidationError(fe);
@@ -507,25 +509,30 @@ export async function createAssignment(db: Db, actorId: string, raw: AssignmentI
     await writeLinks(tx, row!.id, input);
     return row!.id;
   });
-  await audit(db, actorId, "stundenplan.assignment.create", input.groupId, { subject: input.subjectId, hours: input.hours, band: input.bandId });
+  await audit(db, actorId, "stundenplan.assignment.create", input.groupId, { subject: input.subjectId, hours: input.hours, band: input.bandId, year: input.schoolYearId });
   return id;
 }
 
 export async function updateAssignment(db: Db, actorId: string, id: string, raw: AssignmentInput): Promise<void> {
-  const [old] = await db.select({ id: timetableAssignments.id, bandId: timetableAssignments.bandId }).from(timetableAssignments).where(eq(timetableAssignments.id, id));
+  const [old] = await db
+    .select({ id: timetableAssignments.id, bandId: timetableAssignments.bandId, schoolYearId: timetableAssignments.schoolYearId })
+    .from(timetableAssignments)
+    .where(eq(timetableAssignments.id, id));
   if (!old) throw new ValidationError({ id: "Lehrauftrag gibt es nicht mehr" });
+  // SP3-09a: ein Lehrauftrag bleibt in seinem Schuljahr (Planen im Folgejahr darf das laufende nicht verändern und umgekehrt)
+  if (old.schoolYearId !== raw.schoolYearId) throw new ValidationError({ id: "Der Lehrauftrag gehört zu einem anderen Schuljahr – Seite neu laden" });
   const input = await effective(db, raw, old.bandId);
   await validate(db, input, id);
   await db.transaction(async (tx) => {
     await tx.update(timetableAssignments).set(values(input)).where(eq(timetableAssignments.id, id));
     await writeLinks(tx, id, input);
   });
-  await audit(db, actorId, "stundenplan.assignment.update", input.groupId, { assignment: id, subject: input.subjectId, hours: input.hours, band: input.bandId });
+  await audit(db, actorId, "stundenplan.assignment.update", input.groupId, { assignment: id, subject: input.subjectId, hours: input.hours, band: input.bandId, year: input.schoolYearId });
 }
 
 export async function deleteAssignment(db: Db, actorId: string, id: string): Promise<void> {
   const [old] = await db.delete(timetableAssignments).where(eq(timetableAssignments.id, id)).returning();
-  if (old) await audit(db, actorId, "stundenplan.assignment.delete", null, { subject: old.subjectId, hours: old.hours });
+  if (old) await audit(db, actorId, "stundenplan.assignment.delete", null, { subject: old.subjectId, hours: old.hours, year: old.schoolYearId });
 }
 
 // ---------------------------------------------------------------- Bänder (SP2-01)
@@ -563,7 +570,7 @@ export async function createBand(db: Db, actorId: string, input: BandInput): Pro
     .insert(timetableBands)
     .values({ schoolYearId: input.schoolYearId, name: input.name.trim(), hours: input.hours, doubleLessons: input.doubleLessons })
     .returning({ id: timetableBands.id });
-  await audit(db, actorId, "stundenplan.band.create", null, { band: row!.id, hours: input.hours });
+  await audit(db, actorId, "stundenplan.band.create", null, { band: row!.id, hours: input.hours, year: input.schoolYearId });
   return row!.id;
 }
 
@@ -576,7 +583,7 @@ export async function updateBand(db: Db, actorId: string, id: string, input: Ban
     await tx.update(timetableBands).set({ name: input.name.trim(), hours: input.hours, doubleLessons: input.doubleLessons }).where(eq(timetableBands.id, id));
     await tx.update(timetableAssignments).set({ hours: input.hours, doubleLessons: input.doubleLessons }).where(eq(timetableAssignments.bandId, id));
   });
-  await audit(db, actorId, "stundenplan.band.update", null, { band: id, hours: input.hours });
+  await audit(db, actorId, "stundenplan.band.update", null, { band: id, hours: input.hours, year: old.schoolYearId });
 }
 
 /**
@@ -589,8 +596,8 @@ export async function deleteBand(db: Db, actorId: string, id: string, opts: { on
     if (members.length)
       throw new ValidationError({ id: `Im Band ${members.length === 1 ? "ist noch ein Lehrauftrag" : `sind noch ${members.length} Lehraufträge`} – erst herausnehmen.` });
   }
-  const [old] = await db.delete(timetableBands).where(eq(timetableBands.id, id)).returning({ id: timetableBands.id });
-  if (old) await audit(db, actorId, "stundenplan.band.delete", null, { band: id });
+  const [old] = await db.delete(timetableBands).where(eq(timetableBands.id, id)).returning({ id: timetableBands.id, schoolYearId: timetableBands.schoolYearId });
+  if (old) await audit(db, actorId, "stundenplan.band.delete", null, { band: id, year: old.schoolYearId });
 }
 
 /** Nimmt einen Lehrauftrag ins Band auf (übernimmt die Stunden des Bands) bzw. mit `null` heraus (Stunden bleiben). */
@@ -603,13 +610,13 @@ export async function setBandMember(db: Db, actorId: string, assignmentId: strin
   if (!bandId) {
     if (!a.bandId) return;
     await db.update(timetableAssignments).set({ bandId: null }).where(eq(timetableAssignments.id, assignmentId));
-    await audit(db, actorId, "stundenplan.band.member", null, { band: a.bandId, assignment: assignmentId, removed: true });
+    await audit(db, actorId, "stundenplan.band.member", null, { band: a.bandId, assignment: assignmentId, removed: true, year: a.schoolYearId });
     return;
   }
   const band = await bandOf(db, bandId);
   if (!band || band.schoolYearId !== a.schoolYearId) throw new ValidationError({ bandId: "Band gibt es nicht (mehr)" });
   await db.update(timetableAssignments).set({ bandId, hours: band.hours, doubleLessons: band.doubleLessons }).where(eq(timetableAssignments.id, assignmentId));
-  await audit(db, actorId, "stundenplan.band.member", null, { band: bandId, assignment: assignmentId });
+  await audit(db, actorId, "stundenplan.band.member", null, { band: bandId, assignment: assignmentId, year: a.schoolYearId });
 }
 
 /**
@@ -655,6 +662,6 @@ export async function assignmentsFromTimetable(db: Db, actorId: string | null, y
     const withTeacher = rows.filter((r) => r.l.teacherId);
     if (withTeacher.length) await tx.insert(timetableAssignmentTeachers).values(withTeacher.map((r) => ({ assignmentId: r.id, teacherId: r.l.teacherId! })));
   });
-  if (actorId) await audit(db, actorId, "stundenplan.assignment.import", null, { count: rows.length });
+  if (actorId) await audit(db, actorId, "stundenplan.assignment.import", null, { count: rows.length, year: year.id });
   return rows.length;
 }
