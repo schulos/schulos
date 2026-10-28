@@ -29,7 +29,7 @@ import {
 import { addDays, fromBerlinLocal, isCalendarDate, toBerlinDate, TZ, weekdayMon0 } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { diagnose, type DiagLesson, type Finding } from "./diagnose";
-import { createSolver, DEFAULT_WEIGHTS, placementRooms, unchangedUnits, unitParts, type GapStats, type SolverResult, type SolverWeights, type UnitPart, type WarmScope } from "./solver";
+import { createSolver, DEFAULT_WEIGHTS, placementRooms, unchangedUnits, unitParts, type GapStats, type SolverResult, type SolverWeights, type UnitPart, type WarmScope, type WarmStats } from "./solver";
 import { startPlacements } from "./warmstart";
 import { precheck, type PrecheckFinding } from "./solver-check";
 import { solverInputFromDb } from "./solver-input";
@@ -79,6 +79,19 @@ export interface RunParams {
   mode?: "entwurf";
   /** SQ-02: was der Warmstart ändern darf (fehlt = alles außer Fixiertem) */
   scope?: WarmScope;
+  /** SQ-03: Mehrfachlauf – Zahl der Durchgänge (fehlt = Einzellauf); Startwerte seed, seed+1, … bzw. Kette von Warmstarts */
+  passes?: number;
+}
+
+/** SQ-03: Wahl der Durchgänge im Formular */
+export const PASS_CHOICES = [3, 5, 10] as const;
+export const DEFAULT_PASSES = 5;
+
+/** SQ-03: ein Durchgang eines Mehrfachlaufs */
+export interface PassInfo {
+  seed: number;
+  score: number;
+  unplaced: number;
 }
 
 export interface RunLogEntry {
@@ -109,6 +122,8 @@ export interface RunMetrics {
   cancelledAt?: number;
   /** Fehler und Warnungen der Vorprüfung */
   precheck: { errors: number; warnings: number };
+  /** SQ-03: Mehrfachlauf – Durchgänge gesamt/fertig, Nummer des besten (ab 1) und je Durchgang Startwert, Bewertung, nicht gesetzt */
+  passes?: { count: number; done: number; best: number; list: PassInfo[] };
   /**
    * SQ-02: Warmstart – Bewertung und „nicht gesetzt“ am Start, Runden und übernommene Verbesserungen, Einheiten im selben Slot wie
    * im Entwurf (von `startUnits`, die der Entwurf gesetzt hatte)
@@ -372,6 +387,8 @@ export interface CreateRunOptions {
   mode?: string | null;
   /** SQ-02: „alle“ (Vorgabe) oder „schwach“ = nur nicht gesetzte und schwache Bereiche (nur mit `mode: "entwurf"`) */
   scope?: string | null;
+  /** SQ-03: Zahl der Durchgänge eines Mehrfachlaufs (3, 5 oder 10); leer = Einzellauf */
+  passes?: number | null;
 }
 
 /** Rein: Parameter aus der Eingabe (Formular/Test) – ungültige Werte werden gemeldet, nicht still ersetzt. */
@@ -402,9 +419,11 @@ export function parseParams(opts: CreateRunOptions): RunParams {
   else if (mode === "entwurf" && !versionId) errors.mode = "„Ab aktuellem Entwurf verbessern“ geht nur in einem Entwurf – unter „Planen im“ einen Entwurf wählen";
   const scope = (opts.scope || "alle") as WarmScope;
   if (!(scope in SCOPE_LABELS)) errors.scope = "Unbekannter Umfang";
+  const passes = opts.passes ?? undefined;
+  if (passes !== undefined && !(PASS_CHOICES as readonly number[]).includes(passes)) errors.passes = "Anzahl der Durchgänge: 3, 5 oder 10";
   if (Object.keys(errors).length) throw new ValidationError(errors);
   const warm = mode === "entwurf" ? { mode, ...(scope === "schwach" ? { scope } : {}) } : {};
-  return { effort, seed, weights, preset, ...(refYmd ? { refYmd } : {}), ...(versionId ? { versionId } : {}), ...warm };
+  return { effort, seed, weights, preset, ...(refYmd ? { refYmd } : {}), ...(versionId ? { versionId } : {}), ...warm, ...(passes ? { passes } : {}) };
 }
 
 /**
@@ -455,7 +474,7 @@ export async function createRun(db: Db, actorId: string, opts: CreateRunOptions,
     .insert(timetableSolverRuns)
     .values({ schoolYearId: year.id, status: "queued", seed: params.seed, createdBy: actorId, iterations: 0, label, params, log })
     .returning({ id: timetableSolverRuns.id });
-  await audit(db, actorId, "stundenplan.solver.start", null, { run: row!.id, seed: params.seed, effort: params.effort, preset: params.preset, label, ...(params.versionId ? { draft: params.versionId } : {}), ...(params.mode ? { mode: params.mode } : {}) });
+  await audit(db, actorId, "stundenplan.solver.start", null, { run: row!.id, seed: params.seed, effort: params.effort, preset: params.preset, label, ...(params.versionId ? { draft: params.versionId } : {}), ...(params.mode ? { mode: params.mode } : {}), ...(params.passes ? { passes: params.passes } : {}) });
   return row!.id;
 }
 
@@ -612,7 +631,7 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
     const refYmd = params.refYmd ?? todayYmd;
     note(
       "start",
-      `Berechnung gestartet (${params.mode === "entwurf" ? `${MODE_LABELS.entwurf}${params.scope === "schwach" ? `, ${SCOPE_LABELS.schwach}` : ""}, ` : ""}${EFFORT_LABELS[params.effort]}, Startwert ${params.seed}, Gewichtung ${PRESET_LABELS[params.preset]}${params.refYmd ? `, Lehraufträge am ${dayFmt.format(fromBerlinLocal(params.refYmd))}` : ""})`,
+      `Berechnung gestartet (${params.mode === "entwurf" ? `${MODE_LABELS.entwurf}${params.scope === "schwach" ? `, ${SCOPE_LABELS.schwach}` : ""}, ` : ""}${EFFORT_LABELS[params.effort]}, ${params.passes ? `Mehrfachlauf mit ${params.passes} Durchgängen ab ` : ""}Startwert ${params.seed}, Gewichtung ${PRESET_LABELS[params.preset]}${params.refYmd ? `, Lehraufträge am ${dayFmt.format(fromBerlinLocal(params.refYmd))}` : ""})`,
     );
     await set({ status: "running", progress: 1, heartbeatAt: new Date(), log });
 
@@ -665,90 +684,135 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
       return row?.cancel ?? false;
     };
 
-    // 1. Konstruktion in Zeitscheiben (5 … 30 %) – SQ-02: im Warmstart stattdessen die Stunden des Entwurfs als Start
-    const solver = createSolver(input);
+    // SQ-03: Mehrfachlauf – `passes` Durchgänge nacheinander in diesem einen Lauf (Neu: Startwert seed, seed+1, …; Kette: jeder Warmstart
+    // startet vom besten bisherigen Ergebnis). Behalten wird der beste Durchgang (weniger „nicht gesetzt“, dann Bewertung). Der Fortschritt
+    // läuft über alle Durchgänge (5 … 95 %); ein Einzellauf ist der Sonderfall mit einem Durchgang.
+    const passes = params.passes ?? 1;
+    const multi = passes > 1;
+    const pct = (p: number, f: number) => Math.round(5 + (90 * (p + f)) / passes);
+    /** Anteil der Konstruktion an einem Durchgang (5 … 30 % beim Einzellauf) */
+    const CF = 25 / 90;
+    const factor = EFFORTS[params.effort];
     const warm = params.mode === "entwurf" && params.versionId ? startPlacements(input, input.current) : null;
-    let cancelled = false;
-    if (warm) {
-      const w = solver.warmStart(warm.placements, params.scope ?? "alle");
-      note(
-        "construct",
-        `Start aus dem Entwurf: ${w.startPlaced} von ${input.units.length} Einheiten übernommen${w.startUnplaced ? `, ${w.startUnplaced} nicht gesetzt (offen im Entwurf oder dort nicht zulässig – werden bevorzugt eingeplant)` : ""}${warm.unused ? `, ${warm.unused} Entwurfsstunden ohne passende Einheit (werden ersetzt)` : ""}, Bewertung ${w.startScore}`,
-        { placed: w.startPlaced, unplaced: w.startUnplaced, unused: warm.unused, score: w.startScore },
-      );
-    }
-    while (!warm) {
-      const start = performance.now();
-      const remaining = solver.construct(() => performance.now() - start < sliceMs);
-      opts.onSlice?.("construct");
-      if (remaining === 0) break;
-      await breathe();
-      if (Date.now() - lastBeat >= heartbeatMs) {
-        if (await beat(5 + Math.round((25 * (input.units.length - remaining)) / Math.max(1, input.units.length)))) {
-          cancelled = true;
+    const passList: PassInfo[] = [];
+    let best: { result: SolverResult; index: number } | null = null;
+    let firstWarm: WarmStats | undefined;
+    let stepsSum = 0;
+    let improvedSum = 0;
+    let roundsSum = 0;
+    let acceptedSum = 0;
+    let earlyAt: number | null = null;
+    let steps = 0;
+
+    for (let p = 0; p < passes && earlyAt === null; p++) {
+      const seed = params.seed + p;
+      // 1. Konstruktion in Zeitscheiben (5 … 30 %) – SQ-02: im Warmstart stattdessen die Stunden des Entwurfs (Kette: das beste Ergebnis) als Start
+      const solver = createSolver({ ...input, seed });
+      if (warm) {
+        const w = solver.warmStart(p === 0 ? warm.placements : best!.result.placements, params.scope ?? "alle");
+        if (p === 0)
+          note(
+            "construct",
+            `Start aus dem Entwurf: ${w.startPlaced} von ${input.units.length} Einheiten übernommen${w.startUnplaced ? `, ${w.startUnplaced} nicht gesetzt (offen im Entwurf oder dort nicht zulässig – werden bevorzugt eingeplant)` : ""}${warm.unused ? `, ${warm.unused} Entwurfsstunden ohne passende Einheit (werden ersetzt)` : ""}, Bewertung ${w.startScore}`,
+            { placed: w.startPlaced, unplaced: w.startUnplaced, unused: warm.unused, score: w.startScore },
+          );
+      } else {
+        let cancelled = false;
+        while (true) {
+          const start = performance.now();
+          const remaining = solver.construct(() => performance.now() - start < sliceMs);
+          opts.onSlice?.("construct");
+          if (remaining === 0) break;
+          await breathe();
+          if (Date.now() - lastBeat >= heartbeatMs) {
+            if (await beat(pct(p, (CF * (input.units.length - remaining)) / Math.max(1, input.units.length)))) {
+              cancelled = true;
+              break;
+            }
+          }
+        }
+        if (cancelled) {
+          // Einzellauf und erster Durchgang: noch kein Ergebnis; später bleibt das bisher beste
+          if (!best) {
+            note("cancel", "Abgebrochen während der Konstruktion – kein Ergebnis");
+            await set({ status: "cancelled", finishedAt: new Date(), heartbeatAt: new Date(), log });
+            return "cancelled";
+          }
+          earlyAt = pct(p, 0);
+          break;
+        }
+        await tick();
+        if (p === 0) {
+          const built = solver.result();
+          note(
+            "construct",
+            `Konstruktion fertig: ${built.placements.length} von ${input.units.length} Einheiten gesetzt${built.unplaced.length ? `, ${built.unplaced.length} nicht gesetzt (${built.unplaced
+              .slice(0, 3)
+              .map((u) => `${u.label}: ${u.reason}`)
+              .join("; ")}${built.unplaced.length > 3 ? "; …" : ""})` : ""}, Bewertung ${built.score}`,
+            { placed: built.placements.length, unplaced: built.unplaced.length, score: built.score },
+          );
+        }
+      }
+
+      // 2. Verbesserung in Zeitscheiben (30 … 95 %), alle 10 % eine Zwischenbewertung (nur im Einzellauf) – SQ-02: im Warmstart Runden statt Schritte
+      steps = Math.max(1, Math.round(solver.total * factor));
+      await set({ progress: pct(p, CF), iterations: steps * passes, heartbeatAt: new Date(), log });
+      let done = 0;
+      let nextMark = 10;
+      // Abbruchwunsch an jeder Phasengrenze lesen, nicht nur im Heartbeat-Takt: ein kurzer Lauf (kleine Schule, schneller Server) ist
+      // sonst vor dem ersten Heartbeat fertig und übergeht einen Abbruch, der längst gesetzt war (GATE-SP-E2E, main rot seit d4418f7).
+      if (await beat(pct(p, CF))) earlyAt = pct(p, CF);
+      while (earlyAt === null && done < steps) {
+        const start = performance.now();
+        while (done < steps && performance.now() - start < sliceMs) {
+          const n = Math.min(warm ? 1 : 20, steps - done);
+          if (warm) solver.lns(n);
+          else solver.improve(n);
+          done += n;
+        }
+        opts.onSlice?.("improve");
+        const percent = Math.round((done / steps) * 100);
+        if (!multi && percent >= nextMark && done < steps) {
+          const score = solver.score();
+          const w = solver.warm;
+          note("progress", `${percent} % – Bewertung ${score}${w ? ` (${w.accepted} von ${w.rounds} Runden übernommen)` : ""}`, { percent, score });
+          nextMark = Math.floor(percent / 10) * 10 + 10;
+          await set({ log });
+        }
+        if (done >= steps) break;
+        await breathe();
+        const at = pct(p, CF + ((1 - CF) * done) / steps);
+        if (Date.now() - lastBeat >= heartbeatMs && (await beat(at))) {
+          earlyAt = at;
           break;
         }
       }
-    }
-    if (cancelled) {
-      note("cancel", "Abgebrochen während der Konstruktion – kein Ergebnis");
-      await set({ status: "cancelled", finishedAt: new Date(), heartbeatAt: new Date(), log });
-      return "cancelled";
-    }
-    await tick();
-    if (!warm) {
-      const built = solver.result();
-      note(
-        "construct",
-        `Konstruktion fertig: ${built.placements.length} von ${input.units.length} Einheiten gesetzt${built.unplaced.length ? `, ${built.unplaced.length} nicht gesetzt (${built.unplaced
-          .slice(0, 3)
-          .map((u) => `${u.label}: ${u.reason}`)
-          .join("; ")}${built.unplaced.length > 3 ? "; …" : ""})` : ""}, Bewertung ${built.score}`,
-        { placed: built.placements.length, unplaced: built.unplaced.length, score: built.score },
-      );
-    }
+      // Abbruch während der letzten Scheibe(n) seit dem letzten Heartbeat: der Plan ist gültig, aber als vorzeitig beendet vermerkt
+      if (earlyAt === null && (await beat(pct(p, 1)))) earlyAt = pct(p, 1);
 
-    // 2. Verbesserung in Zeitscheiben (30 … 95 %), alle 10 % eine Zwischenbewertung – SQ-02: im Warmstart Runden statt Schritte
-    const factor = EFFORTS[params.effort];
-    const steps = Math.max(1, Math.round(solver.total * factor));
-    await set({ progress: 30, iterations: steps, heartbeatAt: new Date(), log });
-    let done = 0;
-    let nextMark = 10;
-    let earlyAt: number | null = null;
-    // Abbruchwunsch an jeder Phasengrenze lesen, nicht nur im Heartbeat-Takt: ein kurzer Lauf (kleine Schule, schneller Server) ist
-    // sonst vor dem ersten Heartbeat fertig und übergeht einen Abbruch, der längst gesetzt war (GATE-SP-E2E, main rot seit d4418f7).
-    if (await beat(30)) earlyAt = 30;
-    while (earlyAt === null && done < steps) {
-      const start = performance.now();
-      while (done < steps && performance.now() - start < sliceMs) {
-        const n = Math.min(warm ? 1 : 20, steps - done);
-        if (warm) solver.lns(n);
-        else solver.improve(n);
-        done += n;
+      // Durchgang abschließen (auch ein abgebrochener ist ein gültiger Plan und tritt gegen den bisher besten an)
+      await tick();
+      const r = solver.result();
+      const better = !best || r.unplaced.length < best.result.unplaced.length || (r.unplaced.length === best.result.unplaced.length && r.score < best.result.score);
+      if (better) best = { result: r, index: p };
+      passList.push({ seed, score: r.score, unplaced: r.unplaced.length });
+      stepsSum += r.stats.iterations;
+      improvedSum += r.stats.improved;
+      if (r.warm) {
+        firstWarm ??= r.warm;
+        roundsSum += r.warm.rounds;
+        acceptedSum += r.warm.accepted;
       }
-      opts.onSlice?.("improve");
-      const pct = Math.round((done / steps) * 100);
-      if (pct >= nextMark && done < steps) {
-        const score = solver.score();
-        const w = solver.warm;
-        note("progress", `${pct} % – Bewertung ${score}${w ? ` (${w.accepted} von ${w.rounds} Runden übernommen)` : ""}`, { percent: pct, score });
-        nextMark = Math.floor(pct / 10) * 10 + 10;
+      if (multi) {
+        note("progress", `Durchgang ${p + 1} von ${passes} (Startwert ${seed}): Bewertung ${r.score}, ${r.unplaced.length} nicht gesetzt${better ? " – bisher der beste" : ""}`, { pass: p + 1, seed, score: r.score, unplaced: r.unplaced.length, best: better });
         await set({ log });
       }
-      if (done >= steps) break;
-      await breathe();
-      if (Date.now() - lastBeat >= heartbeatMs && (await beat(30 + Math.round((65 * done) / steps)))) {
-        earlyAt = 30 + Math.round((65 * done) / steps);
-        break;
-      }
     }
-
-    // Abbruch während der letzten Scheibe(n) seit dem letzten Heartbeat: der Plan ist gültig, aber als vorzeitig beendet vermerkt
-    if (earlyAt === null && (await beat(95))) earlyAt = 95;
 
     // 3. Ergebnis, Kennzahlen, Protokoll
     await tick();
-    const result = solver.result();
+    const result = best!.result;
     const stored: StoredResult = {
       result,
       units: input.units.map((u) => ({ id: u.id, label: u.label, groupIds: u.groupIds, teacherIds: u.teacherIds, subjectId: u.subjectId, length: u.length, parts: u.parts })),
@@ -765,8 +829,8 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
       breakdown: result.breakdown,
       unplaced: result.unplaced.length,
       units: input.units.length,
-      steps: result.stats.iterations,
-      improved: result.stats.improved,
+      steps: stepsSum,
+      improved: improvedSum,
       durationMs: Date.now() - t0,
       gaps: result.gaps,
       diag: { gaps: diagCount("gaps"), subjectDay: diagCount("subjectDay"), room: diagCount("room") },
@@ -774,19 +838,21 @@ export async function executeRun(db: Db, runId: string, todayYmd: string, opts: 
       pauses,
       ...(earlyAt !== null ? { cancelledAt: earlyAt } : {}),
     };
-    if (warm && result.warm) {
-      const w = result.warm;
-      metrics.warm = { startScore: w.startScore, startUnplaced: w.startUnplaced, rounds: w.rounds, accepted: w.accepted, unchanged: unchangedUnits(warm.placements, result.placements), startUnits: warm.placements.length, scope: w.scope };
+    if (multi) metrics.passes = { count: passes, done: passList.length, best: best!.index + 1, list: passList };
+    if (warm && firstWarm) {
+      const w = firstWarm;
+      metrics.warm = { startScore: w.startScore, startUnplaced: w.startUnplaced, rounds: roundsSum, accepted: acceptedSum, unchanged: unchangedUnits(warm.placements, result.placements), startUnits: warm.placements.length, scope: w.scope };
     }
-    if (earlyAt !== null) note("cancel", `Vorzeitig beendet bei ${earlyAt} % – der bisherige Stand ist ein gültiger Plan`, { percent: earlyAt });
+    if (earlyAt !== null) note("cancel", multi ? `Vorzeitig beendet bei ${earlyAt} % nach ${passList.length} von ${passes} Durchgängen – der beste bisherige Durchgang ist ein gültiger Plan` : `Vorzeitig beendet bei ${earlyAt} % – der bisherige Stand ist ein gültiger Plan`, { percent: earlyAt });
+    const bestNote = multi ? `Bester Durchgang: ${best!.index + 1} von ${passList.length} (Startwert ${passList[best!.index]!.seed}). ` : "";
     if (metrics.warm) {
       const w = metrics.warm;
       note(
         "done",
-        `Fertig: Bewertung ${w.startScore} → ${result.score}, nicht gesetzt ${w.startUnplaced} → ${result.unplaced.length}, ${w.rounds} Runden (${w.accepted} Verbesserungen übernommen), ${w.unchanged} von ${w.startUnits} Einheiten des Entwurfs unverändert, ${Math.round(metrics.durationMs / 100) / 10} s${pauses ? `, ${pauses} Pausen für Anfragen` : ""}`,
+        `${bestNote}Fertig: Bewertung ${w.startScore} → ${result.score}, nicht gesetzt ${w.startUnplaced} → ${result.unplaced.length}, ${w.rounds} Runden (${w.accepted} Verbesserungen übernommen), ${w.unchanged} von ${w.startUnits} Einheiten des Entwurfs unverändert, ${Math.round(metrics.durationMs / 100) / 10} s${pauses ? `, ${pauses} Pausen für Anfragen` : ""}`,
         { score: result.score, startScore: w.startScore, rounds: w.rounds, accepted: w.accepted, unchanged: w.unchanged, durationMs: metrics.durationMs, pauses },
       );
-    } else note("done", `Fertig: Bewertung ${result.score}, ${result.unplaced.length} nicht gesetzt, ${result.stats.iterations} Verbesserungsschritte (${result.stats.improved} Verbesserungen), ${Math.round(metrics.durationMs / 100) / 10} s${pauses ? `, ${pauses} Pausen für Anfragen` : ""}`, { score: result.score, durationMs: metrics.durationMs, pauses });
+    } else note("done", `${bestNote}Fertig: Bewertung ${result.score}, ${result.unplaced.length} nicht gesetzt, ${stepsSum} Verbesserungsschritte (${improvedSum} Verbesserungen), ${Math.round(metrics.durationMs / 100) / 10} s${pauses ? `, ${pauses} Pausen für Anfragen` : ""}`, { score: result.score, durationMs: metrics.durationMs, pauses });
     await set({ status: "done", progress: 100, result: stored, metrics, log, finishedAt: new Date(), heartbeatAt: new Date() });
     return "done";
   } catch (err) {

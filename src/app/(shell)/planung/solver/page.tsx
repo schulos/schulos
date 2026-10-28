@@ -9,7 +9,7 @@ import { timetableLessons } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { cancelSolverAction, startSolverAction } from "@/modules/stundenplan/actions";
-import { EFFORT_LABELS, listRunSummaries, MODE_LABELS, PRESET_LABELS, SCOPE_LABELS, WEIGHT_PRESETS, type RunSummary } from "@/modules/stundenplan/solverlauf";
+import { DEFAULT_PASSES, EFFORT_LABELS, listRunSummaries, MODE_LABELS, PASS_CHOICES, PRESET_LABELS, SCOPE_LABELS, WEIGHT_PRESETS, type RunSummary } from "@/modules/stundenplan/solverlauf";
 import { isComparable, MAX_COMPARE, MIN_COMPARE } from "@/modules/stundenplan/solververgleich";
 import { planningYear } from "@/modules/stundenplan/verteilung";
 import { QUELLE_LIVE, resolveQuelle } from "@/modules/stundenplan/quelle";
@@ -93,6 +93,8 @@ export default async function SolverPage({
           liveSource={QUELLE_LIVE}
           modes={MODE_LABELS}
           scopes={SCOPE_LABELS}
+          passChoices={PASS_CHOICES}
+          defaultPasses={DEFAULT_PASSES}
         />
       </Card>
 
@@ -157,7 +159,7 @@ export default async function SolverPage({
                       </span>
                     </td>
                     <td className="text-sm whitespace-nowrap">
-                      {r.params ? `${r.params.mode === "entwurf" ? "ab Entwurf · " : ""}${EFFORT_LABELS[r.params.effort]} · ${PRESET_LABELS[r.params.preset]}` : "–"}
+                      {r.params ? `${r.params.mode === "entwurf" ? "ab Entwurf · " : ""}${r.params.passes ? `${r.params.passes} Durchgänge · ` : ""}${EFFORT_LABELS[r.params.effort]} · ${PRESET_LABELS[r.params.preset]}` : "–"}
                       <span className="block text-xs text-muted">Startwert {r.seed}</span>
                     </td>
                     <td className="text-right tabular-nums">{r.metrics ? duration(r.metrics.durationMs) : "–"}</td>

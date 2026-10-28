@@ -144,6 +144,14 @@ export default async function SolverComparePage({
       label: "Startwert",
       get: (r: (typeof runs)[number]) => String(r.params?.seed ?? r.seed),
     },
+    {
+      key: "passes",
+      label: "Durchgänge",
+      get: (r: (typeof runs)[number]) =>
+        r.params?.passes
+          ? `${r.params.passes}, bester: Durchgang ${r.metrics?.passes?.best ?? "–"} (Startwert ${r.metrics?.passes?.list[(r.metrics.passes.best ?? 1) - 1]?.seed ?? "–"})`
+          : "Einzellauf",
+    },
     ...WEIGHT_FIELDS.map((f) => ({
       key: f.key,
       label: f.label,
