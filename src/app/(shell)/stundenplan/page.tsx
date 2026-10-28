@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Printer } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
+import { roomHref } from "@/core/room-href";
 import { dayOffLabel, loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, addDays, fromBerlinLocal, isoWeek, mondayOf, toBerlinDate, toBerlinLocal, weekdayMon0 } from "@/core/time";
 import { plannableGroups, teacherOptions, WEEKDAYS } from "@/modules/stundenplan/manage";
@@ -133,6 +134,11 @@ export default async function StundenplanPage({ searchParams }: { searchParams: 
                 <Link href={`/druck/stundenplan?${new URLSearchParams({ ...Object.fromEntries(keep), woche: monday })}`}>
                   <Printer aria-hidden /> Drucken
                 </Link>
+              </Button>
+            )}
+            {target?.kind === "room" && (
+              <Button asChild>
+                <Link href={roomHref(target.id)}>Raumsteckbrief</Link>
               </Button>
             )}
             <Button asChild>

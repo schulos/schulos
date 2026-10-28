@@ -9,6 +9,7 @@ import { affectedLessons, listRoomBlocks, ROOM_BLOCK_LABELS } from "@/modules/st
 import { getDb } from "@/core/db/client";
 import { ROOM_BLOCK_REASONS, ROOM_EQUIPMENT, ROOM_KINDS, type RoomEquipment, type RoomKind } from "@/core/db/schema";
 import { ROOM_EQUIPMENT_LABELS, ROOM_KIND_LABELS } from "@/core/labels";
+import { roomHref } from "@/core/room-href";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, fromBerlinLocal, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { bookableRooms, listRooms, occupancyOn, searchRooms, weekUtilization, type Occupancy } from "@/modules/stundenplan/raeume";
@@ -152,7 +153,11 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
               <tbody>
                 {blocks.map((b) => (
                   <tr key={b.id}>
-                    <td className="font-semibold">{b.roomId}</td>
+                    <td className="font-semibold">
+                      <Link href={roomHref(b.roomId)} className="hover:underline">
+                        {b.roomId}
+                      </Link>
+                    </td>
                     <td>{b.startsOn === b.endsOn ? fmtDay(b.startsOn) : `${fmtDay(b.startsOn)} – ${fmtDay(b.endsOn)}`}</td>
                     <td>{b.fromPeriod === null ? "ganzer Tag" : b.fromPeriod === b.toPeriod ? `${b.fromPeriod}.` : `${b.fromPeriod}.–${b.toPeriod}.`}</td>
                     <td>
@@ -281,7 +286,9 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
               {shown.map((r) => (
                 <tr key={r.id}>
                   <th scope="row" className="text-left font-semibold whitespace-nowrap normal-case tracking-normal text-ink">
-                    {r.id}
+                    <Link href={roomHref(r.id)} className="hover:underline">
+                      {r.id}
+                    </Link>
                     <span className="block text-xs font-normal normal-case text-muted">{ROOM_KIND_LABELS[r.kind]}</span>
                     {canReportDefect && (
                       <Link href={reportHref(r.id)} className="block text-xs font-medium normal-case text-accent-ink hover:underline" aria-label={`Mangel in Raum ${r.id} melden`}>
@@ -414,7 +421,9 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
                 {hits.map((r) => (
                   <tr key={r.id}>
                     <td>
-                      <span className="font-semibold">{r.id}</span>
+                      <Link href={roomHref(r.id)} className="font-semibold hover:underline">
+                        {r.id}
+                      </Link>
                       {r.name !== r.id && <span className="text-muted"> · {r.name}</span>}
                       {(r.building || r.floor) && <span className="block text-xs text-muted">{[r.building, r.floor].filter(Boolean).join(", ")}</span>}
                     </td>

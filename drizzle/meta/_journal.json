@@ -806,6 +806,13 @@
       "when": 1793158151300,
       "tag": "0114_sp3_05_laufzeit",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1793214218920,
+      "tag": "0115_rs_02_steckbrief",
+      "breakpoints": true
     }
   ]
 }

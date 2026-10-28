@@ -6,6 +6,7 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { hasPermission } from "@/core/permissions";
 import { periods } from "@/core/db/schema";
+import { roomHref } from "@/core/room-href";
 import { TZ, toBerlinDate } from "@/core/time";
 import { addPhotosAction, assignAction, blockRoomAction, changeStatusAction, commentAction, endBlockAction } from "@/modules/gebaeude/actions";
 import { CATEGORY_LABELS, MAX_PHOTOS, PRIORITY_LABELS, STATUS_LABELS, isClosed, placeLabel } from "@/modules/gebaeude/labels";
@@ -68,7 +69,13 @@ export default async function TicketPage({ params, searchParams }: { params: Pro
             <div>
               <dt className="text-muted">Ort</dt>
               <dd className="font-medium">
-                {placeLabel(t)}
+                {t.roomId ? (
+                  <Link href={roomHref(t.roomId)} className="hover:underline">
+                    {placeLabel(t)}
+                  </Link>
+                ) : (
+                  placeLabel(t)
+                )}
                 {t.roomName && t.roomName !== t.roomId && t.roomName !== `Raum ${t.roomId}` && <span className="font-normal text-muted"> · {t.roomName}</span>}
                 {(t.building || t.floor) && <span className="block text-xs font-normal text-muted">{[t.building, t.floor].filter(Boolean).join(", ")}</span>}
               </dd>

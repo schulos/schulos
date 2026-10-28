@@ -79,3 +79,44 @@ nie automatisch gelöscht, nur stillgelegt. Kein Bezug zu besonderen Datenkatego
 8. Tür-QR ohne Anmeldung zeigt nur die Anmeldeseite.
 9. Gebäude und Etagen als Stufe 4, nach dem Steckbrief.
 10. Raumsperre und Stilllegung als Banner im Steckbrief.
+
+## Umgesetzt (RS-02/03)
+
+Stand 2026-10-28, Migration 0115 (`room_info_fields`, `room_info_values`, Enum `room_info_visibility`).
+
+- **Seite `/raeume/[id]`** für alle Angemeldeten, ohne Modul-Layout (Räume sind Kernstammdaten). Gefiltert wird im Service
+  `roomProfile()` (`src/modules/verwaltung/raumsteckbrief.ts`), nicht erst in der Seite. Sicht „personal“ = Rollen aus
+  `STAFF_ROLES` (Lehrkraft, Personal, Beratung, Verwaltung, Admin), Sicht „familie“ = Schüler:innen und Eltern.
+- **Kopf:** Name, Art, Gebäude/Etage, Plätze, barrierefrei, Ausstattung grob (die acht festen Einträge bis RS-05).
+  **Banner** „Raum stillgelegt“ und „Gesperrt bis …“ (laufende Raumsperre) plus geplante Sperren der nächsten 14 Tage; die
+  Notiz der Sperre sehen nur Beschäftigte, der Grund (Kategorie) alle.
+- **Belegung** als Wochenraster Mo–Fr × Zeitraster mit Wochenwechsel (`?woche=`), heute markiert: Unterricht nach
+  Vertretung/Raumänderung/Verlegung, Buchungen, Sperren (`occupancyOn`, jetzt mit Lehrkraft-Kürzel bzw. Vertretung).
+  Beschäftigte sehen Fach · Klasse/Kurs und Kürzel, Schüler:innen/Eltern nur „frei“/„belegt“ (auch Sperren und Buchungen).
+  Moduleinstellung `verwaltung.room_occupancy_family` („nur frei/belegt“ Vorgabe, „nicht zeigen“), DSB-Thema 13.
+  Nur mit Modul Stundenplan.
+- **Offene Mängel** (nur Beschäftigte, Modul Gebäude & Technik): Nummer, Titel, Kategorie, Status, seit – ohne Namen; der
+  Link auf die Meldung nur für die meldende Person und wer alle Meldungen sieht (Sichtbarkeit der Meldung unverändert).
+  **Fällige Prüfungen** (überfällig/bald fällig, Raum oder Anlage im Raum) nur mit `gebaeude.manage`/`view_all`.
+- **Knöpfe:** „Mangel melden“ (`gebaeude.report`), „Raum buchen“ (`buchungen.book`, buchbarer Raum), „Bearbeiten“
+  (`verwaltung.school`), „Drucken“ → `/druck/raum/[id]` (A4, dieselbe Filterung, ohne Mängel); für Beschäftigte zusätzlich
+  „Raumplan mit Vertretungen“.
+- **Verlinkung:** Raumliste für alle `/raeume` (neu, ohne Menüeintrag; „Alle Räume“ im Steckbrief), Stammdaten-Raumliste
+  (Knopf „Steckbrief“, „Zum Steckbrief“ auf der Bearbeitungsseite), Raumbelegung, Raumsuche und Sperrungen
+  (`/stundenplan/raeume`), Raumplan `/stundenplan?raum=`, Buchungen (Raumressource), Mängelmeldung (Ort), globale Suche
+  (Gruppe „Räume“, nur aktive Räume).
+- **Infofelder (RS-03):** schulweit festgelegte Felder mit Sichtbarkeit je Feld („nur Personal“ oder „alle“), Werte je
+  Raum (höchstens 1000 Zeichen, leer = keine Angabe). Vorgaben: Technik/Netz, Nutzungshinweise, Sicherheit, Durchwahl
+  (Personal), Fenster/Lüftung, Fläche (alle). Felder verwalten unter `/verwaltung/stammdaten/raeume/infofelder` (anlegen,
+  umbenennen, Sichtbarkeit, Reihenfolge, löschen mit Rückfrage; höchstens 30), Werte pflegen im Steckbrief
+  („Infofelder bearbeiten“ → `/raeume/[id]/infofelder`). Das Formular weist darauf hin, keine Personendaten einzutragen.
+- **Rechte:** Bis RS-06 pflegt Infofelder, wer heute Räume bearbeiten darf (`verwaltung.school`, `canEditRoomInfo()`);
+  die Felder selbst legt ebenfalls `verwaltung.school` fest. Jede Aktion prüft im Service.
+- **Audit:** `verwaltung.room.info` (welche Felder, nicht die Texte), `verwaltung.room.info_field.create/update/delete`
+  (Filter „Räume“ im Protokoll).
+- **Datenschutz:** beide Tabellen ohne Personenbezug (`NO_PERSONAL_DATA`, DATENSCHUTZ.md §3.4); Werte gehen mit Raum bzw.
+  Feld (Fremdschlüssel, Umbenennen des Raumkürzels zieht mit).
+
+**Andockpunkte:** RS-04 Titelbild im Kopf-Abschnitt „Überblick“ und Galerie als eigene Karte; RS-05 ersetzt die
+Ausstattungs-Badges in `RoomFacts` (und `rooms.equipment`); RS-06 erweitert `canEditRoomInfo(viewer, roomId)` um das neue
+Recht und `room_responsibles` und ergänzt eine Karte „Verantwortliche“ im unteren Raster der Seite.

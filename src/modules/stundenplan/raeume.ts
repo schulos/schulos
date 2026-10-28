@@ -10,7 +10,8 @@ import { lessonActiveOn } from "./service";
 import { roomUse } from "./belegung";
 
 export type Occupancy =
-  | { kind: "lesson"; label: string; moved?: boolean }
+  /** `teacher`: Kürzel der haltenden Lehrkraft(en) – Vertretung statt Lehrkraft der Stunde (RS-02, nur für Beschäftigte anzeigen) */
+  | { kind: "lesson"; label: string; moved?: boolean; teacher?: string }
   | { kind: "booking"; label: string }
   /** Raumsperrung (P2b-17) */
   | { kind: "blocked"; label: string }
@@ -70,6 +71,8 @@ interface OccLesson {
   groupName: string;
   subjectName: string;
   couplingId: string | null;
+  /** Kürzel der Lehrkraft der Stunde (RS-02) */
+  teacherCode?: string | null;
 }
 interface OccChange {
   lessonId: string;
@@ -77,6 +80,8 @@ interface OccChange {
   roomId: string | null;
   /** SP2-07 Verlegung: neue Stunde */
   targetPeriod?: number | null;
+  /** Kürzel der Vertretungslehrkraft (RS-02) */
+  substituteCode?: string | null;
 }
 interface OccBooking {
   roomId: string;
@@ -96,7 +101,8 @@ export function occupancyFrom(lessons: OccLesson[], changes: OccChange[], booked
     const prev = day.get(p);
     // mehrere Gruppen im selben Raum (Kopplung, Teamteaching): Gruppen zusammenfassen
     if (prev?.kind === "lesson" && o.kind === "lesson") {
-      day.set(p, { ...prev, label: mergeLabels(prev.label, o.label) });
+      const teachers = [...new Set([prev.teacher, o.teacher].flatMap((t) => (t ? t.split(", ") : [])))];
+      day.set(p, { ...prev, label: mergeLabels(prev.label, o.label), ...(teachers.length ? { teacher: teachers.join(", ") } : {}) });
       return;
     }
     if (!prev || prev.kind !== "lesson") day.set(p, o);
@@ -107,7 +113,13 @@ export function occupancyFrom(lessons: OccLesson[], changes: OccChange[], booked
     // SP2-07: Entfall und Zusammenlegung geben den Raum frei, eine Verlegung belegt ihn in der neuen Stunde
     const use = roomUse(l, c && { kind: c.kind, substituteId: null, roomId: c.roomId, targetPeriod: c.targetPeriod ?? null });
     if (!use) continue;
-    set(use.roomId, use.periodNr, { kind: "lesson", label: `${l.subjectName} · ${l.groupName}`, moved: Boolean((c?.roomId && c.roomId !== l.roomId) || c?.kind === "move") });
+    const teacher = c?.kind === "substitute" ? c.substituteCode : l.teacherCode;
+    set(use.roomId, use.periodNr, {
+      kind: "lesson",
+      label: `${l.subjectName} · ${l.groupName}`,
+      moved: Boolean((c?.roomId && c.roomId !== l.roomId) || c?.kind === "move"),
+      ...(teacher ? { teacher } : {}),
+    });
   }
   for (const b of booked) set(b.roomId, b.periodNr, { kind: "booking", label: b.label });
   // Sperrung geht vor: der Raum ist nicht nutzbar, auch wenn dort laut Plan Unterricht wäre
@@ -136,10 +148,11 @@ export async function occupancyOn(db: Db, date: string): Promise<{ occupancy: Da
     off
       ? Promise.resolve([])
       : db
-          .select({ l: timetableLessons, groupName: groups.name, subjectName: subjects.name })
+          .select({ l: timetableLessons, groupName: groups.name, subjectName: subjects.name, teacherCode: users.shortCode })
           .from(timetableLessons)
           .innerJoin(groups, eq(groups.id, timetableLessons.groupId))
-          .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId)),
+          .innerJoin(subjects, eq(subjects.id, timetableLessons.subjectId))
+          .leftJoin(users, eq(users.id, timetableLessons.teacherId)),
     db
       .select({ roomId: bookingResources.roomId, periodNr: bookings.periodNr, by: users.shortCode, byName: users.name, note: bookings.note, groupName: groups.name })
       .from(bookings)
@@ -153,12 +166,19 @@ export async function occupancyOn(db: Db, date: string): Promise<{ occupancy: Da
   const active = lessonRows.filter((r) => lessonActiveOn(r.l, date));
   const changes = active.length
     ? await db
-        .select({ lessonId: timetableSubstitutions.lessonId, kind: timetableSubstitutions.kind, roomId: timetableSubstitutions.roomId, targetPeriod: timetableSubstitutions.targetPeriod })
+        .select({
+          lessonId: timetableSubstitutions.lessonId,
+          kind: timetableSubstitutions.kind,
+          roomId: timetableSubstitutions.roomId,
+          targetPeriod: timetableSubstitutions.targetPeriod,
+          substituteCode: users.shortCode,
+        })
         .from(timetableSubstitutions)
+        .leftJoin(users, eq(users.id, timetableSubstitutions.substituteId))
         .where(and(eq(timetableSubstitutions.date, date), inArray(timetableSubstitutions.lessonId, active.map((r) => r.l.id))))
     : [];
   const occupancy = occupancyFrom(
-    active.map((r) => ({ id: r.l.id, roomId: r.l.roomId, periodNr: r.l.periodNr, groupName: r.groupName, subjectName: r.subjectName, couplingId: r.l.couplingId })),
+    active.map((r) => ({ id: r.l.id, roomId: r.l.roomId, periodNr: r.l.periodNr, groupName: r.groupName, subjectName: r.subjectName, couplingId: r.l.couplingId, teacherCode: r.teacherCode })),
     changes,
     bookingRows
       .filter((b): b is typeof b & { roomId: string } => b.roomId !== null)

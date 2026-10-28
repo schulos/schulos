@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Laptop, MapPin } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { hasPermission } from "@/core/permissions";
+import { roomHref } from "@/core/room-href";
 import { TZ, addDays, fromBerlinLocal, isoWeek, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { bookAction, cancelBookingAction } from "@/modules/buchungen/actions";
 import { bookingAccess, listResources, myBookings, resourceWeek } from "@/modules/buchungen/service";
@@ -140,6 +141,13 @@ export default async function BuchungenPage({ searchParams }: { searchParams: Pr
                 </h2>
               </div>
               {resource.description && <p className="text-sm text-muted">{resource.description}</p>}
+              {resource.roomId && (
+                <p className="text-sm">
+                  <Link href={roomHref(resource.roomId)} className="font-medium text-accent-ink hover:underline">
+                    Raumsteckbrief {resource.roomId}
+                  </Link>
+                </p>
+              )}
               {readOnly && <p className="text-sm text-muted">Nur lesen – gebucht wird von Lehrkräften und Verwaltung.</p>}
               <MaybeForm readOnly={readOnly} formKey={`${resource.id}:${monday}`} action={bookAction.bind(null, resource.id)} groups={groupList.map((g) => ({ id: g.id, name: g.name }))}>
                 <div className="overflow-x-auto rounded-card border border-border bg-surface">

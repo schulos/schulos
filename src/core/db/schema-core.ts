@@ -78,6 +78,45 @@ export const rooms = pgTable("rooms", {
 export const ROOM_EQUIPMENT = ["beamer", "tafel_digital", "dokukamera", "lehrer_pc", "schueler_pcs", "audio", "waschbecken", "abzug"] as const;
 export type RoomEquipment = (typeof ROOM_EQUIPMENT)[number];
 
+// RS-03 (Raumsteckbrief): Infofelder. Neue Werte nur hinten anfügen: Postgres sortiert Enums nach Deklaration.
+/** Wer ein Infofeld im Steckbrief sieht: alle Angemeldeten oder nur Beschäftigte (`STAFF_ROLES`). */
+export const ROOM_INFO_VISIBILITIES = ["alle", "personal"] as const;
+export type RoomInfoVisibility = (typeof ROOM_INFO_VISIBILITIES)[number];
+export const roomInfoVisibilityEnum = pgEnum("room_info_visibility", ROOM_INFO_VISIBILITIES);
+
+/**
+ * Schulweit festgelegte Infofelder des Raumsteckbriefs (z. B. „Technik/Netz“, „Sicherheit“, „Fenster/Lüftung“) mit
+ * Sichtbarkeit. Die Sichtbarkeit hängt am Feld, nicht am einzelnen Raum – „Technik“ ist überall nur für Personal.
+ * Keine Personendaten (Hinweis im Formular); die sechs Vorgaben legt die Migration an.
+ */
+export const roomInfoFields = pgTable(
+  "room_info_fields",
+  {
+    id: id(),
+    label: text("label").notNull(),
+    visibility: roomInfoVisibilityEnum("visibility").notNull().default("personal"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("room_info_fields_label_uq").on(sql`lower(${t.label})`)],
+);
+
+/** Wert eines Infofelds je Raum (leer = Zeile fehlt). Wer geändert hat, steht nur im Audit-Log. */
+export const roomInfoValues = pgTable(
+  "room_info_values",
+  {
+    roomId: text("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    fieldId: text("field_id")
+      .notNull()
+      .references(() => roomInfoFields.id, { onDelete: "cascade" }),
+    value: text("value").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.roomId, t.fieldId] }), index("room_info_values_field_idx").on(t.fieldId)],
+);
+
 export const GRADE_STAGES = ["sek1", "oberstufe"] as const;
 export const gradeStageEnum = pgEnum("grade_stage", GRADE_STAGES);
 

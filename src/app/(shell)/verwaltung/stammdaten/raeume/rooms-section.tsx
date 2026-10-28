@@ -3,6 +3,7 @@ import { Accessibility, Plus } from "lucide-react";
 import { ROOM_KINDS, type RoomEquipment, type RoomKind } from "@/core/db/schema";
 import { ROOM_EQUIPMENT_LABELS, ROOM_KIND_LABELS } from "@/core/labels";
 import type { Db } from "@/core/db/client";
+import { roomHref } from "@/core/room-href";
 import { listRooms } from "@/modules/verwaltung/rooms";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -19,11 +20,16 @@ export async function RoomsSection({ db, q, art }: { db: Db; q?: string; art?: s
         <h2 id="ra" className="font-display text-xl font-bold">
           Räume
         </h2>
-        <Button asChild variant="primary">
-          <Link href="/verwaltung/stammdaten/raeume/neu">
-            <Plus aria-hidden /> Raum anlegen
-          </Link>
-        </Button>
+        <span className="flex flex-wrap gap-2">
+          <Button asChild>
+            <Link href="/verwaltung/stammdaten/raeume/infofelder">Infofelder</Link>
+          </Button>
+          <Button asChild variant="primary">
+            <Link href="/verwaltung/stammdaten/raeume/neu">
+              <Plus aria-hidden /> Raum anlegen
+            </Link>
+          </Button>
+        </span>
       </div>
       <form role="search" className="grid gap-3 rounded-card border border-border bg-surface p-4 sm:grid-cols-[2fr_1fr_auto]">
         <input type="hidden" name="bereich" value="raeume" />
@@ -71,7 +77,12 @@ export async function RoomsSection({ db, q, art }: { db: Db; q?: string; art?: s
                 </td>
                 <td className="text-right tabular-nums">{r.capacity ?? "–"}</td>
                 <td className="text-muted">{r.equipment.map((e) => ROOM_EQUIPMENT_LABELS[e as RoomEquipment] ?? e).join(", ")}</td>
-                <td className="text-right">
+                <td className="text-right whitespace-nowrap">
+                  <Button asChild size="sm" variant="ghost">
+                    <Link href={roomHref(r.id)} aria-label={`Steckbrief Raum ${r.id}`}>
+                      Steckbrief
+                    </Link>
+                  </Button>
                   <Button asChild size="sm" variant="ghost">
                     <Link href={`/verwaltung/stammdaten/raeume/${encodeURIComponent(r.id)}`} aria-label={`Raum ${r.id} bearbeiten`}>
                       Bearbeiten

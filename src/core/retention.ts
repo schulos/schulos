@@ -242,6 +242,8 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   school_years: "Stammdaten Schuljahre",
   subjects: "Stammdaten Fächer",
   rooms: "Stammdaten Räume",
+  room_info_fields: "Infofelder des Raumsteckbriefs (Bezeichnung, Sichtbarkeit, Reihenfolge) – keine Personen",
+  room_info_values: "Infofelder je Raum (Technik, Sicherheit, Lüftung …) – Sachangaben ohne Personendaten (Hinweis im Formular), wer geändert hat steht nur im Audit-Log",
   periods: "Zeitraster",
   grade_levels: "Jahrgangsstufen",
   school_closures: "Ferien und unterrichtsfreie Tage",

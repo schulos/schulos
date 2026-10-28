@@ -158,9 +158,9 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     nr: 13,
     title: "Kommunikation unter Schüler:innen und Information der Eltern",
     schulos:
-      "Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang, die Veröffentlichung des Vertretungsplans und die Kenntnisnahme von Vertretungen durch die Vertretungslehrkraft (Profilbilder im Sitzplan: §16). Legt fest, wann die Vertretungsnachricht rausgeht: am Vortag zur eingestellten Uhrzeit, für heute sofort, nie in der Ruhezeit – getrennt für Lehrkräfte und Schüler:innen/Eltern; bis dahin steht nur „wer, welcher Tag, wann“ in einer Warteschlange (90 Tage, ohne Inhalt).",
+      "Schaltet Direktchats unter Schüler:innen, die Eltern-Info zu Vertretungen und Hausaufgaben je Jahrgang, die Veröffentlichung des Vertretungsplans und die Kenntnisnahme von Vertretungen durch die Vertretungslehrkraft sowie die Raumbelegung im Raumsteckbrief für Schüler:innen und Eltern (nur frei/belegt oder gar nicht; Profilbilder im Sitzplan: §16). Legt fest, wann die Vertretungsnachricht rausgeht: am Vortag zur eingestellten Uhrzeit, für heute sofort, nie in der Ruhezeit – getrennt für Lehrkräfte und Schüler:innen/Eltern; bis dahin steht nur „wer, welcher Tag, wann“ in einer Warteschlange (90 Tage, ohne Inhalt).",
     vorgabe:
-      "Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort, Kenntnisnahme an (freiwillig, ohne Eskalation, Erinnerung mit der Vertretungsnachricht), Vertretungsnachricht am Vortag 18:00, Ruhezeit 20:00–06:30 (Schüler:innen/Eltern wie Lehrkräfte).",
+      "Direktchats nur in der eigenen Klasse, Eltern-Info Vertretung bis Jahrgang 10, Hausaufgaben für Eltern aus, Vertretungsplan sofort, Kenntnisnahme an (freiwillig, ohne Eskalation, Erinnerung mit der Vertretungsnachricht), Vertretungsnachricht am Vortag 18:00, Ruhezeit 20:00–06:30 (Schüler:innen/Eltern wie Lehrkräfte), Raumbelegung für Schüler:innen/Eltern nur frei/belegt.",
     schule: "Entscheidet je Schalter nach pädagogischem Konzept und Erforderlichkeit und dokumentiert die Wahl.",
     settings: [
       "messenger.student_direct",
@@ -174,6 +174,7 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
       "stundenplan.quiet_from_students",
       "stundenplan.quiet_until_students",
       "klassenbuch.parents_homework",
+      "verwaltung.room_occupancy_family",
     ],
     where: { label: "Verwaltung → Rechte & Module", href: "/verwaltung/rechte" },
   },
