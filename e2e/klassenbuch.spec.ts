@@ -11,6 +11,8 @@ test("Lehrkraft trägt eine Stunde ins Klassenbuch ein, inkl. Fehlzeit und Versp
   await expect(page).not.toHaveURL(start);
   const open = page.getByRole("link", { name: /Offen$/ }).first();
   await expect(open).toBeVisible();
+  // TD-16: genau diese Stunde später wieder öffnen – andere Specs tragen am selben Schultag ebenfalls Stunden ein
+  const entryHref = (await open.getAttribute("href"))!;
   await open.click();
 
   await page.getByLabel("Thema der Stunde").fill("Erörterung: Pro und Contra");
@@ -24,7 +26,7 @@ test("Lehrkraft trägt eine Stunde ins Klassenbuch ein, inkl. Fehlzeit und Versp
 
   await expect(page.getByRole("heading", { name: "Meine Stunden" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Eingetragen$/ }).first()).toBeVisible();
-  await page.getByRole("link", { name: /Eingetragen$/ }).first().click();
+  await page.locator(`a[href="${entryHref}"]`).click();
   await expect(page.getByLabel("Thema der Stunde")).toHaveValue("Erörterung: Pro und Contra");
   await expect(rows.nth(1).getByRole("radio", { name: "Fehlt" })).toBeChecked();
   await expect(page.getByRole("spinbutton").first()).toHaveValue("10");
@@ -34,9 +36,11 @@ test("Lehrkraft trägt eine Stunde ins Klassenbuch ein, inkl. Fehlzeit und Versp
   const due = page.getByLabel("Fällig am");
   let chosen = "";
   for (let i = 7; i < 30 && !chosen; i++) {
+    // Datum in Berlin (wie der Server), nicht in UTC – rund um Mitternacht liegen beide einen Tag auseinander
     const d = new Date(Date.now() + i * 86_400_000);
-    if (d.getDay() === 0 || d.getDay() === 6) continue;
-    const ymd = d.toISOString().slice(0, 10);
+    const ymd = d.toLocaleDateString("sv-SE", { timeZone: "Europe/Berlin" });
+    const wd = new Date(`${ymd}T12:00:00Z`).getUTCDay();
+    if (wd === 0 || wd === 6) continue;
     await due.fill(ymd);
     await page.getByRole("button", { name: "Eintrag speichern" }).click();
     const saved = page.getByRole("heading", { name: "Meine Stunden" });
@@ -45,7 +49,7 @@ test("Lehrkraft trägt eine Stunde ins Klassenbuch ein, inkl. Fehlzeit und Versp
     if (await saved.isVisible()) chosen = ymd;
   }
   expect(chosen).not.toBe("");
-  await page.getByRole("link", { name: /Eingetragen$/ }).first().click();
+  await page.locator(`a[href="${entryHref}"]`).click();
   await expect(page.getByLabel("Fällig am")).toHaveValue(chosen);
   expect(errors).toEqual([]);
 });
