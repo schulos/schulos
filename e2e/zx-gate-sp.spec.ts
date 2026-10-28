@@ -200,7 +200,7 @@ test("SP2-02: Band „Q1 GK-Schiene A“ liegt als Kopplung im Plan; die Setzhil
   // Setzhilfe in der AG Robotik: der Lehrauftrag ist als Band offen und wird mit dem Deutsch-Lehrauftrag der Schülerzeitung gesetzt
   await page.goto("/planung/stundenplan?gruppe=g-ag-robotik");
   const panel = page.getByRole("article", { name: "Offene Stunden" });
-  const open = panel.getByRole("link", { name: "Setzen: Informatik · LAN, 1 von 1 offen" });
+  const open = panel.getByRole("link", { name: /^Informatik · LAN.*1 von 1 offen/ });
   await expect(open).toContainText(`Band ${bandName}`);
   await expect(open).toContainText("AG Schülerzeitung Deutsch");
   await open.click();

@@ -59,10 +59,20 @@ test("Gate 2b – Lehrkraft krank → offene Stunden → Vorschlag übernehmen �
   await expect(affected.getByText("verlegt", { exact: true })).toHaveCount(before + 1);
   await page.screenshot({ path: ".data/shots/e2e/gate2b-raumsperrung.png", fullPage: true });
 
-  // aufräumen: Sperrung und Abwesenheit aufheben (Vertretung/Raumänderung bleiben als Änderungen stehen)
+  // aufräumen: Sperrung, Vertretung, Raumänderung und Abwesenheit aufheben
   await page.getByRole("button", { name: "Sperrung 106 aufheben" }).click();
   await expect(page.getByText("Keine Sperrungen")).toBeVisible();
   await page.goto("/planung/vertretungen");
+  // TD-09: auch die beiden Änderungen vom Tag wieder aufheben (Vertretung der BRA, Raumänderung aus der Sperrung), sonst bliebe die
+  // Vertretung nach dem Aufheben der Abwesenheit als „Abwesenheit beendet – prüfen“ für die Folge-Specs stehen
+  const changes = page.getByRole("region", { name: /^Alle Änderungen am/ });
+  for (const hint of [/Vertretung.*\(BRA\)|\(BRA\).*Vertretung/, /Raumänderung.*R 106/]) {
+    const mine = changes.getByRole("row").filter({ hasText: hint });
+    const c = await mine.count();
+    expect(c).toBeGreaterThan(0);
+    await mine.first().getByRole("button", { name: /^Aufheben/ }).click();
+    await expect(changes.getByRole("row").filter({ hasText: hint })).toHaveCount(c - 1);
+  }
   await page.getByRole("button", { name: "Abwesenheit BRA aufheben" }).click();
   await expect(page.getByText("Für diesen Tag ist keine Abwesenheit eingetragen.")).toBeVisible();
   expect(errors).toEqual([]);

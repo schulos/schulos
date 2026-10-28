@@ -51,7 +51,6 @@ export function OpenPanel({ open, base, placing, fakultas }: { open: OpenAssignm
                   <Link
                     href={active ? base : `${base}&setzen=${a.id}`}
                     aria-current={active ? "true" : undefined}
-                    aria-label={`${active ? "Setzen beenden" : "Setzen"}: ${label}, ${hoursFmt(a.open)} von ${a.hours} offen`}
                     className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-sm transition hover:border-border-strong aria-[current=true]:border-accent aria-[current=true]:bg-accent-soft"
                   >
                     <SubjectBar color={a.color} className="h-5 w-1 shrink-0" />

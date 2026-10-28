@@ -22,14 +22,13 @@ async function axeClean(page: Page, where: string) {
   ).toEqual([]);
 }
 
-const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-/** Morgen – am Wochenende der Montag (die E2E-Datenbank hat keine Ferien). */
+/** Morgen (Schulort Berlin, nicht die Zeitzone des Testrechners) – am Wochenende der Montag (die E2E-Datenbank hat keine Ferien). */
 function tomorrowSchoolDay(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
-  return ymd(d);
+  // „heute“ in Berlin als Kalendertag; mittags gerechnet, damit Sommer-/Winterzeit nichts verschiebt
+  const [y, m, day] = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" }).format(new Date()).split("-").map(Number);
+  const d = new Date(Date.UTC(y!, m! - 1, day! + 1, 12));
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 const stundeOf = (url: string) => new URL(url).searchParams.get("stunde");
@@ -86,7 +85,11 @@ test("GATE VT: Morgen – Abwesenheit → Arbeitsplatz → Vorschlag per Tastatu
   await expect(openRows.first()).toContainText(/noch Zeit|heute|dringend/);
   const header = page.getByRole("list", { name: "Tagesstand" });
   await expect(header).toContainText(/\d+ offen/);
-  await openRows.first().getByRole("link", { name: "Vertretung eintragen" }).click();
+  const rowTexts = await openRows.allInnerTexts();
+  const index7b = rowTexts.findIndex((t) => t.includes("Klasse 7b"));
+  expect(index7b, "offene Stunde der 7b").toBeGreaterThanOrEqual(0);
+  // die offene Stunde der 7b (die Schülerin sieht nur ihre Klasse) – die erste offene der Lehrkraft liegt je nach Wochentag in einer anderen Klasse
+  await openRows.filter({ hasText: "Klasse 7b" }).first().getByRole("link", { name: "Vertretung eintragen" }).click();
   await expect(page).toHaveURL(/stunde=/);
   const first = stundeOf(page.url())!;
   const chosen = page.getByRole("article", { name: /^Gewählte Stunde:/ });
@@ -97,7 +100,7 @@ test("GATE VT: Morgen – Abwesenheit → Arbeitsplatz → Vorschlag per Tastatu
   const cards = chosen.getByRole("group", { name: /^Vorschläge:/ }).getByRole("list").first().getByRole("listitem");
   await expect(cards.first()).toBeVisible();
   await page.locator("body").click({ position: { x: 1, y: 1 } });
-  if ((await openRows.count()) > 1) {
+  if (index7b < rowTexts.length - 1) {
     // ↓ nächste offene Stunde, ↑ zurück
     await page.keyboard.press("ArrowDown");
     await expect.poll(() => stundeOf(page.url())).not.toBe(first);
@@ -177,7 +180,7 @@ test("GATE VT: Morgen – Abwesenheit → Arbeitsplatz → Vorschlag per Tastatu
   const leaErrors = collectErrors(lea);
   await login(lea, "lea.schaefer");
   await lea.goto("/stundenplan/vertretungen");
-  const klasse = lea.getByRole("article", { name: "7b" }).first();
+  const klasse = lea.getByRole("article", { name: "7b" }).filter({ hasText: PUBLIC }).first();
   await expect(klasse).toContainText(PUBLIC);
   await expect(klasse).toContainText("Grund: Lehrkraft abwesend");
   const main = lea.getByRole("main");

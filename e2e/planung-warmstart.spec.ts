@@ -32,7 +32,7 @@ test("SQ-02: Lauf „ab aktuellem Entwurf verbessern“ – Start aus dem Entwur
   const draftId = new URL(page.url()).searchParams.get("quelle")!;
   await page.goto(`/planung/stundenplan?gruppe=g-7b&quelle=${draftId}`);
   const plan = page.getByRole("table", { name: "Stundenplan Klasse 7b" });
-  const openDeutsch = page.getByRole("link", { name: /^Setzen: Deutsch/ });
+  const openDeutsch = page.locator('[aria-labelledby="open-title"]').getByRole("link", { name: /^Deutsch/ });
   const openBefore = await openDeutsch.count();
   await plan.getByRole("link", { name: /^Deutsch BRA/ }).first().click();
   await page.getByRole("button", { name: "Stunde löschen" }).click();
