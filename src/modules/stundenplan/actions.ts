@@ -995,12 +995,13 @@ function readGrid(form: FormData): PrefGrid | null {
   return grid;
 }
 
-export async function savePrefsAction(kind: string, targetId: string, _prev: FormState, form: FormData): Promise<FormState> {
+/** SP3-09b: `yearId` = Planungsjahr der Seite (gebunden, auch das Folgejahr); abgeschlossene Schuljahre lehnt `savePrefs` ab. */
+export async function savePrefsAction(yearId: string, kind: string, targetId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const grid = readGrid(form);
   if (!grid) return { error: "Ungültiger Wert", values: formValues(form) };
   try {
-    await savePrefs(await getDb(), user.id, kind, targetId, grid);
+    await savePrefs(await getDb(), user.id, kind, targetId, grid, "planung", String(yearId));
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", values: formValues(form) };
     throw err;
@@ -1024,11 +1025,16 @@ export async function saveOwnPrefsAction(_prev: FormState, form: FormData): Prom
   return { ok: true };
 }
 
-/** Q5-10: Eingabefenster für Lehrkräfte öffnen/ändern (Planung). */
-export async function setPrefWindowAction(_prev: FormState, form: FormData): Promise<FormState> {
+/** Q5-10: Eingabefenster für Lehrkräfte öffnen/ändern (Planung). SP3-09b: für das Planungsjahr der Seite (gebunden). */
+export async function setPrefWindowAction(yearId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   try {
-    await setPrefWindow(await getDb(), user.id, { opensOn: String(form.get("opensOn") ?? ""), closesOn: String(form.get("closesOn") ?? "") }, toBerlinDate(new Date()));
+    await setPrefWindow(
+      await getDb(),
+      user.id,
+      { opensOn: String(form.get("opensOn") ?? ""), closesOn: String(form.get("closesOn") ?? ""), schoolYearId: String(yearId) },
+      toBerlinDate(new Date()),
+    );
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
@@ -1053,9 +1059,10 @@ const withQuery = (path: string, key: string, value: string) => `${path}${path.i
 
 /**
  * Lauf mit Parametern anlegen (SP-07: Bezeichnung, Gründlichkeit, Startwert, Gewichtung inkl. „eigene“) und im Hintergrund rechnen
- * lassen; rechnet schon einer, wartet der neue (SP-06). Weiter auf die Detailseite mit Fortschritt.
+ * lassen; rechnet schon einer, wartet der neue (SP-06). Weiter auf die Detailseite mit Fortschritt. SP3-09b: `yearId` = Planungsjahr der
+ * Seite (gebunden, nicht aus dem Cookie); `createRun` prüft es (beschreibbar, Entwurf dieses Jahrs, außerhalb des laufenden nur im Entwurf).
  */
-export async function startSolverAction(_prev: FormState, form: FormData): Promise<FormState> {
+export async function startSolverAction(yearId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
   const str = (k: string) => String(form.get(k) ?? "").trim();
@@ -1069,7 +1076,7 @@ export async function startSolverAction(_prev: FormState, form: FormData): Promi
     id = await createRun(
       db,
       user.id,
-      { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights, refYmd: str("refYmd") || null, versionId: str("versionId") && str("versionId") !== QUELLE_LIVE ? str("versionId") : null, mode: str("mode") || null, scope: str("scope") || null, passes: str("lauf") === "mehrfach" ? (num("passes") ?? DEFAULT_PASSES) : null },
+      { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights, refYmd: str("refYmd") || null, versionId: str("versionId") && str("versionId") !== QUELLE_LIVE ? str("versionId") : null, mode: str("mode") || null, scope: str("scope") || null, passes: str("lauf") === "mehrfach" ? (num("passes") ?? DEFAULT_PASSES) : null, schoolYearId: String(yearId) },
       today,
     );
   } catch (err) {

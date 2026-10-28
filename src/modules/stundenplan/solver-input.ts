@@ -236,7 +236,8 @@ export async function solverInputFromDb(
       .from(groupMembers)
       .innerJoin(users, eq(users.id, groupMembers.userId))
       .where(and(eq(groupMembers.role, "member"), eq(users.role, "schueler"))),
-    allPrefs(db),
+    // SP3-09b: Zeitwünsche des Schuljahrs des Laufs (im Folgejahr dessen Wünsche)
+    allPrefs(db, year.id),
     planLessonsOn(db, d.refYmd, source),
     gridLessons(db, d.refYmd, d.refYmd, source),
     listGradeRules(db),

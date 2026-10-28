@@ -11,8 +11,9 @@ import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { cancelSolverAction, startSolverAction } from "@/modules/stundenplan/actions";
 import { DEFAULT_PASSES, EFFORT_LABELS, listRunSummaries, MODE_LABELS, PASS_CHOICES, PRESET_LABELS, SCOPE_LABELS, WEIGHT_PRESETS, type RunSummary } from "@/modules/stundenplan/solverlauf";
 import { isComparable, MAX_COMPARE, MIN_COMPARE } from "@/modules/stundenplan/solververgleich";
-import { planningYear } from "@/modules/stundenplan/verteilung";
+import { yearOfVersion } from "@/modules/stundenplan/planungsjahr";
 import { QUELLE_LIVE, resolveQuelle } from "@/modules/stundenplan/quelle";
+import { planningYearForPage } from "../planungsjahr";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
@@ -32,7 +33,7 @@ const HISTORY_LIMIT = 100;
 export default async function SolverPage({
   searchParams,
 }: {
-  searchParams: Promise<{ lauf?: string; gruppe?: string; fehler?: string; geloescht?: string; status?: string; quelle?: string }>;
+  searchParams: Promise<{ lauf?: string; gruppe?: string; fehler?: string; geloescht?: string; status?: string; quelle?: string; jahr?: string }>;
 }) {
   const { perms } = await requireUser();
   if (!hasPermission(perms, "stundenplan.manage")) notFound();
@@ -42,15 +43,26 @@ export default async function SolverPage({
   const db = await getDb();
   const today = toBerlinDate(new Date());
   const filter = STATUS_FILTERS.find((f) => f.key === (sp.status ?? "")) ?? STATUS_FILTERS[0]!;
-  const year = await planningYear(db);
-  const [runs, active, fixedCount] = await Promise.all([
+  // SP3-09b: im gewählten Planungsjahr (ein Entwurf in ?quelle= stellt auf sein Jahr um); im Folgejahr nur im Entwurf, abgeschlossene nur lesbar
+  const draftYear = sp.quelle && sp.quelle !== QUELLE_LIVE ? ((await yearOfVersion(db, sp.quelle))?.id ?? null) : null;
+  const py = await planningYearForPage(db, "/planung/solver", sp, draftYear);
+  const year = py?.year ?? null;
+  const isBase = py?.isBase ?? true;
+  const writable = py?.writable ?? false;
+  // laufende Läufe aller Schuljahre: es rechnet immer nur einer (auch einer im anderen Jahr hält den neuen auf)
+  const [runs, active, activeAll, fixedCount] = await Promise.all([
     year ? listRunSummaries(db, { schoolYearId: year.id, status: filter.statuses ?? undefined, limit: HISTORY_LIMIT }) : Promise.resolve([] as RunSummary[]),
     year ? listRunSummaries(db, { schoolYearId: year.id, status: ["queued", "running"] }) : Promise.resolve([] as RunSummary[]),
+    listRunSummaries(db, { status: ["queued", "running"] }),
     db.$count(timetableLessons, eq(timetableLessons.fixed, true)),
   ]);
   const [latest] = year ? await listRunSummaries(db, { schoolYearId: year.id, limit: 1 }) : [];
   // SP3-02: im Entwurf rechnen (Vorauswahl über ?quelle=, z. B. aus der Pflege-Seite)
   const q = await resolveQuelle(db, sp.quelle, year?.id ?? null);
+  // SP3-09b: außerhalb des laufenden Schuljahrs gibt es keinen gültigen Plan zum Rechnen – nur Entwürfe, Vorgabe der neueste
+  const sources = (isBase ? q.options : q.options.filter((o) => o.value !== QUELLE_LIVE)).map((o) => ({ value: o.value, label: o.label }));
+  const defaultSource = isBase || q.version ? q.value : (sources[0]?.value ?? QUELLE_LIVE);
+  const canStart = writable && sources.length > 0;
   const liveInitial = active.map((r) => ({ id: r.id, status: r.status, progress: r.progress, cancelRequested: r.cancelRequested, heartbeatAt: r.heartbeatAt?.toISOString() ?? null, note: null }));
   const returnTo = `/planung/solver${filter.key ? `?status=${filter.key}` : ""}`;
 
@@ -62,9 +74,10 @@ export default async function SolverPage({
       <PageHeader eyebrow="Stundenplanung" title="Automatisch planen" />
       <p className="-mt-3 max-w-3xl text-sm text-muted">
         Der Solver setzt alle Lehraufträge der Unterrichtsverteilung neu – kollisionsfrei, mit Kopplungen, Doppelstunden und Sperrzeiten – und bewertet
-        Zeitwünsche, Hohlstunden, Fach mehrfach am Tag, Raumwünsche und späte Stunden. Fixierte Stunden ({fixedCount}) und Stunden ohne Lehrauftrag bleiben, wo
-        sie sind. Jeder Lauf speichert seine Parameter und rechnet gegen den gültigen Plan oder einen Entwurf; „Übernehmen“ auf der Seite eines Laufs füllt
-        einen Entwurf – der gültige Plan ändert sich erst, wenn der Entwurf veröffentlicht wird.
+        Zeitwünsche, Hohlstunden, Fach mehrfach am Tag, Raumwünsche und späte Stunden. Fixierte Stunden{isBase ? ` (${fixedCount})` : ""} und Stunden ohne
+        Lehrauftrag bleiben, wo sie sind. Jeder Lauf speichert seine Parameter und rechnet gegen den gültigen Plan oder einen Entwurf; „Übernehmen“ auf der
+        Seite eines Laufs füllt einen Entwurf – der gültige Plan ändert sich erst, wenn der Entwurf veröffentlicht wird.
+        {year && !isBase && writable && ` Im Schuljahr ${year.name} rechnet der Solver nur in einem Entwurf dieses Jahrs – mit dessen Lehraufträgen, Zeitwünschen und Tagesregeln; das laufende Schuljahr bleibt unverändert.`}
       </p>
       {sp.fehler && (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
@@ -77,26 +90,42 @@ export default async function SolverPage({
         </p>
       )}
 
-      <Card aria-labelledby="start-title">
-        <h2 id="start-title" className="text-base font-semibold">
-          Neuer Lauf
-        </h2>
-        <SolverStartForm
-          action={startSolverAction}
-          presets={WEIGHT_PRESETS}
-          presetLabels={PRESET_LABELS}
-          efforts={EFFORT_LABELS}
-          defaultSeed={Math.min(999_999, (latest?.seed ?? 0) + 1)}
-          busy={active.length > 0}
-          sources={q.options.map((o) => ({ value: o.value, label: o.label }))}
-          defaultSource={q.value}
-          liveSource={QUELLE_LIVE}
-          modes={MODE_LABELS}
-          scopes={SCOPE_LABELS}
-          passChoices={PASS_CHOICES}
-          defaultPasses={DEFAULT_PASSES}
-        />
-      </Card>
+      {year && canStart ? (
+        <Card aria-labelledby="start-title">
+          <h2 id="start-title" className="text-base font-semibold">
+            Neuer Lauf
+          </h2>
+          <SolverStartForm
+            action={startSolverAction.bind(null, year.id)}
+            presets={WEIGHT_PRESETS}
+            presetLabels={PRESET_LABELS}
+            efforts={EFFORT_LABELS}
+            defaultSeed={Math.min(999_999, (latest?.seed ?? 0) + 1)}
+            busy={activeAll.length > 0}
+            sources={sources}
+            defaultSource={defaultSource}
+            liveSource={QUELLE_LIVE}
+            modes={MODE_LABELS}
+            scopes={SCOPE_LABELS}
+            passChoices={PASS_CHOICES}
+            defaultPasses={DEFAULT_PASSES}
+          />
+        </Card>
+      ) : year && writable ? (
+        <EmptyState title={`Noch kein Entwurf für ${year.name}`}>
+          Im Folgejahr rechnet die automatische Planung in einem Entwurf: unter{" "}
+          <Link href="/planung/versionen#vorlagen" className="font-medium text-accent-ink underline">
+            Planversionen
+          </Link>{" "}
+          mit der Vorlage „Neues Schuljahr“ anlegen.
+        </EmptyState>
+      ) : year ? (
+        <p role="status" className="rounded-xl border border-border bg-surface-2 px-4 py-3 text-sm">
+          Das Schuljahr {year.name} ist abgeschlossen – die Läufe sind nur noch lesbar.
+        </p>
+      ) : (
+        <EmptyState title="Kein Schuljahr angelegt">Zuerst unter Verwaltung → Stammdaten ein Schuljahr anlegen.</EmptyState>
+      )}
 
       <RunLiveProvider key={liveInitial.map((r) => `${r.id}:${r.status}`).join()} initial={liveInitial}>
         <section aria-labelledby="runs-title" className="flex flex-col gap-3">

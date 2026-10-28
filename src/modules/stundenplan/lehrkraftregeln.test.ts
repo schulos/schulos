@@ -217,7 +217,7 @@ describe("Tagesregeln je Lehrkraft (Demo-Schule)", () => {
     expect(acc?.dayRule).toEqual({ maxPerDay: 6, maxDays: 4 });
     const input = await solverInputFromDb(h.db, year, today, { seed: 1 });
     expect(input.teacherRules?.get(t!.id)).toEqual({ maxPerDay: 6, maxDays: 4 });
-    const lim = await loadTeacherLimits(h.db);
+    const lim = await loadTeacherLimits(h.db, year.id);
     expect(lim.names.get(t!.id)).toBe(t!.code);
     expect(await h.db.$count(auditLog, and(eq(auditLog.action, "stundenplan.deputy.day_rule"), eq(auditLog.target, t!.id)))).toBe(1);
     await saveTeacherRule(h.db, "u-admin", year.id, t!.id, { maxPerDay: null, maxDays: null });

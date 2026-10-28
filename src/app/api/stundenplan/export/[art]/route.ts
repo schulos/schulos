@@ -19,8 +19,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ art: str
   const { art } = await params;
   if (!isExportArt(art) || !canExport(art, me.perms)) return new Response("Nicht gefunden", { status: 404 });
   const today = toBerlinDate(new Date());
-  const monat = new URL(req.url).searchParams.get("zeitraum") === "monat";
-  const table = await buildExport(await getDb(), art, { today, monat });
+  const url = new URL(req.url).searchParams;
+  const monat = url.get("zeitraum") === "monat";
+  // SP3-09b: Verteilung/Deputate im gewählten Schuljahr (`jahr=`) und gegen einen Entwurf (`quelle=`)
+  const table = await buildExport(await getDb(), art, { today, monat, yearId: url.get("jahr"), quelle: url.get("quelle") });
   return new Response(toCsv([table.head, ...table.rows]), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

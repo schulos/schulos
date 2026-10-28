@@ -9,6 +9,8 @@ import { defaultObligation, deputyAccounts, REDUCTION_LABELS } from "./deputate"
 import { dutyPlan, listAreas, schoolBreaks } from "./aufsichten";
 import { PLAN_MANAGE, PLAN_SUBSTITUTE } from "./rechte";
 import { allRegularSlots, seesAllPlans, type LessonSlot } from "./service";
+import { resolvePlanningYear } from "./planungsjahr";
+import { resolveQuelle } from "./quelle";
 import { distribution, planningYear } from "./verteilung";
 import { substitutionStats } from "./vorschlaege";
 
@@ -160,8 +162,40 @@ export function mergeByCoupling(slots: LessonSlot[]): LessonSlot[] {
   return out;
 }
 
-async function verteilung(db: Db, today: string): Promise<ExportTable> {
-  const year = await planningYear(db);
+/**
+ * (rein) Query für Druck- und CSV-Links: Zeitraum der Statistik (`monat`), SP3-09b Schuljahr und Entwurf (`jahr`, `quelle`) – leer bleibt weg.
+ * Mit führendem „?“ oder leer.
+ */
+export function exportQuery(p: { zeitraum?: string | null; jahr?: string | null; quelle?: string | null }): string {
+  const q = new URLSearchParams();
+  if (p.zeitraum === "monat") q.set("zeitraum", "monat");
+  if (p.jahr) q.set("jahr", p.jahr);
+  if (p.quelle && p.quelle !== "gueltig") q.set("quelle", p.quelle);
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+/** SP3-09b: Auswahl für Verteilung und Deputate – Schuljahr (`jahr=`, leer = laufendes) und Planquelle (`quelle=`, Entwurf dieses Jahrs). */
+export interface ExportYearOptions {
+  yearId?: string | null;
+  quelle?: string | null;
+}
+
+/**
+ * SP3-09b: Schuljahr und Quelle eines Exports – das gewählte Planungsjahr (unbekannt → laufendes, wie die Jahreswahl), „verplant“ gegen den
+ * gewählten Entwurf dieses Jahrs (sonst den gültigen Plan). Stichtag im Entwurf: sein Stichtag (wie die Seite Unterrichtsverteilung). Gibt `null`
+ * ohne jedes Schuljahr.
+ */
+async function exportYear(db: Db, opts: ExportYearOptions) {
+  const py = await resolvePlanningYear(db, opts.yearId ?? null);
+  if (!py) return null;
+  const q = await resolveQuelle(db, opts.quelle, py.year.id);
+  return { year: py.year, source: q.source, ref: q.version?.validFrom ?? null, label: q.version ? ` · ${q.label}` : "" };
+}
+
+async function verteilung(db: Db, today: string, opts: ExportYearOptions = {}): Promise<ExportTable> {
+  const sel = await exportYear(db, opts);
+  const year = sel?.year;
   const empty: ExportTable = {
     art: "verteilung",
     title: EXPORT_LABELS.verteilung,
@@ -172,8 +206,8 @@ async function verteilung(db: Db, today: string): Promise<ExportTable> {
     rows: [],
     numeric: false,
   };
-  if (!year) return empty;
-  const d = await distribution(db, year, today);
+  if (!sel || !year) return empty;
+  const d = await distribution(db, year, sel.ref ?? today, { source: sel.source });
   const bandName = new Map(d.bands.map((b) => [b.id, b.name]));
   // Q-SP2-13: auch Lehraufträge, die am Stichtag nicht gelten (andere Halbjahreshälfte) – mit ihrem Zeitraum, damit die Datei vollständig bleibt
   const rows = [...d.assignments, ...d.otherTime]
@@ -189,14 +223,15 @@ async function verteilung(db: Db, today: string): Promise<ExportTable> {
       a.validUntil ?? "",
     ])
     .sort((a, b) => de(a[0]!, b[0]!) || de(a[1]!, b[1]!));
-  return { ...empty, subtitle: `Schuljahr ${year.name} · Stand ${ymdDe(d.refYmd)}`, rows };
+  return { ...empty, subtitle: `Schuljahr ${year.name} · Stand ${ymdDe(d.refYmd)}${sel.label}`, rows };
 }
 
-async function deputate(db: Db, today: string): Promise<ExportTable> {
-  const year = await planningYear(db);
+async function deputate(db: Db, today: string, opts: ExportYearOptions = {}): Promise<ExportTable> {
+  const sel = await exportYear(db, opts);
   const head = ["Kürzel", "Name", "Pflichtstunden", "Ermäßigungen/Anrechnungen", "Soll", "Lehraufträge", "verplant", "Saldo", "max. Std./Tag", "max. Anwesenheitstage"];
-  if (!year) return { art: "deputate", title: EXPORT_LABELS.deputate, subtitle: "Kein Schuljahr angelegt", filename: "deputate", head, rows: [] };
-  const [d, school] = await Promise.all([distribution(db, year, today), readSchoolSettings(db)]);
+  if (!sel) return { art: "deputate", title: EXPORT_LABELS.deputate, subtitle: "Kein Schuljahr angelegt", filename: "deputate", head, rows: [] };
+  const year = sel.year;
+  const [d, school] = await Promise.all([distribution(db, year, sel.ref ?? today, { source: sel.source }), readSchoolSettings(db)]);
   const accounts = await deputyAccounts(db, year.id, d.teachers, defaultObligation(school.profile.form), d.refYmd);
   const rows = accounts
     .map((a) => [
@@ -212,7 +247,7 @@ async function deputate(db: Db, today: string): Promise<ExportTable> {
       a.dayRule?.maxDays != null ? String(a.dayRule.maxDays) : "",
     ])
     .sort((a, b) => de(a[0]!, b[0]!) || de(a[1]!, b[1]!));
-  return { art: "deputate", title: EXPORT_LABELS.deputate, subtitle: `Schuljahr ${year.name} · Stand ${ymdDe(d.refYmd)}`, filename: "deputate", head, rows };
+  return { art: "deputate", title: EXPORT_LABELS.deputate, subtitle: `Schuljahr ${year.name} · Stand ${ymdDe(d.refYmd)}${sel.label}`, filename: "deputate", head, rows };
 }
 
 async function aufsichten(db: Db): Promise<ExportTable> {
@@ -283,15 +318,19 @@ async function statistik(db: Db, art: "statistik-lehrkraefte" | "statistik-klass
 }
 
 /** Die Tabelle eines Exports. Rechte prüft der Aufrufer mit `canExport` (404 bei Fehlen). */
-export async function buildExport(db: Db, art: ExportArt, opts: { today: string; monat?: boolean }): Promise<ExportTable> {
+/**
+ * SP3-09b: Verteilung und Deputate im gewählten Schuljahr (`yearId`, auch das Folgejahr; „verplant“ gegen `quelle`). Gesamtübersichten,
+ * Aufsichtsplan und Vertretungsstatistik bleiben im laufenden Schuljahr (wie ihre Seiten).
+ */
+export async function buildExport(db: Db, art: ExportArt, opts: { today: string; monat?: boolean } & ExportYearOptions): Promise<ExportTable> {
   switch (art) {
     case "gesamt-klassen":
     case "gesamt-lehrkraefte":
       return gesamt(db, art, opts.today);
     case "verteilung":
-      return verteilung(db, opts.today);
+      return verteilung(db, opts.today, opts);
     case "deputate":
-      return deputate(db, opts.today);
+      return deputate(db, opts.today, opts);
     case "aufsichten":
       return aufsichten(db);
     case "statistik-lehrkraefte":

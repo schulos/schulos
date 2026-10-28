@@ -30,12 +30,24 @@ function readChoice(cookieName: string, ids: string[], baseId: string): string {
 const noSubscribe = () => () => undefined;
 
 /**
- * SP3-09a: Seiten, die der Jahreswahl folgen. Die übrigen arbeiten immer im laufenden Schuljahr – Tagesgeschäft (Vertretungen, Aufsichten),
- * Fachbedarf (Prognose fürs nächste Jahr aus dem laufenden) und bis SP3-09b Automatisch planen und Zeitwünsche.
+ * SP3-09a/09b: Seiten, die der Jahreswahl folgen. Die übrigen arbeiten immer im laufenden Schuljahr – Tagesgeschäft (Vertretungen,
+ * Bereitschaft, Statistik, Aufsichten) und Fachbedarf (Prognose fürs nächste Jahr aus dem laufenden).
  */
-const FOLLOWS = [/^\/planung$/, /^\/planung\/unterricht(?:\/import)?$/, /^\/planung\/stundenplan$/, /^\/planung\/versionen(?:\/korrekturen)?$/, /^\/planung\/fahrplan$/];
-/** Seiten einer einzelnen Version (Prüfung, Vorschau, Änderungen, Veröffentlichen) zeigen deren Schuljahr – ohne Hinweis. */
-const NEUTRAL = [/^\/planung\/versionen\/(?!korrekturen$)/];
+const FOLLOWS = [
+  /^\/planung$/,
+  /^\/planung\/unterricht(?:\/import)?$/,
+  /^\/planung\/stundenplan$/,
+  /^\/planung\/versionen(?:\/korrekturen)?$/,
+  /^\/planung\/fahrplan$/,
+  // SP3-09b
+  /^\/planung\/solver$/,
+  /^\/planung\/zeitwuensche$/,
+];
+/**
+ * Seiten einer einzelnen Version (Prüfung, Vorschau, Änderungen, Veröffentlichen) bzw. eines Laufs (Detail, Vergleich) zeigen deren
+ * Schuljahr – ohne Hinweis.
+ */
+const NEUTRAL = [/^\/planung\/versionen\/(?!korrekturen$)/, /^\/planung\/solver\/.+/];
 
 /**
  * Kopf des Planungsbereichs: welches Schuljahr geplant wird, mit Wechsel (GET an die Route – geht auch ohne JavaScript). Das Layout rendert

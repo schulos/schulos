@@ -303,8 +303,8 @@ export interface Placement {
 }
 
 /** Gesperrte Zeiten aller Beteiligten (Lehrkräfte, Gruppen, Räume, Fach) als Slot-Prüfung. */
-async function prefBlocker(db: Db, targets: { kind: "teacher" | "group" | "room" | "subject"; id: string | null; label: string }[]) {
-  const prefs = await allPrefs(db);
+async function prefBlocker(db: Db, targets: { kind: "teacher" | "group" | "room" | "subject"; id: string | null; label: string }[], yearId: string | null) {
+  const prefs = await allPrefs(db, yearId);
   return (weekday: number, periodNr: number) => blockedReasons(prefs, targets, weekday, periodNr);
 }
 
@@ -353,7 +353,9 @@ export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssig
     target("subject", m.subjectId, m.subjectName);
   }
   for (const r of rows) target("room", r.roomId, `Raum ${r.roomId}`);
-  const blocked = await prefBlocker(db, [...targets.values()]);
+  // SP3-09b: Sperrzeiten und Tagesregeln des Schuljahrs der Quelle (im Entwurf des Folgejahrs dessen Zeitwünsche)
+  const yearId = (await yearOfSource(db, source))?.id ?? null;
+  const blocked = await prefBlocker(db, [...targets.values()], yearId);
   return {
     rows,
     rowAssignments,
@@ -362,7 +364,7 @@ export async function assignmentPlacement(db: Db, a: Assignment & Pick<OpenAssig
     rooms: roomList,
     blocked,
     dayLimits: await loadDayLimits(db),
-    teacherLimits: await loadTeacherLimits(db, (await yearOfSource(db, source))?.id),
+    teacherLimits: await loadTeacherLimits(db, yearId),
   };
 }
 
@@ -428,11 +430,12 @@ export async function movePlacement(db: Db, lessonId: string, source: PlanSource
     db.select({ id: rooms.id, kind: rooms.kind, active: rooms.active }).from(rooms).orderBy(rooms.id),
   ]);
   const unit = lessons.filter((x) => (l.couplingId ? x.couplingId === l.couplingId : x.id === l.id));
-  const prefs = await allPrefs(db);
+  const yearId = (await yearOfSource(db, source))?.id ?? null;
+  const prefs = await allPrefs(db, yearId);
   const targets = lessonPrefTargets(unit);
   const blocked = (weekday: number, periodNr: number) => blockedReasons(prefs, targets, weekday, periodNr);
   const blockedFor = (ls: GridLesson[], weekday: number, periodNr: number) => unique(blockedReasons(prefs, lessonPrefTargets(ls), weekday, periodNr));
-  return { lessons, unit, rooms: roomList, blocked, blockedFor, dayLimits: await loadDayLimits(db), teacherLimits: await loadTeacherLimits(db, (await yearOfSource(db, source))?.id) };
+  return { lessons, unit, rooms: roomList, blocked, blockedFor, dayLimits: await loadDayLimits(db), teacherLimits: await loadTeacherLimits(db, yearId) };
 }
 
 export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number[], periods: number[]): GridInput {

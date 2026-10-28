@@ -122,7 +122,9 @@ test("SP3-04: freigegebene Version → Vorschau → veröffentlichen ab Stichtag
   // Jana: Änderungsliste im Gong; Plan ab Stichtag neu, Woche davor unverändert (Plan am Tag X)
   await jana.page.goto("/");
   await jana.page.getByRole("button", { name: /Gong/ }).click();
-  const item = jana.page.getByRole("button", { name: /Neuer Stundenplan ab/ });
+  // Datum als Muster („21.06.“) – andere Specs (z. B. planung-folgejahr-gesamt) lassen eigene Gong-Einträge zurück
+  const dm = `${cutoff.slice(8, 10)}[.]${cutoff.slice(5, 7)}[.]`;
+  const item = jana.page.getByRole("button", { name: new RegExp(`Neuer Stundenplan ab [^:]*${dm}: `) });
   await expect(item).toBeVisible();
   await expect(item).toContainText("Raum 106 → 105");
   const janaAfter = await planAt(cutoff);
@@ -138,7 +140,7 @@ test("SP3-04: freigegebene Version → Vorschau → veröffentlichen ab Stichtag
   // Schülerin: Gong erst am Vortag (Einstellung), kein Entwurf, keine Kommentare
   const lea = await as(browser, "lea.schaefer");
   await lea.page.getByRole("button", { name: /Gong/ }).click();
-  await expect(lea.page.getByRole("button", { name: /Neuer Stundenplan ab/ })).toHaveCount(0);
+  await expect(lea.page.getByRole("button", { name: new RegExp(`Neuer Stundenplan ab [^:]*${dm}`) })).toHaveCount(0);
   await lea.close();
 
   // 360 px, dunkel: Veröffentlichungsseite und Plan der Lehrkraft
@@ -164,7 +166,7 @@ test("SP3-04: freigegebene Version → Vorschau → veröffentlichen ab Stichtag
   expect(await planAt(cutoff)).toBe(janaBefore);
   await jana.page.goto("/");
   await jana.page.getByRole("button", { name: /Gong/ }).click();
-  await expect(jana.page.getByRole("button", { name: /Neuer Stundenplan ab .* zurückgenommen/ })).toBeVisible();
+  await expect(jana.page.getByRole("button", { name: new RegExp(`Neuer Stundenplan ab [^:]*${dm} zurückgenommen`) })).toBeVisible();
   await page.goto(subsUrl);
   await expect(subForm.getByRole("button", { name: "Aufheben" })).toBeVisible();
   await subForm.getByRole("button", { name: "Aufheben" }).click();

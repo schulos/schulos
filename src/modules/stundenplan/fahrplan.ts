@@ -414,7 +414,7 @@ export function fahrplanStatus(facts: FahrplanFacts, checklist: Checklist, today
       { text: `${plural(w.roomBlocks, "Raumsperre", "Raumsperren")} im Zeitraum · ${plural(w.fixed, "fixierte Stunde", "fixierte Stunden")}`, tone: "info" },
     ],
     [
-      { label: "Zeitwünsche", href: "/planung/zeitwuensche" },
+      { label: "Zeitwünsche", href: `/planung/zeitwuensche?jahr=${encodeURIComponent(facts.year.id)}` },
       { label: "Raumsperren", href: "/stundenplan/raeume?ansicht=sperrungen" },
     ],
     ["sperren"],
@@ -608,7 +608,7 @@ export async function loadFahrplan(db: Db, v: TimetablePlanVersion, today: strin
       .where(and(lte(timetableAbsences.startsOn, ref), gte(timetableAbsences.endsOn, ref), eq(timetableAbsences.status, "aktiv"))),
     db.select({ promotedAt: schoolYearTransitions.promotedAt }).from(schoolYearTransitions).where(eq(schoolYearTransitions.toYearId, year.id)),
     readPrefWindow(db),
-    submissions(db),
+    submissions(db, year.id),
     activeTeachers(db),
     db.select({ n: count() }).from(timetableRoomBlocks).where(and(lte(timetableRoomBlocks.startsOn, until), gte(timetableRoomBlocks.endsOn, ref))),
     open ? db.select({ n: count() }).from(timetableDraftLessons).where(and(eq(timetableDraftLessons.versionId, v.id), eq(timetableDraftLessons.fixed, true))) : Promise.resolve([{ n: 0 }]),
@@ -623,7 +623,8 @@ export async function loadFahrplan(db: Db, v: TimetablePlanVersion, today: strin
     open ? correctionsSince(db, year.id, v.createdAt) : Promise.resolve({ actions: 0, lessons: 0 }),
     fahrplanVersions(db, year.id),
     openCommentCounts(db, [v.id]),
-    allPrefs(db),
+    // SP3-09b: Zeitwünsche und Rücklauf im Schuljahr der Version (auch im Folgejahr)
+    allPrefs(db, year.id),
     db.select({ id: rooms.id }).from(rooms).where(eq(rooms.active, true)),
   ]);
 

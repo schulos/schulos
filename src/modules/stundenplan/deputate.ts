@@ -5,7 +5,7 @@ import { audit } from "@/core/audit";
 import { periods, schoolYears, timetableDeputies, timetableReductions, timetableTeacherDayRules, users, REDUCTION_REASONS, type ReductionReason } from "@/core/db/schema";
 import { formInfo, type SchoolForm } from "@/core/school/catalog";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { planningYear, type TeacherTotals } from "./verteilung";
+import type { TeacherTotals } from "./verteilung";
 import { hasTeacherRule, type TeacherDayRule, type TeacherLimits } from "./lehrkraftregeln";
 import { deputyOn, deputyTerms, obligationFromPercent, type DeputySettings, type DeputyTerm, type Reduction } from "./deputat-rechnung";
 
@@ -219,10 +219,12 @@ export async function saveTeacherRule(db: Db, actorId: string, schoolYearId: str
   await audit(db, actorId, "stundenplan.deputy.day_rule", teacherId, { maxPerDay: rule.maxPerDay, maxDays: rule.maxDays, year: schoolYearId });
 }
 
-/** Regeln des Planungsjahres (bzw. `schoolYearId`) mit Kürzeln – für Setzhilfe und Diagnose. Ohne Regeln: leer. */
-export async function loadTeacherLimits(db: Db, schoolYearId?: string): Promise<TeacherLimits> {
-  const yearId = schoolYearId ?? (await planningYear(db))?.id;
-  const rules = yearId ? await listTeacherRules(db, yearId) : new Map<string, TeacherDayRule>();
+/**
+ * Regeln des Schuljahrs `schoolYearId` mit Kürzeln – für Setzhilfe und Diagnose. SP3-09b: das Jahr ist Pflicht (Aufrufer nehmen das Jahr
+ * ihrer Quelle, `yearOfSource`), keine stille Vorgabe „laufendes Schuljahr“ mehr. Ohne Schuljahr oder Regeln: leer.
+ */
+export async function loadTeacherLimits(db: Db, schoolYearId: string | null): Promise<TeacherLimits> {
+  const rules = schoolYearId ? await listTeacherRules(db, schoolYearId) : new Map<string, TeacherDayRule>();
   if (!rules.size) return { rules, names: new Map() };
   const rows = await db.select({ id: users.id, code: users.shortCode, name: users.name }).from(users).where(eq(users.role, "lehrkraft")).orderBy(asc(users.id));
   return { rules, names: new Map(rows.filter((r) => rules.has(r.id)).map((r) => [r.id, r.code ?? r.name])) };

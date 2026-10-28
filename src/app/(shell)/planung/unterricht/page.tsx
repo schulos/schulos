@@ -186,7 +186,8 @@ export default async function UnterrichtsverteilungPage({ searchParams }: { sear
         title="Unterrichtsverteilung"
         actions={
           <>
-            <ExportMenu arts={["verteilung", "deputate"]} perms={perms} />
+            {/* SP3-09b: Druck/CSV im gewählten Schuljahr und Entwurf */}
+            <ExportMenu arts={["verteilung", "deputate"]} perms={perms} jahr={py.isBase ? null : year.id} quelle={q.version ? q.value : null} />
             {unmatchedCount > 0 && (
               <form action={importAssignmentsAction.bind(null, year.id)}>
                 <Button type="submit">

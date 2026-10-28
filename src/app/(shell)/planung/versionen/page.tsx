@@ -268,7 +268,7 @@ export default async function VersionenPage({
             Entwurf {created.label} „{created.version.name}“ angelegt ({num.format(created.figures.lessons)} Wochenstunden). Der gültige Plan ist unverändert.
           </p>
           {(sp.vorlage === "aenderung" || sp.vorlage === "halbjahr") && <TemplateSteps template={sp.vorlage} versionId={created.version.id} validFrom={created.version.validFrom} />}
-          {sp.vorlage === "schuljahr" && <NewYearSteps versionId={created.version.id} planningYear={year.id === fallback?.id} yearName={year.name} />}
+          {sp.vorlage === "schuljahr" && <NewYearSteps versionId={created.version.id} yearId={year.id} />}
         </div>
       )}
       {sp.zurueck && (
@@ -531,8 +531,8 @@ function NewYearCard({ t, followingYear }: { t: NewYearTemplate; followingYear: 
             </fieldset>
             {!t.planningYear && (
               <p className="text-xs text-muted">
-                Lehraufträge, Matrix, Deputate und der Entwurf lassen sich schon vor dem Schuljahreswechsel im Planungsjahr {t.year.name} bearbeiten (Kopf des
-                Planungsbereichs); „Automatisch planen“ arbeitet noch im laufenden Schuljahr.
+                Lehraufträge, Matrix, Deputate, Zeitwünsche, der Entwurf und „Automatisch planen“ arbeiten schon vor dem Schuljahreswechsel im Planungsjahr{" "}
+                {t.year.name} (Kopf des Planungsbereichs).
               </p>
             )}
             <Button type="submit" variant="primary">
@@ -557,9 +557,9 @@ function NewYearCard({ t, followingYear }: { t: NewYearTemplate; followingYear: 
 /**
  * SP3-07: nach dem Anlegen „Neues Schuljahr“ – Lehraufträge aus dem Vorjahr (Matrix), im Entwurf arbeiten. SP3-09a: auch vor dem Abschluss
  * des Schuljahreswechsels – die Links tragen den Entwurf, die Seiten stellen das Planungsjahr auf sein Schuljahr um (volle Navigation, `<a>`).
- * „Automatisch planen“ arbeitet bis SP3-09b nur im laufenden Schuljahr.
+ * SP3-09b: „Automatisch planen“ und Zeitwünsche ebenso (im Entwurf bzw. Planungsjahr des Folgejahrs).
  */
-function NewYearSteps({ versionId, planningYear, yearName }: { versionId: string; planningYear: boolean; yearName: string }) {
+function NewYearSteps({ versionId, yearId }: { versionId: string; yearId: string }) {
   const q = encodeURIComponent(versionId);
   const link = "font-medium underline";
   return (
@@ -567,15 +567,15 @@ function NewYearSteps({ versionId, planningYear, yearName }: { versionId: string
       <a href={`/planung/unterricht?ansicht=matrix&vorschlag=vorjahr&quelle=${q}`} className={link}>
         Lehraufträge aus dem Vorjahr übernehmen
       </a>
+      <a href={`/planung/zeitwuensche?jahr=${encodeURIComponent(yearId)}`} className={link}>
+        Zeitwünsche
+      </a>
       <a href={`/planung/stundenplan?quelle=${q}`} className={link}>
         Im Entwurf arbeiten
       </a>
-      {!planningYear && <span>(Planungsjahr {yearName} – „Automatisch planen“ folgt, sobald es das laufende Schuljahr ist)</span>}
-      {planningYear && (
-        <Link href={`/planung/solver?quelle=${q}`} className={link}>
-          Automatisch planen
-        </Link>
-      )}
+      <a href={`/planung/solver?quelle=${q}`} className={link}>
+        Automatisch planen
+      </a>
     </nav>
   );
 }
