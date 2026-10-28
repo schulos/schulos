@@ -108,6 +108,10 @@ export const ACTION_LABELS: Record<string, string> = {
   "stundenplan.plan.unpublish": "Veröffentlichung einer Stundenplan-Version zurückgenommen",
   // SP3-07: Schuljahresabschluss
   "stundenplan.plan.archive_year": "Schuljahr in der Stundenplanung archiviert",
+  // SP3-06: Planungsfahrplan
+  "stundenplan.plan.acknowledge": "Diagnose-Warnungen eines Stundenplan-Entwurfs quittiert",
+  "stundenplan.plan.acknowledge_revoke": "Quittierung einer Diagnose-Warnung zurückgenommen",
+  "stundenplan.plan.checklist": "Planungsfahrplan: Häkchen oder Termin geändert",
   "stundenplan.draft.lesson.create": "Stunde im Entwurf angelegt",
   "stundenplan.draft.lesson.update": "Stunde im Entwurf geändert",
   "stundenplan.draft.lesson.delete": "Stunde im Entwurf gelöscht",

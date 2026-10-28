@@ -141,6 +141,10 @@ function VersionCard({ s, manage, openComments, approver, undoable }: { s: Versi
                 Im Entwurf arbeiten
               </Link>
             )}
+            {/* SP3-06: Planungsfahrplan der Version (acht Schritte, Quittierungen) */}
+            <Link href={`/planung/fahrplan?version=${encodeURIComponent(v.id)}`} className="font-medium text-accent-ink hover:underline">
+              Fahrplan
+            </Link>
             <Link href={`/planung/versionen/aenderungen?version=${encodeURIComponent(v.id)}`} className="font-medium text-accent-ink hover:underline">
               Änderungen zum gültigen Plan
             </Link>
@@ -364,7 +368,15 @@ export default async function VersionenPage({
         <Link href="/planung/stundenplan" className="font-medium text-accent-ink hover:underline">
           Stundenplan
         </Link>{" "}
-        (Sofort-Korrektur ab dem nächsten Schultag, mit Protokoll und Gong an die Betroffenen).
+        (Sofort-Korrektur ab dem nächsten Schultag, mit{" "}
+        <Link href={`/planung/versionen/korrekturen?jahr=${encodeURIComponent(year.id)}`} className="font-medium text-accent-ink hover:underline">
+          Protokoll
+        </Link>{" "}
+        und Gong an die Betroffenen). Den Weg vom Rahmen bis zum Veröffentlichen führt der{" "}
+        <Link href="/planung/fahrplan" className="font-medium text-accent-ink hover:underline">
+          Planungsfahrplan
+        </Link>
+        .
       </p>
       ) : (
         <p className="text-sm text-muted">

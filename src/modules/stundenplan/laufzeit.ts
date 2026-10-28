@@ -10,7 +10,7 @@ import { loadSchoolCalendar } from "@/core/school/calendar";
 import { addDays, fromBerlinLocal, TZ } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { createDraft, ensureBaseVersions, nextNumber, validVersion, versionNumber } from "./planversionen";
-import type { TimetablePlanVersion } from "./schema";
+import { timetablePlanVersions, type TimetablePlanVersion } from "./schema";
 
 export const PLAN_TEMPLATES = ["aenderung", "halbjahr"] as const;
 export type PlanTemplate = (typeof PLAN_TEMPLATES)[number];
@@ -60,10 +60,13 @@ export async function createFromTemplate(db: Db, actorId: string, schoolYearId: 
   await ensureBaseVersions(db, today);
   const offer = (await templateOffers(db, year, today))[template];
   if (!offer.ok) throw new ValidationError({ template: offer.reason });
-  return createDraft(
+  const v = await createDraft(
     db,
     actorId,
     { schoolYearId, source: "live_copy", validFrom: offer.validFrom, numbering: template === "aenderung" ? "minor" : "major", name: offer.name },
     today,
   );
+  // SP3-06: der Planungsfahrplan merkt sich die Vorlage (bei „Änderung im laufenden Plan“ sind die Schritte 2–5 eingeklappt)
+  const [out] = await db.update(timetablePlanVersions).set({ checklist: { template } }).where(eq(timetablePlanVersions.id, v.id)).returning();
+  return out ?? v;
 }

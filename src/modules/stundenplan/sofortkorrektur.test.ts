@@ -38,6 +38,7 @@ import {
   type UnitBefore,
 } from "./sofortkorrektur";
 import { publishVersion } from "./veroeffentlichen";
+import { clearPublishGate } from "./fahrplan.testing";
 
 const errorOf = async (p: Promise<unknown> | (() => unknown)) => {
   try {
@@ -362,6 +363,7 @@ describe("Sofort-Korrektur im gültigen Plan (SP3-05, Demo-Schule)", () => {
     // Veröffentlichen: die korrigierte Stunde A bleibt, wie sie ist (gleiche Zeile, keine Lehrkraft)
     await submitForReview(h.db, viewer, v.id, now);
     await approveVersion(h.db, viewer, v.id, now);
+    await clearPublishGate(h.db, PLANER, v.id, today);
     await publishVersion(h.db, PLANER, v.id, "2027-02-01", today, now);
     expect(await row(sa)).toMatchObject({ teacherId: null, validFrom: from, validUntil: a.validUntil });
     // die neu angelegte Stunde war im Entwurf unverändert → bleibt

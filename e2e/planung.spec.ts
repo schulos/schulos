@@ -10,7 +10,7 @@ test("SP-03: Stundenplanung (frank.schulte) erreicht den Bereich über die Navig
   await expect(page).toHaveURL("/planung");
   await expect(page.getByRole("heading", { name: "Stundenplanung", level: 1 })).toBeVisible();
   const tabs = page.getByRole("navigation", { name: "Stundenplanung" });
-  await expect(tabs.getByRole("link")).toHaveText(["Übersicht", "Stundenplan", "Unterrichtsverteilung", "Zeitwünsche", "Automatisch planen", "Versionen", "Fachbedarf", "Vertretungen", "Aufsichten"]);
+  await expect(tabs.getByRole("link")).toHaveText(["Übersicht", "Fahrplan", "Stundenplan", "Unterrichtsverteilung", "Zeitwünsche", "Automatisch planen", "Versionen", "Fachbedarf", "Vertretungen", "Aufsichten"]);
   await expect(tabs.getByRole("link", { name: "Übersicht" })).toHaveAttribute("aria-current", "page");
   await tabs.getByRole("link", { name: "Automatisch planen" }).click();
   await expect(page).toHaveURL("/planung/solver");
@@ -63,8 +63,9 @@ test("SP-03: Schulleitung (nur Vertretungen planen) sieht Vertretungen und Aufsi
   await login(page, "petra.lindner");
   await page.goto("/planung");
   const tabs = page.getByRole("navigation", { name: "Stundenplanung" });
-  // SP2-12: dazu „Fachbedarf einsehen“ (nur Summen je Fach); SP3-03: „Planentwurf prüfen und freigeben“ → Versionen (ab „in Prüfung“)
-  await expect(tabs.getByRole("link")).toHaveText(["Übersicht", "Versionen", "Fachbedarf", "Vertretungen", "Aufsichten"]);
+  // SP2-12: dazu „Fachbedarf einsehen“ (nur Summen je Fach); SP3-03: „Planentwurf prüfen und freigeben“ → Versionen (ab „in Prüfung“);
+  // SP3-06: Fahrplan lesend (ab „in Prüfung“)
+  await expect(tabs.getByRole("link")).toHaveText(["Übersicht", "Fahrplan", "Versionen", "Fachbedarf", "Vertretungen", "Aufsichten"]);
   expect((await page.goto("/planung/stundenplan"))?.status()).toBe(404);
   expect((await page.goto("/planung/solver"))?.status()).toBe(404);
   expect((await page.goto("/planung/versionen"))?.status()).toBe(200);

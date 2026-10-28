@@ -8,7 +8,9 @@ import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { PLAN_FORECAST, PLAN_MANAGE, PLAN_REVIEW, PLAN_SUBSTITUTE, PLANNING_GROUP } from "@/modules/stundenplan/rechte";
 import { reviewQueue } from "@/modules/stundenplan/planpruefung";
 import { loadFachbedarf, type Fachbedarf } from "@/modules/stundenplan/fachbedarf";
-import { planningOverview, type SubstituteFigures, type YearPlanningFigures } from "@/modules/stundenplan/uebersicht";
+import { planningOverview, type FahrplanSummary, type SubstituteFigures, type YearPlanningFigures } from "@/modules/stundenplan/uebersicht";
+import { AMPEL_LABELS, type Ampel } from "@/modules/stundenplan/fahrplan";
+import { STATUS_LABELS } from "@/modules/stundenplan/planversionen";
 import { distribution, planningYear } from "@/modules/stundenplan/verteilung";
 import { Badge } from "@schulos/ui/badge";
 import { PageHeader } from "@schulos/ui/misc";
@@ -49,6 +51,70 @@ function reviewTile(q: Awaited<ReturnType<typeof reviewQueue>>): Tile {
       .join(" · ") || "Prüfen, kommentieren, freigeben oder zurück an die Planung",
     href: "/planung/versionen",
   };
+}
+
+/** SP3-06: ohne offenen Entwurf führt eine Kachel zu den Vorlagen des Planungsfahrplans. */
+const fahrplanStartTile: Tile = {
+  key: "fahrplan",
+  title: "Planungsfahrplan",
+  value: "–",
+  status: { label: "kein Entwurf", tone: "neutral" },
+  detail: "Mit einer Vorlage beginnen: Neues Halbjahr, Änderung im laufenden Plan oder leerer Entwurf – acht Schritte bis zum Veröffentlichen.",
+  href: "/planung/fahrplan",
+};
+
+const AMPEL_TONES: Record<Ampel, Tone> = { gruen: "success", gelb: "warn", rot: "danger" };
+
+/** SP3-06 (§4): Status des Planungsfahrplans – ersetzt die Jahresplanung, solange ein Entwurf offen ist. */
+function FahrplanSection({ f }: { f: FahrplanSummary }) {
+  const href = `/planung/fahrplan?version=${encodeURIComponent(f.versionId)}`;
+  return (
+    <section aria-labelledby="fahrplan-title" className="flex flex-col gap-3">
+      <h2 id="fahrplan-title" className="text-base font-semibold">
+        Planungsfahrplan
+      </h2>
+      <div data-kachel="fahrplan" className="flex min-w-0 flex-col gap-3 rounded-card border border-border bg-surface p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <Link href={href} className="min-w-0 font-semibold break-words text-accent-ink hover:underline">
+            Version {f.label} „{f.name}“
+          </Link>
+          <span className="flex flex-wrap items-center gap-2 text-sm text-muted">
+            <Badge tone="soft">{STATUS_LABELS[f.status]}</Badge>
+            {f.validFrom && <span>ab {date(f.validFrom)}</span>}
+          </span>
+        </div>
+        <p className="text-sm">
+          <span className="font-display text-2xl font-bold">{f.done}</span> von {f.steps.length} Schritten erledigt
+          {f.next && (
+            <>
+              {" · "}
+              <Link href={`${href}#schritt-${f.next.step}`} className="font-medium text-accent-ink hover:underline">
+                weiter mit Schritt {f.next.nr}: {f.next.title}
+              </Link>
+            </>
+          )}
+        </p>
+        <ol aria-label="Schritte des Fahrplans" className="grid gap-1.5 text-sm sm:grid-cols-2 xl:grid-cols-4">
+          {f.steps.map((s) => (
+            <li key={s.step} className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-surface-2 px-2.5 py-1.5">
+              <Link href={`${href}#schritt-${s.step}`} className="min-w-0 truncate hover:underline">
+                {s.nr}. {s.title}
+              </Link>
+              <Badge tone={AMPEL_TONES[s.ampel]}>{s.ampel === "rot" && s.open ? `${s.open} offen` : AMPEL_LABELS[s.ampel]}</Badge>
+            </li>
+          ))}
+        </ol>
+        {f.otherDrafts > 0 && (
+          <p className="text-sm text-muted">
+            {f.otherDrafts === 1 ? "Ein weiterer offener Entwurf" : `${f.otherDrafts} weitere offene Entwürfe`} –{" "}
+            <Link href="/planung/fahrplan" className="font-medium text-accent-ink hover:underline">
+              im Fahrplan wählen
+            </Link>
+          </p>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function yearTiles(m: YearPlanningFigures): Tile[] {
@@ -224,6 +290,7 @@ function TileSection({ id, title, tiles }: { id: string; title: string; tiles: T
 /**
  * SP-04 (docs/STUNDENPLAN-UMBAU.md §2.3): Übersicht des Bereichs – Kennzahlen aus vorhandenen Services, je Kachel ein Link auf den
  * Reiter. Jahresplanung nur mit `stundenplan.manage`, Tagesgeschäft nur mit `stundenplan.substitute`.
+ * SP3-06: Solange ein Entwurf offen ist, zeigt die Übersicht statt der Jahresplanung den Planungsfahrplan (acht Schritte mit Ampel).
  */
 export default async function PlanungPage() {
   const { perms } = await requireUser();
@@ -260,9 +327,12 @@ export default async function PlanungPage() {
           )}
         </p>
       </div>
+      {manage && o.fahrplan && <FahrplanSection f={o.fahrplan} />}
+      {manage && o.fahrplan && need && <TileSection id="fachbedarf" title="Fachbedarf" tiles={[needTile(need)]} />}
       {manage &&
+        !o.fahrplan &&
         (o.manage ? (
-          <TileSection id="jahresplanung" title="Jahresplanung" tiles={[...yearTiles(o.manage), ...(need ? [needTile(need)] : [])]} />
+          <TileSection id="jahresplanung" title="Jahresplanung" tiles={[...yearTiles(o.manage), fahrplanStartTile, ...(need ? [needTile(need)] : [])]} />
         ) : (
           <section aria-labelledby="jahresplanung" className="flex flex-col gap-3">
             <h2 id="jahresplanung" className="text-base font-semibold">

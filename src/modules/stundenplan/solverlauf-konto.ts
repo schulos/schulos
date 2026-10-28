@@ -138,7 +138,8 @@ export async function scrubSolverRuns(db: Db, ids: readonly string[]): Promise<n
 /**
  * SP3-04 (§5 Querschnitt d): dieselbe Bereinigung für Planversionen – Rücknahme-Daten der Veröffentlichung (`undo`: Stunden mit Lehrkraft,
  * Vertretungen, Material) und die noch nicht versandte Änderungsliste (`notify`: Kürzel in den Zeilen). Das Zurücknehmen behandelt den
- * Platzhalter wie eine gelöschte Lehrkraft (Stunde bzw. Vertretung ohne Lehrkraft). Gibt die Zahl der geänderten Versionen zurück.
+ * Platzhalter wie eine gelöschte Lehrkraft (Stunde bzw. Vertretung ohne Lehrkraft). SP3-06: ebenso die Fahrplan-Checkliste (`checklist`).
+ * Gibt die Zahl der geänderten Versionen zurück.
  */
 export async function scrubPlanVersions(db: Db, ids: readonly string[]): Promise<number> {
   if (!ids.length) return 0;
@@ -147,16 +148,18 @@ export async function scrubPlanVersions(db: Db, ids: readonly string[]): Promise
   const shown = people.map((p) => p.code?.trim() || p.name);
   const labels = labelPattern(shown);
   const t = timetablePlanVersions;
-  const text = sql`coalesce(${t.undo}::text, '') || coalesce(${t.notify}::text, '')`;
+  const text = sql`coalesce(${t.undo}::text, '') || coalesce(${t.notify}::text, '') || coalesce(${t.checklist}::text, '')`;
   const needles = [...ids.map((id) => JSON.stringify(id)), ...shown.filter(Boolean)];
   const rows = await db
-    .select({ id: t.id, undo: t.undo, notify: t.notify })
+    .select({ id: t.id, undo: t.undo, notify: t.notify, checklist: t.checklist })
     .from(t)
     .where(or(...needles.map((n) => sql`strpos(${text}, ${n}) > 0`)));
   let changed = 0;
   for (const r of rows) {
-    const patch: { undo?: unknown; notify?: unknown } = {};
-    for (const f of ["undo", "notify"] as const) {
+    const patch: { undo?: unknown; notify?: unknown; checklist?: unknown } = {};
+    // SP3-06: Fahrplan-Checkliste – Quittierungen nennen die Lehrkraft einer Warnung (`teacherId`), wer quittiert/abgehakt hat
+    // (`createdBy`) und eine Begründung (Kürzel/Namen als ganzes Wort)
+    for (const f of ["undo", "notify", "checklist"] as const) {
       if (r[f] === null || r[f] === undefined) continue;
       const next = scrubIds(r[f], set, labels);
       if (JSON.stringify(next) !== JSON.stringify(r[f])) patch[f] = next;

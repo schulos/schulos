@@ -9,6 +9,7 @@ import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, addDays, fromBerlinLocal, isCalendarDate, toBerlinDate } from "@/core/time";
 import { publishVersionAction } from "@/modules/stundenplan/actions";
 import { publishedTimeline } from "@/modules/stundenplan/plan-archiv";
+import { gateProblem, publishGate } from "@/modules/stundenplan/fahrplan";
 import { getVersion, STATUS_LABELS, versionNumber } from "@/modules/stundenplan/planversionen";
 import { PLAN_MANAGE } from "@/modules/stundenplan/rechte";
 import { isPublishUndoable, publishPreview, undoPublishPreview, type PublishPreview, type UndoPublishPreview } from "@/modules/stundenplan/veroeffentlichen";
@@ -120,7 +121,8 @@ const OK_TEXT: Record<string, string> = {
 /**
  * SP3-04 (docs/STUNDENPLAN-LEBENSZYKLUS.md §2.3, §4 Schritt 8): eine freigegebene Version ab einem Stichtag veröffentlichen – Vorschau mit
  * Zahlen vor dem Klick (unverändert/geändert/neu/entfallen, Vertretungen, Material, Klassenbuch, Räume, Varianten, Gong) – und eine
- * veröffentlichte Version bis zum Stichtag zurücknehmen (Vorschau mit Konfliktzählung). Nur `stundenplan.manage`.
+ * veröffentlichte Version bis zum Stichtag zurücknehmen (Vorschau mit Konfliktzählung). Nur `stundenplan.manage`. SP3-06: veröffentlichen erst,
+ * wenn Schritt 7 des Fahrplans erfüllt ist (Diagnose ohne Fehler, jede Warnung quittiert) – sonst Hinweis mit Sprung in den Fahrplan.
  */
 export default async function VeroeffentlichenPage({
   searchParams,
@@ -145,6 +147,9 @@ export default async function VeroeffentlichenPage({
     isPublishUndoable(v, today) ? undoPublishPreview(db, v.id, today) : Promise.resolve(null),
     publishedTimeline(db, v.schoolYearId),
   ]);
+  // SP3-06: Schritt 7 des Fahrplans (Diagnose ohne Fehler, Warnungen quittiert) ist Bedingung fürs Veröffentlichen
+  const gate = preview?.ok ? await publishGate(db, v, today) : null;
+  const blocked = gate ? gateProblem(gate) : null;
   const self = `/planung/versionen/veroeffentlichen`;
   return (
     <main className="flex flex-col gap-6">
@@ -190,6 +195,9 @@ export default async function VeroeffentlichenPage({
           <Link href={`/planung/versionen/pruefung?version=${encodeURIComponent(v.id)}`} className="font-medium text-accent-ink hover:underline">
             Prüfung & Kommentare
           </Link>
+          <Link href={`/planung/fahrplan?version=${encodeURIComponent(v.id)}`} className="font-medium text-accent-ink hover:underline">
+            Planungsfahrplan
+          </Link>
         </nav>
       </Card>
 
@@ -210,13 +218,24 @@ export default async function VeroeffentlichenPage({
           {preview.ok ? (
             <>
               <PreviewList p={preview.preview} />
-              <form action={publishVersionAction.bind(null, v.id)} aria-label="Veröffentlichen" className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-                <input type="hidden" name="from" value={from} />
-                <Button type="submit" variant="primary">
-                  <Send aria-hidden /> Ab {date(from)} veröffentlichen
-                </Button>
-                <span className="text-sm text-muted">Bis zum Stichtag lässt sich die Veröffentlichung zurücknehmen.</span>
-              </form>
+              {blocked ? (
+                <div role="alert" data-testid="fahrplan-sperre" className="flex flex-col gap-1 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+                  <p>{blocked}.</p>
+                  <Link href={`/planung/fahrplan?version=${encodeURIComponent(v.id)}#schritt-pruefen`} className="font-semibold underline">
+                    Zum Fahrplan, Schritt 7 „Prüfen“
+                  </Link>
+                </div>
+              ) : (
+                <form action={publishVersionAction.bind(null, v.id)} aria-label="Veröffentlichen" className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
+                  <input type="hidden" name="from" value={from} />
+                  <Button type="submit" variant="primary">
+                    <Send aria-hidden /> Ab {date(from)} veröffentlichen
+                  </Button>
+                  <span className="text-sm text-muted">
+                    Diagnose ohne Fehler{gate && gate.warnings.length ? `, ${n(gate.warnings.length, "Warnung", "Warnungen")} quittiert` : ""}. Bis zum Stichtag lässt sich die Veröffentlichung zurücknehmen.
+                  </span>
+                </form>
+              )}
             </>
           ) : (
             <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">

@@ -21,6 +21,7 @@ import { deleteAccounts } from "@/core/privacy/konto";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { pendingPublications, publishedTimeline, versionOn } from "./plan-archiv";
 import { addComment, approveVersion, submitForReview, type Viewer } from "./planpruefung";
+import { clearPublishGate } from "./fahrplan.testing";
 import { cleanupVersions, createDraft, createVariant, getVersion, validVersion } from "./planversionen";
 import { listSlots, regularSlots } from "./service";
 import { planBundleKey, publishPreview, publishVersion, runPlanNotifications, undoPublish, undoPublishPreview, type PublishUndo } from "./veroeffentlichen";
@@ -150,6 +151,9 @@ describe("Veröffentlichen ab Stichtag (SP3-04, Demo-Schule)", () => {
     expect(await liveRows()).toEqual(liveBefore);
 
     // Veröffentlichen
+    // SP3-06: erst Schritt 7 – Warnungen der Diagnose quittieren
+    expect(await errorOf(publishVersion(h.db, viewer.userId, v.id, cutoff, today, now))).toMatch(/Schritt 7/);
+    await clearPublishGate(h.db, viewer.userId, v.id, today);
     const res = await publishVersion(h.db, viewer.userId, v.id, cutoff, today, now);
     expect(res).toMatchObject({ versionLabel: "2.0", created: 4 + bandParts.length, substitutions: { moved: 5, removed: 3 }, previous: "1.0", discardedVariants: 1 });
     const after = await h.db.select().from(timetableLessons);
@@ -266,6 +270,7 @@ describe("Veröffentlichen ab Stichtag (SP3-04, Demo-Schule)", () => {
 
   it("Stichtag erreicht: keine Rücknahme mehr, der Nachtjob leert die Rücknahme-Daten; Kontolöschung ersetzt Lehrkraft-Kennungen darin", async () => {
     const [v] = await h.db.select().from(timetablePlanVersions).where(and(eq(timetablePlanVersions.status, "freigegeben"), eq(timetablePlanVersions.name, "2. Halbjahr")));
+    await clearPublishGate(h.db, viewer.userId, v!.id, today);
     const res = await publishVersion(h.db, viewer.userId, v!.id, cutoff, today, now);
     expect(res.substitutions.removed).toBe(3);
     const undo = () => getVersion(h.db, v!.id).then((x) => JSON.stringify(x!.undo));
