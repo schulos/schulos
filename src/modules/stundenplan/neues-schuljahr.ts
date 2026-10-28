@@ -330,6 +330,9 @@ export async function createNewYearDraft(db: Db, actorId: string, schoolYearId: 
         parentVersionId: parent?.id ?? null,
         validFrom: offer.validFrom,
         createdBy: actorId,
+        // SP3-08: derselbe Vermerk wie beim Anlegen aus dem Planungsfahrplan, damit dieser den Entwurf als „Neues Schuljahr“ erkennt
+        // (Schritt 3 prüft dann die Versetzung)
+        checklist: { template: "schuljahr" },
       })
       .returning();
     await insertDraftRows(tx as unknown as Db, v!.id, rows);

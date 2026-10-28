@@ -13,6 +13,7 @@ import { approveVersion, submitForReview, type Viewer } from "./planpruefung";
 import { ensureBaseVersions, listVersions, validVersion } from "./planversionen";
 import { lessonActiveOn } from "./service";
 import { publishVersion } from "./veroeffentlichen";
+import { templateOf } from "./fahrplan";
 import { clearPublishGate } from "./fahrplan.testing";
 
 const lesson = (over: Partial<PreviousLesson>): PreviousLesson => ({
@@ -129,6 +130,9 @@ describe("Vorlage „Neues Schuljahr“ (SP3-07, Demo-Schule)", () => {
     expect(t.assignmentSuggestions).toBeGreaterThan(0);
 
     const v = await createNewYearDraft(h.db, viewer.userId, toId, "vorjahr", today);
+    // SP3-08: die Versionsliste setzt denselben Vorlagen-Vermerk wie der Planungsfahrplan – der Fahrplan erkennt den Entwurf als „Neues Schuljahr“
+    expect(v.checklist).toMatchObject({ template: "schuljahr" });
+    expect(templateOf(v, v.checklist as never)).toBe("schuljahr");
     const base = (await validVersion(h.db, fromId))!;
     expect(v).toMatchObject({ schoolYearId: toId, major: 1, minor: 0, status: "entwurf", source: "previous_version", parentVersionId: base.id, validFrom: "2027-08-02" });
     const rows = await h.db.select().from(timetableDraftLessons).where(eq(timetableDraftLessons.versionId, v.id)).orderBy(asc(timetableDraftLessons.id));
@@ -159,6 +163,7 @@ describe("Vorlage „Neues Schuljahr“ (SP3-07, Demo-Schule)", () => {
     expect(rec.lessons).toBe(before.lessons);
     const empty = await createNewYearDraft(h.db, viewer.userId, toId, "leer", today);
     expect(empty).toMatchObject({ major: 2, minor: 0, source: "empty", parentVersionId: null });
+    expect(empty.checklist).toMatchObject({ template: "schuljahr" });
     expect(await h.db.select().from(timetableDraftLessons).where(eq(timetableDraftLessons.versionId, empty.id))).toEqual([]);
   });
 

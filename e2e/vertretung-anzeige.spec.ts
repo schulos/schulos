@@ -17,25 +17,44 @@ async function axeClean(page: Page, where: string) {
   ).toEqual([]);
 }
 
+/** Die beiden Tage des Vertretungsplans wie `planDays()`: heute (Berlin; am Wochenende der Montag) und der Schultag danach. */
+function planDaysBerlin(): [string, string] {
+  const [y, m, day] = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Berlin" }).format(new Date()).split("-").map(Number);
+  const d = new Date(Date.UTC(y!, m! - 1, day!, 12));
+  const skipWeekend = () => {
+    while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  };
+  skipWeekend();
+  const first = d.toISOString().slice(0, 10);
+  d.setUTCDate(d.getUTCDate() + 1);
+  skipWeekend();
+  return [first, d.toISOString().slice(0, 10)];
+}
+
 test("VT-02: Betreuung mit Grund, interner Hinweis nur für Vertretung und Planung, Kenntnisnahme, Verlauf", async ({ page, browser }) => {
   test.setTimeout(150_000);
   const NOTE = "VT02-E2E Lesetext";
   const SECRET = "VT02-E2E intern";
   const errors = collectErrors(page);
   await login(page, "frank.schulte");
-  await page.goto("/planung/vertretungen?gruppe=g-10a");
-  // eine Stunde der 10a, in der BRA (jana.brandt) frei ist
-  const forms = page.getByRole("form", { name: /^\d+\. Std · .+ · Klasse 10a$/ });
-  await expect(forms.first()).toBeVisible();
+  // Welche Stunden der 10a für BRA (jana.brandt) frei sind, hängt vom Wochentag ab (mittwochs ist BRA in allen 10a-Stunden gebunden).
+  // Deshalb nicht den Vorgabetag der Seite nehmen, sondern beide Tage des Vertretungsplans (heute bzw. nächster Schultag und der
+  // Schultag danach) durchsuchen.
   let label: string | null = null;
-  for (let i = 0; i < (await forms.count()); i++) {
-    const f = forms.nth(i);
-    if ((await f.locator('optgroup[label="Frei"] option').filter({ hasText: /^BRA – / }).count()) > 0) {
-      label = await f.getAttribute("aria-label");
-      break;
+  for (const candidate of planDaysBerlin()) {
+    await page.goto(`/planung/vertretungen?datum=${candidate}&gruppe=g-10a`);
+    const forms = page.getByRole("form", { name: /^\d+\. Std · .+ · Klasse 10a$/ });
+    await expect(forms.first()).toBeVisible();
+    for (let i = 0; i < (await forms.count()); i++) {
+      const f = forms.nth(i);
+      if ((await f.locator('optgroup[label="Frei"] option').filter({ hasText: /^BRA – / }).count()) > 0) {
+        label = await f.getAttribute("aria-label");
+        break;
+      }
     }
+    if (label) break;
   }
-  expect(label, "Stunde der 10a mit freier Lehrkraft BRA").not.toBeNull();
+  expect(label, "Stunde der 10a mit freier Lehrkraft BRA an einem der beiden Plantage").not.toBeNull();
   const form = page.getByRole("form", { name: label! });
   await form.getByRole("radio", { name: "Vertretung", exact: true }).check();
   await form.getByLabel("Vertretung durch").selectOption({ label: (await form.locator('optgroup[label="Frei"] option').filter({ hasText: /^BRA – / }).first().textContent())! });
