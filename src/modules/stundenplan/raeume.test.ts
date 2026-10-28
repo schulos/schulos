@@ -26,11 +26,13 @@ describe("occupancyFrom / searchRooms", () => {
 
   it("filtert nach freien Stunden, Kapazität, Art, Ausstattung, Barrierefreiheit; kleinste passende zuerst", () => {
     const room = (id: string, p: Partial<RoomInfo> = {}): RoomInfo => ({ id, name: id, kind: "klassenraum", building: null, floor: null, capacity: 30, equipment: [], accessible: false, active: true, ...p });
+    // RS-05: Ausstattung aus dem Katalog (ID, Name, Menge); gefiltert wird nach Katalog-ID
+    const eq = (...ids: string[]) => ids.map((typeId) => ({ typeId, name: typeId.toUpperCase(), quantity: 1 }));
     const list = [
-      room("101", { capacity: 32, equipment: ["beamer"] }),
-      room("102", { capacity: 28, equipment: ["beamer"], accessible: true }),
-      room("103", { capacity: 20, equipment: ["beamer"] }),
-      room("NW1", { kind: "nw", capacity: 30, equipment: ["beamer", "abzug"] }),
+      room("101", { capacity: 32, equipment: eq("beamer") }),
+      room("102", { capacity: 28, equipment: eq("beamer"), accessible: true }),
+      room("103", { capacity: 20, equipment: eq("beamer") }),
+      room("NW1", { kind: "nw", capacity: 30, equipment: eq("beamer", "abzug") }),
       room("ALT", { active: false }),
     ];
     const occ = occupancyFrom([l("x", "102", 3)], [], []);

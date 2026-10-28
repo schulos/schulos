@@ -2,8 +2,10 @@
 
 import { useActionState } from "react";
 import { Trash2 } from "lucide-react";
-import { ROOM_EQUIPMENT, ROOM_KINDS } from "@/core/db/schema";
-import { ROOM_EQUIPMENT_LABELS, ROOM_KIND_LABELS } from "@/core/labels";
+import Link from "next/link";
+import { ROOM_KINDS } from "@/core/db/schema";
+import { ROOM_KIND_LABELS } from "@/core/labels";
+import { roomHref } from "@/core/room-href";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
@@ -15,7 +17,6 @@ export interface RoomFormValues {
   building: string | null;
   floor: string | null;
   capacity: number | null;
-  equipment: string[];
   accessible: boolean;
   active: boolean;
 }
@@ -45,7 +46,6 @@ export function RoomForm({
   const error = state.error ?? delState.error;
   // nach einem Fehler gelten die Eingaben, sonst die gespeicherten Werte
   const val = (k: keyof RoomFormValues, fallback: string) => (v ? (v[k] ?? "") : fallback);
-  const equipment = v ? (v.equipment ?? "").split(",") : (initial?.equipment ?? []);
   const checked = (k: "accessible" | "active", fallback: boolean) => (v ? v[k] === "on" : fallback);
 
   return (
@@ -80,17 +80,19 @@ export function RoomForm({
         <Input name="floor" defaultValue={val("floor", initial?.floor ?? "")} />
       </Field>
 
-      <fieldset className="flex flex-col gap-2 sm:col-span-2">
-        <legend className="mb-1 text-sm font-medium">Ausstattung</legend>
-        <div className="grid gap-2 sm:grid-cols-4">
-          {ROOM_EQUIPMENT.map((e) => (
-            <label key={e} className="flex items-center gap-2 text-sm">
-              <input type="checkbox" name="equipment" value={e} defaultChecked={equipment.includes(e)} className="size-4 accent-[var(--accent)]" /> {ROOM_EQUIPMENT_LABELS[e]}
-            </label>
-          ))}
-        </div>
-        {fe.equipment && <span className="text-xs text-danger">{fe.equipment}</span>}
-      </fieldset>
+      <p className="text-sm text-muted sm:col-span-2">
+        {initial ? (
+          <>
+            Ausstattung (mit Menge) und Fotos pflegen Sie im{" "}
+            <Link href={roomHref(initial.code)} className="font-medium text-accent-ink hover:underline">
+              Raumsteckbrief
+            </Link>
+            .
+          </>
+        ) : (
+          "Ausstattung und Fotos kommen nach dem Anlegen im Raumsteckbrief dazu."
+        )}
+      </p>
 
       <div className="flex flex-col gap-2 sm:col-span-2">
         <label className="flex items-center gap-2 text-sm">

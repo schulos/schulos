@@ -18,6 +18,9 @@ export const STORAGE_KEY_COLUMNS: readonly { table: string; column: string }[] =
   { table: "gebaeude_ticket_photos", column: "storage_key" },
   { table: "gebaeude_inspections", column: "report_key" },
   { table: "timetable_absence_materials", column: "file_key" },
+  // RS-04: Raumfotos und ihre Vorschaubilder
+  { table: "room_photos", column: "storage_key" },
+  { table: "room_photos", column: "thumb_key" },
 ];
 
 /** Spalten mit „key“ im Namen, die keine Dateischlüssel sind – mit Begründung. */

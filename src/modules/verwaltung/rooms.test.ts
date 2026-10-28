@@ -8,7 +8,7 @@ import { createGroup } from "./groups";
 import { createRoom, deleteRoom, getRoom, listRooms, roomUsage, setRoomActive, updateRoom, type RoomInput } from "./rooms";
 import { ValidationError } from "./users";
 
-const room = (code: string, more: Partial<RoomInput> = {}): RoomInput => ({ code, name: `Raum ${code}`, kind: "klassenraum", equipment: [], accessible: false, active: true, ...more });
+const room = (code: string, more: Partial<RoomInput> = {}): RoomInput => ({ code, name: `Raum ${code}`, kind: "klassenraum", accessible: false, active: true, ...more });
 
 describe("Stammdaten · Räume", () => {
   let h: DbHandle;
@@ -20,8 +20,8 @@ describe("Stammdaten · Räume", () => {
   });
   afterAll(() => h.close());
 
-  it("legt an mit Ausstattung in Katalogreihenfolge, validiert", async () => {
-    await createRoom(h.db, "u-admin", room("NW2", { name: "Chemie-Raum", kind: "nw", building: " Naturwissenschaften ", floor: "EG", capacity: "28", equipment: ["abzug", "beamer", "beamer"], accessible: true }));
+  it("legt an (Ausstattung seit RS-05 im Steckbrief), validiert", async () => {
+    await createRoom(h.db, "u-admin", room("NW2", { name: "Chemie-Raum", kind: "nw", building: " Naturwissenschaften ", floor: "EG", capacity: "28", accessible: true }));
     expect(await getRoom(h.db, "NW2")).toEqual({
       id: "NW2",
       name: "Chemie-Raum",
@@ -29,12 +29,11 @@ describe("Stammdaten · Räume", () => {
       building: "Naturwissenschaften",
       floor: "EG",
       capacity: 28,
-      equipment: ["beamer", "abzug"],
       accessible: true,
       active: true,
     });
     try {
-      await createRoom(h.db, "u-admin", room("nw2", { name: " ", kind: "keller", capacity: "-3", equipment: ["laser"] }));
+      await createRoom(h.db, "u-admin", room("nw2", { name: " ", kind: "keller", capacity: "-3" }));
       throw new Error("erwartet ValidationError");
     } catch (err) {
       expect(err).toBeInstanceOf(ValidationError);
@@ -43,7 +42,6 @@ describe("Stammdaten · Räume", () => {
         name: "Name angeben",
         kind: "Raumart wählen",
         capacity: "Kapazität 1–2000 oder leer",
-        equipment: "Unbekannte Ausstattung: laser",
       });
     }
   });

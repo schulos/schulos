@@ -1,14 +1,66 @@
-// Bausteine des Raumsteckbriefs (RS-02/RS-03), gemeinsam für Seite und Druckansicht. Bekommen bereits gefilterte Daten aus
+// Bausteine des Raumsteckbriefs (RS-02…RS-05), gemeinsam für Seite und Druckansicht. Bekommen bereits gefilterte Daten aus
 // `roomProfile()` – hier wird nichts nach Rolle entschieden.
 import { Accessibility } from "lucide-react";
-import { ROOM_EQUIPMENT_LABELS, ROOM_KIND_LABELS } from "@/core/labels";
+import { ROOM_KIND_LABELS } from "@/core/labels";
 import { TZ, fromBerlinLocal } from "@/core/time";
 import type { ProfileBlock, ProfileSlot, RoomInfoEntry, RoomProfile } from "@/modules/verwaltung/raumsteckbrief";
+import type { RoomPhoto } from "@/modules/verwaltung/raumfotos";
 import { Badge } from "@schulos/ui/badge";
 import { cn } from "@schulos/ui/cn";
 
 const dayShort = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: TZ });
 export const fmtDay = (ymd: string) => dayShort.format(fromBerlinLocal(ymd));
+
+/** RS-04: Adresse eines Raumfotos (Route prüft die Sichtbarkeit); `klein` = Vorschaubild (480 px). */
+export const roomPhotoSrc = (id: string, klein = false) => `/api/raeume/foto/${encodeURIComponent(id)}${klein ? "?klein=1" : ""}`;
+
+/** RS-04: Titelbild im Kopf des Steckbriefs (sehen alle). */
+export function RoomCover({ cover, roomId, className }: { cover: RoomPhoto; roomId: string; className?: string }) {
+  return (
+    <figure className={cn("flex flex-col gap-1", className)}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- geschützte Route mit Sitzung, keine Bildoptimierung */}
+      <img
+        src={roomPhotoSrc(cover.id)}
+        alt={cover.caption ?? `Titelbild Raum ${roomId}`}
+        width={cover.width}
+        height={cover.height}
+        className="aspect-[4/3] w-full rounded-lg border border-border bg-surface-2 object-cover"
+      />
+      {cover.caption && <figcaption className="text-xs text-muted">{cover.caption}</figcaption>}
+    </figure>
+  );
+}
+
+/** RS-04: Galerie (Beschäftigte) – Vorschaubilder, je ein Link auf das Foto in voller Größe. */
+export function PhotoGallery({ photos, roomId }: { photos: RoomPhoto[]; roomId: string }) {
+  if (photos.length === 0) return <p className="text-sm text-muted">Noch keine Fotos.</p>;
+  return (
+    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      {photos.map((p, i) => (
+        <li key={p.id}>
+          <figure className="flex flex-col gap-1">
+            <a href={roomPhotoSrc(p.id)} target="_blank" rel="noopener" className="block rounded-lg focus-visible:outline-2 focus-visible:outline-accent">
+              {/* eslint-disable-next-line @next/next/no-img-element -- geschützte Route mit Sitzung, keine Bildoptimierung */}
+              <img
+                src={roomPhotoSrc(p.id, true)}
+                alt={p.caption ?? `Foto ${i + 1} von Raum ${roomId}`}
+                loading="lazy"
+                className="aspect-[4/3] w-full rounded-lg border border-border bg-surface-2 object-cover"
+              />
+            </a>
+            <figcaption className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+              {p.isCover && <Badge tone="soft">Titelbild</Badge>}
+              {p.caption}
+            </figcaption>
+          </figure>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** RS-05: „Beamer“, „2 × Lehrer-PC“. */
+export const equipmentText = (e: { name: string; quantity: number }) => (e.quantity > 1 ? `${e.quantity} × ${e.name}` : e.name);
 
 export function roomTitle(r: { id: string; name: string }): string {
   return r.name === r.id || r.name === `Raum ${r.id}` ? `Raum ${r.id}` : `${r.id} – ${r.name}`;
@@ -46,7 +98,7 @@ export function RoomFacts({ room }: { room: RoomProfile["room"] }) {
       <div className="sm:col-span-2 lg:col-span-4">
         <dt className="text-muted">Ausstattung</dt>
         <dd className="mt-1 flex flex-wrap gap-1.5">
-          {room.equipment.length === 0 ? <span>–</span> : room.equipment.map((e) => <Badge key={e}>{ROOM_EQUIPMENT_LABELS[e] ?? e}</Badge>)}
+          {room.equipment.length === 0 ? <span>–</span> : room.equipment.map((e) => <Badge key={e.typeId}>{equipmentText(e)}</Badge>)}
         </dd>
       </div>
     </dl>

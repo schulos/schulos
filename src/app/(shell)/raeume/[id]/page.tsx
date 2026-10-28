@@ -8,7 +8,7 @@ import { moduleOn } from "@/core/modules/guard";
 import { hasPermission } from "@/core/permissions";
 import { TZ, addDays, isoWeek, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { canEditRoomInfo, roomProfile } from "@/modules/verwaltung/raumsteckbrief";
-import { InfoList, RoomBanners, RoomFacts, WeekGrid, fmtDay, roomTitle } from "@/ui/raum-steckbrief";
+import { InfoList, PhotoGallery, RoomBanners, RoomCover, RoomFacts, WeekGrid, fmtDay, roomTitle } from "@/ui/raum-steckbrief";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card, CardHeader } from "@schulos/ui/card";
@@ -22,7 +22,8 @@ const reported = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-di
 /**
  * RS-02 Raumsteckbrief: für alle Angemeldeten, Inhalte je Sicht gefiltert (Service `roomProfile`). Kein Modul-Layout –
  * Räume sind Kernstammdaten; Abschnitte aus abschaltbaren Modulen erscheinen nur, wenn das Modul an ist.
- * Platz für RS-04 (Titelbild im Kopf, Galerie), RS-05 (Ausstattung mit Menge statt der Badges) und RS-06 (Verantwortliche).
+ * RS-04: Titelbild im Kopf (alle), Galerie als Karte (Beschäftigte); RS-05: Ausstattung mit Menge im Kopf (alle).
+ * Platz für RS-06 (Verantwortliche) im unteren Raster.
  */
 export default async function RaumSteckbriefPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ woche?: string; gespeichert?: string }> }) {
   const { perms } = await requireUser();
@@ -90,8 +91,19 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
 
       <Card aria-labelledby="kopf">
         <CardHeader title={<span id="kopf">Überblick</span>} action={{ href: "/raeume", label: "Alle Räume" }} />
-        {/* RS-04: Titelbild links neben den Kopfdaten */}
-        <RoomFacts room={room} />
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+          {profile.cover && <RoomCover cover={profile.cover} roomId={room.id} className="sm:w-64 sm:shrink-0" />}
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <RoomFacts room={room} />
+            {canEditInfo && (
+              <p className="text-sm">
+                <Link href={`/raeume/${enc}/ausstattung`} className="font-medium text-accent-ink hover:underline">
+                  Ausstattung bearbeiten
+                </Link>
+              </p>
+            )}
+          </div>
+        </div>
       </Card>
 
       {week && (
@@ -178,7 +190,13 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
             </ul>
           </Card>
         )}
-        {/* RS-05: Ausstattung mit Menge · RS-06: Raumverantwortliche und Kontakt, Historie für Pflegende */}
+        {profile.photos && (
+          <Card aria-labelledby="fotos" className="scroll-mt-20">
+            <CardHeader title={<span id="fotos">Fotos</span>} action={canEditInfo ? { href: `/raeume/${enc}/fotos`, label: "Fotos bearbeiten" } : undefined} />
+            <PhotoGallery photos={profile.photos} roomId={room.id} />
+          </Card>
+        )}
+        {/* RS-06: Raumverantwortliche und Kontakt, Historie für Pflegende */}
       </div>
     </main>
   );

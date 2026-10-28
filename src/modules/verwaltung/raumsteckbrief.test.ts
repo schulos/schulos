@@ -260,7 +260,7 @@ describe("Raumsteckbrief (RS-02/RS-03)", () => {
     const sabine = await p(SABINE);
     await setRoomInfo(h.db, sabine, "BIB", { flaeche: "120 m²" });
     const { updateRoom } = await import("./rooms");
-    await updateRoom(h.db, SABINE, "BIB", { code: "BIB2", name: "Bibliothek", kind: "sonstiges", equipment: [], accessible: true, active: true });
+    await updateRoom(h.db, SABINE, "BIB", { code: "BIB2", name: "Bibliothek", kind: "sonstiges", accessible: true, active: true });
     expect((await roomInfo(h.db, "BIB2", "familie")).map((i) => i.value)).toEqual(["120 m²"]);
   });
 

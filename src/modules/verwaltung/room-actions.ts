@@ -19,7 +19,6 @@ function readRoom(form: FormData): RoomInput {
     building: String(form.get("building") ?? ""),
     floor: String(form.get("floor") ?? ""),
     capacity: String(form.get("capacity") ?? ""),
-    equipment: form.getAll("equipment").map(String),
     accessible: form.get("accessible") === "on",
     active: form.get("active") === "on",
   };

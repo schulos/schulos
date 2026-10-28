@@ -129,10 +129,9 @@ test.describe("Verwaltung · Stammdaten", () => {
     await page.getByLabel("Kürzel", { exact: true }).fill("NW2");
     await page.getByLabel("Name", { exact: true }).fill("Lernwerkstatt");
     await page.getByLabel("Raumart").selectOption("werkraum");
-    await page.getByLabel("Beamer").check();
     await page.getByRole("button", { name: "Anlegen" }).click();
     await expect(page.getByRole("alert").filter({ hasText: "Kürzel schon vergeben" })).toBeVisible();
-    await expect(page.getByLabel("Beamer")).toBeChecked(); // Eingaben bleiben
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue("Lernwerkstatt"); // Eingaben bleiben
     await page.getByLabel("Kürzel", { exact: true }).fill("LW1");
     await page.getByLabel("barrierefrei erreichbar").check();
     await page.getByRole("button", { name: "Anlegen" }).click();

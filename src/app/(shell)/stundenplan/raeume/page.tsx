@@ -7,13 +7,14 @@ import { hasPermission } from "@/core/permissions";
 import { applyAlternativeRoomAction, createRoomBlockAction, deleteRoomBlockAction } from "@/modules/stundenplan/actions";
 import { affectedLessons, listRoomBlocks, ROOM_BLOCK_LABELS } from "@/modules/stundenplan/raumsperren";
 import { getDb } from "@/core/db/client";
-import { ROOM_BLOCK_REASONS, ROOM_EQUIPMENT, ROOM_KINDS, type RoomEquipment, type RoomKind } from "@/core/db/schema";
-import { ROOM_EQUIPMENT_LABELS, ROOM_KIND_LABELS } from "@/core/labels";
+import { ROOM_BLOCK_REASONS, ROOM_KINDS, type RoomKind } from "@/core/db/schema";
+import { ROOM_KIND_LABELS } from "@/core/labels";
 import { roomHref } from "@/core/room-href";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { TZ, fromBerlinLocal, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { bookableRooms, listRooms, occupancyOn, searchRooms, weekUtilization, type Occupancy } from "@/modules/stundenplan/raeume";
 import { seesAllPlans, timetableMasterData } from "@/modules/stundenplan/service";
+import { equipmentLabel } from "@/modules/verwaltung/raumausstattung";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { cn } from "@schulos/ui/cn";
@@ -320,7 +321,11 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
   const from = Number(sp.von) || 0;
   const to = Number(sp.bis) || from;
   const kind = ROOM_KINDS.find((k): k is RoomKind => k === sp.art) ?? null;
-  const equipment = asList(sp.ausstattung).filter((e): e is RoomEquipment => (ROOM_EQUIPMENT as readonly string[]).includes(e));
+  // RS-05: Filter aus dem Katalog – nur Einträge, die ein aktiver Raum hat (Reihenfolge nach Name)
+  const catalog = new Map<string, string>();
+  for (const r of roomList) for (const e of r.equipment) catalog.set(e.typeId, e.name);
+  const catalogList = [...catalog].sort((a, b) => a[1].localeCompare(b[1], "de", { sensitivity: "base" }));
+  const equipment = asList(sp.ausstattung).filter((e) => catalog.has(e));
   const minCapacity = Number(sp.plaetze) > 0 ? Number(sp.plaetze) : null;
   const searched = from > 0;
   const wanted = periodNrs.filter((p) => p >= from && p <= Math.max(from, to));
@@ -373,10 +378,11 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
         <fieldset className="flex flex-col gap-2 sm:col-span-2 lg:col-span-3">
           <legend className="mb-1.5 text-sm font-medium">Ausstattung</legend>
           <div className="flex flex-wrap gap-x-4 gap-y-2">
-            {ROOM_EQUIPMENT.map((e) => (
-              <label key={e} className="flex items-center gap-2 text-sm">
-                <input type="checkbox" name="ausstattung" value={e} defaultChecked={equipment.includes(e)} className="size-4 accent-[var(--accent)]" />
-                {ROOM_EQUIPMENT_LABELS[e]}
+            {catalogList.length === 0 && <span className="text-sm text-muted">Noch keine Ausstattung eingetragen.</span>}
+            {catalogList.map(([id, name]) => (
+              <label key={id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="ausstattung" value={id} defaultChecked={equipment.includes(id)} className="size-4 accent-[var(--accent)]" />
+                {name}
               </label>
             ))}
           </div>
@@ -432,7 +438,7 @@ export default async function RaeumePage({ searchParams }: { searchParams: Promi
                     <td>
                       <span className="flex flex-wrap gap-1">
                         {r.equipment.map((e) => (
-                          <Badge key={e}>{ROOM_EQUIPMENT_LABELS[e]}</Badge>
+                          <Badge key={e.typeId}>{equipmentLabel(e)}</Badge>
                         ))}
                         {r.accessible && <Badge tone="soft">barrierefrei</Badge>}
                       </span>

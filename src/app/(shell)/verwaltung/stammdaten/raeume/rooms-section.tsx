@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { Accessibility, Plus } from "lucide-react";
-import { ROOM_KINDS, type RoomEquipment, type RoomKind } from "@/core/db/schema";
-import { ROOM_EQUIPMENT_LABELS, ROOM_KIND_LABELS } from "@/core/labels";
+import { ROOM_KINDS, type RoomKind } from "@/core/db/schema";
+import { ROOM_KIND_LABELS } from "@/core/labels";
 import type { Db } from "@/core/db/client";
 import { roomHref } from "@/core/room-href";
+import { equipmentByRoom, equipmentLabel } from "@/modules/verwaltung/raumausstattung";
 import { listRooms } from "@/modules/verwaltung/rooms";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -14,6 +15,7 @@ import { Table } from "@schulos/ui/table";
 export async function RoomsSection({ db, q, art }: { db: Db; q?: string; art?: string }) {
   const kind = (ROOM_KINDS as readonly string[]).includes(art ?? "") ? (art as RoomKind) : undefined;
   const list = await listRooms(db, { q, kind });
+  const equipment = await equipmentByRoom(db, list.map((r) => r.id));
   return (
     <section aria-labelledby="ra" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -23,6 +25,9 @@ export async function RoomsSection({ db, q, art }: { db: Db; q?: string; art?: s
         <span className="flex flex-wrap gap-2">
           <Button asChild>
             <Link href="/verwaltung/stammdaten/raeume/infofelder">Infofelder</Link>
+          </Button>
+          <Button asChild>
+            <Link href="/verwaltung/stammdaten/raeume/ausstattung">Ausstattungskatalog</Link>
           </Button>
           <Button asChild variant="primary">
             <Link href="/verwaltung/stammdaten/raeume/neu">
@@ -76,7 +81,7 @@ export async function RoomsSection({ db, q, art }: { db: Db; q?: string; art?: s
                   {r.accessible && <Accessibility aria-label="barrierefrei" className="ml-1.5 inline size-4 align-text-bottom text-accent" />}
                 </td>
                 <td className="text-right tabular-nums">{r.capacity ?? "–"}</td>
-                <td className="text-muted">{r.equipment.map((e) => ROOM_EQUIPMENT_LABELS[e as RoomEquipment] ?? e).join(", ")}</td>
+                <td className="text-muted">{(equipment.get(r.id) ?? []).map(equipmentLabel).join(", ")}</td>
                 <td className="text-right whitespace-nowrap">
                   <Button asChild size="sm" variant="ghost">
                     <Link href={roomHref(r.id)} aria-label={`Steckbrief Raum ${r.id}`}>

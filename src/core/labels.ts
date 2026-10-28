@@ -1,4 +1,4 @@
-import type { GroupKind, Role, RoomEquipment, RoomKind } from "@/core/db/schema";
+import type { GroupKind, Role, RoomKind } from "@/core/db/schema";
 
 export const ROLE_LABELS: Record<Role, string> = {
   schueler: "Schüler:in",
@@ -33,17 +33,6 @@ export const ROOM_KIND_LABELS: Record<RoomKind, string> = {
   mensa: "Mensa",
   aula: "Aula",
   sonstiges: "Sonstiges",
-};
-
-export const ROOM_EQUIPMENT_LABELS: Record<RoomEquipment, string> = {
-  beamer: "Beamer",
-  tafel_digital: "Digitale Tafel",
-  dokukamera: "Dokumentenkamera",
-  lehrer_pc: "Lehrer-PC",
-  schueler_pcs: "Schüler-PCs",
-  audio: "Audioanlage",
-  waschbecken: "Waschbecken",
-  abzug: "Abzug",
 };
 
 const TZ = "Europe/Berlin";

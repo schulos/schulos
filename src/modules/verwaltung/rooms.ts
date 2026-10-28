@@ -1,8 +1,9 @@
-// Stammdaten Räume: Art, Gebäude/Etage, Kapazität, Ausstattung, barrierefrei, aktiv.
+// Stammdaten Räume: Art, Gebäude/Etage, Kapazität, barrierefrei, aktiv. Ausstattung seit RS-05 im Katalog (raumausstattung.ts),
+// gepflegt im Raumsteckbrief.
 import { and, asc, count, eq, ilike, or, type SQL } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
-import { ROOM_EQUIPMENT, ROOM_KINDS, bookingResources, bookings, exams, rooms, timetableLessons, timetableSubstitutions, type RoomEquipment, type RoomKind } from "@/core/db/schema";
+import { ROOM_KINDS, bookingResources, bookings, exams, rooms, timetableLessons, timetableSubstitutions, type RoomKind } from "@/core/db/schema";
 import { ValidationError } from "./users";
 
 export type Room = typeof rooms.$inferSelect;
@@ -54,7 +55,6 @@ export interface RoomInput {
   floor?: string | null;
   /** leer = unbekannt */
   capacity?: string | number | null;
-  equipment: string[];
   accessible: boolean;
   active: boolean;
 }
@@ -74,8 +74,6 @@ async function validate(db: Db, input: RoomInput, exceptId?: string) {
   const capRaw = input.capacity === null || input.capacity === undefined ? "" : String(input.capacity).trim();
   const capacity = capRaw === "" ? null : Number(capRaw);
   if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 2000)) fe.capacity = "Kapazität 1–2000 oder leer";
-  const unknown = input.equipment.filter((e) => !(ROOM_EQUIPMENT as readonly string[]).includes(e));
-  if (unknown.length) fe.equipment = `Unbekannte Ausstattung: ${unknown.join(", ")}`;
   if (Object.keys(fe).length) throw new ValidationError(fe);
   return {
     id: code,
@@ -84,8 +82,6 @@ async function validate(db: Db, input: RoomInput, exceptId?: string) {
     building: input.building?.trim() || null,
     floor: input.floor?.trim() || null,
     capacity,
-    // Reihenfolge wie im Katalog, ohne Dubletten
-    equipment: ROOM_EQUIPMENT.filter((e) => input.equipment.includes(e)) as RoomEquipment[],
     accessible: input.accessible,
     active: input.active,
   };

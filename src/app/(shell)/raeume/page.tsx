@@ -6,13 +6,14 @@ import { getDb } from "@/core/db/client";
 import { ROOM_KIND_LABELS } from "@/core/labels";
 import { roomHref } from "@/core/room-href";
 import { roomDirectory } from "@/modules/verwaltung/raumsteckbrief";
+import { roomPhotoSrc } from "@/ui/raum-steckbrief";
 import { Button } from "@schulos/ui/button";
 import { Input } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 
 export const metadata: Metadata = { title: "Räume" };
 
-/** RS-02: Raumliste für alle Angemeldeten – nur Stammdaten ohne Belegung, je Raum ein Link auf den Steckbrief. */
+/** RS-02: Raumliste für alle Angemeldeten – nur Stammdaten ohne Belegung, je Raum ein Link auf den Steckbrief; mit Titelbild (RS-04). */
 export default async function RaeumeListePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   await requireUser();
   const { q } = await searchParams;
@@ -39,7 +40,11 @@ export default async function RaeumeListePage({ searchParams }: { searchParams: 
               {rooms.map((r) => (
                 <li key={r.id}>
                   <Link href={roomHref(r.id)} className="flex items-center justify-between gap-3 rounded-card border border-border bg-surface px-4 py-3 hover:bg-surface-2">
-                    <span className="min-w-0">
+                    {r.coverId && (
+                      // eslint-disable-next-line @next/next/no-img-element -- geschützte Route mit Sitzung, keine Bildoptimierung
+                      <img src={roomPhotoSrc(r.coverId, true)} alt="" loading="lazy" className="size-12 shrink-0 rounded-md border border-border bg-surface-2 object-cover" />
+                    )}
+                    <span className="min-w-0 flex-1">
                       <span className="font-semibold">{r.id}</span>
                       {r.name !== r.id && r.name !== `Raum ${r.id}` && <span className="text-muted"> · {r.name}</span>}
                       <span className="block text-xs text-muted">

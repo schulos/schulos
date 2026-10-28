@@ -1,5 +1,6 @@
 // Bild-Baustein (P4-01): Bildtyp an den ersten Bytes erkennen, Metadaten (EXIF, XMP, Texte) entfernen und Maße lesen –
-// reine Byte-Parser ohne Bildbibliothek (kein sharp, keine Skalierung auf dem Server; CSS skaliert).
+// reine Byte-Parser ohne Bildbibliothek (keine Skalierung hier; CSS skaliert). Verkleinern auf dem Server nur für Raumfotos
+// (RS-04) in images-resize.ts.
 // Genutzt von Profilbildern (nur JPEG/PNG), Schullogo (P4-03, dazu SVG über images-svg.ts) und später Mängelfotos (P4-12).
 import { ValidationError } from "@/modules/verwaltung/users";
 

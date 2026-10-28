@@ -116,6 +116,9 @@ export const EXPORT_FILES: { table: string; key: string; name: string; via: stri
   { table: "gebaeude_inspections", key: "report_key", name: "report_key", via: [] },
   // Q5-12: Vertretungsmaterial – eigene Uploads
   { table: "timetable_absence_materials", key: "file_key", name: "file_name", via: ["created_by"] },
+  // RS-04: Raumfotos zeigen Räume, keine Personen, und tragen keinen Personenbezug – nie Teil einer Auskunft
+  { table: "room_photos", key: "storage_key", name: "mime", via: [] },
+  { table: "room_photos", key: "thumb_key", name: "mime", via: [] },
 ];
 
 export interface ExportSection {
