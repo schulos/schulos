@@ -8,7 +8,7 @@ import { roomHref } from "@/core/room-href";
 import { TZ, addDays, isoWeek, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { roomProfile } from "@/modules/verwaltung/raumsteckbrief";
 import { DruckKopf } from "@/ui/druck-kopf";
-import { InfoList, RoomBanners, RoomFacts, WeekGrid, fmtDay, roomTitle } from "@/ui/raum-steckbrief";
+import { InfoList, RoomBanners, RoomCover, RoomFacts, WeekGrid, fmtDay, roomTitle } from "@/ui/raum-steckbrief";
 import { Button } from "@schulos/ui/button";
 import { PrintButton } from "@schulos/ui/print-button";
 
@@ -39,7 +39,12 @@ export default async function RaumDruckPage({ params, searchParams }: { params: 
       <main className="mx-auto flex max-w-[190mm] flex-col gap-5">
         <DruckKopf eyebrow="Raumsteckbrief" title={roomTitle(room)} stamp={`Stand ${stamp.format(new Date())}`} />
         <RoomBanners profile={profile} />
-        <RoomFacts room={room} />
+        <div className="flex items-start gap-4">
+          {profile.cover && <RoomCover cover={profile.cover} roomId={room.id} className="w-48 shrink-0" />}
+          <div className="min-w-0 flex-1">
+            <RoomFacts room={room} />
+          </div>
+        </div>
         <section aria-labelledby="d-info" className="flex flex-col gap-2">
           <h2 id="d-info" className="text-base font-semibold">
             Infofelder

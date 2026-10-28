@@ -11,7 +11,8 @@ await build({
   target: "node24",
   format: "esm",
   tsconfig: "tsconfig.json",
-  external: ["@electric-sql/pglite"],
+  // sharp (natives Modul, RS-04 Raumfotos) lädt images-resize.ts erst bei Bedarf – die Kommandozeile verkleinert nie Bilder
+  external: ["@electric-sql/pglite", "sharp"],
   // CommonJS-Abhängigkeiten im ESM-Bündel brauchen require
   banner: { js: "// SchulOS cli – gebündelt aus src/cli.ts\nimport { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
   logLevel: "warning",

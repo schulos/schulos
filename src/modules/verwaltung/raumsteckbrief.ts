@@ -3,8 +3,8 @@
 // Beschäftigte („personal“, STAFF_ROLES) zusätzlich Klasse/Lehrkraft, Personal-Infofelder und offene Mängel. Gefiltert wird
 // hier im Service, nicht erst in der Seite. Räume sind Kernstammdaten – Abschnitte aus abschaltbaren Modulen (Stundenplan,
 // Gebäude & Technik, Buchungen) kommen nur, wenn der Aufrufer das Modul als eingeschaltet meldet.
-// Andockpunkte: RS-04 Fotos (Titelbild im Kopf), RS-05 Ausstattungskatalog (ersetzt `equipment`), RS-06 Raumverantwortliche
-// und Recht „Raumdaten pflegen“ (erweitert `canEditRoomInfo`).
+// RS-04 Fotos (Titelbild für alle, Galerie für Beschäftigte, raumfotos.ts), RS-05 Ausstattungskatalog mit Menge
+// (raumausstattung.ts). Andockpunkt RS-06: Raumverantwortliche und Recht „Raumdaten pflegen“ (erweitert `canEditRoomInfo`).
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
@@ -21,46 +21,24 @@ import {
   rooms,
   timetableRoomBlocks,
   type RoomBlockReason,
-  type RoomEquipment,
   type RoomInfoVisibility,
   type RoomKind,
 } from "@/core/db/schema";
 import { readModuleSetting } from "@/core/modules/settings";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
-import { isStaffRole } from "@/core/roles";
 import { addDays } from "@/core/time";
 import { CATEGORY_LABELS, OPEN_STATUSES, PRIORITY_LABELS, STATUS_LABELS, ticketNumber, type TicketCategory, type TicketPriority, type TicketStatus } from "@/modules/gebaeude/labels";
 import { inspectionState } from "@/modules/gebaeude/pruefungen";
 import { ROOM_BLOCK_LABELS, occupancyOn } from "@/modules/stundenplan/raeume";
+import { canEditRoomInfo, canManageInfoFields, roomAudience, visibleFor, type RoomAudience } from "./raum-rechte";
+import { roomEquipment, type RoomEquipmentEntry } from "./raumausstattung";
+import { coverPhotos, listRoomPhotos, type RoomPhoto } from "./raumfotos";
 import { ROOM_OCCUPANCY_FAMILY } from "./settings";
 import { ValidationError } from "./users";
 
-// ---------------------------------------------------------------- Sicht und Rechte
+// ---------------------------------------------------------------- Sicht und Rechte (raum-rechte.ts)
 
-export type RoomAudience = "personal" | "familie";
-
-/** Beschäftigte (STAFF_ROLES) sehen den Steckbrief mit Details, Schüler:innen und Eltern die gefilterte Fassung. */
-export function roomAudience(viewer: PermissionSet): RoomAudience {
-  return isStaffRole(viewer.role) ? "personal" : "familie";
-}
-
-/** Sichtbarkeiten, die eine Sicht lesen darf. */
-export function visibleFor(audience: RoomAudience): readonly RoomInfoVisibility[] {
-  return audience === "personal" ? ROOM_INFO_VISIBILITIES : ["alle"];
-}
-
-/**
- * Wer Infofelder eines Raums pflegt. Bis RS-06 (Recht „Raumdaten pflegen“, Raumverantwortliche pflegen ihren Raum) wer heute
- * Räume bearbeiten darf: `verwaltung.school`. RS-06 erweitert nur diese Funktion (der Raum ist schon Parameter).
- */
-export function canEditRoomInfo(viewer: PermissionSet, roomId: string): boolean {
-  return roomId !== "" && hasPermission(viewer, "verwaltung.school");
-}
-
-/** Infofelder anlegen, umbenennen, Sichtbarkeit ändern, löschen: Stammdaten-Recht (schulweit, nicht je Raum). */
-export function canManageInfoFields(viewer: PermissionSet): boolean {
-  return hasPermission(viewer, "verwaltung.school");
-}
+export { canEditRoomInfo, canManageInfoFields, roomAudience, visibleFor, type RoomAudience } from "./raum-rechte";
 
 // ---------------------------------------------------------------- Infofelder (RS-03)
 
@@ -267,11 +245,16 @@ export interface RoomProfile {
     building: string | null;
     floor: string | null;
     capacity: number | null;
-    equipment: RoomEquipment[];
+    /** RS-05: Ausstattung mit Menge (sehen alle) */
+    equipment: RoomEquipmentEntry[];
     accessible: boolean;
     active: boolean;
   };
   audience: RoomAudience;
+  /** RS-04: Titelbild (sehen alle), sonst null */
+  cover: RoomPhoto | null;
+  /** RS-04: Galerie (alle Fotos, Titelbild zuerst) – null für Schüler:innen/Eltern */
+  photos: RoomPhoto[] | null;
   /** laufende Sperren (heute) */
   blocks: ProfileBlock[];
   /** geplante Sperren der nächsten 14 Tage */
@@ -323,7 +306,7 @@ export async function roomProfile(db: Db, viewer: PermissionSet, roomId: string,
   const audience = roomAudience(viewer);
   const { today, monday, modules } = opts;
 
-  const [blockRows, info, familyOccupancy, resource] = await Promise.all([
+  const [blockRows, info, familyOccupancy, resource, equipment, photos] = await Promise.all([
     db
       .select()
       .from(timetableRoomBlocks)
@@ -337,6 +320,8 @@ export async function roomProfile(db: Db, viewer: PermissionSet, roomId: string,
           .from(bookingResources)
           .where(and(eq(bookingResources.roomId, roomId), eq(bookingResources.active, true), eq(bookingResources.kind, "room")))
       : Promise.resolve([]),
+    roomEquipment(db, roomId),
+    listRoomPhotos(db, viewer, roomId),
   ]);
 
   let week: RoomProfile["week"] = null;
@@ -413,8 +398,10 @@ export async function roomProfile(db: Db, viewer: PermissionSet, roomId: string,
   }
 
   return {
-    room: { ...room, equipment: room.equipment as RoomEquipment[] },
+    room: { ...room, equipment },
     audience,
+    cover: photos.find((p) => p.isCover) ?? null,
+    photos: audience === "personal" ? photos : null,
     blocks: blockRows.filter((b) => b.startsOn <= today).map((b) => maskBlock(b, audience)),
     upcomingBlocks: blockRows.filter((b) => b.startsOn > today).map((b) => maskBlock(b, audience)),
     info,
@@ -425,7 +412,7 @@ export async function roomProfile(db: Db, viewer: PermissionSet, roomId: string,
   };
 }
 
-/** Aktive Räume für die Raumliste und die globale Suche (alle Angemeldeten; keine Personendaten). */
+/** Aktive Räume für die Raumliste und die globale Suche (alle Angemeldeten; keine Personendaten), mit Titelbild (RS-04). */
 export async function roomDirectory(db: Db, q?: string, limit = 500) {
   const term = q?.trim();
   const like = term ? `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : null;
@@ -434,7 +421,9 @@ export async function roomDirectory(db: Db, q?: string, limit = 500) {
     .from(rooms)
     .where(and(eq(rooms.active, true), like ? or(sql`${rooms.id} ilike ${like}`, sql`${rooms.name} ilike ${like}`) : undefined));
   // Sortierung in JS (Gebäude, dann Kürzel numerisch) – nicht von der Collation abhängig
-  return rows
+  const list = rows
     .sort((a, b) => (a.building ?? "").localeCompare(b.building ?? "", "de") || a.id.localeCompare(b.id, "de", { numeric: true }))
     .slice(0, limit);
+  const covers = await coverPhotos(db, list.map((r) => r.id));
+  return list.map((r) => ({ ...r, coverId: covers.get(r.id)?.id ?? null }));
 }

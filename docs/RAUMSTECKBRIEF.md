@@ -87,7 +87,7 @@ Stand 2026-10-28, Migration 0115 (`room_info_fields`, `room_info_values`, Enum `
 - **Seite `/raeume/[id]`** für alle Angemeldeten, ohne Modul-Layout (Räume sind Kernstammdaten). Gefiltert wird im Service
   `roomProfile()` (`src/modules/verwaltung/raumsteckbrief.ts`), nicht erst in der Seite. Sicht „personal“ = Rollen aus
   `STAFF_ROLES` (Lehrkraft, Personal, Beratung, Verwaltung, Admin), Sicht „familie“ = Schüler:innen und Eltern.
-- **Kopf:** Name, Art, Gebäude/Etage, Plätze, barrierefrei, Ausstattung grob (die acht festen Einträge bis RS-05).
+- **Kopf:** Name, Art, Gebäude/Etage, Plätze, barrierefrei, Ausstattung grob (seit RS-05 aus dem Katalog mit Menge).
   **Banner** „Raum stillgelegt“ und „Gesperrt bis …“ (laufende Raumsperre) plus geplante Sperren der nächsten 14 Tage; die
   Notiz der Sperre sehen nur Beschäftigte, der Grund (Kategorie) alle.
 - **Belegung** als Wochenraster Mo–Fr × Zeitraster mit Wochenwechsel (`?woche=`), heute markiert: Unterricht nach
@@ -117,6 +117,51 @@ Stand 2026-10-28, Migration 0115 (`room_info_fields`, `room_info_values`, Enum `
 - **Datenschutz:** beide Tabellen ohne Personenbezug (`NO_PERSONAL_DATA`, DATENSCHUTZ.md §3.4); Werte gehen mit Raum bzw.
   Feld (Fremdschlüssel, Umbenennen des Raumkürzels zieht mit).
 
-**Andockpunkte:** RS-04 Titelbild im Kopf-Abschnitt „Überblick“ und Galerie als eigene Karte; RS-05 ersetzt die
-Ausstattungs-Badges in `RoomFacts` (und `rooms.equipment`); RS-06 erweitert `canEditRoomInfo(viewer, roomId)` um das neue
-Recht und `room_responsibles` und ergänzt eine Karte „Verantwortliche“ im unteren Raster der Seite.
+## Umgesetzt (RS-04/05)
+
+Stand 2026-10-28, Migration 0117 (`room_photos`, `room_equipment_types`, `room_equipment_items`; Datenübernahme aus
+`rooms.equipment`, danach entfällt die Spalte).
+
+- **Fotos (RS-04):** höchstens 8 je Raum, Upload JPEG/PNG/WebP bis 20 MB (Typ an den Bytes, Pixelgrenze wie beim
+  Bild-Baustein), auf dem Server mit sharp (kommt mit Next, liegt im Standalone-Image) auf 1600 px verkleinert und als JPEG ohne
+  Metadaten gespeichert (EXIF/GPS/XMP weg, Drehung aus EXIF vorher angewendet), dazu ein Vorschaubild mit 480 px; Virenscan wie
+  bei anderen Uploads. Ein Titelbild je Raum (das erste Foto, umstellbar; beim Löschen rückt das älteste übrige nach),
+  Bildunterschrift bis 120 Zeichen. Hinweis am Upload: keine Personen, keine Aushänge mit Namen. Pflege unter
+  `/raeume/[id]/fotos` („Fotos bearbeiten“), Auslieferung `/api/raeume/foto/[id]` (`?klein=1` Vorschau, `nosniff`, CSP
+  `sandbox`, kein Modul-Schalter).
+- **Sichtbarkeit Fotos:** das Titelbild sehen alle Angemeldeten (Kopf „Überblick“, Raumliste `/raeume`, Druck), die Galerie
+  (Karte „Fotos“) nur Beschäftigte; die Route liefert Schüler:innen/Eltern für andere Fotos 404 (`photoFile`).
+- **Ausstattung (RS-05):** schulweiter Katalog `room_equipment_types`, der beim Eintragen wächst: im Steckbrief
+  „Ausstattung bearbeiten“ → `/raeume/[id]/ausstattung`, Typeahead über den Katalog (`datalist`); ein unbekannter Name wird beim
+  ersten Eintrag aufgenommen (Groß-/Kleinschreibung und Leerraum zählen nicht, eindeutiger Index auf `lower(name)`), danach
+  ist er für alle Räume wählbar. Menge je Raum 1–9999 (`room_equipment_items`), Menge 0 entfernt. Grenzen: 500 Katalogeinträge,
+  100 je Raum. Grobe Ausstattung (Name, Menge) sehen alle.
+- **Katalog aufräumen** (`/verwaltung/stammdaten/raeume/ausstattung`, `verwaltung.school`): umbenennen (gilt überall; ein
+  vorhandener Name verlangt Zusammenführen), Dubletten zusammenführen (Räume bekommen den Zieleintrag, hat ein Raum beide,
+  gilt die größere Menge), Unbenutztes löschen. Keine getrennte Katalogpflege.
+- **Datenübernahme:** die acht festen Einträge werden Katalogeinträge mit ihrem Schlüssel als ID (`beamer`, `tafel_digital`,
+  `dokukamera`, `lehrer_pc`, `schueler_pcs`, `audio`, `waschbecken`, `abzug`), jede Zuordnung aus `rooms.equipment` wird eine
+  Zeile mit Menge 1 (auch stillgelegte Räume); unbekannte Schlüssel gehen nicht verloren (Schlüssel wird Name). Danach entfallen
+  `rooms.equipment` und die feste Liste `ROOM_EQUIPMENT`/`ROOM_EQUIPMENT_LABELS`.
+- **Umgestellte Verwendungen von `rooms.equipment`:** Raumsuche `/stundenplan/raeume` (Filter aus den Katalogeinträgen, die
+  ein aktiver Raum hat; Treffer mit Menge, `searchRooms` filtert nach Katalog-ID), Stammdaten-Raumformular (Checkboxen weg,
+  Hinweis auf den Steckbrief) und -liste (Spalte aus dem Katalog), Steckbrief und Druck, Demo-Seed (Vorgaben per
+  `ensureDefaultEquipmentTypes`, Mengen je Raum). Stundenplan-Solver, Setzhilfe, Diagnose und Buchungen lasen die Ausstattung nie
+  (nur Art/Plätze) – der Migrationstest prüft, dass Raumsuche und Solver-Eingabe vorher und nachher dasselbe liefern. Exporte
+  (Schulprofil, Auskunft) enthielten keine Raumausstattung.
+- **Rechte:** Fotos und Ausstattung pflegt bis RS-06, wer `canEditRoomInfo` erfüllt (`verwaltung.school`); den Katalog räumt
+  `verwaltung.school` auf (`canManageInfoFields`). Rechte und Sicht liegen jetzt in `raum-rechte.ts` (Raumsuche, Fotos,
+  Ausstattung und Steckbrief ohne Ringabhängigkeit; `raumsteckbrief.ts` exportiert sie weiter).
+- **Dateispeicher und Backup:** `room_photos.storage_key` und `thumb_key` stehen in `STORAGE_KEY_COLUMNS` (Aufräumlauf löscht
+  sie nicht, Abdeckungstest) und in der Auskunft-Liste ohne Personenbezug (nie Teil einer Auskunft). Die Dateien liegen in
+  `files/` und gehen damit in jeden Backup-Snapshot (Dump + `files/` + `config/`, INSTALLATION.md §4.1) und in die
+  Wiederherstellung; gelöschte Fotos entfernt der Dienst sofort, Reste der Aufräumlauf.
+- **Audit:** `verwaltung.room.photo.add/caption/cover/delete` (Foto-ID, keine Bilddaten), `verwaltung.room.equipment`
+  (Name, Menge vorher/nachher), `verwaltung.room.equipment_type.create/rename/merge/delete`.
+- **Datenschutz:** alle drei Tabellen ohne Personenbezug (`NO_PERSONAL_DATA`, DATENSCHUTZ.md §3.4) – wer hochgeladen oder
+  eingetragen hat, steht nur im Audit-Log.
+
+**Andockpunkte RS-06:** `canEditRoomInfo(viewer, roomId)` in `raum-rechte.ts` um das neue Recht „Raumdaten pflegen“ und
+`room_responsibles` erweitern – Infofelder, Fotos und Ausstattung folgen dann automatisch (Services und Seiten prüfen nur
+diese Funktion); Karte „Verantwortliche“ im unteren Raster der Seite (Platzhalter-Kommentar in `/raeume/[id]/page.tsx`);
+Historie aus dem Audit über die Aktionen `verwaltung.room.*` mit Ziel = Raumkürzel (Fotos, Ausstattung, Infofelder).

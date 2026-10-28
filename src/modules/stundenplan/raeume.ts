@@ -2,9 +2,10 @@
 import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { bookingResources, bookings, groups, periods, rooms, subjects, timetableLessons, timetableRoomBlocks, timetableSubstitutions, users } from "@/core/db/schema";
-import type { RoomBlockReason, RoomEquipment, RoomKind } from "@/core/db/schema";
+import type { RoomBlockReason, RoomKind } from "@/core/db/schema";
 import { dayOffLabel, loadSchoolCalendar } from "@/core/school/calendar";
 import { addDays } from "@/core/time";
+import { equipmentByRoom, type RoomEquipmentEntry } from "@/modules/verwaltung/raumausstattung";
 import { coupledGroupLabel } from "./display";
 import { lessonActiveOn } from "./service";
 import { roomUse } from "./belegung";
@@ -56,7 +57,8 @@ export interface RoomInfo {
   building: string | null;
   floor: string | null;
   capacity: number | null;
-  equipment: RoomEquipment[];
+  /** RS-05: Ausstattung aus dem Katalog mit Menge */
+  equipment: RoomEquipmentEntry[];
   accessible: boolean;
   active: boolean;
 }
@@ -193,7 +195,8 @@ export interface RoomFilter {
   periodNrs: number[];
   minCapacity?: number | null;
   kind?: RoomKind | null;
-  equipment?: RoomEquipment[];
+  /** Katalog-IDs der Ausstattung, die alle vorhanden sein muss (RS-05) */
+  equipment?: string[];
   accessible?: boolean;
 }
 
@@ -212,7 +215,7 @@ export function searchRooms(roomList: RoomInfo[], occupancy: DayOccupancy, filte
     .filter((r) => r.active)
     .filter((r) => !filter.kind || r.kind === filter.kind)
     .filter((r) => !filter.minCapacity || (r.capacity !== null && r.capacity >= filter.minCapacity))
-    .filter((r) => wanted.every((e) => r.equipment.includes(e)))
+    .filter((r) => wanted.every((e) => r.equipment.some((x) => x.typeId === e)))
     .filter((r) => !filter.accessible || r.accessible)
     .filter((r) => filter.periodNrs.every((p) => !occupancy.get(r.id)?.has(p)))
     .map((r) => ({ ...r, freePeriods: allPeriods.filter((p) => !occupancy.get(r.id)?.has(p)).length }))
@@ -220,8 +223,8 @@ export function searchRooms(roomList: RoomInfo[], occupancy: DayOccupancy, filte
 }
 
 export async function listRooms(db: Db, includeInactive = false): Promise<RoomInfo[]> {
-  const rows = await db.select().from(rooms).orderBy(asc(rooms.building), asc(rooms.id));
-  return rows.filter((r) => includeInactive || r.active).map((r) => ({ ...r, equipment: r.equipment as RoomEquipment[] }));
+  const [rows, equipment] = await Promise.all([db.select().from(rooms).orderBy(asc(rooms.building), asc(rooms.id)), equipmentByRoom(db)]);
+  return rows.filter((r) => includeInactive || r.active).map((r) => ({ ...r, equipment: equipment.get(r.id) ?? [] }));
 }
 
 export interface WeekUtilization {

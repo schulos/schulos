@@ -68,15 +68,11 @@ export const rooms = pgTable("rooms", {
   /** z. B. „EG“, „1. OG“ */
   floor: text("floor"),
   capacity: integer("capacity"),
-  /** Schlüssel aus ROOM_EQUIPMENT */
-  equipment: text("equipment").array().notNull().default(sql`'{}'::text[]`),
+  // Ausstattung: seit RS-05 im Katalog `room_equipment_types` mit Menge je Raum (`room_equipment_items`)
   accessible: boolean("accessible").notNull().default(false),
   /** inaktive Räume tauchen in Auswahllisten nicht mehr auf, bestehende Einträge bleiben */
   active: boolean("active").notNull().default(true),
 });
-
-export const ROOM_EQUIPMENT = ["beamer", "tafel_digital", "dokukamera", "lehrer_pc", "schueler_pcs", "audio", "waschbecken", "abzug"] as const;
-export type RoomEquipment = (typeof ROOM_EQUIPMENT)[number];
 
 // RS-03 (Raumsteckbrief): Infofelder. Neue Werte nur hinten anfügen: Postgres sortiert Enums nach Deklaration.
 /** Wer ein Infofeld im Steckbrief sieht: alle Angemeldeten oder nur Beschäftigte (`STAFF_ROLES`). */
@@ -115,6 +111,67 @@ export const roomInfoValues = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.roomId, t.fieldId] }), index("room_info_values_field_idx").on(t.fieldId)],
+);
+
+/**
+ * RS-05: schulweiter Ausstattungskatalog, der beim Eintragen am Raum wächst (keine getrennte Pflege). Die acht früheren
+ * festen Einträge behalten ihre Schlüssel als ID (`beamer`, `tafel_digital` …), neue Einträge bekommen eine UUID.
+ * Die Verwaltung benennt um und führt Dubletten zusammen. Keine Personendaten.
+ */
+export const roomEquipmentTypes = pgTable(
+  "room_equipment_types",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("room_equipment_types_name_uq").on(sql`lower(${t.name})`)],
+);
+
+/** RS-05: Ausstattung eines Raums mit Menge (Zeile fehlt = nicht vorhanden). Wer geändert hat, steht nur im Audit-Log. */
+export const roomEquipmentItems = pgTable(
+  "room_equipment_items",
+  {
+    roomId: text("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    typeId: text("type_id")
+      .notNull()
+      .references(() => roomEquipmentTypes.id, { onDelete: "cascade" }),
+    quantity: integer("quantity").notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.roomId, t.typeId] }),
+    index("room_equipment_items_type_idx").on(t.typeId),
+    check("room_equipment_items_quantity", sql`${t.quantity} between 1 and 9999`),
+  ],
+);
+
+/**
+ * RS-04: Fotos eines Raums (höchstens 8): beim Hochladen auf 1600 px verkleinert, ohne Metadaten (EXIF/GPS), dazu ein
+ * Vorschaubild. Ein Titelbild je Raum (sehen alle Angemeldeten), die übrigen Fotos nur Beschäftigte. Keine Personen auf den
+ * Fotos (Hinweis am Upload); wer hochgeladen hat, steht nur im Audit-Log.
+ */
+export const roomPhotos = pgTable(
+  "room_photos",
+  {
+    id: id(),
+    roomId: text("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    storageKey: text("storage_key").notNull(),
+    /** Vorschaubild (höchstens 480 px) für Raumliste und Galerie */
+    thumbKey: text("thumb_key").notNull(),
+    mime: text("mime").notNull(),
+    size: integer("size").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    caption: text("caption"),
+    isCover: boolean("is_cover").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [index("room_photos_room_idx").on(t.roomId), uniqueIndex("room_photos_cover_uq").on(t.roomId).where(sql`${t.isCover}`)],
 );
 
 export const GRADE_STAGES = ["sek1", "oberstufe"] as const;

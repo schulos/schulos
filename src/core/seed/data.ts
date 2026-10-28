@@ -1,5 +1,5 @@
 // Stammdaten der Demo-Schule „Gesamtschule am Lindenhof" (NRW, Sek I + Oberstufe).
-import type { RoomEquipment, RoomKind } from "@/core/db/schema";
+import type { RoomKind } from "@/core/db/schema";
 
 export const SCHOOL_NAME = "Gesamtschule am Lindenhof";
 export const SCHOOL_COLOR = "#0E7C66";
@@ -46,27 +46,28 @@ export const ROOMS: {
   building: string;
   floor: string;
   capacity: number;
-  equipment: RoomEquipment[];
+  /** RS-05: Ausstattung je Raum (Katalog-ID der Vorgaben → Menge), eingetragen in `room_equipment_items` */
+  equipment: Record<string, number>;
   accessible: boolean;
 }[] = [
   ...[1, 2, 3].flatMap((floor) =>
     Array.from({ length: floor === 3 ? 6 : 12 }, (_, i) => {
       const id = `${floor}${String(i + 1).padStart(2, "0")}`;
       // Hauptgebäude: EG barrierefrei, im EG schon digitale Tafeln, sonst Beamer
-      const equipment: RoomEquipment[] = floor === 1 ? ["tafel_digital", "lehrer_pc"] : ["beamer", "dokukamera"];
+      const equipment: Record<string, number> = floor === 1 ? { tafel_digital: 1, lehrer_pc: 1 } : { beamer: 1, dokukamera: 1 };
       return { id, name: `Raum ${id}`, kind: "klassenraum" as const, building: "Hauptgebäude", floor: FLOORS[floor - 1]!, capacity: floor === 3 ? 24 : 30, equipment, accessible: floor === 1 };
     }),
   ),
-  { id: "NW1", name: "Biologie-Raum", kind: "nw", building: "Naturwissenschaften", floor: "EG", capacity: 28, equipment: ["beamer", "waschbecken"], accessible: true },
-  { id: "NW2", name: "Chemie-Raum", kind: "nw", building: "Naturwissenschaften", floor: "EG", capacity: 28, equipment: ["beamer", "waschbecken", "abzug"], accessible: true },
-  { id: "NW3", name: "Physik-Raum", kind: "nw", building: "Naturwissenschaften", floor: "1. OG", capacity: 28, equipment: ["beamer", "dokukamera"], accessible: false },
-  { id: "IF1", name: "Informatik-Raum", kind: "informatik", building: "Hauptgebäude", floor: "1. OG", capacity: 26, equipment: ["beamer", "lehrer_pc", "schueler_pcs"], accessible: false },
-  { id: "KU1", name: "Kunstraum", kind: "kunst", building: "Pavillon", floor: "EG", capacity: 26, equipment: ["waschbecken", "beamer"], accessible: true },
-  { id: "MU1", name: "Musikraum", kind: "musik", building: "Pavillon", floor: "EG", capacity: 30, equipment: ["audio", "beamer"], accessible: true },
-  { id: "TH1", name: "Sporthalle 1", kind: "sport", building: "Sporthalle", floor: "EG", capacity: 60, equipment: ["audio"], accessible: true },
-  { id: "TH2", name: "Sporthalle 2", kind: "sport", building: "Sporthalle", floor: "EG", capacity: 60, equipment: ["audio"], accessible: true },
-  { id: "BIB", name: "Bibliothek", kind: "sonstiges", building: "Hauptgebäude", floor: "EG", capacity: 40, equipment: ["schueler_pcs"], accessible: true },
-  { id: "015", name: "Raum 015", kind: "klassenraum", building: "Hauptgebäude", floor: "EG", capacity: 30, equipment: ["beamer"], accessible: true },
+  { id: "NW1", name: "Biologie-Raum", kind: "nw", building: "Naturwissenschaften", floor: "EG", capacity: 28, equipment: { beamer: 1, waschbecken: 4 }, accessible: true },
+  { id: "NW2", name: "Chemie-Raum", kind: "nw", building: "Naturwissenschaften", floor: "EG", capacity: 28, equipment: { beamer: 1, waschbecken: 4, abzug: 2 }, accessible: true },
+  { id: "NW3", name: "Physik-Raum", kind: "nw", building: "Naturwissenschaften", floor: "1. OG", capacity: 28, equipment: { beamer: 1, dokukamera: 1 }, accessible: false },
+  { id: "IF1", name: "Informatik-Raum", kind: "informatik", building: "Hauptgebäude", floor: "1. OG", capacity: 26, equipment: { beamer: 1, lehrer_pc: 1, schueler_pcs: 26 }, accessible: false },
+  { id: "KU1", name: "Kunstraum", kind: "kunst", building: "Pavillon", floor: "EG", capacity: 26, equipment: { waschbecken: 2, beamer: 1 }, accessible: true },
+  { id: "MU1", name: "Musikraum", kind: "musik", building: "Pavillon", floor: "EG", capacity: 30, equipment: { audio: 1, beamer: 1 }, accessible: true },
+  { id: "TH1", name: "Sporthalle 1", kind: "sport", building: "Sporthalle", floor: "EG", capacity: 60, equipment: { audio: 1 }, accessible: true },
+  { id: "TH2", name: "Sporthalle 2", kind: "sport", building: "Sporthalle", floor: "EG", capacity: 60, equipment: { audio: 1 }, accessible: true },
+  { id: "BIB", name: "Bibliothek", kind: "sonstiges", building: "Hauptgebäude", floor: "EG", capacity: 40, equipment: { schueler_pcs: 8 }, accessible: true },
+  { id: "015", name: "Raum 015", kind: "klassenraum", building: "Hauptgebäude", floor: "EG", capacity: 30, equipment: { beamer: 1 }, accessible: true },
 ];
 
 /** RS-03: Demo-Infofelder (Feld-IDs der Vorgaben aus Migration 0115) – Sachangaben, keine Personen. */
