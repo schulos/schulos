@@ -23,7 +23,7 @@ import "@/core/school/logo";
 import { auditOfUsers, pseudonymizeAudit } from "./protokoll";
 import { qid, refWhere, SOFT_REFS, userRefs, type UserRef } from "./refs";
 import { de } from "@/core/db/sort";
-import { scrubPlanVersions, scrubSolverRuns } from "@/modules/stundenplan/solverlauf-konto";
+import { scrubPlanChanges, scrubPlanVersions, scrubSolverRuns } from "@/modules/stundenplan/solverlauf-konto";
 import { scrubSubstitutionChanges } from "@/modules/stundenplan/vertretung-konto";
 
 /** Karenz zwischen Abgang und Löschung (Rückfragen, Eigenexport) – Vorgabe; die Schule stellt sie ein (DS-15, 30–365 Tage). */
@@ -260,6 +260,8 @@ export async function deleteAccounts(db: Db, ids: readonly string[]): Promise<nu
     await scrubSolverRuns(tx, ids);
     // SP3-04: ebenso Rücknahme-Daten und Änderungslisten veröffentlichter Planversionen
     await scrubPlanVersions(tx, ids);
+    // SP3-05: Lehrkraft-Kennungen im Protokoll der Sofort-Korrekturen (Vorher/Nachher)
+    await scrubPlanChanges(tx, ids);
     // VT-01 (F-10-13): Kennung der Vertretungslehrkraft und Kürzel in der Historie der Vertretungen
     await scrubSubstitutionChanges(tx, ids);
     return tx.delete(users).where(inArray(users.id, [...ids])).returning({ id: users.id });

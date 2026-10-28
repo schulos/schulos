@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { collectErrors, login, pickTeacher, publishIfDraft, sendPlannedNow } from "./helpers";
+import { collectErrors, login, pickTeacher, publishIfDraft, sendPlannedNow, undoAndDiscardVersion } from "./helpers";
 
 test("Stundenplanung pflegt den Stundenplan und bekommt Kollisionen gemeldet", async ({ page }) => {
   const errors = collectErrors(page);
@@ -425,48 +425,55 @@ test("Automatisch planen: Stunde fixieren, Lauf mit Fortschritt, Bewertung und V
   expect(errors).toEqual([]);
 });
 
-test("Periode kopieren: Halbjahreswechsel ab Stichtag, Plan ab Stichtag ändern ohne den laufenden", async ({ page }) => {
+// SP3-05: ersetzt „Periode kopieren“ – der Halbjahreswechsel ist die Vorlage „Neues Halbjahr“ (Entwurf aus dem gültigen Plan ab dem 2. Halbjahr);
+// der gültige Plan bleibt bis zum Veröffentlichen unverändert, neue Stunden im Entwurf gelten ab dem Stichtag.
+test("Halbjahres-Vorlage: Entwurf ab dem 2. Halbjahr, Plan ab Stichtag ändern ohne den laufenden", async ({ page }) => {
   const errors = collectErrors(page);
   await login(page, "frank.schulte");
   await page.goto("/planung/stundenplan");
-  const card = page.getByRole("article", { name: "Neue Periode (Halbjahreswechsel)" });
-  await card.getByLabel("Stichtag").fill("2026-01-01");
-  await card.getByRole("button", { name: "Vorschau" }).click();
-  await expect(card.getByRole("alert")).toContainText("Der Stichtag muss in der Zukunft liegen");
-  await card.getByLabel("Stichtag").fill("2027-02-01");
-  await card.getByRole("button", { name: "Vorschau" }).click();
-  await expect(card.getByText(/Stunden werden kopiert/)).toBeVisible();
-  await page.screenshot({ path: ".data/shots/e2e/stundenplan-periode.png", fullPage: true });
-  await card.getByRole("button", { name: "Periode ab 01.02.2027 anlegen" }).click();
-  await expect(page.getByRole("status")).toContainText("Stunden ab 01.02.2027 kopiert");
+  // „Periode kopieren“ gibt es nicht mehr – der Weg führt über die Vorlage
+  await expect(page.getByRole("article", { name: "Neue Periode (Halbjahreswechsel)" })).toHaveCount(0);
+  await page.getByRole("article", { name: "Halbjahreswechsel" }).getByRole("link", { name: "Planversionen" }).click();
+  const template = page.getByRole("article", { name: "Neues Halbjahr" });
+  await expect(template).toBeVisible();
+  const create = template.getByRole("button", { name: "Entwurf fürs Halbjahr anlegen" });
+  // die Demo-Schule hat ein 2. Halbjahr; ist es (nach dem echten Datum) schon angebrochen, nennt die Vorlage den Grund
+  if ((await create.count()) === 0) {
+    await expect(template).toContainText("hat schon begonnen");
+    expect(errors).toEqual([]);
+    return;
+  }
+  const label = (await template.getByTestId("vorlage-halbjahr").textContent())!;
+  expect(label).toMatch(/^Version \d+\.0 ab \d\d\.\d\d\.\d{4}$/);
+  const shown = /ab (\d\d\.\d\d\.\d{4})/.exec(label)![1]!;
+  const cutoff = shown.split(".").reverse().join("-");
+  await create.click();
+  const status = page.getByRole("status").filter({ hasText: "„2. Halbjahr“ angelegt" });
+  await expect(status).toBeVisible();
+  await expect(status.getByRole("navigation", { name: "Nächste Schritte" })).toContainText(`Automatisch planen (Lehraufträge am ${shown})`);
+  await page.screenshot({ path: ".data/shots/e2e/stundenplan-halbjahr.png", fullPage: true });
+  await status.getByRole("link", { name: "Im Entwurf arbeiten" }).click();
+  await expect(page).toHaveURL(/\/planung\/stundenplan\?quelle=[\w-]+$/);
+  const versionId = new URL(page.url()).searchParams.get("quelle")!;
 
-  // heute: Stunden enden am 31.01.; ab Stichtag eigene Periode
-  await page.getByLabel("Klasse oder Kurs").selectOption({ label: "Klasse 7b" });
-  await page.getByRole("button", { name: "Anzeigen" }).click();
-  await expect(page.getByText("bis 31.01.2027").first()).toBeVisible();
-  const periods = page.getByRole("navigation", { name: "Planungsstand" });
-  await periods.getByRole("link", { name: "ab 01.02.2027" }).click();
-  await expect(page).toHaveURL(/stand=2027-02-01/);
-  await expect(page.getByText("bis 31.01.2027")).toHaveCount(0);
-
-  // neue Stunde gilt erst ab Stichtag und bleibt im Planungsstand
+  // im Entwurf: neue Stunde gilt ab dem Stichtag
+  await page.goto(`/planung/stundenplan?gruppe=g-7b&quelle=${versionId}`);
+  await expect(page.getByTestId("entwurf-hinweis")).toContainText(`ab ${shown}`);
   await page.getByRole("link", { name: "Stunde anlegen: Fr 8. Stunde" }).click();
-  await expect(page.getByLabel("Gültig ab")).toHaveValue("2027-02-01");
+  await expect(page.getByLabel("Gültig ab")).toHaveValue(cutoff);
   await page.getByLabel("Fach", { exact: true }).selectOption({ label: "Informatik" });
   await pickTeacher(page, "teacherId", "u-benedikt.lange");
   await page.getByLabel("Raum").selectOption({ label: "IF1 – Informatik-Raum" });
   await page.getByRole("button", { name: "Speichern" }).click();
-  await expect(page).toHaveURL(/stand=2027-02-01/);
   await expect(page.getByRole("link", { name: /Informatik LAN · IF1/ })).toBeVisible();
-  await periods.getByRole("link", { name: "heute" }).click();
+  // der gültige Plan bleibt, wie er ist – heute und ab dem Stichtag
+  await page.goto("/planung/stundenplan?gruppe=g-7b");
+  await expect(page.getByRole("link", { name: /Informatik LAN · IF1/ })).toHaveCount(0);
+  await page.goto(`/planung/stundenplan?gruppe=g-7b&stand=${cutoff}`);
   await expect(page.getByRole("link", { name: /Informatik LAN · IF1/ })).toHaveCount(0);
 
-  // wieder löschen
-  await periods.getByRole("link", { name: "ab 01.02.2027" }).click();
-  await page.getByRole("link", { name: /Informatik LAN · IF1/ }).click();
-  await page.getByRole("button", { name: "Stunde löschen" }).click();
-  await expect(page).toHaveURL(/stand=2027-02-01/);
-  await expect(page.getByRole("link", { name: /Informatik LAN · IF1/ })).toHaveCount(0);
+  // aufräumen: Entwurf verwerfen
+  await undoAndDiscardVersion(page, versionId);
   expect(errors).toEqual([]);
 });
 

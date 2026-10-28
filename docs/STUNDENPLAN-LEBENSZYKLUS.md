@@ -1,6 +1,6 @@
 # SP3-00: Lebenszyklus des Stundenplans und Vertretung mit mehr Infos – Architekturkonzept
 
-> Stand: 2026-10-27 (SP3-03 umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
+> Stand: 2026-10-28 (SP3-05 umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
 > (Arbeitsplan ab 26.10., Phase B1; Vorgaben „Nachtrag 25.10.“, „Sicht eines Stundenplaners“ und „Antworten 25.10.“).
 > Hebt die Entscheidung Q-SP-12/Q-SP-16 („keine Plan-Versionen“) auf – ausdrücklich durch die Projektleitung 25.10.2026.
 > Aufgaben nach Abnahme: `BACKLOG.md`, Blöcke **VT** (Vertretung) und **SP3** (Lebenszyklus). Dieses Dokument ändert keinen Code
@@ -228,6 +228,10 @@ Fehler/quittierte Warnungen) prüft erst der Fahrplan (SP3-06).
 - **Halbjahr**: Fahrplan-Vorlage „Neues Halbjahr“ = `live_copy` ab `school_years.term2_starts_on`, Lehraufträge am Stichtag
   (SP2-09), Solver-Lauf mit „Lehraufträge am 01.02.“ in den Entwurf, Veröffentlichen ab 01.02. – ersetzt „Periode kopieren“ im Ablauf
   (die Funktion bleibt intern als `live_copy`).
+
+**Umgesetzt mit SP3-05** (Vorgaben zu Detailfragen in §3.1 „Umgesetzt (SP3-05)“): Sofort-Korrektur in Pflege und Setzhilfe als Split ab dem nächsten Schultag mit
+Protokoll und Gong, in place nur ohne Vergangenheitsbezug (beginnt nach heute oder heute neu angelegt ohne Einträge), Hinweis ab 10 geänderten Stunden; offene
+Entwürfe ziehen Korrekturen nach (R3); Vorlagen „Änderung im laufenden Plan“ und „Neues Halbjahr“ auf der Versionsliste; „Periode kopieren“ ist entfernt.
 
 ### 2.5 Varianten
 
@@ -515,7 +519,49 @@ gespeichert bleibt `obligation`) · `timetable_deputies.obligation_term2 numeric
   `timetable_lessons` am Tag (seine eigene Historie) – auch für vergangene Tage.
 - **Datenschutz:** Kontolöschung ersetzt Lehrkraft-Kennungen und -Kürzel in `undo` und `notify` (`scrubPlanVersions`, Muster DS-21); das
   Zurücknehmen behandelt den Platzhalter wie eine gelöschte Lehrkraft. Audit `stundenplan.plan.publish`/`unpublish` nur mit Zahlen.
-- **„Periode kopieren“ bleibt** bis SP3-05 (Halbjahres-Vorlage).
+- **„Periode kopieren“ bleibt** bis SP3-05 (Halbjahres-Vorlage). **Erledigt mit SP3-05** (siehe dort).
+
+**Umgesetzt (SP3-05, 2026-10-28, Migration 0114)** – Vorgaben für offene Detailfragen (Projektleitung kann sie ändern):
+- **Regeln rein** in `sofortkorrektur.ts` (`planUnit`, Tabellen-Tests), Lesen/Schreiben, Übertrag, Entwürfe nachziehen, Protokoll und Gong in `applyLiveUnits`;
+  die Pflege (`manage.ts`: Stunde anlegen/ändern/löschen, Kopplung speichern/löschen) und die Setzhilfe (`setzhilfe.ts`: Setzen, Verschieben, Tauschen) rufen
+  sie im gültigen Plan auf, im Entwurf bleibt alles wie in SP3-02.
+- **Einheit** ist die Einzelstunde bzw. die ganze Kopplung (wie beim Veröffentlichen); beim Tauschen beide Einheiten in **einer** Aktion (ein Protokoll-Bündel, ein Gong); läuft eine der beiden, werden beide ab dem Stichtag geteilt (sonst lägen bis dahin zwei Stunden im Slot).
+- **Vergangenheitsbezug:** keiner, wenn die Stunde erst nach heute beginnt oder heute in der Pflege **neu angelegt** wurde (Protokoll „neu“ von heute) und noch keine
+  Klassenbuch-Einträge, Vertretungen oder Materialien bis heute hat (Tippfehler gleich nach dem Anlegen) – dann in place (ändern bzw. ganz löschen). Eingespielte
+  oder veröffentlichte Stunden zählen immer als laufend. Eine **neue** Stunde gilt wie eingegeben (sie zerreißt nichts) und steht als „neu“ im Protokoll.
+- **Laufende Stunde:** Inhalt (Gruppe, Fach, Lehrkraft, Raum, Tag, Stunde, Woche) oder Teile geändert → **Split** ab dem Stichtag: alle Teile enden am Vortag, alle
+  Teile nachher gelten ab dem Stichtag (Kopplung mit neuer gemeinsamer Kopplungs-id, ein einzelner verbleibender Teil ohne Kopplung), Fixierung und Solver-Herkunft
+  bleiben, `plan_version_id` = gültige Version. Nur das **Ende** verschoben → in place (frühestens bis heute); der **Beginn** einer laufenden Stunde lässt sich nicht
+  ändern. **Löschen** → endet am Vortag; ein Teil einer laufenden Kopplung beendet die Kopplung, die übrigen gelten ab dem Stichtag neu gekoppelt.
+- **Stichtag:** der nächste Schultag nach heute (Schulkalender); ein späterer Beginn im Formular verschiebt ihn. Endet die Stunde vor dem Stichtag, wird die Änderung
+  abgelehnt. Kollisionen zählen ab dem Stichtag (nicht gegen Stunden, die vorher enden).
+- **Übertrag** wie beim Veröffentlichen (`transferRefs`): Vertretungen, Material und Klassenbuch-Einträge **ab dem Stichtag** ziehen auf die Nachfolgerin, wenn sie an dem
+  Tag stattfindet; sonst werden Vertretungen und Material gelöscht (Vertretungen mit Eintrag `delete` im Verlauf) und Klassenbuch-Einträge verlieren den Stundenbezug –
+  eine Sofort-Korrektur hat **keine Rücknahme** (dafür gibt es die Folgeversion). Einträge davor bleiben an der alten Stunde. In place gilt dasselbe ab heute.
+- **Protokoll** `timetable_plan_changes`: je Stunde eine Zeile (`split`, `inplace`, `delete`, `create`), Aktion = `batch_id`, Version = gültige Version des Schuljahrs am
+  Stichtag, Vorher/Nachher mit Kennungen, `valid_from` = Stichtag, Begründung optional (≤ 120 Zeichen, Hinweis „keine Personen, keine Gesundheitsangaben“). Audit
+  `stundenplan.plan.correction` mit Zahlen (ohne Personen, Begründung nur als „vorhanden“).
+- **Gong** (F-10-2): sichtbare Änderungen (wie die Änderungsliste beim Veröffentlichen, ohne „nur Kopplungs-id“) an die Lehrkräfte vorher und nachher **sofort**
+  (nicht an die handelnde Person), an Schüler:innen und Eltern der Gruppen zur **Vortags-Uhrzeit** vor dem Stichtag (Sendezeiten „Lernende“, danach sofort) über den
+  Minutentakt `vertretung-gong` – genau einmal je Aktion (Zeilen unter der Zeilensperre beansprucht). Bündel `stundenplan:korrektur:<Aktion>`; die Begründung steht nie
+  im Gong. Geänderte Sendezeiten planen offene Listen neu.
+- **Hinweis „besser als Folgeversion“** ab **10** geänderten Stunden – in der Aktion **oder** seit die gültige Version gilt (Protokoll-Zeilen der Version) – auf der
+  Pflege-Seite mit Link auf die Vorlage. Die Pflege nennt im gültigen Plan immer den Stichtag; das Formular einer laufenden Stunde zeigt ihn mit dem Feld „Begründung“.
+  Nach dem Speichern zeigt die Seite den Plan ab dem Stichtag (`stand=`) mit dem Ergebnis der Aktion (`korrektur=`).
+- **R3 (Vorgabe):** offene Entwürfe (Entwurf, in Prüfung, freigegeben) ziehen jede Sofort-Korrektur nach, damit der Diff nicht abreißt und das Veröffentlichen die
+  Korrektur nicht zurückdreht: beginnt der Entwurf am Stichtag der Korrektur oder später, zeigt die Herkunft auf die Nachfolgerin; war die Entwurfsstunde wie die alte
+  Stunde, übernimmt sie auch den neuen Inhalt (nicht bei einer Kollision im Entwurf), eine entfallene Stunde entfällt auch im Entwurf, eine neue kommt dazu (Beginn
+  frühestens am Stichtag des Entwurfs). Was der Entwurf schon anders plant, bleibt – „Änderungen“ zeigt es als „geändert“ und nennt die Zahl der Sofort-Korrekturen seit
+  Anlage des Entwurfs. Weil nur Gleiches nachgezogen wird, wächst der Unterschied zum gültigen Plan nie; eine Freigabe bleibt deshalb bestehen. Ein Entwurf, der vor dem
+  Stichtag der Korrektur beginnt (nur bei einem späteren Beginn im Formular möglich), behält die bisherige Stunde.
+- **Vorlagen** (`laufzeit.ts`, Versionsliste „Vorlagen“): **„Änderung im laufenden Plan“** = Folgeversion (`x.(y+1)`, F-10-3: auch sie braucht die Freigabe) aus dem
+  gültigen Plan ab dem nächsten Schultag; **„Neues Halbjahr“** = neue Planung (`(x+1).0`) ab `term2_starts_on` (bzw. dem ersten Schultag ab dann), nur solange er
+  bevorsteht und es einen gültigen Plan gibt. Beide sind `live_copy`; Lehraufträge (SP2-09), Setzhilfe, Diagnose und der Solver-Lauf („Lehraufträge am …“) rechnen im
+  Entwurf an seinem Stichtag. Nach dem Anlegen nennt die Seite die nächsten Schritte (Unterrichtsverteilung, im Entwurf arbeiten, automatisch planen, Änderungen).
+- **„Periode kopieren“ entfernt** (`periode.ts`, Formular, Action, Audit `stundenplan.period.copy` nur noch in alten Protokollen): der Halbjahreswechsel läuft über die
+  Vorlage; das Veröffentlichen teilt nur geänderte Stunden. Die Pflege behält den Planungsstand `stand=` für Stunden, die später beginnen.
+- **Datenschutz:** Löschklasse LK-SJ-1J ab Anlage (Manifest), DATENSCHUTZ §3.4; Kontolöschung ersetzt Lehrkraft-Kennungen in Vorher/Nachher (`scrubPlanChanges`,
+  DS-21-Muster), „geändert von“ leert der Fremdschlüssel. Nur die Planung sieht das Protokoll.
 
 **Recht `stundenplan.review`** („Planentwurf prüfen und freigeben“, SP3-03): Daten-Migration gibt es der Gruppe `g-schulleitung` (wie
 0088 `substitute`); 2FA-Pflicht wie die anderen Planungsrechte (Deputate/Namen im Entwurf). Keine Rollen-Vorgabe.
@@ -675,7 +721,7 @@ an die Queue andocken (DSB-Votum offen).
 | 0111 ✅ | SP3-01 | `plan_version_status`, `plan_version_source`, `timetable_plan_versions` (inkl. `discarded_by/at`), `timetable_draft_lessons`, `timetable_lessons.plan_version_id`, Daten-Migration „Bestand 1.0“ |
 | 0112 ✅ | SP3-03 | `plan_comment_target`, `timetable_plan_comments` (Bezug in Spalten), Recht `stundenplan.review` (Grant an `g-schulleitung` nur mit fester ID und Slug; keine Rollen-Vorgabe, `grants.synced` nicht nötig) |
 | 0113 ✅ | SP3-04 | `timetable_plan_versions.notify`, `notify_at`, `notified_at` (Änderungsliste an Schüler:innen/Eltern zur Vortags-Uhrzeit) |
-| 0114 | SP3-05 | `timetable_plan_changes` |
+| 0114 ✅ | SP3-05 | `plan_change_kind`, `timetable_plan_changes` (mit `batch_id`, `valid_from`, `notify_at`; `version_id` nullable, cascade) |
 | – | SP3-02/06/07/08, VT-02/03/05 | ohne Migration (SP3-06 nutzt `checklist jsonb`; SP3-07 nutzt `class_map`) |
 
 Reihenfolge VT vor SP3 ist nur eine Nummern-Reihenfolge; fachlich hängt SP3-04 (Übertrag von Vertretungen beim Veröffentlichen) an den
@@ -785,6 +831,12 @@ Version über `plan-archiv.ts`; Vertretungs-Arbeitsplatz mit Hinweis auf freigeg
 dem Stichtag bleiben an der alten Zeile, danach ziehen sie um). E2E umgestellt: `solver-uebernahme`, `zx-gate-sp`, `zx-gate-sp2`,
 `stundenplan.spec`; neu `planung-veroeffentlichen.spec.ts`.
 
+**Umgesetzt (SP3-05):** Setzhilfe (`placeAssignment`, `moveLesson` inkl. Tausch) und Stundenpflege (`createLesson`/`updateLesson`/`deleteLesson`, `saveCoupling`/
+`deleteCoupling`) schreiben im gültigen Plan über die Sofort-Korrektur (Split ab dem nächsten Schultag, in place nur ohne Vergangenheitsbezug, Protokoll, Gong,
+Entwürfe nachziehen); im Entwurf unverändert. Minutentakt `vertretung-gong` sendet zusätzlich fällige Änderungslisten der Sofort-Korrekturen. Klassenbuch ohne
+Code-Änderung (Test: Einträge vor dem Stichtag an der alten, danach an der neuen Stunde bzw. ohne Bezug, wenn sie an dem Tag nicht stattfindet). „Periode kopieren“
+(`periode.ts`) entfernt; E2E `stundenplan.spec` auf die Halbjahres-Vorlage umgestellt, neu `planung-laufzeit.spec.ts`.
+
 ---
 
 ## 7. Paketschnitt
@@ -849,7 +901,7 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 |---|---|---|---|
 | R1 | **Diff/Übertrag beim Veröffentlichen** ist der komplexeste Teil (Kopplungen mit neuer `coupling_id`, A/B-Wochen, Lehrauftrags-Gültigkeit, Verlegung/Zusammenlegung über `merge_lesson_id`) | falsch umgehängte Vertretungen, verwaiste Klassenbuch-Einträge | reine Funktion `planDiff()` + `transferPlan()` mit Tabellen-Tests aus dem Demo-Plan; Vorschau zählt alles vorher; Rücknahme bis Stichtag; SP3-04 ist „Kern“ mit Opus |
 | R2 | **Zwei Wahrheiten um den Stichtag**: Vertretungsplanung arbeitet im gültigen Plan, die Planung in einer freigegebenen Version für dieselben Tage | Vertretung für den 03.02. an einer Stunde, die ab 01.02. nicht mehr existiert | Hinweis im Vertretungs-Arbeitsplatz ab Status `freigegeben` („ab 01.02. gilt Version 2.0“), Übertrag beim Veröffentlichen, Konfliktliste; Wochenblick zeigt Versionsgrenze |
-| R3 | **`origin_lesson_id` reißt** (Live-Stunde wird während des Entwurfs durch Sofort-Korrektur gesplittet) | Diff meldet „neu/entfallen“ statt „geändert“ | Sofort-Korrektur trägt `successor_id` in `plan_changes`; `planDiff()` folgt der Kette; Fahrplan Schritt 7 zeigt „seit Entwurfsbeginn 3 Live-Änderungen“ |
+| R3 | **`origin_lesson_id` reißt** (Live-Stunde wird während des Entwurfs durch Sofort-Korrektur gesplittet) | Diff meldet „neu/entfallen“ statt „geändert“ | Sofort-Korrektur trägt `successor_id` in `plan_changes`; `planDiff()` folgt der Kette; Fahrplan Schritt 7 zeigt „seit Entwurfsbeginn 3 Live-Änderungen“. **Gelöst mit SP3-05:** die Korrektur zieht offene Entwürfe direkt nach (Herkunft → Nachfolgerin, unverändert übernommene Stunden übernehmen den Inhalt, §3.1) – `planDiff()` braucht keine Kette; die Diff-Seite nennt die Zahl seit Anlage des Entwurfs (Fahrplan-Anzeige SP3-06) |
 | R4 | **Lesson-id-Wechsel** bleibt bei geänderten Stunden unvermeidbar; Klassenbuch hat keine Rückfallsuche | Alt-Einträge „ohne Stunde“ | nur geänderte Stunden wechseln die id (Diff); Einträge mit `date < Stichtag` bleiben an der alten Zeile (die endet, wird nicht gelöscht); kleine Folgeaufgabe: Klassenbuch-Rückfall über (Gruppe, Datum, Stunde) |
 | R5 | **Generische Tabellen in Drizzle** (`lessonTable(source)`) – Typen von zwei `pgTable`-Definitionen sind nicht identisch | Typ-Verrenkungen, Duplikate | gemeinsame Spaltenfabrik `lessonColumns()`, Lader liefern eine gemeinsame Zeilenform (`PlanLessonRow`); Schreiber verzweigen explizit (zwei kleine Funktionen statt generischem SQL) |
 | R6 | **Umfang SP3-02/04** (je L) überschreitet einen Agentenlauf | halbe PRs | Zuschnitt: SP3-02 ohne Variantenvergleich (→ SP3-06), SP3-04 ohne Druck-Datumswähler (→ SP2-10-Nachzug), wenn nötig |
@@ -870,11 +922,11 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 
 - [x] **SP3-01** Kein Leser außerhalb `src/modules/stundenplan` liest `timetable_draft_lessons`; `timetable_lessons`-Leser unverändert (Grep-Test) – Belege: `planversionen.test.ts` „Querschnitt: kein fremder Leser des Entwurfs“ (außerhalb nur die Auskunft, die sie auslässt; im Modul nur Schema, Manifest, Planquelle, Versionen; keine Seite; `timetable_lessons`-Leser ohne Planquelle), „Entwurf aus dem gültigen Plan …“ (gültiger Plan und Regelplan unverändert), `planversionen.migration.test.ts`; **SP3-02:** Querschnitt „nur die Planung arbeitet mit der Planquelle“ (`planversionen.test.ts`), `entwurf.test.ts` (gültiger Plan Zeile für Zeile unverändert)
 - [x] **GATE VT** Schülersicht/Eltern-Gong/Monitor/Druck ohne `internal_note` und Abwesenheitsgrund – Belege: `vertretung-infos.test.ts` „Querschnitt: interner Hinweis nie im Vertretungsplan, Schüler-/Lehrkraftplan, Monitor oder Gong“ und „Querschnitt (GATE VT): Grund und Notiz der Abwesenheit …“, Grep-Test „nur erlaubte Dateien lesen …“ (Druck/Exporte lesen die Felder nicht), `vertretung-gong.test.ts` „GATE-031 S-05“ (Eltern ohne Hinweis), `e2e/zx-gate-vt.spec.ts` (Schülerin, Gong, Monitor); **SP3-03:** `planpruefung.test.ts` „Querschnitt: Kommentare, Vorschau und Entwurfsstunden nie außerhalb der Planung“ (Kommentare nur im Modul, Prüf-Services nur auf Planungsseiten und der Vorschau), `e2e/planung-freigabe.spec.ts` (Schülerin: Vorschau 404). **Offen für GATE SP3:** Gesamtdurchlauf SP3-08
-- [ ] Veröffentlichen: unveränderte Stunden behalten ihre id; Klassenbuch-Einträge vor und nach dem Stichtag bleiben zugeordnet; Vertretungen/Material ziehen um oder werden gezählt – **SP3-04 Belege:** `veroeffentlichen.test.ts` „Vorschau, Veröffentlichen, Übertrag, Archiv, Gong und Zurücknehmen“ (unveränderte Zeilen Feld für Feld gleich, Klassenbuch vor dem Stichtag an der alten, danach an der neuen Zeile bzw. ohne Bezug, Vertretungen inkl. Kopplung/A-B-Woche/Verlegung/Zusammenlegung und Material ohne Abwesenheit umgezogen oder gezählt), `plan-uebertrag.test.ts` (Tabellen-Tests `transferPlan`/`transferRefs` auf dem Demo-Plan), `e2e/planung-veroeffentlichen.spec.ts` (Entfall zieht mit). Abhaken mit GATE SP3
+- [ ] Veröffentlichen: unveränderte Stunden behalten ihre id; Klassenbuch-Einträge vor und nach dem Stichtag bleiben zugeordnet; Vertretungen/Material ziehen um oder werden gezählt – **SP3-04 Belege:** `veroeffentlichen.test.ts` „Vorschau, Veröffentlichen, Übertrag, Archiv, Gong und Zurücknehmen“ (unveränderte Zeilen Feld für Feld gleich, Klassenbuch vor dem Stichtag an der alten, danach an der neuen Zeile bzw. ohne Bezug, Vertretungen inkl. Kopplung/A-B-Woche/Verlegung/Zusammenlegung und Material ohne Abwesenheit umgezogen oder gezählt), `plan-uebertrag.test.ts` (Tabellen-Tests `transferPlan`/`transferRefs` auf dem Demo-Plan), `e2e/planung-veroeffentlichen.spec.ts` (Entfall zieht mit); **SP3-05 (Sofort-Korrektur):** `sofortkorrektur.test.ts` „Split ab dem nächsten Schultag …“ (Klassenbuch, Vertretung und Material vor dem Stichtag an der alten, danach an der neuen Stunde), „anderer Tag …“ (Vertretung entfällt mit Verlauf, Klassenbuch ohne Bezug), `laufzeit.test.ts` (Halbjahres-Vorlage → Veröffentlichen), `e2e/planung-laufzeit.spec.ts`. Abhaken mit GATE SP3
 - [ ] Zurücknehmen bis Stichtag stellt Stunden, Vertretungen und Material wieder her (SP-13-Niveau) – **SP3-04 Belege:** `veroeffentlichen.test.ts` (gültiger Plan Zeile für Zeile, Vertretungen, Material und Klassenbuch wie vorher; Konfliktzählung; ab dem Stichtag gesperrt, Nachtjob leert `undo`), `e2e/planung-veroeffentlichen.spec.ts`, `e2e/solver-uebernahme.spec.ts`. Abhaken mit GATE SP3
 - [ ] Nur eine Version `gueltig` je Tag; Varianten veröffentlichbar genau eine – **SP3-04 Belege:** `veroeffentlichen.test.ts` (Vorgängerin archiviert bis zum Vortag, zweite Version ab demselben Stichtag abgelehnt, Zeitstrahl und „Plan am Tag X“, Variante derselben Nummer verworfen und bei der Rücknahme wieder offen). Abhaken mit GATE SP3
 - [x] **SP3-03** Freigabe nur mit `stundenplan.review`; 2FA-Pflicht; Lehrkräfte-Vorschau nur eigener Plan – Belege: `planpruefung.test.ts` „Statuswege …“, „ohne Vier-Augen-Zwang …“, „Lehrkräfte-Vorschau …“ (nur Stunden mit eigener Kennung, keine Kennungen anderer), „Recht `stundenplan.review` …“ (2FA), `permissions.test.ts` „SP3-03 …“, `planpruefung.migration.test.ts`, `e2e/planung-freigabe.spec.ts`
-- [x] **GATE VT** Kontolöschung bereinigt `substitution_changes` – Belege: `vertretung-infos.test.ts` „Kontolöschung ersetzt die Vertretungslehrkraft in der Historie …“, `loeschlauf-konto.test.ts` (DS-21-Muster), `benachrichtigung.test.ts` „Kontolöschung nimmt die Einträge der Person mit“ (Warteschlange); **SP3-04:** `veroeffentlichen.test.ts` „… Kontolöschung ersetzt Lehrkraft-Kennungen darin“ (`undo`/`notify` der Planversionen). **Offen für GATE SP3:** `plan_changes`
+- [x] **GATE VT** Kontolöschung bereinigt `substitution_changes` – Belege: `vertretung-infos.test.ts` „Kontolöschung ersetzt die Vertretungslehrkraft in der Historie …“, `loeschlauf-konto.test.ts` (DS-21-Muster), `benachrichtigung.test.ts` „Kontolöschung nimmt die Einträge der Person mit“ (Warteschlange); **SP3-04:** `veroeffentlichen.test.ts` „… Kontolöschung ersetzt Lehrkraft-Kennungen darin“ (`undo`/`notify` der Planversionen). **SP3-05:** `sofortkorrektur.test.ts` „Kontolöschung ersetzt die Lehrkraft in Vorher/Nachher des Protokolls“ (`scrubPlanChanges` in `deleteAccounts`). **Offen für GATE SP3:** Gesamtdurchlauf SP3-08
 - [x] **GATE VT** Sendewarteschlange: Ruhezeit, Endstand, genau ein Versand je Tag und Zielgruppe, zwei Instanzen senden nicht doppelt – Belege: `sendezeit.test.ts` (Zeitlogik, Ruhezeit, Sommerzeit), `benachrichtigung.test.ts` „morgen: eingereiht für den Vortag 18:00, gesendet wird nur der Endstand …, genau einmal“, „nach der Vortags-Uhrzeit sofort; in der Ruhezeit wartet die Nachricht …“, „zwei Takte gleichzeitig (zwei App-Prozesse) senden nicht doppelt“, `e2e/vertretung-benachrichtigung.spec.ts`, `e2e/zx-gate-vt.spec.ts`
 - [ ] Benchmark/Solver-Kern durch die SP3-Pakete unverändert (dieselbe Lösung wie der jeweils gültige Benchmark-Stand; neue Stände nur durch SQ-01…03) – **SP3-02:** `solver.ts` unverändert, `solver.benchmark.test.ts` grün (gleiche Lösung), Solver-Eingabe für den gültigen Plan unverändert (Vorgabe `source`), `entwurf.test.ts` (Lauf im Entwurf)
 - [ ] Fahrplan: jeder Schritt-Status aus Demo-Daten nachvollziehbar; Warnung ohne Quittierung blockiert Schritt 8

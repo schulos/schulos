@@ -62,6 +62,9 @@ const onChange = async (db: Db) => {
   // SP3-04: noch nicht versandte Änderungslisten veröffentlichter Planversionen ebenso
   const { reschedulePlanNotifications } = await import("./veroeffentlichen");
   await reschedulePlanNotifications(db);
+  // SP3-05: und die der Sofort-Korrekturen
+  const { reschedulePlanChangeNotifications } = await import("./sofortkorrektur");
+  await reschedulePlanChangeNotifications(db);
 };
 
 /** VT-04 (F-10-11): Uhrzeit der Vortags-Nachricht an Lehrkräfte (Vorgabe 18:00). */

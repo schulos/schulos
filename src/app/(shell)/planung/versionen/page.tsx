@@ -7,7 +7,8 @@ import { getDb } from "@/core/db/client";
 import { schoolYears } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { createDraftAction } from "@/modules/stundenplan/actions";
+import { createDraftAction, createFromTemplateAction } from "@/modules/stundenplan/actions";
+import { templateOffers, type PlanTemplate, type TemplateOffer } from "@/modules/stundenplan/laufzeit";
 import { PLAN_MANAGE, PLAN_REVIEW } from "@/modules/stundenplan/rechte";
 import { actorNames, canSeeVersion, openCommentCounts, selfApproved, type Viewer } from "@/modules/stundenplan/planpruefung";
 import { ensureBaseVersions, listVersions, nextNumber, OPEN_STATUSES, STATUS_LABELS, suggestedValidFrom, versionNumber, type VersionSummary } from "@/modules/stundenplan/planversionen";
@@ -16,6 +17,7 @@ import { planningYear } from "@/modules/stundenplan/verteilung";
 import { publishedTimeline } from "@/modules/stundenplan/plan-archiv";
 import { isPublishUndoable } from "@/modules/stundenplan/veroeffentlichen";
 import { Badge } from "@schulos/ui/badge";
+import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { DraftForm } from "./draft-form";
@@ -164,7 +166,7 @@ function VersionCard({ s, manage, openComments, approver, undoable }: { s: Versi
  * SP3-04: „Veröffentlichen …“ an freigegebenen Versionen, „Veröffentlichung ansehen / zurücknehmen“ an der gültigen, Zeitstrahl der
  * veröffentlichten Versionen.
  */
-export default async function VersionenPage({ searchParams }: { searchParams: Promise<{ jahr?: string; angelegt?: string; verworfen?: string; fehler?: string; zurueck?: string }> }) {
+export default async function VersionenPage({ searchParams }: { searchParams: Promise<{ jahr?: string; angelegt?: string; verworfen?: string; fehler?: string; zurueck?: string; vorlage?: string }> }) {
   const { user, perms } = await requireUser();
   const viewer: Viewer = { userId: user.id, manage: hasPermission(perms, PLAN_MANAGE), review: hasPermission(perms, PLAN_REVIEW) };
   if (!viewer.manage && !viewer.review) notFound();
@@ -185,12 +187,13 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
   }
   // neue Installation oder Demo: der vorhandene Plan wird „Bestand 1.0“ (idempotent)
   await ensureBaseVersions(db, today);
-  const [all, suggestion, nextMajor, nextMinor, timeline] = await Promise.all([
+  const [all, suggestion, nextMajor, nextMinor, timeline, offers] = await Promise.all([
     listVersions(db, year.id, today),
     suggestedValidFrom(db, year, today),
     nextNumber(db, year.id, "major"),
     nextNumber(db, year.id, "minor"),
     publishedTimeline(db, year.id),
+    templateOffers(db, year, today),
   ]);
   // SP3-03: die Prüfung sieht nur Versionen ab „in Prüfung“ (§5)
   const versions = all.filter((s) => canSeeVersion(viewer, s.version));
@@ -237,9 +240,12 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
         </p>
       )}
       {created && (
-        <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
-          Entwurf {created.label} „{created.version.name}“ angelegt ({num.format(created.figures.lessons)} Wochenstunden). Der gültige Plan ist unverändert.
-        </p>
+        <div role="status" className="flex flex-col gap-2 rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
+          <p>
+            Entwurf {created.label} „{created.version.name}“ angelegt ({num.format(created.figures.lessons)} Wochenstunden). Der gültige Plan ist unverändert.
+          </p>
+          {(sp.vorlage === "aenderung" || sp.vorlage === "halbjahr") && <TemplateSteps template={sp.vorlage} versionId={created.version.id} validFrom={created.version.validFrom} />}
+        </div>
       )}
       {sp.zurueck && (
         <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
@@ -309,6 +315,8 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
         </section>
       )}
 
+      {manage && <Templates yearId={year.id} offers={offers} />}
+
       {manage && (
       <Card aria-labelledby="draft-title">
         <h2 id="draft-title" className="text-base font-semibold">
@@ -330,11 +338,11 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
         Gearbeitet wird im Entwurf über „Im Entwurf arbeiten“ (Stundenplan, Setzhilfe, Diagnose) oder „Automatisch planen“ (Übernahme in den Entwurf).
         Bearbeiten lässt sich nur ein Entwurf; nach „Zur Prüfung geben“ ist er nur lesbar, bis er zurück an die Planung geht (eine Freigabe verfällt
         dabei). Eine freigegebene Version veröffentlicht die Planung ab einem Stichtag – unveränderte Stunden bleiben, Vertretungen und Material ziehen um;
-        bis zum Stichtag lässt sich das zurücknehmen. „Neue Periode“ unter{" "}
+        bis zum Stichtag lässt sich das zurücknehmen. Kleine Korrekturen gehen direkt im{" "}
         <Link href="/planung/stundenplan" className="font-medium text-accent-ink hover:underline">
           Stundenplan
         </Link>{" "}
-        teilt den gültigen Plan weiterhin direkt (bis zur Halbjahres-Vorlage).
+        (Sofort-Korrektur ab dem nächsten Schultag, mit Protokoll und Gong an die Betroffenen).
       </p>
       ) : (
         <p className="text-sm text-muted">
@@ -343,5 +351,83 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
         </p>
       )}
     </main>
+  );
+}
+
+const TEMPLATE_TEXT: Record<PlanTemplate, { title: string; text: string; button: string }> = {
+  aenderung: {
+    title: "Änderung im laufenden Plan",
+    text: "Folgeversion aus dem gültigen Plan ab dem nächsten Schultag: im Entwurf ändern, Änderungen zum gültigen Plan ansehen, zur Prüfung geben, freigeben lassen und veröffentlichen. Betroffene bekommen nur ihre Änderungen.",
+    button: "Folgeversion anlegen",
+  },
+  halbjahr: {
+    title: "Neues Halbjahr",
+    text: "Entwurf fürs 2. Halbjahr aus dem gültigen Plan ab dessen Beginn: Lehraufträge, Setzhilfe und „Automatisch planen“ rechnen im Entwurf am Stichtag (Lehraufträge am …). Veröffentlicht teilt er den Plan ab dem Stichtag – ersetzt „Periode kopieren“.",
+    button: "Entwurf fürs Halbjahr anlegen",
+  },
+};
+
+/** SP3-05 (§4 Vorlagen): „Änderung im laufenden Plan“ (Folgeversion) und „Neues Halbjahr“ – beide als Entwurf aus dem gültigen Plan. */
+function Templates({ yearId, offers }: { yearId: string; offers: Record<PlanTemplate, TemplateOffer> }) {
+  return (
+    <section id="vorlagen" aria-labelledby="templates-title" className="flex flex-col gap-3">
+      <h2 id="templates-title" className="font-display text-xl font-bold">
+        Vorlagen
+      </h2>
+      <ul className="grid gap-3 md:grid-cols-2">
+        {(["aenderung", "halbjahr"] as const).map((t) => {
+          const o = offers[t];
+          const id = `template-${t}`;
+          return (
+            <li key={t}>
+              <article aria-labelledby={id} className="flex h-full min-w-0 flex-col gap-3 rounded-card border border-border bg-surface p-4">
+                <h3 id={id} className="font-semibold">
+                  {TEMPLATE_TEXT[t].title}
+                </h3>
+                <p className="text-sm text-muted">{TEMPLATE_TEXT[t].text}</p>
+                {o.ok ? (
+                  <form action={createFromTemplateAction.bind(null, yearId, t)} className="mt-auto flex flex-col items-start gap-2">
+                    <p data-testid={`vorlage-${t}`} className="text-sm">
+                      Version <strong>{o.number}</strong> ab <strong>{date(o.validFrom)}</strong>
+                    </p>
+                    <Button type="submit" variant="primary">
+                      {TEMPLATE_TEXT[t].button}
+                    </Button>
+                  </form>
+                ) : (
+                  <p className="mt-auto text-sm text-muted">{o.reason}</p>
+                )}
+              </article>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/** Nach dem Anlegen aus einer Vorlage: die nächsten Schritte als Links. */
+function TemplateSteps({ template, versionId, validFrom }: { template: PlanTemplate; versionId: string; validFrom: string | null }) {
+  const q = encodeURIComponent(versionId);
+  const link = "font-medium underline";
+  return (
+    <nav aria-label="Nächste Schritte" className="flex flex-wrap gap-x-4 gap-y-1">
+      {template === "halbjahr" && validFrom && (
+        <Link href={`/planung/unterricht?quelle=${q}`} className={link}>
+          Lehraufträge am {date(validFrom)}
+        </Link>
+      )}
+      <Link href={`/planung/stundenplan?quelle=${q}`} className={link}>
+        Im Entwurf arbeiten
+      </Link>
+      {template === "halbjahr" && (
+        <Link href={`/planung/solver?quelle=${q}`} className={link}>
+          Automatisch planen{validFrom ? ` (Lehraufträge am ${date(validFrom)})` : ""}
+        </Link>
+      )}
+      <Link href={`/planung/versionen/aenderungen?version=${q}`} className={link}>
+        Änderungen zum gültigen Plan
+      </Link>
+    </nav>
   );
 }

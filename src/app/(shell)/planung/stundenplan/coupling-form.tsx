@@ -8,6 +8,7 @@ import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
 import { offSubjectKey, type PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import { TeacherSelect } from "../teacher-select";
+import { LiveReason } from "./live-reason";
 
 export interface CouplingPartValues {
   id: string;
@@ -39,12 +40,15 @@ export function CouplingForm({
   initial,
   options,
   cancelHref,
+  liveNote,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   deleteAction?: () => Promise<void>;
   initial: CouplingFormValues;
   options: { weekdays: Option[]; periods: Option[]; groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: PickTeacher[]; rooms: Option[] };
   cancelHref: string;
+  /** SP3-05: laufende Kopplung im gültigen Plan – Hinweis „Sofort-Korrektur ab …“ und Begründung */
+  liveNote?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   return (
@@ -58,6 +62,7 @@ export function CouplingForm({
       initial={initial}
       options={options}
       cancelHref={cancelHref}
+      liveNote={liveNote}
     />
   );
 }
@@ -116,6 +121,7 @@ function CouplingFields({
   initial,
   options,
   cancelHref,
+  liveNote,
 }: {
   state: FormState;
   formAction: (form: FormData) => void;
@@ -124,6 +130,7 @@ function CouplingFields({
   initial: CouplingFormValues;
   options: { weekdays: Option[]; periods: Option[]; groups: { label: string; options: Option[] }[]; subjects: Option[]; teachers: PickTeacher[]; rooms: Option[] };
   cancelHref: string;
+  liveNote?: string;
 }) {
   const fe = state.fieldErrors ?? {};
   const sv = state.values;
@@ -214,6 +221,7 @@ function CouplingFields({
           <Plus aria-hidden /> Teil hinzufügen
         </Button>
       </fieldset>
+      {liveNote && <LiveReason note={liveNote} error={fe.reason} defaultValue={sv?.reason} />}
       {state.error && (
         <p role="alert" className="text-sm text-danger">
           {state.error}

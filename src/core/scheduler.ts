@@ -26,6 +26,7 @@ import { cleanupRuns, executeQueued } from "@/modules/stundenplan/solverlauf";
 import { cleanupVersions } from "@/modules/stundenplan/planversionen";
 import { runSubstitutionQueue } from "@/modules/stundenplan/benachrichtigung";
 import { runPlanNotifications } from "@/modules/stundenplan/veroeffentlichen";
+import { runPlanChangeNotifications } from "@/modules/stundenplan/sofortkorrektur";
 
 export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
   {
@@ -248,13 +249,14 @@ export function startSubstitutionGong(db: Db, everyMs = 60_000): void {
     try {
       const m = MODULES.find((x) => x.id === "stundenplan");
       if (!m || !isEnabled(m, await loadModuleStates(db))) return;
-      // SP3-04: im selben Takt die Änderungslisten veröffentlichter Planversionen an Schüler:innen/Eltern (Vortags-Uhrzeit)
+      // SP3-04: im selben Takt die Änderungslisten veröffentlichter Planversionen an Schüler:innen/Eltern (Vortags-Uhrzeit),
+      // SP3-05: ebenso die der Sofort-Korrekturen im gültigen Plan
       const r = await runExclusive(
         db,
         "vertretung-gong",
         async () => {
           const now = new Date();
-          return { ...(await runSubstitutionQueue(db, now)), plans: await runPlanNotifications(db, now) };
+          return { ...(await runSubstitutionQueue(db, now)), plans: await runPlanNotifications(db, now), corrections: await runPlanChangeNotifications(db, now) };
         },
         { ttlMs: 5 * 60_000 },
       );

@@ -991,6 +991,58 @@ export const timetableDraftLessons = pgTable(
 
 export type TimetableDraftLesson = typeof timetableDraftLessons.$inferSelect;
 
+// ---------------------------------------------------------------- SP3-05: Sofort-Korrekturen im gültigen Plan
+
+/**
+ * Art einer Sofort-Korrektur (§2.4, F-10-2): `split` = laufende Stunde endet am Vortag des Stichtags, eine neue gilt ab dann; `inplace` =
+ * Stunde ohne Vergangenheitsbezug (beginnt erst nach heute bzw. heute angelegt ohne Einträge) direkt geändert bzw. nur ihr Ende verschoben;
+ * `delete` = entfällt ab dem Stichtag (endet am Vortag) bzw. ganz (ohne Vergangenheitsbezug); `create` = neue Stunde. Neue Werte nur hinten.
+ */
+export const PLAN_CHANGE_KINDS = ["split", "inplace", "delete", "create"] as const;
+export type PlanChangeKind = (typeof PLAN_CHANGE_KINDS)[number];
+export const planChangeKindEnum = pgEnum("plan_change_kind", PLAN_CHANGE_KINDS);
+
+/**
+ * SP3-05: Protokoll der Sofort-Korrekturen am gültigen Plan – je betroffene Stunde eine Zeile, eine Aktion (Speichern, Verschieben, Tauschen,
+ * Löschen) teilt sich `batch_id`. Vorher/Nachher als JSON mit Kennungen statt Namen (`PlanChangeLesson`); die Kontolöschung ersetzt
+ * Lehrkraft-Kennungen darin (`scrubPlanChanges`). Gong: Lehrkräfte sofort, Schüler:innen/Eltern zur Vortags-Uhrzeit (`notify_at`).
+ */
+export const timetablePlanChanges = pgTable(
+  "timetable_plan_changes",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    /** die gültige Version, in der korrigiert wurde (ohne gültige Version leer) */
+    versionId: text("version_id").references(() => timetablePlanVersions.id, { onDelete: "cascade" }),
+    batchId: text("batch_id").notNull(),
+    kind: planChangeKindEnum("kind").notNull(),
+    /** bisherige Stunde (bei `create` die neue) */
+    lessonId: text("lesson_id").references(() => timetableLessons.id, { onDelete: "set null" }),
+    /** Nachfolgerin bei `split` */
+    successorId: text("successor_id").references(() => timetableLessons.id, { onDelete: "set null" }),
+    /** ab wann die Änderung wirkt (Stichtag) */
+    validFrom: date("valid_from").notNull(),
+    before: jsonb("before"),
+    after: jsonb("after"),
+    /** optionale Begründung (≤ 120 Zeichen, keine Personen) */
+    reason: text("reason"),
+    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Änderungsliste an Schüler:innen/Eltern: geplant bzw. versandt */
+    notifyAt: timestamp("notify_at", { withTimezone: true }),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("timetable_plan_changes_version_idx").on(t.versionId, t.createdAt),
+    index("timetable_plan_changes_batch_idx").on(t.batchId),
+    index("timetable_plan_changes_notify_idx").on(t.notifiedAt, t.notifyAt),
+    check("timetable_plan_changes_reason", sql`${t.reason} is null or char_length(${t.reason}) <= 120`),
+  ],
+);
+
+export type TimetablePlanChange = typeof timetablePlanChanges.$inferSelect;
+
 // ---------------------------------------------------------------- SP3-03: Prüfung & Freigabe
 
 /** Bezug eines Prüfkommentars (§3.1): ganze Version, Lehrkraft, Klasse/Kurs oder Stunde (Wochentag + Stunde). Neue Werte nur hinten anfügen. */

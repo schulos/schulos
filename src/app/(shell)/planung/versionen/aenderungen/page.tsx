@@ -7,9 +7,10 @@ import { getDb } from "@/core/db/client";
 import { hasPermission } from "@/core/permissions";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { WEEKDAYS } from "@/modules/stundenplan/manage";
+import { correctionsSince } from "@/modules/stundenplan/sofortkorrektur";
 import { comparableVersions, DIFF_FIELD_LABELS, DIFF_KIND_LABELS, diffNames, loadPlanDiff, type DiffEntry, type DiffKind, type DiffLesson, type DiffNames } from "@/modules/stundenplan/plan-diff";
 import { canSeeVersion, type Viewer } from "@/modules/stundenplan/planpruefung";
-import { getVersion, STATUS_LABELS, versionNumber } from "@/modules/stundenplan/planversionen";
+import { getVersion, OPEN_STATUSES, STATUS_LABELS, versionNumber } from "@/modules/stundenplan/planversionen";
 import { PLAN_MANAGE, PLAN_REVIEW } from "@/modules/stundenplan/rechte";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -87,6 +88,9 @@ export default async function AenderungenPage({ searchParams }: { searchParams: 
   }
   const { before, after, diff, version } = result;
   const [names, comparable] = await Promise.all([diffNames(db), comparableVersions(db, version)]);
+  // SP3-05 (R3): Sofort-Korrekturen im gültigen Plan, seit der Entwurf angelegt wurde – offene Entwürfe ziehen sie nach
+  const open = (OPEN_STATUSES as readonly string[]).includes(version.status);
+  const live = open ? await correctionsSince(db, version.schoolYearId, version.createdAt) : null;
   const others = comparable.filter((o) => canSeeVersion(viewer, o));
   const byGroup = sp.ansicht === "klassen";
   const groupsMap = byGroup ? diff.byGroup : diff.byTeacher;
@@ -112,6 +116,13 @@ export default async function AenderungenPage({ searchParams }: { searchParams: 
         {before.source.kind === "draft" ? ` (am ${date(before.refYmd)})` : ""}. Zusammengehörige Stunden erkennt der Vergleich an ihrer Herkunft aus dem
         gültigen Plan, sonst an gleichem Inhalt; „geändert“ nennt, was sich ändert.
       </p>
+      {live && live.actions > 0 && (
+        <p role="note" data-testid="live-korrekturen" className="max-w-3xl rounded-xl border border-border bg-surface-2 px-4 py-3 text-sm">
+          Seit der Entwurf angelegt wurde: {live.actions === 1 ? "1 Sofort-Korrektur" : `${live.actions} Sofort-Korrekturen`} im gültigen Plan (
+          {live.lessons === 1 ? "1 Stunde" : `${live.lessons} Stunden`}). Der Entwurf hat sie übernommen, wo er die Stunde unverändert hatte; wo er sie schon
+          anders plant, steht der Unterschied unten.
+        </p>
+      )}
       <form method="get" aria-label="Vergleich wählen" className="flex flex-wrap items-end gap-2">
         <input type="hidden" name="version" value={version.id} />
         {sp.ansicht && <input type="hidden" name="ansicht" value={sp.ansicht} />}

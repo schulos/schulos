@@ -11,10 +11,11 @@ import { ValidationError } from "@/modules/verwaltung/users";
 import { createLesson, deleteCoupling, deleteLesson, saveCoupling, updateLesson, type CouplingInput, type LessonInput } from "./manage";
 import { ABSENCE_LABELS, createAbsence, deleteAbsence, needsOn, shortenAbsence } from "./abwesenheit";
 import { addDuty, clearDutyChange, createArea, deleteArea, removeDuty, setDutyChange } from "./aufsichten";
-import { copyPeriod } from "./periode";
 import { createDraft as createPlanDraft, createVariant as createPlanVariant, discardVersion as discardPlanVersion, getVersion as getPlanVersion, type DraftSource } from "./planversionen";
 import { applyRunToDraft, cancelRun, createRun, DEFAULT_PASSES, deleteRun, executeQueued, setFixed, undoApply } from "./solverlauf";
 import { publishVersion, undoPublish } from "./veroeffentlichen";
+import { correctionSummary, type LiveOptions } from "./sofortkorrektur";
+import { createFromTemplate, type PlanTemplate } from "./laufzeit";
 import { QUELLE_LIVE, quelleQuery, writableSource } from "./quelle";
 import type { PlanSource } from "./plan-quelle";
 import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
@@ -92,23 +93,45 @@ const pageOf = (groupId: string, from?: string | null, quelle?: string | null) =
     ? `/planung/stundenplan?gruppe=${encodeURIComponent(groupId)}${quelleQuery(quelle)}`
     : `/planung/stundenplan?gruppe=${encodeURIComponent(groupId)}${from && from > toBerlinDate(new Date()) ? `&stand=${from}` : ""}`;
 
+/**
+ * SP3-05: Optionen einer Änderung im gültigen Plan (Kennung der Aktion für den Hinweis, optionale Begründung) – im Entwurf ohne Wirkung.
+ */
+function liveOptions(source: PlanSource, form?: FormData): LiveOptions {
+  if (source.kind !== "live") return {};
+  return { batchId: crypto.randomUUID(), reason: form ? String(form.get("reason") ?? "").trim() || null : null };
+}
+
+/**
+ * SP3-05: nach einer Sofort-Korrektur auf die Pflege-Seite mit Hinweis (`korrektur=<Aktion>`); wirkt sie ab einem künftigen Stichtag (Split),
+ * zeigt die Seite den Plan ab dann.
+ */
+async function afterChange(groupId: string, fallbackFrom: string | null | undefined, quelle: string | null, opts: LiveOptions): Promise<string> {
+  const summary = opts.batchId ? await correctionSummary(await getDb(), opts.batchId) : null;
+  if (!summary) return pageOf(groupId, fallbackFrom, quelle);
+  const today = toBerlinDate(new Date());
+  const ended = summary.kinds.split > 0 || (summary.kinds.delete > 0 && summary.from > today);
+  return `${pageOf(groupId, ended ? summary.from : fallbackFrom, quelle)}&korrektur=${encodeURIComponent(summary.batchId)}`;
+}
+
 export async function saveLessonAction(id: string | null, quelle: string | null, _prev: FormState, form: FormData): Promise<FormState> {
   const { user } = await requirePermission("stundenplan.manage");
   const input = readInput(form);
+  let opts: LiveOptions = {};
   try {
     // SP3-02: im Entwurf (nur Status „Entwurf“) statt im gültigen Plan
     const source = await writableSource(await getDb(), quelle);
     // SP2-12: fachfremde Lehrkraft nur mit Bestätigung
     const off = await checkSubjectFit(await getDb(), input.subjectId, input.teacherId ? [input.teacherId] : [], offSubjectConfirmed(form, "teacherId", input.teacherId), "teacherId");
-    if (id) await updateLesson(await getDb(), user.id, id, input, source);
-    else await createLesson(await getDb(), user.id, input, source);
+    opts = liveOptions(source, form);
+    if (id) await updateLesson(await getDb(), user.id, id, input, source, opts);
+    else await createLesson(await getDb(), user.id, input, source, opts);
     if (off.length) await audit(await getDb(), user.id, "stundenplan.lesson.off_subject", input.groupId, { subject: input.subjectId, teachers: off });
   } catch (err) {
     if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", fieldErrors: err.fieldErrors, values: formValues(form) };
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(pageOf(input.groupId, input.validFrom, quelle));
+  redirect(await afterChange(input.groupId, input.validFrom, quelle, opts));
 }
 
 /** Kopplung speichern: Zeilen kommen als `part`=<Schlüssel> mit Feldern `p<Schlüssel>-<feld>`. */
@@ -130,12 +153,14 @@ export async function saveCouplingAction(couplingId: string | null, groupId: str
       roomId: str(`p${k}-roomId`) || null,
     })),
   };
+  let opts: LiveOptions = {};
   try {
     const source = await writableSource(await getDb(), quelle);
+    opts = liveOptions(source, form);
     // SP2-12: fachfremde Lehrkräfte je Teil nur mit Bestätigung – R2-P3: je Teil eigene Bestätigung
     for (const [i, p] of input.parts.entries())
       await checkSubjectFit(await getDb(), p.subjectId, p.teacherId ? [p.teacherId] : [], offSubjectConfirmed(form, `p${keys[i]}-teacherId`, p.teacherId), `p${i}-teacherId`);
-    await saveCoupling(await getDb(), user.id, couplingId, input, source);
+    await saveCoupling(await getDb(), user.id, couplingId, input, source, opts);
   } catch (err) {
     if (err instanceof ValidationError) {
       // Fehler je Teil (p<Index>-feld) auf die Zeilenschlüssel des Formulars umschreiben
@@ -145,49 +170,39 @@ export async function saveCouplingAction(couplingId: string | null, groupId: str
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(pageOf(groupId, input.validFrom, quelle));
+  redirect(await afterChange(groupId, input.validFrom, quelle, opts));
 }
 
 export async function deleteCouplingAction(couplingId: string, groupId: string, stand: string | null, quelle: string | null = null): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
+  let opts: LiveOptions = {};
   try {
-    await deleteCoupling(db, user.id, couplingId, await writableSource(db, quelle));
+    const source = await writableSource(db, quelle);
+    opts = liveOptions(source);
+    await deleteCoupling(db, user.id, couplingId, source, opts);
   } catch (err) {
     if (err instanceof ValidationError) redirect(`${pageOf(groupId, stand, quelle)}&fehler=${encodeURIComponent(firstError(err))}`);
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(pageOf(groupId, stand, quelle));
+  redirect(await afterChange(groupId, stand, quelle, opts));
 }
 
 export async function deleteLessonAction(id: string, groupId: string, stand: string | null, quelle: string | null = null): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
+  let opts: LiveOptions = {};
   try {
-    await deleteLesson(db, user.id, id, toBerlinDate(new Date()), await writableSource(db, quelle));
+    const source = await writableSource(db, quelle);
+    opts = liveOptions(source);
+    await deleteLesson(db, user.id, id, toBerlinDate(new Date()), source, opts);
   } catch (err) {
     if (err instanceof ValidationError) redirect(`${pageOf(groupId, stand, quelle)}&fehler=${encodeURIComponent(firstError(err))}`);
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(pageOf(groupId, stand, quelle));
-}
-
-// ---------------------------------------------------------------- Periode
-
-/** Halbjahreswechsel: laufende Stunden ab Stichtag kopieren (P2b-14). */
-export async function copyPeriodAction(cutoff: string): Promise<void> {
-  const { user } = await requirePermission("stundenplan.manage");
-  let n: number;
-  try {
-    n = await copyPeriod(await getDb(), user.id, cutoff, toBerlinDate(new Date()));
-  } catch (err) {
-    if (err instanceof ValidationError) redirect(`/planung/stundenplan?periode=${encodeURIComponent(cutoff)}&fehler=${encodeURIComponent(firstError(err))}`);
-    throw err;
-  }
-  revalidatePath("/", "layout");
-  redirect(`/planung/stundenplan?kopiert=${n}&ab=${cutoff}`);
+  redirect(await afterChange(groupId, stand, quelle, opts));
 }
 
 // ---------------------------------------------------------------- Setzhilfe
@@ -205,32 +220,37 @@ export async function placeAssignmentAction(assignmentId: string, groupId: strin
   let from = stand && stand > today ? stand : undefined;
   let back = `${pageOf(groupId, from, quelle)}&setzen=${encodeURIComponent(assignmentId)}`;
   let source: PlanSource;
+  let opts: LiveOptions = {};
   try {
     source = await writableSource(db, quelle);
+    opts = liveOptions(source);
     if (source.kind === "draft") from = (await getPlanVersion(db, source.versionId))?.validFrom ?? from;
     back = `${pageOf(groupId, from, quelle)}&setzen=${encodeURIComponent(assignmentId)}`;
-    await placeAssignment(db, user.id, assignmentId, groupId, weekday, periodNr, today, from, source);
+    await placeAssignment(db, user.id, assignmentId, groupId, weekday, periodNr, today, from, source, opts);
   } catch (err) {
     if (err instanceof ValidationError) redirect(`${back}&fehler=${encodeURIComponent(firstError(err))}`);
     throw err;
   }
   revalidatePath("/", "layout");
   const stillOpen = (await openAssignments(db, groupId, from ?? today, source)).some((a) => a.id === assignmentId);
-  redirect(stillOpen ? back : pageOf(groupId, from, quelle));
+  redirect(stillOpen ? back : await afterChange(groupId, from, quelle, opts));
 }
 
 /** Stunde/Kopplung in einen freien Slot verschieben oder mit der Stunde dort tauschen (SP3-02: auch im Entwurf). */
 export async function moveLessonAction(lessonId: string, groupId: string, stand: string | null, quelle: string | null, weekday: number, periodNr: number): Promise<void> {
   const { user } = await requirePermission("stundenplan.manage");
   const db = await getDb();
+  let opts: LiveOptions = {};
   try {
-    await moveLesson(db, user.id, lessonId, groupId, weekday, periodNr, await writableSource(db, quelle));
+    const source = await writableSource(db, quelle);
+    opts = liveOptions(source);
+    await moveLesson(db, user.id, lessonId, groupId, weekday, periodNr, source, opts);
   } catch (err) {
     if (err instanceof ValidationError) redirect(`${pageOf(groupId, stand, quelle)}&verschieben=${encodeURIComponent(lessonId)}&fehler=${encodeURIComponent(firstError(err))}`);
     throw err;
   }
   revalidatePath("/", "layout");
-  redirect(pageOf(groupId, stand, quelle));
+  redirect(await afterChange(groupId, stand, quelle, opts));
 }
 
 export async function saveSubstitutionAction(_prev: FormState, form: FormData): Promise<FormState> {
@@ -1178,6 +1198,23 @@ export async function createDraftAction(_prev: FormState, form: FormData): Promi
   }
   revalidatePath(VERSIONS_PAGE);
   redirect(versionsPage(v.schoolYearId, "angelegt", v.id));
+}
+
+/**
+ * SP3-05: Entwurf aus einer Vorlage – „Änderung im laufenden Plan“ (Folgeversion ab dem nächsten Schultag) bzw. „Neues Halbjahr“ (ab Beginn
+ * des 2. Halbjahrs, Lehraufträge am Stichtag). Beide kopieren den gültigen Plan; der weitere Weg ist der normale (Prüfung → Freigabe → Veröffentlichen).
+ */
+export async function createFromTemplateAction(schoolYearId: string, template: PlanTemplate): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  let v: { id: string; schoolYearId: string };
+  try {
+    v = await createFromTemplate(await getDb(), user.id, schoolYearId, template, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(versionsPage(schoolYearId, "fehler", firstError(err)));
+    throw err;
+  }
+  revalidatePath(VERSIONS_PAGE);
+  redirect(`${versionsPage(v.schoolYearId, "angelegt", v.id)}&vorlage=${template}`);
 }
 
 /** Variante eines Entwurfs anlegen (gleiche Stunden, eigener Name). */

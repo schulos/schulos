@@ -209,6 +209,8 @@ describe("Querschnitt: kein fremder Leser des Entwurfs (SP3-01, §5 b)", () => {
       "src/modules/stundenplan/planpruefung.ts",
       "src/modules/stundenplan/planversionen.ts",
       "src/modules/stundenplan/schema.ts",
+      // SP3-05 (R3): offene Entwürfe ziehen Sofort-Korrekturen am gültigen Plan nach
+      "src/modules/stundenplan/sofortkorrektur.ts",
       "src/modules/stundenplan/solverlauf.ts",
       // SP3-04: Veröffentlichen liest die Entwurfsstunden der Version (Diff gegen den gültigen Plan)
       "src/modules/stundenplan/veroeffentlichen.ts",
@@ -218,10 +220,10 @@ describe("Querschnitt: kein fremder Leser des Entwurfs (SP3-01, §5 b)", () => {
     expect(pages).toEqual([]);
   });
 
-  it("SP3-02: nur die Planung arbeitet mit der Planquelle – Vertretung, Wochenplan, Heute, Anzeige, Freigabe, Gong, Exporte, Periode lesen nur den gültigen Plan", () => {
+  it("SP3-02: nur die Planung arbeitet mit der Planquelle – Vertretung, Wochenplan, Heute, Anzeige, Freigabe, Gong, Exporte, Vorlagen und Sofort-Korrektur lesen nur den gültigen Plan", () => {
     const planners = files.filter((f) => f.path.startsWith("src/modules/stundenplan/") && /lessonCols\(|lessonTable\(|PlanSource|plan-quelle/.test(f.text)).map((f) => f.path.replace("src/modules/stundenplan/", "")).sort();
     expect(planners).toEqual(["actions.ts", "diagnose.ts", "manage.ts", "plan-diff.ts", "plan-quelle.ts", "planversionen.ts", "quelle.ts", "schema.ts", "setzhilfe.ts", "solver-input.ts", "solverlauf.ts", "verteilung.ts"]);
-    for (const reader of ["service.ts", "vertretung.ts", "today.ts", "display.ts", "widgets.tsx", "freigabe.ts", "vertretung-gong.ts", "abwesenheit.ts", "raumsperren.ts", "exporte.ts", "periode.ts", "arbeitsplatz.ts", "vorschlaege.ts"])
+    for (const reader of ["service.ts", "vertretung.ts", "today.ts", "display.ts", "widgets.tsx", "freigabe.ts", "vertretung-gong.ts", "abwesenheit.ts", "raumsperren.ts", "exporte.ts", "laufzeit.ts", "sofortkorrektur.ts", "arbeitsplatz.ts", "vorschlaege.ts"])
       expect(planners).not.toContain(reader);
   });
 
