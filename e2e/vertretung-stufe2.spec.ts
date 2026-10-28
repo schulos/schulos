@@ -14,6 +14,7 @@ const periodOf = async (form: ReturnType<typeof lessonForms>) => Number(((await 
 
 test.describe("Stundenplanung · Vertretung Stufe 2 (SP2-07)", () => {
   test("Verlegung auf die ausgefallene Stunde, Zusammenlegung, aufheben; Bereitschaft eintragen; A11Y hell/dunkel/schmal", async ({ page, browser }) => {
+    test.setTimeout(90_000); // viele Schritte plus drei A11Y-Durchgänge; auf der ausgelasteten Build-VM reichten 30 s nicht (32 s)
     const errors = collectErrors(page);
     await login(page, "frank.schulte");
     // nächster Schultag (Vorgabe der Seite), Stunden der 7b

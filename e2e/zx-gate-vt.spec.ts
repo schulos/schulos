@@ -85,7 +85,11 @@ test("GATE VT: Morgen – Abwesenheit → Arbeitsplatz → Vorschlag per Tastatu
   await expect(openRows.first()).toContainText(/noch Zeit|heute|dringend/);
   const header = page.getByRole("list", { name: "Tagesstand" });
   await expect(header).toContainText(/\d+ offen/);
-  await openRows.first().getByRole("link", { name: "Vertretung eintragen" }).click();
+  const rowTexts = await openRows.allInnerTexts();
+  const index7b = rowTexts.findIndex((t) => t.includes("Klasse 7b"));
+  expect(index7b, "offene Stunde der 7b").toBeGreaterThanOrEqual(0);
+  // die offene Stunde der 7b (die Schülerin sieht nur ihre Klasse) – die erste offene der Lehrkraft liegt je nach Wochentag in einer anderen Klasse
+  await openRows.filter({ hasText: "Klasse 7b" }).first().getByRole("link", { name: "Vertretung eintragen" }).click();
   await expect(page).toHaveURL(/stunde=/);
   const first = stundeOf(page.url())!;
   const chosen = page.getByRole("article", { name: /^Gewählte Stunde:/ });
@@ -96,7 +100,7 @@ test("GATE VT: Morgen – Abwesenheit → Arbeitsplatz → Vorschlag per Tastatu
   const cards = chosen.getByRole("group", { name: /^Vorschläge:/ }).getByRole("list").first().getByRole("listitem");
   await expect(cards.first()).toBeVisible();
   await page.locator("body").click({ position: { x: 1, y: 1 } });
-  if ((await openRows.count()) > 1) {
+  if (index7b < rowTexts.length - 1) {
     // ↓ nächste offene Stunde, ↑ zurück
     await page.keyboard.press("ArrowDown");
     await expect.poll(() => stundeOf(page.url())).not.toBe(first);
@@ -176,7 +180,6 @@ test("GATE VT: Morgen – Abwesenheit → Arbeitsplatz → Vorschlag per Tastatu
   const leaErrors = collectErrors(lea);
   await login(lea, "lea.schaefer");
   await lea.goto("/stundenplan/vertretungen");
-  // mehrere Tage können Änderungen der 7b haben (Vorläufer-Specs, Mitternachtswechsel): den Tag mit dem Hinweis nehmen
   const klasse = lea.getByRole("article", { name: "7b" }).filter({ hasText: PUBLIC }).first();
   await expect(klasse).toContainText(PUBLIC);
   await expect(klasse).toContainText("Grund: Lehrkraft abwesend");
