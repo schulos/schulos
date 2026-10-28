@@ -217,10 +217,20 @@ export async function searchCandidates(db: Db, groupId: string, q: string, limit
     .limit(limit);
 }
 
-/** Alle Gruppenmerkmale, die die Module anbieten. */
-export function availableGroupFeatures(manifests: readonly ModuleManifest[]) {
+/**
+ * Alle Gruppenmerkmale, die die Module anbieten – mit `kind` nur die für diese Gruppenart (GT-01: `groupFeatureRules.kinds`), mit
+ * `course` ohne die, die nur die Gruppenverwaltung schaltet (`manageOnly`).
+ */
+export function availableGroupFeatures(manifests: readonly ModuleManifest[], opts: { kind?: GroupKind; course?: boolean } = {}) {
   return manifests.flatMap((m) =>
-    Object.entries(m.groupFeatures ?? {}).map(([id, label]) => ({ id, label, moduleId: m.id, moduleName: m.name })),
+    Object.entries(m.groupFeatures ?? {})
+      .filter(([id]) => {
+        const rule = m.groupFeatureRules?.[id];
+        if (!rule) return true;
+        if (opts.kind && rule.kinds && !rule.kinds.includes(opts.kind)) return false;
+        return !(opts.course && rule.manageOnly);
+      })
+      .map(([id, label]) => ({ id, label, moduleId: m.id, moduleName: m.name })),
   );
 }
 

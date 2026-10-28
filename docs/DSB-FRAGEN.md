@@ -635,3 +635,26 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
   Dienstanweisung? Dürfen Ansprechpersonen namentlich auch für Schüler:innen und Eltern sichtbar sein (Seiten an diese Zielgruppen)?
 - **Vorschlag:** Vorgaben übernehmen; Ansprechpersonen nur mit deren Einverständnis eintragen; Seiten für Schüler:innen und Eltern erst
   nach kurzer Durchsicht durch die Schulleitung veröffentlichen.
+
+## 21. Ganztag: Anwesenheitslisten für AGs und Förderkurse
+
+<!-- dsb:ganztag -->
+| Punkt | |
+|---|---|
+| Was SchulOS tut | Anwesenheitslisten nur für Gruppen der Arten AG, Förderkurs und frei mit eingeschaltetem Merkmal „Anwesenheitsliste“ (schaltet nur „Ganztag verwalten“). Termine aus wöchentlichen Serien (Ferien, Feiertage und unterrichtsfreie Tage übersprungen) oder einzeln; ein Ausfall geht als Gong ohne Grund an Teilnehmende und Eltern. Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, keine Schreibverbindung ins Klassenbuch. Listen starten leer, „alle anwesend“ ist ein Schalter. Die Leitung sieht nur ihre eigenen Gruppen, „Ganztag verwalten“ alle. Löschung zum Schuljahresende (LK-SJ), Markierungen gehen mit dem Termin bzw. dem Konto. |
+| Vorgabe | Modul nach einem Update zunächst aus; „Ganztag verwalten“ und „Ganztag auswerten“ für die Verwaltung, „auswerten“ auch für die Schulleitung. Die Leitung kann bis 7 Tage nach dem Termin nachtragen, danach nur die Verwaltung des Ganztags. |
+| Die Schule entscheidet / dokumentiert | Klärt, ob Fehlen im Ganztag als Schulversäumnis zählt und welche Rechtsgrundlage gilt (schulform- und länderabhängig, zu prüfen); nimmt die Anwesenheit im Ganztag ins VVT auf; legt fest, welche Angebote eine Liste führen; erfasst Angebote externer Partner selbst nach Papierliste (keine Konten für Externe). |
+| Einstellungen | „Nachträgliche Erfassung durch die Leitung“ (Vorgabe: bis 7 Tage danach) |
+| In SchulOS | Verwaltung → Rechte & Module → Ganztag |
+<!-- /dsb -->
+
+**Hintergrund und Fragen** (Herkunft: GT-01…GT-03, [GANZTAG.md](GANZTAG.md))
+
+- **Kontext:** Das Modul „Ganztag“ führt Anwesenheitslisten je Termin für AGs, Förderkurse und freie Gruppen. Abgleich mit den
+  Abwesenheiten und Hinweis an die Klassenleitung (GT-04), Familienansicht (GT-05) und Auswertung ohne Namen (GT-06) folgen.
+- **Entscheidungen der Projektleitung (2026-10-28):** eigenes Modul `ganztag` · Listen nur mit Gruppenmerkmal · eigene Terminserien je
+  Gruppe, Ferien übersprungen · Listen starten leer, „alle anwesend“ als Schalter · keine Gründe, kein Gesundheitsbezug, keine
+  Schreibverbindung ins Klassenbuch · Löschklasse `LK-SJ` · keine Konten für externe Anbieter.
+- **Fragen an die DSB:** Zählt Fehlen im Ganztag an dieser Schule als Schulversäumnis (dann Aufbewahrung wie Fehlzeiten)? Genügt die
+  Löschung zum Schuljahresende für Rückfragen zur Aufsicht?
+- **Vorschlag:** Vorgaben übernehmen; die Liste nur für Angebote einschalten, für die die Schule die Aufsicht trägt.

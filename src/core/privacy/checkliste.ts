@@ -284,6 +284,19 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     settings: ["hilfe.review_months"],
     where: { label: "Verwaltung → Rechte & Module → Handbuch", href: "/verwaltung/rechte" },
   },
+  {
+    id: "ganztag",
+    nr: 21,
+    title: "Ganztag: Anwesenheitslisten für AGs und Förderkurse",
+    schulos:
+      "Anwesenheitslisten nur für Gruppen der Arten AG, Förderkurs und frei mit eingeschaltetem Merkmal „Anwesenheitsliste“ (schaltet nur „Ganztag verwalten“). Termine aus wöchentlichen Serien (Ferien, Feiertage und unterrichtsfreie Tage übersprungen) oder einzeln; ein Ausfall geht als Gong ohne Grund an Teilnehmende und Eltern. Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, keine Schreibverbindung ins Klassenbuch. Listen starten leer, „alle anwesend“ ist ein Schalter. Die Leitung sieht nur ihre eigenen Gruppen, „Ganztag verwalten“ alle. Löschung zum Schuljahresende (LK-SJ), Markierungen gehen mit dem Termin bzw. dem Konto.",
+    vorgabe:
+      "Modul nach einem Update zunächst aus; „Ganztag verwalten“ und „Ganztag auswerten“ für die Verwaltung, „auswerten“ auch für die Schulleitung. Die Leitung kann bis 7 Tage nach dem Termin nachtragen, danach nur die Verwaltung des Ganztags.",
+    schule:
+      "Klärt, ob Fehlen im Ganztag als Schulversäumnis zählt und welche Rechtsgrundlage gilt (schulform- und länderabhängig, zu prüfen); nimmt die Anwesenheit im Ganztag ins VVT auf; legt fest, welche Angebote eine Liste führen; erfasst Angebote externer Partner selbst nach Papierliste (keine Konten für Externe).",
+    settings: ["ganztag.edit_days"],
+    where: { label: "Verwaltung → Rechte & Module → Ganztag", href: "/verwaltung/rechte" },
+  },
 ];
 
 /** Rein: die Kurzfassung eines Themas für docs/DSB-FRAGEN.md (zwischen den Markern). */

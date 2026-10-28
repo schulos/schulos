@@ -19,6 +19,9 @@ export function validateManifests(manifests: readonly ModuleManifest[]): void {
     for (const f of Object.keys(m.groupFeatures ?? {})) {
       if (!f.startsWith(`${m.id}.`)) errors.push(`${m.id}: Gruppenmerkmal "${f}" muss mit "${m.id}." beginnen`);
     }
+    for (const f of Object.keys(m.groupFeatureRules ?? {})) {
+      if (!(f in (m.groupFeatures ?? {}))) errors.push(`${m.id}: Regel für unbekanntes Gruppenmerkmal "${f}"`);
+    }
     for (const st of m.settings ?? []) {
       if (!st.key.startsWith(`${m.id}.`)) errors.push(`${m.id}: Einstellung "${st.key}" muss mit "${m.id}." beginnen`);
       if (!st.options.some((o) => o.value === st.default)) errors.push(`${m.id}: Vorgabe von "${st.key}" ist keine Option`);

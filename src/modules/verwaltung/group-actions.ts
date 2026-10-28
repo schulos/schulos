@@ -7,10 +7,13 @@ import { getDb } from "@/core/db/client";
 import { GROUP_KINDS, type GroupKind } from "@/core/db/schema";
 import { formValues } from "@/core/form-values";
 import type { FormState } from "./actions";
+import { MODULES } from "@/modules";
 import {
   addMembers,
+  availableGroupFeatures,
   createGroup,
   deleteGroup,
+  getGroup,
   removeMember,
   searchCandidates,
   setGroupFeature,
@@ -106,6 +109,11 @@ export async function setMemberRoleAction(groupId: string, userId: string, role:
 
 export async function setGroupFeatureAction(groupId: string, feature: string, enabled: boolean) {
   const { user } = await requirePermission(PERM);
-  await setGroupFeature(await getDb(), user.id, groupId, feature, enabled);
+  const db = await getDb();
+  // GT-01: nur Merkmale, die zur Gruppenart passen (Abschalten geht immer)
+  const data = await getGroup(db, groupId);
+  if (!data) throw new ValidationError({ feature: "Gruppe nicht gefunden" });
+  if (enabled && !availableGroupFeatures(MODULES, { kind: data.group.kind }).some((f) => f.id === feature)) throw new ValidationError({ feature: "Diesen Bereich gibt es für diese Gruppenart nicht" });
+  await setGroupFeature(db, user.id, groupId, feature, enabled);
   revalidatePath(`/verwaltung/gruppen/${groupId}`);
 }

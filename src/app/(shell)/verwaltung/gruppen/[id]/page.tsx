@@ -26,7 +26,7 @@ export default async function GruppeDetailPage({ params }: { params: Promise<{ i
   const { group, members, features } = data;
   const subjectList = await db.select({ id: subjects.id, name: subjects.name }).from(subjects).orderBy(subjects.sortOrder);
   const { grades: gradeList, levels: levelList, rooms: roomList } = await groupFormOptions(db);
-  const featureList = availableGroupFeatures(MODULES);
+  const featureList = availableGroupFeatures(MODULES, { kind: group.kind });
 
   return (
     <main className="flex flex-col gap-6">

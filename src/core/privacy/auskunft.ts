@@ -99,6 +99,9 @@ export const ACTOR_KEEP: Record<string, string[] | ((row: Record<string, unknown
   anmeldung_ereignisse: ["antrag_id", "kind"],
   // Handbuch (HB-01): wer eine Seite angelegt bzw. zuletzt geändert hat – mit Seitentitel, ohne Inhalt
   hilfe_pages: ["slug", "title"],
+  // Ganztag (GT-03): wer eine Liste bzw. Zeile erfasst hat – mit Termin, ohne die Schüler:in und ohne Status
+  ganztag_sessions: ["group_id", "date", "starts_at"],
+  ganztag_marks: ["session_id"],
   gebaeude_ticket_events: (row) => ["ticket_id", "kind", "status_from", "status_to", ...(row.kind === "zuweisung" ? [] : ["text"])],
 };
 

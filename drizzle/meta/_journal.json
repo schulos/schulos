@@ -827,6 +827,13 @@
       "when": 1793226503846,
       "tag": "0117_rs_04_fotos_ausstattung",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1793229667306,
+      "tag": "0118_gt_01_ganztag",
+      "breakpoints": true
     }
   ]
 }

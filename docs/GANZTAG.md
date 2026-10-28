@@ -60,3 +60,42 @@ Datenschutz-Checkliste zugeordnet.
 7. Eigene Terminserien je Gruppe.
 8. Mittagessen, Abholung und Heimweg später, einzeln.
 9. Externe Anbieter zunächst nicht als Leitung; die Schule erfasst nach Papierliste.
+
+## Umgesetzt (GT-01…GT-03)
+
+Stand 2026-10-28, Migration 0118 (`ganztag_series`, `ganztag_sessions`, `ganztag_marks`, `ganztag_group_settings`, Enums
+`ganztag_session_status`, `ganztag_mark_status`, `ganztag_excused`, `ganztag_mark_source`).
+
+- **Modul `ganztag`** (Menü „Ganztag“, Bereich Organisation, für Personal; neue Installationen eingeschaltet, nach einem Update wie jedes
+  neue Modul zunächst aus). Rechte `ganztag.manage` („Ganztag verwalten“: Merkmal schalten, Termine und Listen aller Angebote, Nachtrag
+  ohne Frist) und `ganztag.view_all` („Ganztag auswerten“, für GT-06; Vorgabe Verwaltung, in der Demo auch die Schulleitung). Die
+  **Leitung** ist die Gruppenleitung (`group_members.role = leader`) – sie pflegt Termine und Listen nur ihrer Gruppen (im Service geprüft,
+  kein eigenes Recht).
+- **Gruppenmerkmal `ganztag.liste`** nur für AG, Förderkurs und frei: neue Manifest-Angabe `groupFeatureRules` (Gruppenarten,
+  `manageOnly`). Die Gruppenverwaltung bietet das Merkmal nur passenden Gruppen an, der Kursraum gar nicht; eigene Seite
+  `/ganztag/angebote` mit Schalter je Gruppe. Ausschalten blendet die Liste aus, Daten bleiben bis zur Löschfrist.
+- **Termine** (`/ganztag/gruppe/<id>`): wöchentliche Serie (Mo–Fr, Beginn/Ende, gültig von/bis, höchstens ein Jahr, Vorgabe: Schuljahr ab
+  heute); Ferien, Feiertage und unterrichtsfreie Tage aus dem Schulkalender (`SchoolCalendar.dayOff`) werden übersprungen und gemeldet.
+  Einzeltermine sind an jedem Tag möglich (z. B. Ausflug). Je Gruppe, Tag und Beginn höchstens ein Termin. Serie löschen entfernt die
+  noch nicht erfassten Termine, erfasste bleiben als Einzeltermine.
+- **Ausfall**: nur ohne Erfassung; bei heutigen und künftigen Terminen ein Gong „<Angebot> fällt aus“ (Datum, Zeit – ohne Grund) an die
+  Teilnehmenden und ihre Eltern (minderjährig bzw. mit Einwilligung informiert, `guardianRecipients`); Zurücknehmen schickt „findet doch
+  statt“. Vergangene Termine lassen sich ohne Gong als ausgefallen vermerken.
+- **Liste** (`/ganztag/termin/<id>`): Teilnehmende = Mitglieder der Gruppe mit Rolle Schüler:in (plus frühere Mitglieder mit Markierung).
+  Startet leer; je Zeile anwesend / fehlt / verspätet (Minuten wählbar), erneuter Klick leert. „Alle anwesend“ ist ein Schalter: an setzt
+  alle Zeilen ohne Markierung auf anwesend (Herkunft `alle_anwesend`), aus nimmt genau diese zurück – von Hand gesetzte bleiben. Erfassen
+  frühestens am Tag des Termins; die Leitung bis `ganztag.edit_days` Tage danach (Vorgabe 7; 0/3/7/14/30), „Ganztag verwalten“ auch
+  später. Erfasste Termine löscht nur „Ganztag verwalten“.
+- **Datenschutz:** `ganztag_sessions` `LK-SJ` ab Datum, `ganztag_marks` folgen dem Termin (und gehen mit dem Konto der Schüler:in),
+  Serien und Gruppeneinstellungen ohne Personenbezug (`NO_PERSONAL_DATA`). Auskunft: Schüler:in ihre Zeilen; Leitung nur die Handlung
+  (Termin, Zeitpunkt – ohne Schüler:in und Status). Kontolöschung der Leitung leert „erfasst von“. DSB-FRAGEN §21, Zeile in
+  DATENSCHUTZ.md §3.4.
+
+**Andockpunkte:** GT-04 → `ganztag_marks.excused`/`source = 'abwesenheiten'` beim Öffnen bzw. Erfassen aus `excusedStateOn` vorbelegen
+(nur die Quelle), Schalter in `ganztag_group_settings` (`mandatory`, `notify_class_lead`, `prefill_absences`) liegen schon an;
+Tageshinweis als Job mit `notifyBundled`. GT-05 → Lesefunktion „eigene Zeilen“ über `ganztag_marks_student_idx`, Regeln aus
+`core/school/majority.ts`, Navigation für Eltern/Schüler:innen ergänzen. GT-06 → `ganztag.view_all`, Zählung je Angebot und Monat aus
+`ganztag_marks`/`ganztag_sessions` ohne Namen; „offen heute“ wie `listOffers().open`. GT-07 → in der Kurswahl-Übernahme für Wahlen der
+Art `ag` `setListFeature` (bzw. `setGroupFeature` + `ganztag_group_settings`) für die neuen Gruppen aufrufen. GT-08 → Löschtabelle,
+VVT-Text, E2E für Familie/Klassenleitung.
+
