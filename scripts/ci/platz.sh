@@ -25,7 +25,7 @@ if [ "$(frei)" -lt "$AUFRAEUMEN_GB" ]; then
   echo "::warning::Build-VM: nur $(frei) GB frei (< $AUFRAEUMEN_GB) – räume gründlich auf"
   docker builder prune -af >/dev/null 2>&1 || true
   docker image prune -af --filter until=168h >/dev/null 2>&1 || true
-  rm -rf "$HOME/.cache/schulos-next"  # Next-Build-Cache (scripts/ci/next-cache.sh), entsteht beim nächsten verify neu
+  rm -rf "$HOME/.cache/schulos-next"  # Next-Build-Cache (scripts/ci/next-cache.sh), entsteht beim nächsten e2e-Job neu
   # Abbilder (qcow2) und Rückstände im ISO-Lager älter als 7 Tage; die letzte ISO bleibt
   [ -d "$LAGER" ] && find "$LAGER" -maxdepth 1 -type f ! -name 'letzte.*' -mtime +7 -print -delete
 fi

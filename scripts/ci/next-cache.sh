@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CI-01: Next-Build-Cache (webpack) auf der Build-VM zwischen Läufen behalten – der Checkout leert .next jedes Mal.
 # Liegt lokal unter ~/.cache/schulos-next statt in actions/cache (kein Hoch-/Herunterladen über GitHub). Auf der VM läuft
-# verify nur auf dem einen schweren Runner, also nie zwei Läufe gleichzeitig. platz.sh löscht ihn, wenn Platz knapp wird.
+# e2e (auf der VM ein einziger Shard 1/1, TD-15) nur auf dem einen schweren Runner, also nie zwei Läufe gleichzeitig. platz.sh löscht ihn, wenn Platz knapp wird.
 #   bash scripts/ci/next-cache.sh holen|sichern
 set -euo pipefail
 LAGER=${NEXT_CACHE_LAGER:-$HOME/.cache/schulos-next}

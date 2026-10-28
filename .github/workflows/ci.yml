@@ -1,5 +1,4 @@
-# CI: Prüfung (tsc, eslint, vitest, Lizenzen), Build und E2E bei Push auf main und für Pull Requests (Dependabot).
-# Ein Job statt mehrerer: spart je Lauf ein `npm ci` (Freikontingent 2 000 Minuten/Monat, privates Repo).
+# CI: Prüfung (tsc, eslint, vitest, Lizenzen), Build und E2E (in Shards, TD-15) bei Push auf main und für Pull Requests (Dependabot).
 # Runner: alle Workflows laufen auf der Build-VM (self-hosted, keine GitHub-Minuten). Zwei Runner-Dienste (CI-01):
 # „schulos-iso“ für Docker-Stacks/Build/E2E (nacheinander, keine Port-Konflikte, ruft platz auf) und „leicht“ für kurze Jobs
 # (Änderungserkennung, postgres, Abschluss, Sicherheit – ohne platz, damit kein Aufräumen einen laufenden Job trifft).
@@ -35,6 +34,9 @@ jobs:
       contents: read
       actions: read
     outputs:
+      # TD-15: GitHub-Runner (true) oder Build-VM (false) und Zahl der E2E-Shards (4 bzw. 1) – dieselbe Bedingung wie runs-on
+      github: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) }}
+      shards: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 4 || 1 }}
       voll: ${{ steps.umfang.outputs.voll }}
       baum: ${{ steps.umfang.outputs.baum }}
     steps:
@@ -51,18 +53,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/aenderungen.sh
 
-  verify:
+  # TD-15: die frühere Sammelstufe „verify“ (41–63 min nacheinander) ist aufgeteilt: „check“ (tsc, eslint, Lizenzen, vitest) und
+  # „e2e“ (Build + Playwright, 4 Shards) laufen parallel; Wartezeit bis „ergebnis“ ≈ längster Shard.
+  # Auf GitHub-Runnern: 4 Shards (`playwright test --shard=i/4`, je eigener Runner, eigene PGlite-DB, eigener Build); die Specs
+  # hängen nicht mehr voneinander ab (TD-07/TD-09, jede Spec einzeln und alle Shards grün geprüft).
+  # Auf der Build-VM (Push auf main, privates Repo): EIN Runner „schulos-iso“ mit festen Ports – dort ein einziger Shard 1/1
+  # (= der volle Lauf wie bisher), „check“ auf dem leichten Runner daneben. Die Zahl steht in aenderungen.outputs.shards.
+  check:
     needs: aenderungen
     if: needs.aenderungen.outputs.voll == 'true'
-    runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","schulos-iso"]') }}
-    # GitHub-Runner brauchen für Build + 262 E2E-Tests deutlich länger als die Build-VM (Lauf 2026-10-16: nach 30 min erst Test 11)
-    timeout-minutes: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 90 || 30 }}
+    runs-on: ${{ needs.aenderungen.outputs.github == 'true' && 'ubuntu-24.04' || fromJSON('["self-hosted","leicht"]') }}
+    timeout-minutes: 30
     env:
       TZ: Europe/Berlin
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ./.github/actions/platz
       # npm-Cache über GitHub nur auf GitHub-Runnern; auf der Build-VM bleibt ~/.npm ohnehin liegen (CI-01)
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -72,6 +78,34 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Prüfung (tsc, eslint, Lizenzen, vitest)
         run: npm run check
+
+  # E2E in Shards (siehe oben). Jeder Shard baut selbst (2–4 min, einfacher und robuster als ein Build-Artefakt mit .next +
+  # workspaces). Der Backupserver-E2E (2 min) hängt am Shard 1 und nutzt dessen Build. fail-fast aus: alle Shards laufen durch,
+  # damit ein Lauf alle Fehler zeigt. Der Matrix-Job zählt in „ergebnis“ als ein Ergebnis (needs.e2e.result).
+  e2e:
+    needs: aenderungen
+    if: needs.aenderungen.outputs.voll == 'true'
+    name: e2e (${{ matrix.shard }}/${{ needs.aenderungen.outputs.shards }})
+    runs-on: ${{ needs.aenderungen.outputs.github == 'true' && 'ubuntu-24.04' || fromJSON('["self-hosted","schulos-iso"]') }}
+    # GitHub-Runner sind langsamer als die Build-VM (Lauf 2026-10-16: der volle Lauf brauchte dort > 30 min allein für E2E)
+    timeout-minutes: ${{ needs.aenderungen.outputs.github == 'true' && 40 || 30 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.aenderungen.outputs.github == 'true' && '[1,2,3,4]' || '[1]') }}
+    env:
+      TZ: Europe/Berlin
+      NEXT_TELEMETRY_DISABLED: "1"
+      SHARDS: ${{ needs.aenderungen.outputs.shards }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/platz
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          package-manager-cache: ${{ runner.environment == 'github-hosted' }}
+      - run: npm ci --ignore-scripts
       - name: Next-Build-Cache holen (Build-VM)
         if: runner.environment == 'self-hosted'
         run: bash scripts/ci/next-cache.sh holen
@@ -82,15 +116,16 @@ jobs:
         run: bash scripts/ci/next-cache.sh sichern
       - name: Playwright-Browser
         run: npx playwright install --with-deps chromium
-      - name: E2E
-        run: npm run e2e
+      - name: E2E (Shard ${{ matrix.shard }}/${{ needs.aenderungen.outputs.shards }})
+        run: npm run e2e -- --shard=${{ matrix.shard }}/$SHARDS
       - name: E2E Backupserver
+        if: matrix.shard == 1
         run: npm run e2e:backup
       - name: E2E-Ergebnisse
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-results
+          name: e2e-results-${{ matrix.shard }}
           path: |
             .data/e2e-results
             .data/e2e-backup-results
@@ -98,7 +133,7 @@ jobs:
           if-no-files-found: ignore
 
   # B-14: dieselben Unit-/Integrationstests gegen echtes PostgreSQL 18 (Produktiv-Datenbank)
-  # läuft auf dem leichten Runner parallel zu verify/stack/backup (Host-Port 5432 nutzt sonst kein CI-Job)
+  # läuft auf dem leichten Runner parallel zu check/e2e/stack/backup (Host-Port 5432 nutzt sonst kein CI-Job)
   postgres:
     needs: aenderungen
     if: needs.aenderungen.outputs.voll == 'true'
@@ -343,7 +378,7 @@ jobs:
   # CI-01: Abschluss für scripts/pr-merge.sh – rot, wenn ein Job rot/abgebrochen ist; übersprungen (Doku, Kurzprüfung) zählt
   # als grün. Nach einem vollen grünen PR-Lauf merkt sich das Artefakt „geprueft-<baum>“ den geprüften Baum für main.
   ergebnis:
-    needs: [aenderungen, verify, postgres, stack, backup]
+    needs: [aenderungen, check, e2e, postgres, stack, backup]
     if: always()
     runs-on: ${{ (vars.SCHULOS_RUNNER == 'github' || (github.event_name == 'pull_request' && (vars.SCHULOS_RUNNER == 'oeffentlich' || github.event.pull_request.head.repo.full_name != github.repository))) && 'ubuntu-24.04' || fromJSON('["self-hosted","leicht"]') }}
     timeout-minutes: 5
@@ -352,13 +387,14 @@ jobs:
         # nur Bash: der leichte Runner hat ohne setup-node kein node
         env:
           AENDERUNGEN: ${{ needs.aenderungen.result }}
-          VERIFY: ${{ needs.verify.result }}
+          CHECK: ${{ needs.check.result }}
+          E2E: ${{ needs.e2e.result }}
           POSTGRES: ${{ needs.postgres.result }}
           STACK: ${{ needs.stack.result }}
           BACKUP: ${{ needs.backup.result }}
         run: |
           rot=0
-          for job in AENDERUNGEN VERIFY POSTGRES STACK BACKUP; do
+          for job in AENDERUNGEN CHECK E2E POSTGRES STACK BACKUP; do
             r=${!job}
             echo "$job: $r"
             case "$job:$r" in AENDERUNGEN:success | [A-Z]*:success | [A-Z]*:skipped) ;; *) rot=1 ;; esac

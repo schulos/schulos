@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CI-01: entscheidet vor den schweren CI-Jobs (verify, postgres, stack, backup), ob sie laufen müssen.
+# CI-01: entscheidet vor den schweren CI-Jobs (check, e2e, postgres, stack, backup), ob sie laufen müssen.
 #   voll=false, wenn nur Doku geändert ist (docs/**, *.md) – PR und Push gleich
 #   voll=false auf main, wenn ein PR-Lauf genau diesen Baum schon komplett grün geprüft hat (Artefakt „geprueft-<baum>“
 #     aus dem Job „ergebnis“; ein Merge-Commit ohne zwischenzeitliche Änderung an main hat denselben Baum wie der
