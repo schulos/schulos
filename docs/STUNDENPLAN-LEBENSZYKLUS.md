@@ -364,7 +364,8 @@ gespeichert bleibt `obligation`) · `timetable_deputies.obligation_term2 numeric
 - **Verwerfen:** nur offene Entwürfe; ergänzt um `discarded_by/discarded_at`. Die Stunden bleiben (für „aus Vorversion“) und gehen mit der
   Version (Löschklasse LK-SJ-1J ab Schuljahr). Gültige und archivierte Versionen lassen sich nicht verwerfen.
 - **Nachtjob** `solver-aufraeumen`: leert `undo` veröffentlichter Versionen ab ihrem Stichtag, verwirft offene Entwürfe abgelaufener
-  Schuljahre und zieht „Bestand 1.0“ nach. Die gültige Version eines abgelaufenen Schuljahrs bleibt `gueltig` (Archivieren: SP3-07).
+  Schuljahre und zieht „Bestand 1.0“ nach. Die gültige Version eines abgelaufenen Schuljahrs bleibt `gueltig` (Archivieren: SP3-07 – **umgesetzt**, von Hand
+  auf der Versionsliste, siehe „Umgesetzt (SP3-07)“).
 - **Versionsliste** `/planung/versionen` (Reiter „Versionen“, nur `stundenplan.manage`; `substitute` sieht erst mit SP3-04 „ab wann welche
   Version gilt“): Schuljahr wählbar, Karte je Version mit Nummer, Name, Status, Stichtag, Quelle, Zahlen (Wochenstunden, Lerngruppen,
   Lehrkräfte, Räume, ohne Lehrkraft – veröffentlichte Versionen am Stichtag heute bzw. ihrem letzten Tag, Entwürfe alle Stunden), „Variante
@@ -563,6 +564,36 @@ gespeichert bleibt `obligation`) · `timetable_deputies.obligation_term2 numeric
 - **Datenschutz:** Löschklasse LK-SJ-1J ab Anlage (Manifest), DATENSCHUTZ §3.4; Kontolöschung ersetzt Lehrkraft-Kennungen in Vorher/Nachher (`scrubPlanChanges`,
   DS-21-Muster), „geändert von“ leert der Fremdschlüssel. Nur die Planung sieht das Protokoll.
 
+**Umgesetzt (SP3-07, 2026-10-28, ohne Migration)** – Vorgaben für offene Detailfragen (Projektleitung kann sie ändern):
+- **Vorlage „Neues Schuljahr“** (`neues-schuljahr.ts`, Versionsliste „Vorlagen“; für den Fahrplan exportiert: `newYearTemplate()` mit Schritten/Angebot/Vorschau
+  und `createNewYearDraft()`): Schritte **Schuljahr angelegt → Schuljahreswechsel Vorjahr → dieses Jahr → Versetzung → Entwurf**, je mit Stand und Sprungziel
+  (Verwaltung → Schuljahreswechsel, Versionsliste). Vorgabe (SP3-07): Die Versetzung gilt als erledigt, wenn der Schuljahreswechsel sie durchgeführt hat; ohne
+  Schuljahreswechsel reichen von Hand angelegte Klassen im neuen Jahr (Zuordnung dann über die Namensregel). Angeboten, solange im Schuljahr kein Plan gilt;
+  Nummer `x.0`, Stichtag = erster Schultag nach heute im Schuljahr, Name „Schuljahr 2027/28“.
+- **Hochstufen** (rein `promoteLessons`): Plan am **letzten Schultag des Vorjahrs** (`timetable_lessons` an dem Tag), nur ungekoppelte Stunden von Klassen des
+  Vorjahrs mit eindeutiger Nachfolgeklasse – dieselbe Zuordnung wie die Matrix (`classMapFor`: `class_map` nur 1:1, sonst `promotedName()`). Vorgabe (SP3-07):
+  **gekoppelte Stunden kommen nicht mit** (Bänder, auch reine Klassen-Kopplungen wie Religion/Ethik – sie werden neu geplant), ebenso Kurse/AGs und Klassen ohne
+  eindeutige Nachfolgerin (Abschlussjahrgang, 10a + 10b → EF). Tag, Stunde, Woche, Fach, Raum und Fixierung bleiben; die Lehrkraft folgt der Klasse, wenn sie
+  noch aktiv ist (sonst offen). Die Stunden gelten ab dem Stichtag unbefristet, **ohne** `origin_lesson_id` (der gültige Plan des neuen Jahres ist ein anderer)
+  und ohne Lehrauftrag. Quelle `previous_version`, `parent_version_id` = die Version des Vorjahrs, die am letzten Schultag galt (Karte: „Plan des Schuljahrs
+  2026/27 hochgestuft (Version 1.0)“). Alternativ **leer** (`empty`). Die Karte zeigt vorher die Zahlen (übernommen, je Grund ausgelassen, ohne Lehrkraft).
+- **Lehraufträge des Vorjahrs als Vorschlag:** nicht im Entwurf (unversioniert, F-10-5), sondern über SP3-LA „Aus dem Vorjahr übernehmen“ – die Karte nennt die Zahl
+  möglicher Vorschläge, nach dem Anlegen verlinkt sie die Matrix mit `vorschlag=vorjahr` und dem Entwurf als Quelle.
+- **Planungsjahr (Vorgabe, offen für SP3-08/Folgeaufgabe):** Stundenplan, Unterrichtsverteilung, Matrix und Solver arbeiten im **aktuellen** Schuljahr (`planningYear`).
+  Den Entwurf fürs Folgejahr kann man nach der Versetzung schon anlegen (und prüfen/veröffentlichen); bearbeiten lässt er sich erst, wenn der Schuljahreswechsel
+  abgeschlossen ist – Karte und Hinweis nach dem Anlegen sagen das. Planen im Folgejahr vor dem Abschluss braucht eine Jahreswahl in den Planungsseiten.
+- **Veröffentlichen** wie jede Version (SP3-04): unbefristete Stunden des Vorjahrs, die ins neue Schuljahr reichen, enden am Vortag des Stichtags („entfällt“).
+- **Schuljahr archivieren** (`schuljahresabschluss.ts`, nur `manage`, erst **nach** dem Schuljahresende): die gültige Version wird `archiviert` (gültig bis höchstens
+  Schuljahresende, `undo` geleert), offene Entwürfe werden verworfen (wie der Nachtjob); unter der Sperre des Veröffentlichens. „Archiviert“ ist kein eigenes Feld,
+  sondern abgeleitet (vorbei, keine gültige, keine offene, mindestens eine archivierte Version). Der Plan (`timetable_lessons`) bleibt unverändert lesbar
+  (Versionsliste, Zeitstrahl, „Plan am Tag X“, Druck). Audit `stundenplan.plan.archive_year` (Schuljahr, Nummer, Zahl verworfener Entwürfe).
+- **Kurzstatistik** je Schuljahr (Versionsliste, Abschnitt „Schuljahresabschluss“, `manage` **und** `review`): Stunden laut Plan an Schultagen (je Lerngruppe),
+  Entfall/Vertretung mit Anteil, davon nur Betreuung, Zusammenlegung, Verlegung, Raumänderung, je Grund-Kategorie und je Monat – vom Schuljahresbeginn **bis heute**
+  (abgelaufene Jahre bis zum Ende). **Keine Namen** – weder Lehrkräfte noch Klassen, für alle Rollen gleich; die Statistik je Lehrkraft/Klasse bleibt die
+  Vertretungsstatistik (`substitute`, verlinkt nur im aktuellen Schuljahr). Wird bei jedem Aufruf gerechnet, nichts gespeichert.
+- **Datenschutz:** keine neue Tabelle, keine Migration. Archivieren ändert keine Löschfrist (Versionen LK-SJ-1J ab Schuljahr, Entwurfsstunden folgen der Version);
+  die Statistik verschwindet mit den Vertretungen (LK-SJ-1J ab Datum). DATENSCHUTZ §3.4.
+
 **Recht `stundenplan.review`** („Planentwurf prüfen und freigeben“, SP3-03): Daten-Migration gibt es der Gruppe `g-schulleitung` (wie
 0088 `substitute`); 2FA-Pflicht wie die anderen Planungsrechte (Deputate/Namen im Entwurf). Keine Rollen-Vorgabe.
 
@@ -754,6 +785,8 @@ sieht ab dem Stichtag die neue Version; Vertretungen für Tage ab Stichtag werde
 Vorlagen setzen Schritt 1 vor: **Neues Halbjahr** (`live_copy` ab `term2_starts_on`, Lehraufträge am Stichtag), **Neues Schuljahr** (Jahr
 anlegen/aktiv? → Schuljahreswechsel bis „Versetzung“, dann Entwurf `empty` oder `previous_version` hochgestuft mit `class_map`, Lehraufträge
 aus dem Vorjahr als Vorschlag – SP3-07), **Änderung im laufenden Plan** (`live_copy` ab nächstem Schultag, Schritte 2–5 eingeklappt).
+**Umgesetzt (SP3-07):** „Neues Schuljahr“ auf der Versionsliste mit eigenen Schritten (`newYearTemplate()`/`createNewYearDraft()` in `neues-schuljahr.ts`, zum
+Einhängen in den Fahrplan); Details §3.1 „Umgesetzt (SP3-07)“.
 
 ---
 
@@ -836,6 +869,10 @@ dem Stichtag bleiben an der alten Zeile, danach ziehen sie um). E2E umgestellt: 
 Entwürfe nachziehen); im Entwurf unverändert. Minutentakt `vertretung-gong` sendet zusätzlich fällige Änderungslisten der Sofort-Korrekturen. Klassenbuch ohne
 Code-Änderung (Test: Einträge vor dem Stichtag an der alten, danach an der neuen Stunde bzw. ohne Bezug, wenn sie an dem Tag nicht stattfindet). „Periode kopieren“
 (`periode.ts`) entfernt; E2E `stundenplan.spec` auf die Halbjahres-Vorlage umgestellt, neu `planung-laufzeit.spec.ts`.
+
+**Umgesetzt (SP3-07):** Schuljahreswechsel unverändert (`promote()` schreibt `class_map` seit SP3-LA); die Vorlage „Neues Schuljahr“ liest Durchlauf, Versetzung und
+`class_map` und verlinkt die Schritte. Versionsliste zeigt Kurzstatistik und „Schuljahr archivieren“; alle Plan-Leser unverändert. E2E neu `planung-schuljahr.spec.ts`
+(nur lesend – Hochstufen und Archivieren in `neues-schuljahr.test.ts`/`schuljahresabschluss.test.ts`, weil sie die gemeinsame E2E-DB verändern würden).
 
 ---
 
