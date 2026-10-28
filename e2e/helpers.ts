@@ -77,8 +77,11 @@ export async function publishRun(page: Page, browser: Browser, runUrl: string, f
   return versionId;
 }
 
-/** Entwurf zur Prüfung geben und freigeben (ohne eigenes Prüfrecht: als Schulleitung in einem zweiten Kontext). */
-export async function approveVersion(page: Page, browser: Browser, versionId: string) {
+/**
+ * Entwurf zur Prüfung geben und freigeben (ohne eigenes Prüfrecht: als Schulleitung in einem zweiten Kontext). SP3-06: danach die Warnungen
+ * im Fahrplan quittieren (abschaltbar, um die Sperre des Veröffentlichens zu prüfen).
+ */
+export async function approveVersion(page: Page, browser: Browser, versionId: string, opts: { acknowledge?: boolean } = {}) {
   const review = `/planung/versionen/pruefung?version=${versionId}`;
   await page.goto(review);
   await page.getByRole("button", { name: "Zur Prüfung geben" }).click();
@@ -94,6 +97,24 @@ export async function approveVersion(page: Page, browser: Browser, versionId: st
     await expect(sl.getByRole("status")).toContainText("Freigegeben");
     await ctx.close();
   }
+  // SP3-06: Veröffentlichen verlangt Schritt 7 des Fahrplans – die Warnungen der Demo (Raumgröße, Deputate) quittieren
+  if (opts.acknowledge !== false) await acknowledgeWarnings(page, versionId);
+}
+
+/**
+ * SP3-06: im Planungsfahrplan (Schritt 7 „Prüfen“) alle offenen Diagnose-Warnungen einer Version quittieren – je Kategorie ein Formular
+ * mit Begründung. Fehler lassen sich nicht quittieren (dann bleibt das Veröffentlichen gesperrt).
+ */
+export async function acknowledgeWarnings(page: Page, versionId: string, reason = "im Test bekannt") {
+  await page.goto(`/planung/fahrplan?version=${versionId}`);
+  const forms = page.getByRole("form", { name: /quittieren$/ });
+  for (let left = await forms.count(); left > 0; left--) {
+    const form = forms.first();
+    await form.getByLabel("Begründung").fill(reason);
+    await form.getByRole("button", { name: "Quittieren" }).click();
+    await expect(forms).toHaveCount(left - 1);
+  }
+  await expect(page.getByTestId("ampel-pruefen")).not.toContainText("offen");
 }
 
 /** Freigegebene Version ab Stichtag veröffentlichen (Vorschau → „Ab … veröffentlichen“). */

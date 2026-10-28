@@ -15,6 +15,7 @@ import { validVersion } from "./planversionen";
 import { correctionFrom } from "./sofortkorrektur";
 import { createRun } from "./solverlauf";
 import { publishVersion } from "./veroeffentlichen";
+import { clearPublishGate } from "./fahrplan.testing";
 
 describe("Vorlagen „Neues Halbjahr“ und „Änderung im laufenden Plan“ (SP3-05, Demo-Schule)", () => {
   let h: DbHandle;
@@ -107,6 +108,7 @@ describe("Vorlagen „Neues Halbjahr“ und „Änderung im laufenden Plan“ (S
     await h.db.update(timetableDraftLessons).set({ roomId: "105" }).where(eq(timetableDraftLessons.id, dA.id));
     await submitForReview(h.db, viewer, v.id, now);
     await approveVersion(h.db, viewer, v.id, now);
+    await clearPublishGate(h.db, viewer.userId, v.id, today);
     await publishVersion(h.db, viewer.userId, v.id, term2, today, now);
 
     const after = await h.db.select().from(timetableLessons);

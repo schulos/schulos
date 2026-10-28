@@ -13,6 +13,7 @@ import { approveVersion, submitForReview, type Viewer } from "./planpruefung";
 import { ensureBaseVersions, listVersions, validVersion } from "./planversionen";
 import { lessonActiveOn } from "./service";
 import { publishVersion } from "./veroeffentlichen";
+import { clearPublishGate } from "./fahrplan.testing";
 
 const lesson = (over: Partial<PreviousLesson>): PreviousLesson => ({
   id: "l",
@@ -165,6 +166,7 @@ describe("Vorlage „Neues Schuljahr“ (SP3-07, Demo-Schule)", () => {
     const v = (await listVersions(h.db, toId, today)).find((x) => x.version.source === "previous_version")!.version;
     await submitForReview(h.db, viewer, v.id, now);
     await approveVersion(h.db, viewer, v.id, now);
+    await clearPublishGate(h.db, viewer.userId, v.id, today); // SP3-06: Schritt 7 des Fahrplans
     await publishVersion(h.db, viewer.userId, v.id, "2027-08-02", today, now);
     const live = await h.db.select().from(timetableLessons);
     const onDay = live.filter((l) => lessonActiveOn(l, "2027-08-02"));

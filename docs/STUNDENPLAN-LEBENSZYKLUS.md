@@ -1,6 +1,6 @@
 # SP3-00: Lebenszyklus des Stundenplans und Vertretung mit mehr Infos – Architekturkonzept
 
-> Stand: 2026-10-28 (SP3-05 umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
+> Stand: 2026-10-28 (SP3-06 umgesetzt) · Status: **abgenommen** (Projektleitung 2026-10-26: Fragebogen Runde 10 in §11, alle Empfehlungen angenommen) · Auftrag der Projektleitung 25.10.2026
 > (Arbeitsplan ab 26.10., Phase B1; Vorgaben „Nachtrag 25.10.“, „Sicht eines Stundenplaners“ und „Antworten 25.10.“).
 > Hebt die Entscheidung Q-SP-12/Q-SP-16 („keine Plan-Versionen“) auf – ausdrücklich durch die Projektleitung 25.10.2026.
 > Aufgaben nach Abnahme: `BACKLOG.md`, Blöcke **VT** (Vertretung) und **SP3** (Lebenszyklus). Dieses Dokument ändert keinen Code
@@ -788,6 +788,56 @@ aus dem Vorjahr als Vorschlag – SP3-07), **Änderung im laufenden Plan** (`liv
 **Umgesetzt (SP3-07):** „Neues Schuljahr“ auf der Versionsliste mit eigenen Schritten (`newYearTemplate()`/`createNewYearDraft()` in `neues-schuljahr.ts`, zum
 Einhängen in den Fahrplan); Details §3.1 „Umgesetzt (SP3-07)“.
 
+
+**Umgesetzt (SP3-06, 2026-10-28, ohne Migration)** – Vorgaben für offene Detailfragen (Projektleitung kann sie ändern):
+- **Aufbau:** rein `fahrplanStatus(facts, checklist, today)` und `gateOf()`/`warningKey()`/`planKennzahlen()` in `fahrplan.ts`, Lader `loadFahrplan()`
+  (gegen den Entwurf der Version an ihrem vorgemerkten Stichtag; veröffentlichte Versionen gegen den gültigen Plan), Schreiben der Checkliste unter
+  Zeilensperre. Seite `/planung/fahrplan` (Reiter „Fahrplan“, `?version=`; ohne Angabe der neueste offene Entwurf, Auswahl bei mehreren), Actions in
+  `fahrplan-actions.ts`. Die Signatur weicht von §4 ab (`fahrplanStatus(db, …)`): Zahlen sammelt der Lader, die Statusfunktion bleibt rein.
+- **Ampel:** grün = erledigt, gelb = nur Hinweise, rot = offene Punkte (Zahl). **Schritt 8 wird erst nach dem Veröffentlichen grün** (Vorgabe statt
+  „grün, wenn freigegeben + Stichtag“: sonst stünde der Fahrplan bei 8/8, ohne dass etwas gilt); „freigegeben und Schritt 7 erfüllt“ ist gelb
+  („bereit“). Bei veröffentlichten Versionen sind 7 und 8 grün.
+- **Schritte im Einzelnen (Vorgaben):** 1 – Zeitraster ≥ 1 Stunde, Stichtag vorgemerkt und Schultag (die Quelle ist mit der Version immer
+  gewählt; Ferien nur als Sprungziel). 2 – rot bei aktiven Lehrkräften ohne Lehrfach und solange das **Häkchen „Abgänge und Zugänge (Prognose)
+  gepflegt“** fehlt (aus den Daten nicht ablesbar); lange Abwesenheiten = aktive Lehrkraft-Abwesenheiten über den Stichtag ab **14 Tagen**, nur
+  Hinweis; „Pflicht ‚Vorgabe‘ bei Teilzeit“ entfällt (seit SP3-DEP speichert der Anteil die Pflicht). 3 – Klassen des Schuljahrs, Klassen ohne
+  Stundentafel des Jahrgangs, Bänder ohne Lehraufträge; bei der Vorlage „Neues Schuljahr“ zusätzlich die Versetzung des Schuljahreswechsels
+  (`promoted`). 4 – Klassen unter der Stundentafel (Lehraufträge), Lehraufträge ohne Lehrkraft; Deputate mehr als 0,5 Std. neben dem Soll nur
+  Hinweis (gelb). 5 – Fenster geschlossen oder Frist vorbei (ohne Fenster: in Ordnung), Rücklauf **100 %** (Konstante `PREF_RETURN_THRESHOLD`), Häkchen
+  „Raumsperren und Fixtermine geprüft“ (immer, Zahl der Sperren im Zeitraum und fixierten Stunden als Hinweis). 6 – offene Wochenstunden der
+  Lehraufträge im Entwurf; der letzte Lauf **dieses Entwurfs** (`params.versionId`) als Hinweis.
+- **Schritt 7 = Bedingung fürs Veröffentlichen:** `publishVersion()` prüft vor der Transaktion die Diagnose des Entwurfs an seinem vorgemerkten
+  Stichtag (nicht am gewählten Veröffentlichungstag – der liegt nie davor): **keine Fehler, jede Warnung quittiert**, sonst Abbruch mit Verweis auf den
+  Fahrplan; die Seite „Veröffentlichen“ zeigt dann statt des Knopfs den Hinweis mit Sprung zu Schritt 7. Hinweise (`info`) zählen nicht.
+- **Quittierungen:** je Warnung ein Schlüssel aus Kategorie, Bezug und Text (Hash, der Text selbst wird nicht gespeichert – er nennt Namen). Ändert
+  sich die Warnung (andere Zahl, andere Stunden), braucht sie eine neue Quittierung; alte stehen als „gehören zu Warnungen, die es nicht mehr gibt“ und
+  lassen sich aufräumen. Begründung Pflicht, ≤ 120 Zeichen (Hinweis „keine Gesundheitsangaben“). Im Formular je Kategorie alle offenen Warnungen
+  vorgewählt, **eine Begründung für die gewählten** (Sammel-Quittierung, z. B. „Teilzeit, mit SL abgestimmt“); einzeln zurücknehmen. Fehler sind nicht
+  quittierbar. Quittieren, Häkchen und Termine gehen in **allen offenen Status** (auch in Prüfung/freigegeben) – sie ändern den Inhalt nicht, eine
+  Freigabe bleibt; nach dem Veröffentlichen ist die Checkliste abgeschlossen. Nur `stundenplan.manage` schreibt; die Prüfung (`review`) liest den
+  Fahrplan ab „in Prüfung“ samt Begründungen.
+- **Termine:** optional je Schritt, bis Schuljahresende (frühestens ein Jahr vor Schuljahresbeginn); „überfällig“, solange der Schritt nicht grün ist.
+  Kein Gong, keine Erinnerung.
+- **Kennzahlen (Schritt 7):** Hohlstunden wie im Variantenvergleich; **Randstunden** = Stunden in der ersten oder letzten Stunde des Zeitrasters;
+  **erfüllte Wünsche** = Anteil der Lehrkraft-Slots mit „lieber nicht“/„gesperrt“, die frei bleiben (positive Wünsche zählen nicht); **Raumauslastung**
+  = belegte Raum-Slots je Woche / (aktive Räume × 5 Tage × Zeitraster). Dazu Diff zum gültigen Plan (geändert/neu/entfällt, betroffene Lehrkräfte und
+  Klassen) und **Sofort-Korrekturen seit Entwurfsbeginn** (`correctionsSince`, offener Punkt aus SP3-05) mit Link aufs Korrektur-Protokoll. Den
+  Variantenvergleich verlinkt der Schritt nur (Kennzahlen dort unverändert).
+- **Vorlagen:** „Neues Halbjahr“ und „Änderung im laufenden Plan“ (SP3-05) vermerken die Vorlage in `checklist.template` (auch von der Versionsliste
+  aus); „Leerer Entwurf“ = neue Planung ab dem vorgeschlagenen Stichtag mit den fixierten Stunden. **„Neues Schuljahr“** nutzt die Vorlage aus
+  SP3-07 (`schuljahrOffer()` → `newYearTemplate()`/`createNewYearDraft()` für das Schuljahr nach dem Planungsjahr, Plan des Vorjahrs hochgestuft;
+  ohne Folgejahr der Hinweis auf Stammdaten); Schritt 3 prüft bei dieser Vorlage die Versetzung. Ohne gespeicherte Vorlage gilt eine Folgeversion (`minor > 0`) als „Änderung im laufenden Plan“ (Schritte 2–5 eingeklappt).
+- **Übersicht `/planung`:** solange ein offener Entwurf existiert, ersetzt die Sektion „Planungsfahrplan“ (neuester Entwurf: Schritte mit Ampel,
+  „weiter mit …“, Zahl weiterer Entwürfe) die Jahresplanung; der Fachbedarf steht dann eigenständig. Ohne Entwurf bleibt die Jahresplanung mit
+  einer Kachel „Planungsfahrplan“ zu den Vorlagen.
+- **Korrektur-Protokoll** (offener Punkt aus SP3-05): `/planung/versionen/korrekturen?jahr=` (nur `manage`, `korrekturprotokoll.ts`) – je Aktion Zeitpunkt,
+  handelnde Person, Stichtag, Version, Begründung, Art und die Zeilen wie in der Änderungsliste, Versand an Schüler:innen/Eltern; die neuesten 1 000
+  geänderten Stunden.
+- **Datenschutz:** keine neue Tabelle; die Checkliste gehört zur Version (Löschklasse der Version). Kontolöschung ersetzt Kennungen der handelnden
+  Person (`createdBy`), der Lehrkraft einer Quittierung (`teacherId`) und Kürzel/Namen in Begründungen (`scrubPlanVersions`). Auskunft (Art. 15):
+  Quittierungen erscheinen nicht – Prüfnotizen über eine Lehrkraft wie die Kommentare (Projektleitung: ohne SL-Kommentare über die Lehrkraft).
+  Audit `stundenplan.plan.acknowledge`/`acknowledge_revoke`/`checklist` mit Zahlen und Kategorien, nie mit der Begründung.
+
 ---
 
 ## 5. Rechte und Datenschutz
@@ -966,7 +1016,7 @@ STUNDENPLAN-UMBAU §6.2/§7: „Plan-Versionen: bewusst nein (Q-SP-16)“ → �
 - [x] **GATE VT** Kontolöschung bereinigt `substitution_changes` – Belege: `vertretung-infos.test.ts` „Kontolöschung ersetzt die Vertretungslehrkraft in der Historie …“, `loeschlauf-konto.test.ts` (DS-21-Muster), `benachrichtigung.test.ts` „Kontolöschung nimmt die Einträge der Person mit“ (Warteschlange); **SP3-04:** `veroeffentlichen.test.ts` „… Kontolöschung ersetzt Lehrkraft-Kennungen darin“ (`undo`/`notify` der Planversionen). **SP3-05:** `sofortkorrektur.test.ts` „Kontolöschung ersetzt die Lehrkraft in Vorher/Nachher des Protokolls“ (`scrubPlanChanges` in `deleteAccounts`). **Offen für GATE SP3:** Gesamtdurchlauf SP3-08
 - [x] **GATE VT** Sendewarteschlange: Ruhezeit, Endstand, genau ein Versand je Tag und Zielgruppe, zwei Instanzen senden nicht doppelt – Belege: `sendezeit.test.ts` (Zeitlogik, Ruhezeit, Sommerzeit), `benachrichtigung.test.ts` „morgen: eingereiht für den Vortag 18:00, gesendet wird nur der Endstand …, genau einmal“, „nach der Vortags-Uhrzeit sofort; in der Ruhezeit wartet die Nachricht …“, „zwei Takte gleichzeitig (zwei App-Prozesse) senden nicht doppelt“, `e2e/vertretung-benachrichtigung.spec.ts`, `e2e/zx-gate-vt.spec.ts`
 - [ ] Benchmark/Solver-Kern durch die SP3-Pakete unverändert (dieselbe Lösung wie der jeweils gültige Benchmark-Stand; neue Stände nur durch SQ-01…03) – **SP3-02:** `solver.ts` unverändert, `solver.benchmark.test.ts` grün (gleiche Lösung), Solver-Eingabe für den gültigen Plan unverändert (Vorgabe `source`), `entwurf.test.ts` (Lauf im Entwurf)
-- [ ] Fahrplan: jeder Schritt-Status aus Demo-Daten nachvollziehbar; Warnung ohne Quittierung blockiert Schritt 8
+- [ ] Fahrplan: jeder Schritt-Status aus Demo-Daten nachvollziehbar; Warnung ohne Quittierung blockiert Schritt 8 – **SP3-06 Belege:** `fahrplan.test.ts` (jeder Schritt rot aus seinen Daten, Lader auf der Demo, „Veröffentlichen scheitert an Schritt 7“, Zurücknehmen einer Quittierung sperrt wieder), Gegentest (Sperre in `publishVersion` ausgeschaltet → Test rot), E2E `planung-fahrplan.spec.ts`
 - [ ] Doku: STUNDENPLAN.md, DATENSCHUTZ §3.4, SICHERHEIT S8x, DSB-FRAGEN §13-Hinweis, Release-Notes – **VT-Teil erledigt:** `STUNDENPLAN.md` §0 „Vertretung als Arbeitsplatz“, `DATENSCHUTZ.md` §3.4 (VT-01, VT-04) und DSB-Checkliste Thema 13, `SICHERHEIT.md` S85, Release-Notes `release/notes/0.10.0.json` (Vorschlag). **Offen für GATE SP3:** Versionen, Prüfung/Freigabe, Archiv, Fahrplan (S8x, Release-Notes v0.11)
 
 ---

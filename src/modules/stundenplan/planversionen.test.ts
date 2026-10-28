@@ -203,6 +203,8 @@ describe("Querschnitt: kein fremder Leser des Entwurfs (SP3-01, §5 b)", () => {
   it("im Modul nur Schema, Manifest (Löschklasse), Planquelle, Versionen, die Übernahme in den Entwurf (SP3-02) und die Prüfung (SP3-03) – Plan-Leser (Wochenplan, Vertretung, Monitor, Druck …) bleiben beim gültigen Plan", () => {
     const hits = files.filter((f) => /timetableDraftLessons|timetable_draft_lessons/.test(f.text) && f.path.startsWith("src/modules/stundenplan/")).map((f) => f.path).sort();
     expect(hits).toEqual([
+      // SP3-06: Fahrplan zählt fixierte Stunden des Entwurfs (Schritt 5)
+      "src/modules/stundenplan/fahrplan.ts",
       "src/modules/stundenplan/manifest.ts",
       "src/modules/stundenplan/plan-quelle.ts",
       // SP3-03: Lehrkräfte-Vorschau (nur die eigenen Stunden) und Bezugsauswahl der Kommentare
@@ -222,7 +224,7 @@ describe("Querschnitt: kein fremder Leser des Entwurfs (SP3-01, §5 b)", () => {
 
   it("SP3-02: nur die Planung arbeitet mit der Planquelle – Vertretung, Wochenplan, Heute, Anzeige, Freigabe, Gong, Exporte, Vorlagen und Sofort-Korrektur lesen nur den gültigen Plan", () => {
     const planners = files.filter((f) => f.path.startsWith("src/modules/stundenplan/") && /lessonCols\(|lessonTable\(|PlanSource|plan-quelle/.test(f.text)).map((f) => f.path.replace("src/modules/stundenplan/", "")).sort();
-    expect(planners).toEqual(["actions.ts", "diagnose.ts", "manage.ts", "plan-diff.ts", "plan-quelle.ts", "planversionen.ts", "quelle.ts", "schema.ts", "setzhilfe.ts", "solver-input.ts", "solverlauf.ts", "verteilung.ts"]);
+    expect(planners).toEqual(["actions.ts", "diagnose.ts", "fahrplan.ts", "manage.ts", "plan-diff.ts", "plan-quelle.ts", "planversionen.ts", "quelle.ts", "schema.ts", "setzhilfe.ts", "solver-input.ts", "solverlauf.ts", "verteilung.ts"]);
     for (const reader of ["service.ts", "vertretung.ts", "today.ts", "display.ts", "widgets.tsx", "freigabe.ts", "vertretung-gong.ts", "abwesenheit.ts", "raumsperren.ts", "exporte.ts", "laufzeit.ts", "sofortkorrektur.ts", "arbeitsplatz.ts", "vorschlaege.ts"])
       expect(planners).not.toContain(reader);
   });

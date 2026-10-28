@@ -269,6 +269,8 @@ describe("Querschnitt: Kommentare, Vorschau und Entwurfsstunden nie außerhalb d
   it("Prüf-Services nutzen nur Planungsseiten und die Lehrkräfte-Vorschau – Schülersicht, Monitor, Gong, Druck und Exporte nicht", () => {
     const users = files.filter((f) => /planpruefung/.test(f.text) && f.path !== "src/modules/stundenplan/planpruefung.ts").map((f) => f.path).sort();
     expect(users).toEqual([
+      // SP3-06: Planungsfahrplan (Sichtbarkeit wie die Versionsliste, offene Kommentare in Schritt 8)
+      "src/app/(shell)/planung/fahrplan/page.tsx",
       "src/app/(shell)/planung/page.tsx",
       "src/app/(shell)/planung/versionen/aenderungen/page.tsx",
       "src/app/(shell)/planung/versionen/page.tsx",
@@ -276,6 +278,7 @@ describe("Querschnitt: Kommentare, Vorschau und Entwurfsstunden nie außerhalb d
       "src/app/(shell)/stundenplan/page.tsx",
       "src/app/(shell)/stundenplan/vorschau/page.tsx",
       "src/modules/stundenplan/actions.ts",
+      "src/modules/stundenplan/fahrplan.ts",
     ]);
     // der Wochenplan ruft nur die Liste freigeschalteter Versionen ab – und nur für Lehrkräfte
     const plan = files.find((f) => f.path === "src/app/(shell)/stundenplan/page.tsx")!.text;

@@ -2,6 +2,8 @@
 // Jahresplanung (`stundenplan.manage`): Schuljahr, offene Lehraufträge, Diagnose, Zeitwunsch-Fenster, letzter Solver-Lauf.
 // Tagesgeschäft (`stundenplan.substitute`): Vertretungsbedarf heute/nächster Schultag, Entwürfe, unbesetzte Aufsichten, Raumsperren.
 // Nur Zähler, keine Auswertung je Lehrkraft (wie „Offen für dich“).
+// SP3-06 (§4, §6 „Übersicht“): Sobald ein offener Entwurf existiert, ersetzt der Planungsfahrplan (Status der acht Schritte) die
+// Jahresplanung; ohne Entwurf bleibt sie und eine Kachel führt zu den Vorlagen des Fahrplans.
 import { desc, eq, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { SOLVER_RUN_STATUS, timetableSolverRuns } from "@/core/db/schema";
@@ -11,6 +13,9 @@ import { needsOn } from "./abwesenheit";
 import { dutiesOn } from "./aufsichten";
 import { defaultObligation } from "./deputate";
 import { diagnoseYear } from "./diagnose";
+import { fahrplanVersions, loadFahrplan, type Ampel, type FahrplanStep } from "./fahrplan";
+import { versionNumber } from "./planversionen";
+import type { PlanVersionStatus } from "./schema";
 import { openDrafts } from "./freigabe";
 import { blocksOn } from "./raumsperren";
 import { distribution, planningYear, type Distribution } from "./verteilung";
@@ -62,10 +67,48 @@ export interface SubstituteFigures {
   roomBlocks: { date: string; count: number; rooms: string[] };
 }
 
+/** SP3-06: Status des Planungsfahrplans des neuesten offenen Entwurfs. */
+export interface FahrplanSummary {
+  versionId: string;
+  label: string;
+  name: string;
+  status: PlanVersionStatus;
+  validFrom: string | null;
+  done: number;
+  steps: { step: FahrplanStep; nr: number; title: string; ampel: Ampel; open: number }[];
+  next: { step: FahrplanStep; nr: number; title: string } | null;
+  /** Schritt 7 erfüllt (Veröffentlichen möglich, sobald freigegeben) */
+  gateOk: boolean;
+  /** weitere offene Entwürfe im Schuljahr */
+  otherDrafts: number;
+}
+
 export interface PlanningOverview {
   year: PlanningYearInfo | null;
+  /** Jahresplanung – nur ohne offenen Entwurf (sonst ersetzt der Fahrplan sie) */
   manage: YearPlanningFigures | null;
+  fahrplan: FahrplanSummary | null;
   substitute: SubstituteFigures | null;
+}
+
+async function fahrplanSummary(db: Db, year: PlanningYearInfo, today: string): Promise<FahrplanSummary | null> {
+  const drafts = await fahrplanVersions(db, year.id);
+  const v = drafts[0];
+  if (!v) return null;
+  const { fahrplan } = await loadFahrplan(db, v, today);
+  const next = fahrplan.next ? fahrplan.steps.find((x) => x.step === fahrplan.next)! : null;
+  return {
+    versionId: v.id,
+    label: versionNumber(v),
+    name: v.name,
+    status: v.status,
+    validFrom: v.validFrom,
+    done: fahrplan.done,
+    steps: fahrplan.steps.map(({ step, nr, title, ampel, open }) => ({ step, nr, title, ampel, open })),
+    next: next ? { step: next.step, nr: next.nr, title: next.title } : null,
+    gateOk: fahrplan.gate.ok,
+    otherDrafts: drafts.length - 1,
+  };
 }
 
 async function lastSolverRun(db: Db, schoolYearId: string): Promise<YearPlanningFigures["lastRun"]> {
@@ -142,9 +185,10 @@ async function substituteFigures(db: Db, today: string): Promise<SubstituteFigur
 export async function planningOverview(db: Db, today: string, rights: { manage: boolean; substitute: boolean }, dist?: Distribution): Promise<PlanningOverview> {
   const y = await planningYear(db);
   const year: PlanningYearInfo | null = y ? { id: y.id, name: y.name, startsOn: y.startsOn, endsOn: y.endsOn, isCurrent: y.isCurrent } : null;
+  const fahrplan = rights.manage && year ? await fahrplanSummary(db, year, today) : null;
   const [manage, substitute] = await Promise.all([
-    rights.manage && year ? yearFigures(db, year, today, dist) : null,
+    rights.manage && year && !fahrplan ? yearFigures(db, year, today, dist) : null,
     rights.substitute ? substituteFigures(db, today) : null,
   ]);
-  return { year, manage, substitute };
+  return { year, manage, fahrplan, substitute };
 }

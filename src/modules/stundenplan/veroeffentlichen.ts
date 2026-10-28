@@ -32,6 +32,7 @@ import { plannedSendAt } from "./sendezeit";
 import { roomClashes, substitutionsToRestore, type UndoSubstitution } from "./solverlauf";
 import { deletedEntries, moveChangeHistory, recordLessonCascade, recordSubstitutionChanges, snapshotOf } from "./vertretung-historie";
 import { changeNames, notifyGroupLists } from "./plan-gong";
+import { gateProblem, publishGate } from "./fahrplan";
 
 const dayFmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TZ });
 const shortDayFmt = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: TZ });
@@ -405,6 +406,10 @@ export async function publishVersion(db: Db, actorId: string, versionId: string,
   const v0 = await getVersion(db, versionId);
   if (!v0) throw new ValidationError({ version: "Version nicht gefunden" });
   await checkPublish(db, v0, from, today);
+  // SP3-06 (§4 Schritt 7): Diagnose des Entwurfs ohne Fehler, jede Warnung quittiert – vor der Transaktion (eine freigegebene Version
+  // lässt sich nicht bearbeiten; Quittierungen ändern den Inhalt nicht)
+  const problem = gateProblem(await publishGate(db, v0, today));
+  if (problem) throw new ValidationError({ version: problem });
   const windows = await readSendWindows(db);
   const names = await changeNames(db);
 

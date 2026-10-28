@@ -17,7 +17,7 @@ bleibt als Ausgangslage stehen; die Abschnitte 2 bis 6 sind das Konzept – was 
 | Thema | Stand |
 |---|---|
 | **Bereich `/planung`** | Eigener Bereich „Stundenplanung“ (Navigation, nur mit `stundenplan.manage` oder `stundenplan.substitute`, sonst 404). Reiter nach Recht: Übersicht · Stundenplan · Unterrichtsverteilung · Zeitwünsche · Automatisch planen (`manage`) · Vertretungen (`substitute`) · Aufsichten. Stammdaten (Fächer, Räume, Zeitraster, Schuljahre, Ferien) und Deputate bleiben in der Verwaltung. Die alten Adressen unter `/verwaltung/…` leiten weiter |
-| **Übersicht** | Kennzahlen aus den vorhandenen Diensten, je Recht getrennt: Jahresplanung (offene Lehraufträge, Diagnose, Zeitwunsch-Fenster, letzter Lauf) und Tagesgeschäft (Vertretungsbedarf, Entwürfe, unbesetzte Aufsichten, Raumsperren) |
+| **Übersicht** | Kennzahlen aus den vorhandenen Diensten, je Recht getrennt: Jahresplanung (offene Lehraufträge, Diagnose, Zeitwunsch-Fenster, letzter Lauf) und Tagesgeschäft (Vertretungsbedarf, Entwürfe, unbesetzte Aufsichten, Raumsperren). SP3-06: Solange ein Planentwurf offen ist, steht dort statt der Jahresplanung der Planungsfahrplan (Schritte mit Ampel, „weiter mit …“) |
 | **Rechte** | Zwei getrennte Rechte (`manage` = Jahresplanung, `substitute` = Tagesgeschäft), vergeben über die Funktionsgruppe „Stundenplanung“ statt über eine Rolle; Schulleitung hat `substitute`. Das Sekretariat plant per Vorgabe nicht mehr (Bestandsinstallationen behalten ihren Grant, bis der Admin ihn entzieht). 2FA ist für beide Rechte sofort Pflicht. Die Gruppe darf Kurswahlen lesen (`kurswahl.view`, nur Zahlen je Angebot, nie Schüler:innen-Wünsche). Mitglieder trägt nur ein, wer beide Rechte selbst hat – auf neuen Installationen der Admin (SICHERHEIT S80) |
 | **Solver-Läufe** | Jeder Lauf hat Bezeichnung, Gründlichkeit, Startwert und Gewichtung (Voreinstellungen oder eigene). Läufe kommen in eine **Warteschlange** (ein Lauf rechnet gleichzeitig, der Rest wartet), lassen sich **abbrechen** (wartend sofort, laufend mit dem bis dahin besten Stand), sind nach einem Neustart des Servers nicht verloren und werden vor dem Start auf fehlende Eingaben **geprüft** (Zeitraster, Lehraufträge, Räume). Die Detailseite zeigt Fortschritt, Vorprüfung, Protokoll, Kostenposten und „nicht gesetzt“ mit Grund je Einheit sowie eine Vorschau je Klasse oder Lehrkraft |
 | **Vergleich** | 2 bis 3 fertige Läufe nebeneinander: Kennzahlen mit Bestwert und Abstand zum ersten Lauf, Parameter-Abweichungen, Vorschau |
@@ -44,7 +44,41 @@ bleibt als Ausgangslage stehen; die Abschnitte 2 bis 6 sind das Konzept – was 
 | **Sofort-Korrektur (SP3-05)** | Im gültigen Plan ändert die Planung weiter direkt (Raumtausch, andere Lehrkraft über Wochen, Stunde verschieben oder tauschen, Stunde löschen) – aber als **Sofort-Korrektur ab dem nächsten Schultag**: die laufende Stunde endet am Vortag, die neue gilt ab dann; Klassenbuch, Vertretungen und Material davor bleiben an der alten Stunde, danach ziehen sie mit (findet die neue Stunde an dem Tag nicht statt, entfällt die Vertretung mit Eintrag im Verlauf). Direkt geändert wird nur, was keinen Vergangenheitsbezug hat: Stunden, die erst später beginnen, und Stunden, die heute neu angelegt wurden und noch keine Einträge haben (Tippfehler); bei laufenden Stunden lässt sich das Ende verschieben, der Beginn nicht. Das Formular nennt den Stichtag und nimmt eine optionale **Begründung** fürs Protokoll; nach dem Speichern zeigt die Pflege den Plan ab dem Stichtag mit dem Ergebnis. Jede Korrektur steht im Protokoll; die betroffenen **Lehrkräfte** bekommen ihre Änderungen sofort im Gong, **Schüler:innen und Eltern** am Vortag zur eingestellten Uhrzeit. Ab 10 direkt geänderten Stunden rät die Pflege zur Folgeversion. Offene Entwürfe ziehen eine Korrektur nach, soweit sie die Stunde unverändert übernommen hatten – sonst zeigt „Änderungen“ den Unterschied. Details: [`STUNDENPLAN-LEBENSZYKLUS.md`](STUNDENPLAN-LEBENSZYKLUS.md) §2.4/§3.1 |
 | **Folgeversion und Neues Halbjahr (SP3-05)** | Unter „Versionen“ → **Vorlagen**: „Änderung im laufenden Plan“ legt eine Folgeversion (z. B. 1.1) aus dem gültigen Plan ab dem nächsten Schultag an, „Neues Halbjahr“ einen Entwurf (z. B. 2.0) ab dem Beginn des 2. Halbjahrs (Stammdaten → Schuljahr) – dort rechnen Lehraufträge, Setzhilfe und „Automatisch planen“ am Stichtag („Lehraufträge am …“). Danach der normale Weg: im Entwurf arbeiten, Änderungen ansehen, zur Prüfung geben, freigeben lassen, veröffentlichen. „Periode kopieren“ gibt es nicht mehr – das Veröffentlichen teilt nur die geänderten Stunden. |
 | **Neues Schuljahr und Schuljahresabschluss (SP3-07)** | Vorlage **„Neues Schuljahr“** (Versionsliste des neuen Schuljahrs): Schritte Schuljahreswechsel → Versetzung → Entwurf. Der Entwurf übernimmt den Plan des letzten Schultags im Vorjahr **hochgestuft** – jede Klasse geht an ihre Nachfolgeklasse aus der Versetzung, die Lehrkraft folgt der Klasse; Kurse, Bänder und gekoppelte Stunden werden neu geplant; alternativ leer. Die Lehraufträge schlägt danach die Matrix vor („Aus dem Vorjahr übernehmen“). Bearbeiten lässt sich der Entwurf, sobald das neue Schuljahr das aktuelle ist. **Schuljahresabschluss**: Kurzstatistik Ausfall/Vertretung des Schuljahrs ohne Namen (auch für die Schulleitung) und – nach dem Schuljahresende – „Schuljahr archivieren“ (gültige Version → archiviert, offene Entwürfe verworfen; alles bleibt lesbar). Details: [`STUNDENPLAN-LEBENSZYKLUS.md`](STUNDENPLAN-LEBENSZYKLUS.md) §3.1 |
+| **Planungsfahrplan (SP3-06)** | Reiter „Fahrplan“ (`/planung/fahrplan`): eine Checkliste mit acht Schritten je Entwurf, Stand aus den Daten – siehe „Planen in acht Schritten“ unten. Die Übersicht `/planung` zeigt statt der Jahresplanung den Fahrplan-Status, solange ein Entwurf offen ist. Veröffentlicht wird erst, wenn die Diagnose des Entwurfs keine Fehler hat und jede Warnung mit Begründung quittiert ist. Sofort-Korrekturen stehen im **Korrektur-Protokoll** (`/planung/versionen/korrekturen`) |
 | **Demo** | Login `frank.schulte` (Passwort `schulos`) gehört zur Gruppe Stundenplanung und plant unter `/planung` |
+
+### Planen in acht Schritten (SP3-06)
+
+Der **Planungsfahrplan** (Stundenplanung → „Fahrplan“) führt durch eine Planung – Halbjahr, Schuljahr oder Änderung im laufenden Plan – bis
+zum Veröffentlichen. Er ist eine Checkliste, kein Assistent: jeder Schritt zeigt eine **Ampel** (grün = erledigt, gelb = nur Hinweise, rot =
+offene Punkte mit Zahl), was offen ist und **wohin man springt**, um es zu erledigen; zurückspringen geht jederzeit. Der Stand wird aus den
+Daten des Entwurfs an seinem Stichtag berechnet – nur zwei Dinge hakt die Planung von Hand ab, und jeder Schritt kann einen **Termin**
+bekommen (überfällig, solange er nicht grün ist).
+
+**Beginnen** – ohne offenen Entwurf bietet der Fahrplan (und die Übersicht) Vorlagen an: **Neues Halbjahr** (Entwurf aus dem gültigen Plan ab
+Beginn des 2. Halbjahrs), **Änderung im laufenden Plan** (Folgeversion ab dem nächsten Schultag; die Schritte 2–5 sind dann eingeklappt),
+**Leerer Entwurf** (Neuplanung, fixierte Stunden werden übernommen) und **Neues Schuljahr** (für das folgende Schuljahr: nach
+Schuljahreswechsel und Versetzung der Plan des Vorjahrs hochgestuft, SP3-07). Mehrere offene Entwürfe wählt man oben auf der Seite.
+
+| # | Schritt | grün, wenn … | springt zu |
+|---|---|---|---|
+| 1 | Rahmen | Zeitraster vorhanden, Stichtag vorgemerkt und ein Schultag | Versionskarte, Stammdaten |
+| 2 | Personal | jede aktive Lehrkraft hat Lehrfächer, Häkchen „Abgänge und Zugänge (Prognose) gepflegt“; lange Abwesenheiten über den Stichtag als Hinweis | Deputate, Lehrfächer, Fachbedarf |
+| 3 | Lerngruppen | Klassen im Schuljahr, jede mit Stundentafel des Jahrgangs, keine leeren Bänder | Klassen und Kurse, Bänder |
+| 4 | Unterrichtsverteilung | jede Klasse erreicht die Stundentafel, kein Lehrauftrag ohne Lehrkraft; Deputate mehr als 0,5 Std. neben dem Soll als Hinweis | Matrix, Deputate |
+| 5 | Wünsche & Sperrzeiten | Zeitwunsch-Fenster geschlossen oder Frist vorbei, alle Lehrkräfte haben abgegeben, Häkchen „Raumsperren und Fixtermine geprüft“ | Zeitwünsche, Raumsperren |
+| 6 | Setzen | keine offenen Wochenstunden im Entwurf (letzter Solver-Lauf des Entwurfs als Hinweis) | Setzhilfe im Entwurf, Automatisch planen |
+| 7 | Prüfen | Diagnose des Entwurfs ohne Fehler, **jede Warnung quittiert**; dazu Änderungen zum gültigen Plan, Sofort-Korrekturen seit Entwurfsbeginn, Kennzahlen (Hohlstunden, Randstunden, erfüllte Wünsche, Raumauslastung) | Diagnose im Entwurf, Änderungen, Variantenvergleich, Korrektur-Protokoll |
+| 8 | Vorschau & Veröffentlichen | veröffentlicht (gelb = freigegeben und bereit) | Prüfung & Freigabe, Veröffentlichen |
+
+**Quittieren (Schritt 7):** Warnungen der Diagnose (z. B. Raum zu klein, Deputat unter Soll) sind kein Fehler, aber jemand soll sie bewusst
+gesehen haben. Im Fahrplan steht je Kategorie ein Formular mit den offenen Warnungen (alle vorgewählt) und einer **Begründung** (Pflicht,
+höchstens 120 Zeichen, keine Gesundheitsangaben) – „Quittieren“ gilt für die gewählten. Quittierte lassen sich einzeln zurücknehmen. Ändert
+sich eine Warnung (andere Zahl, andere Stunden), gilt sie als neu. **Fehler** lassen sich nicht quittieren, nur im Entwurf beheben.
+„Veröffentlichen …“ ist gesperrt, bis Schritt 7 erfüllt ist, und führt sonst in den Fahrplan. Quittierungen ändern den Inhalt nicht – sie gehen
+auch noch in „in Prüfung“ und „freigegeben“, die Freigabe bleibt.
+
+Wer prüft (Schulleitung, `stundenplan.review`), sieht den Fahrplan ab „in Prüfung“ lesend – samt Quittierungen und Begründungen.
 
 **Grenzen (kommen im Folgeblock SP2, siehe [`STUNDENPLAN-UMBAU.md`](STUNDENPLAN-UMBAU.md) §7):** keine Oberstufen-Blockung aus Kurswahlen
 (Bänder werden von Hand gebildet), Verlegung nur innerhalb desselben Tages, keine Exporte/Drucke/Statistiken der Planung (nur der bestehende Plandruck). Der Solver

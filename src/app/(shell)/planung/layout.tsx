@@ -21,7 +21,9 @@ export default async function PlanungLayout({ children }: { children: React.Reac
   if (!manage && !substitute && !forecast && !review) notFound();
   const tabs = [
     { href: "/planung", label: "Übersicht" },
-    manage && { href: "/planung/stundenplan", label: "Stundenplan" },
+    // SP3-06: Planungsfahrplan (acht Schritte); die Prüfung (Schulleitung) sieht ihn lesend ab „in Prüfung“
+    (manage || review) && { href: "/planung/fahrplan", label: "Fahrplan" },
+    manage &&{ href: "/planung/stundenplan", label: "Stundenplan" },
     manage && { href: "/planung/unterricht", label: "Unterrichtsverteilung" },
     manage && { href: "/planung/zeitwuensche", label: "Zeitwünsche" },
     manage && { href: "/planung/solver", label: "Automatisch planen" },
