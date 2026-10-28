@@ -813,6 +813,13 @@
       "when": 1793214218920,
       "tag": "0115_rs_02_steckbrief",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1793221613306,
+      "tag": "0116_hb_01_handbuch",
+      "breakpoints": true
     }
   ]
 }

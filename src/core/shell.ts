@@ -7,7 +7,7 @@ import { groupMembers, groups, notifications, profilePhotos } from "@/core/db/sc
 import { ROLE_LABELS } from "@/core/labels";
 import { photoUrl } from "@/core/privacy/profilbild";
 import { isSelfResponsible } from "@/core/school/majority";
-import { buildNav, loadModuleStates, type NavGroup } from "@/core/modules/registry";
+import { buildNav, isEnabled, loadModuleStates, type NavGroup } from "@/core/modules/registry";
 import { readModuleSettings } from "@/core/modules/settings";
 import { MODULES } from "@/modules";
 import { ensureModuleDefaults } from "@/modules/startup";
@@ -19,6 +19,8 @@ export interface ShellData {
   unread: number;
   /** Zähler je Modul (z. B. ungelesene Chats) */
   badges: Record<string, number>;
+  /** HB-03: „?“ in der Kopfzeile zeigen (Handbuch eingeschaltet) */
+  help: boolean;
   userId: string;
   user: { name: string; avatar: string; photo?: string; roleLabel: string; detail?: string; officeHours?: boolean; selfResponsible?: boolean };
 }
@@ -59,6 +61,7 @@ export const getShellData = cache(async ({ user, perms }: CurrentUser): Promise<
     nav: buildNav(MODULES, states, perms, { selfResponsible, classLead: user.role === "lehrkraft" && memberships.some((l) => l.kind === "klasse" && l.role === "leader" && !l.archivedAt), settings }),
     unread: unreadRow?.n ?? 0,
     badges: { messenger: chatUnread },
+    help: MODULES.some((m) => m.id === "hilfe" && isEnabled(m, states)),
     userId: user.id,
     user: { name: user.name, avatar: user.shortCode ?? initials(user.name), photo: photoUrl(user.id, photo?.at), roleLabel, detail, officeHours: user.role === "beratung", selfResponsible },
   };

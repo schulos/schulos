@@ -1,23 +1,12 @@
 "use client";
 
-import { X } from "lucide-react";
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
 import type { Role } from "@/core/roles";
 import { checkedAfter } from "@/core/form-values";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Button } from "@schulos/ui/button";
-import { Field, Input, Select, Textarea } from "@schulos/ui/field";
-
-const TARGET_ROLES: Role[] = ["schueler", "lehrkraft", "eltern", "personal", "beratung", "verwaltung"];
-const ROLE_PLURAL: Record<Role, string> = {
-  schueler: "Schüler:innen",
-  lehrkraft: "Lehrkräfte",
-  eltern: "Eltern",
-  personal: "Personal",
-  beratung: "Beratung (Schulsozialarbeit)",
-  verwaltung: "Verwaltung",
-  admin: "Administration",
-};
+import { Field, Input, Textarea } from "@schulos/ui/field";
+import { TargetPicker } from "@/ui/target-picker";
 
 export interface PostFormValues {
   title: string;
@@ -45,13 +34,9 @@ export function PostForm({
   showNotify: boolean;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
-  const [roles, setRoles] = useState<Role[]>(initial?.targetRoles ?? []);
-  const [groupIds, setGroupIds] = useState<string[]>(initial?.targetGroupIds ?? []);
   const fe = state.fieldErrors ?? {};
   // nach einem Fehler mit den eingegebenen Werten neu aufbauen (key) – React setzt das Formular sonst zurück (TD-02)
   const v = state.values;
-  const nameOf = (id: string) => groups.find((g) => g.id === id)?.name ?? id;
-  const everyone = roles.length === 0 && groupIds.length === 0;
 
   return (
     <form key={JSON.stringify(state.values ?? null)} action={formAction} className="flex flex-col gap-5">
@@ -62,60 +47,13 @@ export function PostForm({
         <Textarea name="body" defaultValue={v?.body ?? initial?.body} rows={10} required />
       </Field>
 
-      <fieldset className="flex flex-col gap-3 rounded-xl border border-border p-4">
-        <legend className="px-1 text-sm font-medium">Für wen?</legend>
-        <div className="flex flex-wrap gap-2">
-          {TARGET_ROLES.map((r) => {
-            const on = roles.includes(r);
-            return (
-              <label key={r} className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-border px-3 has-checked:border-accent has-checked:bg-accent-soft">
-                <input
-                  type="checkbox"
-                  name="targetRole"
-                  value={r}
-                  checked={on}
-                  onChange={() => setRoles((cur) => (on ? cur.filter((x) => x !== r) : [...cur, r]))}
-                  className="size-4 accent-[var(--accent)]"
-                />
-                {ROLE_PLURAL[r]}
-              </label>
-            );
-          })}
-        </div>
-        <Select
-          aria-label="Gruppe hinzufügen"
-          value=""
-          onChange={(e) => {
-            const id = e.target.value;
-            if (id && !groupIds.includes(id)) setGroupIds((cur) => [...cur, id]);
-          }}
-        >
-          <option value="">Gruppe hinzufügen …</option>
-          {groups
-            .filter((g) => !groupIds.includes(g.id))
-            .map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-        </Select>
-        {groupIds.length > 0 && (
-          <ul className="flex flex-wrap gap-2">
-            {groupIds.map((id) => (
-              <li key={id} className="inline-flex items-center gap-1 rounded-full bg-accent-soft py-1 pr-1 pl-3 text-sm text-accent-ink">
-                <input type="hidden" name="targetGroup" value={id} />
-                {nameOf(id)}
-                <button type="button" aria-label={`${nameOf(id)} entfernen`} className="grid size-6 place-items-center rounded-full hover:bg-surface" onClick={() => setGroupIds((cur) => cur.filter((x) => x !== id))}>
-                  <X className="size-3.5" aria-hidden />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="text-sm text-muted" role="status">
-          {everyone ? "Ohne Auswahl sehen alle den Beitrag." : "Eltern sehen Beiträge an die Klassen ihrer Kinder automatisch mit."}
-        </p>
-      </fieldset>
+      <TargetPicker
+        initialRoles={initial?.targetRoles ?? []}
+        initialGroupIds={initial?.targetGroupIds ?? []}
+        groups={groups}
+        everyoneText="Ohne Auswahl sehen alle den Beitrag."
+        hint="Eltern sehen Beiträge an die Klassen ihrer Kinder automatisch mit."
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Sichtbar bis" hint="Optional – danach verschwindet der Beitrag" error={fe.expiresAt}>

@@ -42,6 +42,7 @@ export const EXPORT_NOT_PERSONAL: Record<string, string> = {
   timetable_assignment_groups: "Gruppen eines Lehrauftrags",
   timetable_bands: "Band der Unterrichtsverteilung (Name, Stunden – keine Personen)",
   umfragen_targets: "Zielgruppen einer Umfrage (Rollen und Gruppen, keine Personen)",
+  hilfe_targets: "Zielgruppen einer Handbuchseite (Rollen und Gruppen, keine Personen)",
   gebaeude_maintenance_rooms: "Räume eines Wartungstermins (keine Personen)",
   gebaeude_inspections:
     "Prüfnachweise ohne Verweis auf ein Konto; Protokoll-PDF und Bemerkung können Namen der prüfenden Person (Firma, kein Konto) enthalten und werden nach der übernächsten Prüfung geleert (G4-01)",
@@ -96,6 +97,8 @@ export const ACTOR_KEEP: Record<string, string[] | ((row: Record<string, unknown
   // Verlauf einer Meldung: eigene Kommentare und Statuswechsel ja; „zugewiesen an <Name>“ nennt eine andere Person
   // Verlauf eines Anmeldeantrags (P4-32): nur Art und Antrag – Notizen können Namen der Familie enthalten
   anmeldung_ereignisse: ["antrag_id", "kind"],
+  // Handbuch (HB-01): wer eine Seite angelegt bzw. zuletzt geändert hat – mit Seitentitel, ohne Inhalt
+  hilfe_pages: ["slug", "title"],
   gebaeude_ticket_events: (row) => ["ticket_id", "kind", "status_from", "status_to", ...(row.kind === "zuweisung" ? [] : ["text"])],
 };
 

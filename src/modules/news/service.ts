@@ -1,41 +1,21 @@
 // News – schwarzes Brett mit Zielgruppen.
-import { and, asc, desc, eq, exists, gt, inArray, isNull, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { groupMembers, groups, newsPosts, newsTargets, users, ROLES, type Role } from "@/core/db/schema";
 import { ROLE_LABELS } from "@/core/labels";
-import { childIdsQuery, parentLinks } from "@/core/school/majority";
+import { audienceGroups, targetedTo } from "@/core/school/audience";
+import { parentLinks } from "@/core/school/majority";
 import { notify } from "@/core/notifications";
 import { hasPermission, type PermissionSet } from "@/core/permissions";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { de } from "@/core/db/sort";
 
 export const canWrite = (p: PermissionSet) => hasPermission(p, "news.write");
 export const canManage = (p: PermissionSet) => hasPermission(p, "news.manage");
 
-/** Gruppen, deren Beiträge der Betrachter sieht: eigene + (für Eltern) die der Kinder. */
-async function audienceGroups(db: Db, viewer: PermissionSet): Promise<string[]> {
-  const ids = new Set(viewer.memberOf);
-  if (viewer.role === "eltern") {
-    const rows = await db
-      .select({ groupId: groupMembers.groupId })
-      .from(groupMembers)
-      // Q5-05: eigenständige Kinder nur mit deren Einwilligung
-      .where(inArray(groupMembers.userId, childIdsQuery(db, viewer.userId, "inform")));
-    rows.forEach((r) => ids.add(r.groupId));
-  }
-  return [...ids];
-}
-
 async function visibility(db: Db, viewer: PermissionSet): Promise<SQL | undefined> {
   if (canManage(viewer)) return undefined;
-  const audience = await audienceGroups(db, viewer);
-  const targetMatch = [eq(newsTargets.role, viewer.role)];
-  if (audience.length) targetMatch.push(inArray(newsTargets.groupId, audience));
-  return or(
-    eq(newsPosts.authorId, viewer.userId),
-    notExists(db.select({ x: sql`1` }).from(newsTargets).where(eq(newsTargets.postId, newsPosts.id))),
-    exists(db.select({ x: sql`1` }).from(newsTargets).where(and(eq(newsTargets.postId, newsPosts.id), or(...targetMatch)))),
-  );
+  const targets = { table: newsTargets, owner: newsTargets.postId, role: newsTargets.role, groupId: newsTargets.groupId };
+  return or(eq(newsPosts.authorId, viewer.userId), targetedTo(db, targets, newsPosts.id, viewer, await audienceGroups(db, viewer)));
 }
 
 const notExpired = (now: Date) => or(isNull(newsPosts.expiresAt), gt(newsPosts.expiresAt, now));
@@ -214,12 +194,4 @@ export async function deletePost(db: Db, actor: PermissionSet, id: string): Prom
   await db.delete(newsPosts).where(eq(newsPosts.id, id));
 }
 
-/** Gruppen, die man als Zielgruppe wählen kann: Personal alle, sonst eigene. */
-export async function targetableGroups(db: Db, actor: PermissionSet) {
-  const staff = ["lehrkraft", "verwaltung", "admin"].includes(actor.role);
-  return db
-    .select({ id: groups.id, name: groups.name, kind: groups.kind })
-    .from(groups)
-    .where(staff ? undefined : inArray(groups.id, [...actor.memberOf, "__none__"]))
-    .orderBy(asc(groups.kind), asc(groups.gradeLevel), de(groups.name));
-}
+export { targetableGroups } from "@/core/school/audience";

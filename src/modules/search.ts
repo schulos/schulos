@@ -5,6 +5,7 @@ import { aufgabenSearch } from "./aufgaben/search";
 import { buechereiSearch } from "./buecherei/search";
 import { forenSearch } from "./foren/search";
 import { gebaeudeSearch } from "./gebaeude/search";
+import { hilfeSearch } from "./hilfe/search";
 import { kalenderSearch } from "./kalender/search";
 import { kurseSearch } from "./kurse/search";
 import { newsSearch } from "./news/search";
@@ -26,4 +27,5 @@ export const SEARCH_PROVIDERS: readonly SearchProvider[] = [
   notenbuchSearch,
   buechereiSearch,
   raeumeSearch,
+  hilfeSearch,
 ];

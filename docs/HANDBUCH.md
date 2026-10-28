@@ -56,3 +56,37 @@ Anleitungen. Rechtliche Einordnung: zu prüfen.
 6. Sichtbarkeit über Zielgruppen; Starter-Seiten für Eltern und Schüler:innen vorbelegt sichtbar, eigene Seiten nur Personal.
 7. Anhänge und Verlauf später, Stufe 1 nur Text.
 8. Menüname „Handbuch“, „?“ in der Kopfzeile.
+
+## Umgesetzt (HB-01…HB-04)
+
+Stand 2026-10-28, Migration 0116 (`hilfe_sections`, `hilfe_pages`, `hilfe_targets`, Enum `hilfe_page_status`).
+
+- **Modul `hilfe`** (Menü „Handbuch“, Bereich Organisation; neue Installationen eingeschaltet, nach einem Update wie jedes neue
+  Modul zunächst aus). Rechte `hilfe.edit` (Bereiche und Seiten anlegen, ändern, veröffentlichen, Reihenfolge) und `hilfe.manage`
+  (zusätzlich Seiten und leere Bereiche löschen); Vorgabe beides für die Verwaltung, Funktionsgruppen über Gruppenrechte.
+- **Sichtbarkeit** filtert der Service (`pageVisibility`): Pflegende sehen alles, die Ansprechperson ihre Seite (auch als Entwurf),
+  alle anderen nur veröffentlichte Seiten ihrer Zielgruppen. Die Zielgruppen-Regel (keine Zeile = alle, Rolle oder Gruppe, Eltern über
+  die Gruppen ihrer Kinder) teilt sich das Handbuch mit News über `src/core/school/audience.ts`; die Auswahl „Für wen?“ ist die
+  gemeinsame Komponente `src/ui/target-picker.tsx`. Neue Seiten sind vorbelegt mit Lehrkräften, Personal, Beratung und Verwaltung.
+- **Seiten** unter `/hilfe/<adresse>` (Adresse einmalig aus dem Titel, bleibt bei Umbenennung stabil – Ziel für Links
+  `[Titel](/hilfe/adresse)`), Markdown wie News (`@schulos/ui/markdown`, ohne Roh-HTML), Entwurf/veröffentlicht, Reihenfolge per
+  Pfeilen, Druckansicht `/druck/hilfe/<adresse>` (PDF über den Browser). Der Editor weist darauf hin, keine Schüler-, Gesundheits- oder
+  Notendaten einzutragen.
+- **Ansprechperson** (aktives Konto des Personals) darf ihre Seite bearbeiten – nur Titel und Text; Bereich, Status, Zielgruppen und
+  Ansprechperson ändern Pflegende. Speichern oder „Geprüft, unverändert“ setzt „zuletzt geprüft“.
+- **Suche:** Volltext (deutsch, GIN-Index auf Titel + Text) plus Teilwort im Titel auf `/hilfe?q=…`, Suchanbieter „Handbuch“ in der
+  globalen Suche (Strg+K) – jeweils nur sichtbare Seiten.
+- **„?“ in der Kopfzeile** (nur bei eingeschaltetem Modul) führt ins Handbuch; das Ziel liefert `helpHref()` in
+  `src/modules/hilfe/context.ts`.
+- **Überprüfung** (HB-04): Moduleinstellung „Erinnerung zur Überprüfung“ (aus / 6 / 12 / 24 Monate, Vorgabe 12). Tagesjob
+  `hilfe-ueberpruefung` (07:15) schickt je fälliger, veröffentlichter Seite mit Ansprechperson genau einmal einen Gong an sie (bedingtes
+  UPDATE in einer Transaktion); Prüfen setzt die Frist neu. Widget „Handbuch: Überprüfung fällig“: Pflegende sehen alle fälligen Seiten
+  (auch ohne Ansprechperson), Ansprechpersonen ihre eigenen.
+- **Datenschutz:** Verweise auf Personen mit `on delete set null` (Kontolöschung leert sie, die Seite bleibt), `LK-KONTO` im Manifest,
+  `hilfe_sections` ohne Personenbezug, Auskunft (Ansprechperson: ganze Seite; Bearbeiter:in: Handlung mit Titel), DSB-FRAGEN §20, Zeile in
+  DATENSCHUTZ.md §3.4. Demo: Bereich „Schulalltag“ mit „Fundsachen“ (alle) und „Kopierer im Lehrerzimmer“ (Personal, Überprüfung fällig).
+
+**Andockpunkte:** HB-05 Anhänge → Tabelle `hilfe_attachments` (Seite, `storage_key`) samt Dateispeicher-Abgleich und `EXPORT_FILES`;
+HB-06 Verlauf → `hilfe_revisions` in der Transaktion von `updatePage` schreiben; HB-07 Starter-Seiten und Kontexthilfe → Vorlagen
+über `createPage` (eigene Seiten bleiben „nur Personal“), Zuordnung Modulpfad → Adresse in `CONTEXT_PAGES`; HB-08 → Löschtabelle und
+VVT-Text ergänzen (DSB-Thema §20 steht schon).
