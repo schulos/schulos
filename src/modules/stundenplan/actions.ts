@@ -16,6 +16,8 @@ import { applyRunToDraft, cancelRun, createRun, DEFAULT_PASSES, deleteRun, execu
 import { publishVersion, undoPublish } from "./veroeffentlichen";
 import { correctionSummary, type LiveOptions } from "./sofortkorrektur";
 import { createFromTemplate, type PlanTemplate } from "./laufzeit";
+import { createNewYearDraft } from "./neues-schuljahr";
+import { archiveYear as archivePlanYear } from "./schuljahresabschluss";
 import { QUELLE_LIVE, quelleQuery, writableSource } from "./quelle";
 import type { PlanSource } from "./plan-quelle";
 import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
@@ -1215,6 +1217,37 @@ export async function createFromTemplateAction(schoolYearId: string, template: P
   }
   revalidatePath(VERSIONS_PAGE);
   redirect(`${versionsPage(v.schoolYearId, "angelegt", v.id)}&vorlage=${template}`);
+}
+
+/**
+ * SP3-07: Vorlage „Neues Schuljahr“ – Entwurf im neuen Schuljahr aus dem Plan des Vorjahrs, hochgestuft (Klassen über `class_map`), oder
+ * leer. Voraussetzung ist die Versetzung im Schuljahreswechsel; die Lehraufträge schlägt danach die Matrix vor („Aus dem Vorjahr übernehmen“).
+ */
+export async function createNewYearDraftAction(schoolYearId: string, form: FormData): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  const base = form.get("base") === "leer" ? "leer" : "vorjahr";
+  let v: { id: string; schoolYearId: string };
+  try {
+    v = await createNewYearDraft(await getDb(), user.id, schoolYearId, base, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(versionsPage(schoolYearId, "fehler", firstError(err)));
+    throw err;
+  }
+  revalidatePath(VERSIONS_PAGE);
+  redirect(`${versionsPage(v.schoolYearId, "angelegt", v.id)}&vorlage=schuljahr`);
+}
+
+/** SP3-07: abgelaufenes Schuljahr archivieren (gültige Version → archiviert, offene Entwürfe verworfen; alles bleibt lesbar). */
+export async function archiveYearAction(schoolYearId: string): Promise<void> {
+  const { user } = await requirePermission("stundenplan.manage");
+  try {
+    await archivePlanYear(await getDb(), { userId: user.id, manage: true, review: false }, schoolYearId, toBerlinDate(new Date()));
+  } catch (err) {
+    if (err instanceof ValidationError) redirect(versionsPage(schoolYearId, "fehler", firstError(err)));
+    throw err;
+  }
+  revalidatePath(VERSIONS_PAGE);
+  redirect(versionsPage(schoolYearId, "archiviert", "1"));
 }
 
 /** Variante eines Entwurfs anlegen (gleiche Stunden, eigener Name). */

@@ -7,9 +7,11 @@ import { getDb } from "@/core/db/client";
 import { schoolYears } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
-import { createDraftAction, createFromTemplateAction } from "@/modules/stundenplan/actions";
+import { createDraftAction, createFromTemplateAction, createNewYearDraftAction } from "@/modules/stundenplan/actions";
 import { templateOffers, type PlanTemplate, type TemplateOffer } from "@/modules/stundenplan/laufzeit";
-import { PLAN_MANAGE, PLAN_REVIEW } from "@/modules/stundenplan/rechte";
+import { newYearTemplate, type NewYearTemplate } from "@/modules/stundenplan/neues-schuljahr";
+import { share, yearClosing, type YearArchiveState, type YearStatistics } from "@/modules/stundenplan/schuljahresabschluss";
+import { PLAN_MANAGE, PLAN_REVIEW, PLAN_SUBSTITUTE } from "@/modules/stundenplan/rechte";
 import { actorNames, canSeeVersion, openCommentCounts, selfApproved, type Viewer } from "@/modules/stundenplan/planpruefung";
 import { ensureBaseVersions, listVersions, nextNumber, OPEN_STATUSES, STATUS_LABELS, suggestedValidFrom, versionNumber, type VersionSummary } from "@/modules/stundenplan/planversionen";
 import type { PlanVersionSource, PlanVersionStatus } from "@/modules/stundenplan/schema";
@@ -20,6 +22,8 @@ import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
+import { Table } from "@schulos/ui/table";
+import { ArchiveYearButton } from "./archive-year-button";
 import { DraftForm } from "./draft-form";
 import { VersionActions } from "./version-actions";
 
@@ -44,7 +48,11 @@ function sourceText(s: VersionSummary): string {
     bestand: "Bestand – der Plan vor den Planversionen",
     live_copy: s.parentLabel ? `aus dem gültigen Plan (Version ${s.parentLabel})` : "aus dem gültigen Plan",
     empty: "leer angelegt",
-    previous_version: s.parentLabel ? `Kopie von Version ${s.parentLabel}` : "Kopie einer Vorversion",
+    previous_version: s.parentYearName
+      ? `Plan des Schuljahrs ${s.parentYearName} hochgestuft (Version ${s.parentLabel})`
+      : s.parentLabel
+        ? `Kopie von Version ${s.parentLabel}`
+        : "Kopie einer Vorversion",
     variant_of: s.parentLabel ? `Variante von Entwurf ${s.parentLabel}` : "Variante",
     solver_run: "aus einem Solver-Lauf",
   };
@@ -166,7 +174,11 @@ function VersionCard({ s, manage, openComments, approver, undoable }: { s: Versi
  * SP3-04: „Veröffentlichen …“ an freigegebenen Versionen, „Veröffentlichung ansehen / zurücknehmen“ an der gültigen, Zeitstrahl der
  * veröffentlichten Versionen.
  */
-export default async function VersionenPage({ searchParams }: { searchParams: Promise<{ jahr?: string; angelegt?: string; verworfen?: string; fehler?: string; zurueck?: string; vorlage?: string }> }) {
+export default async function VersionenPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ jahr?: string; angelegt?: string; verworfen?: string; fehler?: string; zurueck?: string; vorlage?: string; archiviert?: string }>;
+}) {
   const { user, perms } = await requireUser();
   const viewer: Viewer = { userId: user.id, manage: hasPermission(perms, PLAN_MANAGE), review: hasPermission(perms, PLAN_REVIEW) };
   if (!viewer.manage && !viewer.review) notFound();
@@ -187,14 +199,18 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
   }
   // neue Installation oder Demo: der vorhandene Plan wird „Bestand 1.0“ (idempotent)
   await ensureBaseVersions(db, today);
-  const [all, suggestion, nextMajor, nextMinor, timeline, offers] = await Promise.all([
+  const [all, suggestion, nextMajor, nextMinor, timeline, offers, newYear, closing] = await Promise.all([
     listVersions(db, year.id, today),
     suggestedValidFrom(db, year, today),
     nextNumber(db, year.id, "major"),
     nextNumber(db, year.id, "minor"),
     publishedTimeline(db, year.id),
     templateOffers(db, year, today),
+    // SP3-07: Vorlage „Neues Schuljahr“ (nur Planung) und Schuljahresabschluss (Kurzstatistik ohne Namen auch für die Prüfung)
+    manage ? newYearTemplate(db, year, today, fallback?.id ?? null) : Promise.resolve(null),
+    yearClosing(db, viewer, year, today),
   ]);
+  const followingYear = years.find((y) => y.startsOn > year.endsOn) ?? null;
   // SP3-03: die Prüfung sieht nur Versionen ab „in Prüfung“ (§5)
   const versions = all.filter((s) => canSeeVersion(viewer, s.version));
   const [comments, approvers] = await Promise.all([
@@ -245,6 +261,7 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
             Entwurf {created.label} „{created.version.name}“ angelegt ({num.format(created.figures.lessons)} Wochenstunden). Der gültige Plan ist unverändert.
           </p>
           {(sp.vorlage === "aenderung" || sp.vorlage === "halbjahr") && <TemplateSteps template={sp.vorlage} versionId={created.version.id} validFrom={created.version.validFrom} />}
+          {sp.vorlage === "schuljahr" && <NewYearSteps versionId={created.version.id} planningYear={year.id === fallback?.id} yearName={year.name} />}
         </div>
       )}
       {sp.zurueck && (
@@ -255,6 +272,11 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
       {discarded && (
         <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
           Entwurf {discarded.label} „{discarded.version.name}“ verworfen.
+        </p>
+      )}
+      {sp.archiviert && closing.state.archived && (
+        <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
+          Schuljahr {year.name} archiviert – die Versionen bleiben lesbar.
         </p>
       )}
 
@@ -315,7 +337,7 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
         </section>
       )}
 
-      {manage && <Templates yearId={year.id} offers={offers} />}
+      {manage && <Templates yearId={year.id} offers={offers} newYear={newYear} followingYear={followingYear} />}
 
       {manage && (
       <Card aria-labelledby="draft-title">
@@ -350,6 +372,17 @@ export default async function VersionenPage({ searchParams }: { searchParams: Pr
           zurück an die Planung geben geht dort. Veröffentlicht wird danach von der Stundenplanung.
         </p>
       )}
+
+      <YearClosing
+        yearId={year.id}
+        yearName={year.name}
+        endsOn={year.endsOn}
+        stats={closing.stats}
+        state={closing.state}
+        canArchive={closing.canArchive}
+        manage={manage}
+        namedStats={hasPermission(perms, PLAN_SUBSTITUTE) && year.id === fallback?.id}
+      />
     </main>
   );
 }
@@ -367,8 +400,21 @@ const TEMPLATE_TEXT: Record<PlanTemplate, { title: string; text: string; button:
   },
 };
 
-/** SP3-05 (§4 Vorlagen): „Änderung im laufenden Plan“ (Folgeversion) und „Neues Halbjahr“ – beide als Entwurf aus dem gültigen Plan. */
-function Templates({ yearId, offers }: { yearId: string; offers: Record<PlanTemplate, TemplateOffer> }) {
+/**
+ * SP3-05 (§4 Vorlagen): „Änderung im laufenden Plan“ (Folgeversion) und „Neues Halbjahr“ – beide als Entwurf aus dem gültigen Plan.
+ * SP3-07: „Neues Schuljahr“ mit den Schritten Schuljahreswechsel → Versetzung → Entwurf aus dem Vorjahr (hochgestuft) bzw. leer.
+ */
+function Templates({
+  yearId,
+  offers,
+  newYear,
+  followingYear,
+}: {
+  yearId: string;
+  offers: Record<PlanTemplate, TemplateOffer>;
+  newYear: NewYearTemplate | null;
+  followingYear: { id: string; name: string } | null;
+}) {
   return (
     <section id="vorlagen" aria-labelledby="templates-title" className="flex flex-col gap-3">
       <h2 id="templates-title" className="font-display text-xl font-bold">
@@ -401,7 +447,254 @@ function Templates({ yearId, offers }: { yearId: string; offers: Record<PlanTemp
             </li>
           );
         })}
+        {newYear && <NewYearCard t={newYear} followingYear={followingYear} />}
       </ul>
+    </section>
+  );
+}
+
+/** SP3-07: Vorlage „Neues Schuljahr“ – Schritte mit Stand und Sprungziel, Vorschau des Hochstufens, Anlegen (aus dem Vorjahr oder leer). */
+function NewYearCard({ t, followingYear }: { t: NewYearTemplate; followingYear: { id: string; name: string } | null }) {
+  const p = t.preview;
+  const skipped = p ? p.skipped.courses + p.skipped.coupled + p.skipped.unmapped : 0;
+  return (
+    <li className="md:col-span-2">
+      <article aria-labelledby="template-schuljahr" data-testid="vorlage-neues-schuljahr" className="flex h-full min-w-0 flex-col gap-3 rounded-card border border-border bg-surface p-4">
+        <h3 id="template-schuljahr" className="font-semibold">
+          Neues Schuljahr
+        </h3>
+        <p className="text-sm text-muted">
+          Entwurf fürs Schuljahr {t.year.name} aus dem Plan des Vorjahrs, hochgestuft: jede Klasse geht an ihre Nachfolgeklasse aus der Versetzung, die
+          Lehrkraft folgt der Klasse. Kurse und Bänder werden neu geplant. Die Lehraufträge schlägt danach die Matrix vor („Aus dem Vorjahr übernehmen“).
+        </p>
+        <ol aria-label="Schritte zum neuen Schuljahr" className="flex flex-col gap-1.5 text-sm">
+          {t.steps.map((s) => (
+            <li key={s.key} data-step={s.key} data-done={s.done ? "ja" : "nein"} className="flex flex-wrap items-baseline gap-x-2">
+              <Badge tone={s.done ? "success" : "warn"}>{s.done ? "erledigt" : "offen"}</Badge>
+              {s.href && !s.done ? (
+                <Link href={s.href} className="font-medium text-accent-ink hover:underline">
+                  {s.label}
+                </Link>
+              ) : (
+                <span className="font-medium">{s.label}</span>
+              )}
+              <span className="text-muted">{s.detail}</span>
+            </li>
+          ))}
+        </ol>
+        {p && (
+          <p data-testid="vorlage-schuljahr-vorschau" className="text-sm">
+            Aus dem Schuljahr {t.previousYear?.name}: <strong>{num.format(p.lessons)}</strong> Wochenstunden für {num.format(p.classes)}{" "}
+            {p.classes === 1 ? "Klasse" : "Klassen"} (Plan am {date(p.reference)}){p.reconstructed ? ", Zuordnung über die Klassennamen" : ""}.
+            {skipped > 0 && (
+              <span className="block text-xs text-muted">
+                Nicht übernommen: {num.format(p.skipped.courses)} Kurs-/AG-Stunden, {num.format(p.skipped.coupled)} gekoppelte Stunden (Bänder),{" "}
+                {num.format(p.skipped.unmapped)} Stunden ohne eindeutige Nachfolgeklasse (Abschluss, zusammengelegte Klassen).
+              </span>
+            )}
+            {p.teacherCleared > 0 && <span className="block text-xs text-muted">{num.format(p.teacherCleared)} Stunden ohne Lehrkraft (nicht mehr aktiv).</span>}
+            {t.assignmentSuggestions > 0 && (
+              <span className="block text-xs text-muted">Lehraufträge des Vorjahrs: bis zu {num.format(t.assignmentSuggestions)} Vorschläge in der Matrix.</span>
+            )}
+          </p>
+        )}
+        {t.offer.ok ? (
+          <form action={createNewYearDraftAction.bind(null, t.year.id)} className="mt-auto flex flex-col items-start gap-3">
+            <p data-testid="vorlage-schuljahr" className="text-sm">
+              Version <strong>{t.offer.number}</strong> ab <strong>{date(t.offer.validFrom)}</strong>
+            </p>
+            <fieldset className="flex flex-col gap-1.5 text-sm">
+              <legend className="mb-1 font-medium">Ausgangsbasis</legend>
+              <label className="flex items-center gap-2">
+                <input type="radio" name="base" value="vorjahr" defaultChecked={(p?.lessons ?? 0) > 0} disabled={(p?.lessons ?? 0) === 0} className="size-4 accent-accent" />
+                Plan des Vorjahrs, hochgestuft
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" name="base" value="leer" defaultChecked={(p?.lessons ?? 0) === 0} className="size-4 accent-accent" />
+                Leer (neu planen)
+              </label>
+            </fieldset>
+            {!t.planningYear && (
+              <p className="text-xs text-muted">
+                Stundenplan, Unterrichtsverteilung und „Automatisch planen“ arbeiten im aktuellen Schuljahr – im Entwurf für {t.year.name}, sobald der
+                Schuljahreswechsel abgeschlossen ist.
+              </p>
+            )}
+            <Button type="submit" variant="primary">
+              Entwurf fürs Schuljahr anlegen
+            </Button>
+          </form>
+        ) : (
+          <p className="mt-auto text-sm text-muted">{t.offer.reason}</p>
+        )}
+        {followingYear && (
+          <p className="text-sm">
+            <Link href={`/planung/versionen?jahr=${encodeURIComponent(followingYear.id)}#vorlagen`} className="font-medium text-accent-ink hover:underline">
+              Neues Schuljahr {followingYear.name} planen
+            </Link>
+          </p>
+        )}
+      </article>
+    </li>
+  );
+}
+
+/** SP3-07: nach dem Anlegen „Neues Schuljahr“ – Lehraufträge aus dem Vorjahr (Matrix), im Entwurf arbeiten. */
+function NewYearSteps({ versionId, planningYear, yearName }: { versionId: string; planningYear: boolean; yearName: string }) {
+  const q = encodeURIComponent(versionId);
+  const link = "font-medium underline";
+  if (!planningYear)
+    return (
+      <p>
+        Weiter, sobald {yearName} das aktuelle Schuljahr ist (Abschluss des Schuljahreswechsels): Lehraufträge aus dem Vorjahr in der Matrix übernehmen, dann im
+        Entwurf planen.
+      </p>
+    );
+  return (
+    <nav aria-label="Nächste Schritte" className="flex flex-wrap gap-x-4 gap-y-1">
+      <Link href={`/planung/unterricht?ansicht=matrix&vorschlag=vorjahr&quelle=${q}`} className={link}>
+        Lehraufträge aus dem Vorjahr übernehmen
+      </Link>
+      <Link href={`/planung/stundenplan?quelle=${q}`} className={link}>
+        Im Entwurf arbeiten
+      </Link>
+      <Link href={`/planung/solver?quelle=${q}`} className={link}>
+        Automatisch planen
+      </Link>
+    </nav>
+  );
+}
+
+const pct = (part: number, whole: number) => {
+  const s = share(part, whole);
+  return s === null ? null : `${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 }).format(s)} %`;
+};
+
+/**
+ * SP3-07: Schuljahresabschluss – Kurzstatistik Ausfall/Vertretung ohne Namen (Planung und Prüfung) und „Schuljahr archivieren“ (nur Planung,
+ * nach dem Schuljahresende).
+ */
+function YearClosing({
+  yearId,
+  yearName,
+  endsOn,
+  stats,
+  state,
+  canArchive,
+  manage,
+  namedStats,
+}: {
+  yearId: string;
+  yearName: string;
+  endsOn: string;
+  stats: YearStatistics | null;
+  state: YearArchiveState;
+  canArchive: boolean;
+  manage: boolean;
+  namedStats: boolean;
+}) {
+  const tiles = stats
+    ? [
+        { label: "Stunden laut Plan", value: num.format(stats.planned), hint: "je Lerngruppe an Schultagen" },
+        { label: "Entfall", value: num.format(stats.cancel), hint: pct(stats.cancel, stats.planned) },
+        { label: "Vertretung", value: num.format(stats.substitute), hint: [pct(stats.substitute, stats.planned), stats.supervision ? `davon ${num.format(stats.supervision)} nur Betreuung` : null].filter(Boolean).join(" · ") || null },
+        { label: "Zusammenlegung", value: num.format(stats.merge), hint: null },
+        { label: "Verlegung", value: num.format(stats.move), hint: null },
+        { label: "Raumänderung", value: num.format(stats.room), hint: null },
+      ]
+    : [];
+  return (
+    <section aria-labelledby="closing-title" className="flex flex-col gap-3">
+      <h2 id="closing-title" className="font-display text-xl font-bold">
+        Schuljahresabschluss {yearName}
+      </h2>
+      {!stats ? (
+        <p className="text-sm text-muted">Das Schuljahr hat noch nicht begonnen – die Kurzstatistik beginnt mit dem ersten Schultag.</p>
+      ) : (
+        <>
+          <p className="-mt-1 text-sm text-muted">
+            Ausfall und Vertretung {date(stats.from)} – {date(stats.to)}, nur Zahlen ohne Namen.
+            {namedStats && (
+              <>
+                {" "}
+                <Link href="/planung/vertretungen/statistik" className="font-medium text-accent-ink hover:underline">
+                  Vertretungsstatistik je Lehrkraft und Klasse
+                </Link>
+              </>
+            )}
+          </p>
+          <dl data-testid="kurzstatistik" className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+            {tiles.map((t) => (
+              <div key={t.label} className="flex min-w-0 flex-col rounded-card border border-border bg-surface p-3">
+                <dt className="text-xs text-muted">{t.label}</dt>
+                <dd className="font-display text-xl font-bold tabular-nums">{t.value}</dd>
+                {t.hint && <dd className="text-xs text-muted">{t.hint}</dd>}
+              </div>
+            ))}
+          </dl>
+          {stats.byReason.length > 0 && (
+            <div className="grid gap-3 lg:grid-cols-2">
+              <Table scrollLabel="Änderungen je Grund">
+                <caption className="px-4 pt-3 text-left text-sm font-semibold">Änderungen je Grund</caption>
+                <thead>
+                  <tr>
+                    <th>Grund</th>
+                    <th className="text-right">Anzahl</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.byReason.map((r) => (
+                    <tr key={r.reason ?? "ohne"}>
+                      <td>{r.label}</td>
+                      <td className="text-right tabular-nums">{num.format(r.count)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+              <Table scrollLabel="Änderungen je Monat">
+                <caption className="px-4 pt-3 text-left text-sm font-semibold">Änderungen je Monat</caption>
+                <thead>
+                  <tr>
+                    <th>Monat</th>
+                    <th className="text-right">Entfall</th>
+                    <th className="text-right">Vertretung</th>
+                    <th className="text-right">andere</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.byMonth.map((m) => (
+                    <tr key={m.month}>
+                      <td>{m.label}</td>
+                      <td className="text-right tabular-nums">{num.format(m.cancel)}</td>
+                      <td className="text-right tabular-nums">{num.format(m.substitute)}</td>
+                      <td className="text-right tabular-nums">{num.format(m.other)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          )}
+        </>
+      )}
+      {manage && (
+        <div data-testid="schuljahr-archiv" className="flex flex-col items-start gap-2 text-sm">
+          {state.archived ? (
+            <p>
+              <Badge tone="neutral">archiviert</Badge> Das Schuljahr ist archiviert – Versionen, Zeitstrahl und „Plan am …“ bleiben lesbar.
+            </p>
+          ) : canArchive ? (
+            <>
+              <p className="text-muted">
+                Das Schuljahr ist vorbei{state.valid ? ` – Version ${state.valid.label} „${state.valid.name}“ ist noch gültig` : ""}
+                {state.open > 0 ? ` · ${state.open} offene ${state.open === 1 ? "Entwurf" : "Entwürfe"}` : ""}. Archivieren schließt es ab; alles bleibt lesbar.
+              </p>
+              <ArchiveYearButton yearId={yearId} yearName={yearName} open={state.open} />
+            </>
+          ) : (
+            <p className="text-muted">{state.ended ? "Im Schuljahr gibt es keine Version zum Archivieren." : `Archivieren geht nach dem Schuljahresende (${date(endsOn)}).`}</p>
+          )}
+        </div>
+      )}
     </section>
   );
 }

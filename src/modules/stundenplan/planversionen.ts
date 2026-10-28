@@ -114,6 +114,8 @@ export interface VersionSummary {
   createdByName: string | null;
   /** Nummer der Version, von der sie abstammt (Variante/Folgeversion/Kopie) */
   parentLabel: string | null;
+  /** SP3-07: Schuljahr der Vorgängerin, wenn sie in einem anderen Schuljahr liegt („Neues Schuljahr“ aus dem Vorjahr) */
+  parentYearName: string | null;
   /** Stichtag, an dem die Kennzahlen gelten (veröffentlichte Versionen) bzw. null (Entwurf: alle Stunden) */
   figuresOn: string | null;
   figures: PlanFigures;
@@ -138,18 +140,30 @@ export async function listVersions(db: Db, schoolYearId: string, todayYmd: strin
     .where(eq(timetablePlanVersions.schoolYearId, schoolYearId))
     .orderBy(desc(timetablePlanVersions.major), desc(timetablePlanVersions.minor), desc(timetablePlanVersions.createdAt));
   const byId = new Map(rows.map((r) => [r.v.id, r.v]));
+  // SP3-07: „Neues Schuljahr“ stammt von einer Version des Vorjahrs ab
+  const foreign = [...new Set(rows.map((r) => r.v.parentVersionId).filter((id): id is string => id !== null && !byId.has(id)))];
+  const foreignRows = foreign.length
+    ? await db
+        .select({ v: timetablePlanVersions, yearName: schoolYears.name })
+        .from(timetablePlanVersions)
+        .innerJoin(schoolYears, eq(schoolYears.id, timetablePlanVersions.schoolYearId))
+        .where(inArray(timetablePlanVersions.id, foreign))
+    : [];
+  const foreignById = new Map(foreignRows.map((r) => [r.v.id, r]));
   const rank = (s: PlanVersionStatus) => (s === "verworfen" ? 2 : s === "archiviert" ? 1 : 0);
   rows.sort((a, b) => rank(a.v.status) - rank(b.v.status));
   return Promise.all(
     rows.map(async (r) => {
       const source = versionSource(r.v, todayYmd);
-      const parent = r.v.parentVersionId ? byId.get(r.v.parentVersionId) : undefined;
+      const other = r.v.parentVersionId ? foreignById.get(r.v.parentVersionId) : undefined;
+      const parent = r.v.parentVersionId ? (byId.get(r.v.parentVersionId) ?? other?.v) : undefined;
       return {
         version: r.v,
         label: versionNumber(r.v),
         yearName: r.yearName,
         createdByName: r.createdByName,
         parentLabel: parent ? versionNumber(parent) : null,
+        parentYearName: other?.yearName ?? null,
         figuresOn: source.kind === "live" ? source.refYmd : null,
         figures: planFigures(await planLessons(db, source)),
       };
@@ -238,6 +252,8 @@ export async function suggestedValidFrom(db: Db, year: { startsOn: string; endsO
 }
 
 type DraftRow = typeof timetableDraftLessons.$inferInsert;
+/** Zeile einer Entwurfsstunde ohne Version (SP3-07: hochgestufte Stunden des Vorjahrs) */
+export type DraftLessonInsert = Omit<DraftRow, "versionId">;
 
 /** Stunden des gültigen Plans ab dem Stichtag (im Schuljahr) – Kopie mit Herkunft, Beginn frühestens am Stichtag. */
 async function liveRowsFrom(db: Db, year: { endsOn: string }, fromYmd: string, onlyFixed: boolean): Promise<Omit<DraftRow, "versionId">[]> {
@@ -274,7 +290,7 @@ async function previousRows(db: Db, prev: TimetablePlanVersion, fromYmd: string)
   return rows.map((l) => ({ ...lessonFields(l), validFrom: fromYmd, validUntil: l.validUntil && l.validUntil >= fromYmd ? l.validUntil : null, originLessonId: l.id }));
 }
 
-async function insertDraftRows(db: Db, versionId: string, rows: Omit<DraftRow, "versionId">[]) {
+export async function insertDraftRows(db: Db, versionId: string, rows: Omit<DraftRow, "versionId">[]) {
   for (let i = 0; i < rows.length; i += 500) await db.insert(timetableDraftLessons).values(rows.slice(i, i + 500).map((r) => ({ ...r, versionId })));
 }
 

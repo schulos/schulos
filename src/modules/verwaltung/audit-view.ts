@@ -106,6 +106,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "stundenplan.plan.publish": "Stundenplan-Version veröffentlicht",
   "stundenplan.plan.correction": "Stundenplan direkt korrigiert (Sofort-Korrektur)",
   "stundenplan.plan.unpublish": "Veröffentlichung einer Stundenplan-Version zurückgenommen",
+  // SP3-07: Schuljahresabschluss
+  "stundenplan.plan.archive_year": "Schuljahr in der Stundenplanung archiviert",
   "stundenplan.draft.lesson.create": "Stunde im Entwurf angelegt",
   "stundenplan.draft.lesson.update": "Stunde im Entwurf geändert",
   "stundenplan.draft.lesson.delete": "Stunde im Entwurf gelöscht",
