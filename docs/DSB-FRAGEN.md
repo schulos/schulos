@@ -584,3 +584,30 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
   Beträge), damit sie Eltern auf offene Posten ansprechen kann. Frühere Frage: Ist diese Sicht erforderlich, oder soll sie nur
   offene Schulbücher sehen?
 - **Vorschlag:** Vorgaben übernehmen; Büchereiteam schriftlich belehren (Baustein), Befunde wie vorgesehen.
+
+## 19. Datenpanne: Meldeweg und Leitfaden (Art. 33/34)
+
+<!-- dsb:datenpanne -->
+| Punkt | |
+|---|---|
+| Was SchulOS tut | Liefert das Betriebshandbuch mit Kapitel Datenpanne (Ablauf mit 72-Stunden-Frist, Rollen mit Ausfüllfeldern, Tabelle Ereignis → Sofortmaßnahme in SchulOS, Kurzseite Ransomware) und drei Vorlagen unter docs/vorlagen (Meldung an die Aufsicht, Dokumentation nach Art. 33 Abs. 5, Benachrichtigung Betroffener nach Art. 34). Technische Bausteine: Alarm-Mails, Protokoll, Konto sperren, Zwei-Faktor zurücksetzen, Gerätezertifikate sperren, Löschsperre, Sicherung und unveränderliche Offsite-Kopie. Kein Datenpannen-Register und keine Fristüberwachung in der Anwendung. |
+| Vorgabe | Ablauf: Schulleitung entscheidet über die Meldung, die bzw. der DSB berät und füllt sie aus, Admin/Betreiber liefert die Technik und meldet unverzüglich an die Schule. Pflichtweg ist nur die Aufsichtsbehörde (Art. 33); Schulträger, Schulaufsicht und Strafanzeige sind Prüfpunkte. Dokumentation 3 Jahre ab Abschluss des Falls in der Akte der DSB. |
+| Die Schule entscheidet / dokumentiert | Trägt Rollen und Kontakte (Schulleitung, DSB, Admin/Betreiber, Schulträger, Aufsichtsbehörde mit Meldeweg) im eigenen Exemplar des Betriebshandbuchs ein und legt es auch außerhalb von SchulOS ab; prüft die landesrechtlichen Zusatzwege (Schulträger, Schulaufsicht, Erlasse) und die Aufbewahrungsdauer; nimmt den Baustein in Dienstanweisung und Nutzungsordnung auf; legt ausgefüllte Meldungen und Dokumentationen nur in der DSB-Akte ab, nicht in SchulOS. |
+| Baustein Nutzungsordnung | Datenpanne: Wer den Verdacht hat, dass personenbezogene Daten verloren gegangen, an Unbefugte gelangt oder verändert worden sind (z. B. falscher Empfänger, verlorener Stick oder Laptop, fremder Zugriff auf ein Konto, ungewollt sichtbare Inhalte), meldet das **sofort** – am selben Tag, auch außerhalb der Dienstzeit – an die Schulleitung und die bzw. den Datenschutzbeauftragten (Kontakt: <Name, Telefon, E-Mail eintragen>). Die Meldung ist keine Schuldzuweisung; eine späte Meldung gefährdet die Frist von 72 Stunden. Bis zur Klärung nichts löschen oder „reparieren“, Geräte und Nachrichten unverändert lassen; ist ein Konto betroffen, das Passwort nur auf Anweisung ändern lassen und Hilfe über die Admin-Stelle holen (<Kontakt eintragen>). |
+| In SchulOS | Betriebshandbuch (docs/BETRIEBSHANDBUCH.md), Kapitel Datenpanne |
+<!-- /dsb -->
+
+**Hintergrund und Fragen** (Herkunft: DP-01…DP-03, Betriebshandbuch)
+
+- **Kontext:** Bei einer Verletzung des Schutzes personenbezogener Daten läuft für die Schule als Verantwortliche eine Meldefrist von
+  72 Stunden ab Kenntnis (Art. 33 DSGVO, zu prüfen). Das [Betriebshandbuch](BETRIEBSHANDBUCH.md) beschreibt Ablauf, Rollen und
+  Sofortmaßnahmen; die Vorlagen liegen unter [`docs/vorlagen/`](vorlagen/). Die Schule trägt Kontakte im eigenen Exemplar ein.
+- **Entscheidungen der Projektleitung (2026-10-28):** Schulleitung entscheidet, DSB berät und füllt die Meldung aus, Admin/Betreiber
+  liefert Technik und meldet unverzüglich an die Schule · kein Register in der Anwendung (Dokumentationsblatt als Vorlage, Register
+  frühestens nach dem ersten Pilot) · Pflichtweg nur die Aufsichtsbehörde, weitere Wege als Prüfpunkt · Dokumentation 3 Jahre ab
+  Abschluss des Falls, Ablage nur in der DSB-Akte · eigene Kurzseite Ransomware · Vorlagen als Markdown im Repo.
+- **Fragen an die DSB:** Welche Zusatzmeldungen verlangen Erlasse oder die Dienstanweisung des Landes (Schulträger, Schulaufsicht, Polizei)?
+  Welche Stelle ist die zuständige Aufsichtsbehörde und welchen Meldeweg (Online-Formular, Adresse) bietet sie? Passt die Aufbewahrung von
+  3 Jahren zum Löschkonzept der Schule? Wer vertritt die Schulleitung bzw. die DSB, wenn beide nicht erreichbar sind?
+- **Vorschlag:** Vorgaben übernehmen, Kontakte im Betriebshandbuch eintragen und das Blatt auch ausgedruckt ablegen, Baustein in die
+  Dienstanweisung aufnehmen, einmal im Jahr den Ablauf kurz durchsprechen.

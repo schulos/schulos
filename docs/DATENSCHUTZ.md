@@ -492,7 +492,7 @@ Phase 2 als eigener Block folgen.
 | Backups | eigener Backupserver: restic-Verschlüsselung, append-only für das Hauptsystem, Kopplung mit gepinnter CA, Aufbewahrung 14/4/3, wöchentliche Prüfung, monatlicher Test-Restore, Wiederherstellung nur mit Bestätigung im Hauptsystem (B-21…B-28, INSTALLATION.md §4); Offsite-Kopie mit 1:1-Schlüsseln (B-37); Test-Restore mit Wegwerf-Rolle statt Superuser (SEC-06); Arbeitsdateien (Dumps, entpackte Test-Restores) liegen in eigenen Volumes und werden nach spätestens 24 h gelöscht, auch nach einem Absturz (G4E-O18) | ✅ |
 | Updates | Sicherheitsupdates des Betriebssystems automatisch, App-Updates mit Rollback (`schulosctl update`, Update-Test N−1 → N in der CI); **signierte Releases** (cosign) mit SBOMs, Offline-Bundle wird vor `docker load` geprüft (SEC-06); Release-Runner trennen: SEC-10 offen | ✅ |
 | Abhängigkeiten | `npm audit` und Dependabot in CI, Container-Scan (Trivy), Secret-Scan (gitleaks) in der CI (B-53); Security-Review SEC-04…06 (2026-10-10) | ✅ |
-| Datenpanne | Meldeweg im Betriebshandbuch (72 Stunden, Art. 33) | offen |
+| Datenpanne | Meldeweg im [Betriebshandbuch](BETRIEBSHANDBUCH.md) (72 Stunden, Art. 33): Ablauf, Rollen, Sofortmaßnahmen in SchulOS, Kurzseite Ransomware; Vorlagen für Meldung, Dokumentation und Benachrichtigung unter [`docs/vorlagen/`](vorlagen/); Baustein für die Dienstanweisung in der DSB-Checkliste (DSB-FRAGEN §19) – DP-01…03 | ✅ |
 
 ---
 
@@ -510,7 +510,9 @@ SchulOS liefert Vorlagen mit, die die Schule anpasst:
 4. **Auftragsverarbeitungsvertrag**, wenn nicht die Schule selbst betreibt, sondern der
    Schulträger oder ein Dienstleister. Wenn die Projektleitung eine Instanz betreut und dabei Zugriff auf
    Daten hat, ist auch er Auftragsverarbeiter.
-5. **Betriebshandbuch:** Backup und Wiederherstellung, Updates, Datenpanne, Notfallkontakte
+5. **Betriebshandbuch:** Backup und Wiederherstellung, Updates, Datenpanne, Notfallkontakte – [`BETRIEBSHANDBUCH.md`](BETRIEBSHANDBUCH.md)
+   (Rahmen mit Verweisen auf INSTALLATION.md §4/§5/§5a; Kapitel Datenpanne und Kontakte als Ausfüllfelder; Vorlagen unter
+   [`docs/vorlagen/`](vorlagen/))
 
 ---
 

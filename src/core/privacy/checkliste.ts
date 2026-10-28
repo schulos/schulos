@@ -256,6 +256,20 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
       "Büchereiteam: Wer an der Theke der Schulbücherei mithilft, sieht dort Namen, Klasse und offene Ausleihen anderer Schüler:innen und Lehrkräfte. Diese Angaben sind vertraulich und werden nur für die Ausleihe genutzt – nicht weitererzählt, nicht notiert, nicht fotografiert. Wer was liest, ist privat. Schäden werden nur als Sache beschrieben („Wasserschaden“), ohne Namen.",
     where: { label: "Verwaltung → Rechte & Module → Bücherei", href: "/verwaltung/rechte" },
   },
+  {
+    id: "datenpanne",
+    nr: 19,
+    title: "Datenpanne: Meldeweg und Leitfaden (Art. 33/34)",
+    schulos:
+      "Liefert das Betriebshandbuch mit Kapitel Datenpanne (Ablauf mit 72-Stunden-Frist, Rollen mit Ausfüllfeldern, Tabelle Ereignis → Sofortmaßnahme in SchulOS, Kurzseite Ransomware) und drei Vorlagen unter docs/vorlagen (Meldung an die Aufsicht, Dokumentation nach Art. 33 Abs. 5, Benachrichtigung Betroffener nach Art. 34). Technische Bausteine: Alarm-Mails, Protokoll, Konto sperren, Zwei-Faktor zurücksetzen, Gerätezertifikate sperren, Löschsperre, Sicherung und unveränderliche Offsite-Kopie. Kein Datenpannen-Register und keine Fristüberwachung in der Anwendung.",
+    vorgabe:
+      "Ablauf: Schulleitung entscheidet über die Meldung, die bzw. der DSB berät und füllt sie aus, Admin/Betreiber liefert die Technik und meldet unverzüglich an die Schule. Pflichtweg ist nur die Aufsichtsbehörde (Art. 33); Schulträger, Schulaufsicht und Strafanzeige sind Prüfpunkte. Dokumentation 3 Jahre ab Abschluss des Falls in der Akte der DSB.",
+    schule:
+      "Trägt Rollen und Kontakte (Schulleitung, DSB, Admin/Betreiber, Schulträger, Aufsichtsbehörde mit Meldeweg) im eigenen Exemplar des Betriebshandbuchs ein und legt es auch außerhalb von SchulOS ab; prüft die landesrechtlichen Zusatzwege (Schulträger, Schulaufsicht, Erlasse) und die Aufbewahrungsdauer; nimmt den Baustein in Dienstanweisung und Nutzungsordnung auf; legt ausgefüllte Meldungen und Dokumentationen nur in der DSB-Akte ab, nicht in SchulOS.",
+    baustein:
+      "Datenpanne: Wer den Verdacht hat, dass personenbezogene Daten verloren gegangen, an Unbefugte gelangt oder verändert worden sind (z. B. falscher Empfänger, verlorener Stick oder Laptop, fremder Zugriff auf ein Konto, ungewollt sichtbare Inhalte), meldet das **sofort** – am selben Tag, auch außerhalb der Dienstzeit – an die Schulleitung und die bzw. den Datenschutzbeauftragten (Kontakt: <Name, Telefon, E-Mail eintragen>). Die Meldung ist keine Schuldzuweisung; eine späte Meldung gefährdet die Frist von 72 Stunden. Bis zur Klärung nichts löschen oder „reparieren“, Geräte und Nachrichten unverändert lassen; ist ein Konto betroffen, das Passwort nur auf Anweisung ändern lassen und Hilfe über die Admin-Stelle holen (<Kontakt eintragen>).",
+    where: { label: "Betriebshandbuch (docs/BETRIEBSHANDBUCH.md), Kapitel Datenpanne", href: "/verwaltung/datenschutz/einrichtung" },
+  },
 ];
 
 /** Rein: die Kurzfassung eines Themas für docs/DSB-FRAGEN.md (zwischen den Markern). */
