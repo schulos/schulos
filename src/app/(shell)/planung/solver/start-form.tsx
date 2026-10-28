@@ -18,6 +18,8 @@ export function SolverStartForm({
   liveSource,
   modes = {},
   scopes = {},
+  passChoices = [],
+  defaultPasses = 5,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   presets: Record<string, Record<WeightKey, number>>;
@@ -34,6 +36,9 @@ export function SolverStartForm({
   /** SQ-02: Vorgehen (neu planen / ab aktuellem Entwurf verbessern) und Umfang des Warmstarts */
   modes?: Record<string, string>;
   scopes?: Record<string, string>;
+  /** SQ-03: Auswahl der Durchgänge im Mehrfachlauf */
+  passChoices?: readonly number[];
+  defaultPasses?: number;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const fe = state.fieldErrors ?? {};
@@ -44,6 +49,7 @@ export function SolverStartForm({
   const shown = preset === "eigene" ? null : presets[preset];
   const [source, setSource] = useState(v.versionId ?? defaultSource ?? sources[0]?.value ?? "");
   const [mode, setMode] = useState(v.mode ?? "neu");
+  const [kind, setKind] = useState(v.lauf ?? "einzel");
   const inDraft = sources.length > 1 && source !== liveSource;
   return (
     <form key={JSON.stringify(state.values ?? null)} action={formAction} aria-label="Lauf starten" className="flex flex-col gap-4">
@@ -68,6 +74,29 @@ export function SolverStartForm({
         <Field label="Startwert" hint="anderer Wert = andere Lösung" error={fe.seed}>
           <Input type="number" name="seed" min={1} max={999999} step={1} required defaultValue={v.seed ?? defaultSeed} />
         </Field>
+        {passChoices.length > 0 && (
+          <Field label="Läufe" hint="„Mehrfachlauf“ rechnet mehrere Durchgänge nacheinander und behält den besten" error={fe.lauf}>
+            <Select name="lauf" value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="einzel">Einzellauf</option>
+              <option value="mehrfach">Mehrfachlauf</option>
+            </Select>
+          </Field>
+        )}
+        {passChoices.length > 0 && kind === "mehrfach" && (
+          <Field
+            label="Durchgänge"
+            hint={inDraft && mode === "entwurf" ? "Kette: jeder Durchgang startet vom besten bisherigen Ergebnis" : "Startwerte fortlaufend ab dem gewählten; der beste Durchgang bleibt"}
+            error={fe.passes}
+          >
+            <Select name="passes" defaultValue={v.passes ?? String(defaultPasses)}>
+              {passChoices.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label="Gewichtung" hint="was der Solver wie stark vermeidet" error={fe.preset} className="sm:col-span-2">
           <Select
             name="preset"

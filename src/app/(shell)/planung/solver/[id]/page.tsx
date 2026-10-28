@@ -271,6 +271,12 @@ export default async function SolverRunPage({
                   <dd>{EFFORT_LABELS[run.params.effort]}</dd>
                   <dt className="text-muted">Startwert</dt>
                   <dd className="tabular-nums">{run.params.seed}</dd>
+                  {run.params.passes && (
+                    <>
+                      <dt className="text-muted">Durchgänge</dt>
+                      <dd className="tabular-nums">{run.params.passes} (Mehrfachlauf)</dd>
+                    </>
+                  )}
                   <dt className="text-muted">Gewichtung</dt>
                   <dd>{PRESET_LABELS[run.params.preset]}</dd>
                   <dt className="text-muted">Lehraufträge am</dt>
@@ -358,6 +364,44 @@ export default async function SolverRunPage({
             )}
           </Card>
         </div>
+
+        {m?.passes && (
+          <section aria-labelledby="passes-title" className="flex flex-col gap-2">
+            <h2 id="passes-title" className="font-display text-xl font-bold">
+              Durchgänge
+            </h2>
+            <p className="text-sm text-muted">
+              {m.passes.done} von {m.passes.count} Durchgängen gerechnet{m.passes.done < m.passes.count ? " (vorzeitig beendet)" : ""}. Behalten wird der beste: zuerst weniger nicht gesetzte Einheiten, dann die kleinere Bewertung.
+            </p>
+            <Table scrollLabel="Durchgänge des Mehrfachlaufs">
+              <caption className="sr-only">Durchgänge des Mehrfachlaufs mit Startwert, Bewertung und nicht gesetzten Einheiten</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Durchgang</th>
+                  <th scope="col">Startwert</th>
+                  <th scope="col" className="text-right">
+                    Bewertung
+                  </th>
+                  <th scope="col" className="text-right">
+                    Nicht gesetzt
+                  </th>
+                  <th scope="col">Ergebnis</th>
+                </tr>
+              </thead>
+              <tbody>
+                {m.passes.list.map((p, i) => (
+                  <tr key={i}>
+                    <td className="tabular-nums">{i + 1}</td>
+                    <td className="tabular-nums">{p.seed}</td>
+                    <td className="text-right tabular-nums">{num.format(p.score)}</td>
+                    <td className="text-right tabular-nums">{p.unplaced}</td>
+                    <td>{i + 1 === m.passes!.best ? <Badge tone="success">bester Durchgang</Badge> : null}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          </section>
+        )}
 
         <section aria-labelledby="pre-title" className="flex flex-col gap-2">
           <h2 id="pre-title" className="font-display text-xl font-bold">

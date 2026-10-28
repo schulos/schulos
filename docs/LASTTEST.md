@@ -240,6 +240,19 @@ bleiben offen (die Reparatur darf nur schwache Einheiten verdrängen) und 3,3 s.
 Solver vor SQ-02); der Benchmark-Test hält den Warmstart der kleinen Schule (Mittel ≤ 133,4, je Startwert besser, ≥ 85 % unverändert) und der
 großen Schule mit fixierten Stunden (9 → 0 nicht gesetzt, ≤ 1 768) fest.
 
+**Messung SQ-03 (2026-10-28, Mehrfachlauf):** Benchmark-Schulen klein und groß, Gründlichkeit normal, Startwert 1; Mehrfachlauf 5 = fünf Neu-Läufe
+(Startwerte 1–5), der beste gewinnt (weniger offen, dann Bewertung); Kette 3 = drei Warmstarts (Startwerte 1–3) hintereinander, jeder vom besten
+bisherigen Ergebnis, Start ist der Einzellauf (Laufzeit zusätzlich zu diesem).
+
+| Schule | Einzellauf (Startwert 1) | Mehrfachlauf 5 (Neu) | Kette 3 (Warmstart) |
+|---|---|---|---|
+| klein | 157, 0 offen, 222 ms | 144 (Startwert 2), 0 offen, 808 ms | **124**, 0 offen, +574 ms (157 → 136 → 129 → 124) |
+| groß | 1 904, 9 offen, 594 ms | 1 880 (Startwert 4), 9 offen, 2 922 ms | **1 613**, 0 offen, +2 838 ms (1 904 → 1 761 → 1 662 → 1 613) |
+
+Ergebnis: Die Laufzeit wächst linear mit den Durchgängen. Mehrere Neu-Läufe holen nur den Streuungsgewinn des besten Startwerts (klein −8 %, groß −1 %,
+die 9 offenen Einheiten der großen Schule bleiben in jedem Startwert offen); die Kette verbessert dagegen von Durchgang zu Durchgang (klein −21 %, groß
+−15 % und 9 → 0 offen) und ist bei gleichem Aufwand die bessere Wahl, sobald ein Entwurf da ist. Der Solver-Kern ist unverändert (Benchmark gleich).
+
 **Ereignisschleife während eines gründlichen Laufs (`solverlauf.latenz.test.ts`, Demo, In-Memory-PGlite):** 5-ms-Timer als Messfühler – Verzögerung
 p50 20,7 ms, **p95 23,3 ms**, p99/max 80 ms (63 Messpunkte; Ruhe p95 11 ms). Das Maximum ist das Laden der Eingabe (`solverInputFromDb`, ~80 ms:
 PGlite-Abfragen laufen als Microtask-Kette ohne Rückkehr zur Ereignisschleife – mit PostgreSQL sind das I/O-Wartezeiten). Grenzwerte im Test:

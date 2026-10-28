@@ -13,7 +13,7 @@ import { ABSENCE_LABELS, createAbsence, deleteAbsence, needsOn, shortenAbsence }
 import { addDuty, clearDutyChange, createArea, deleteArea, removeDuty, setDutyChange } from "./aufsichten";
 import { copyPeriod } from "./periode";
 import { createDraft as createPlanDraft, createVariant as createPlanVariant, discardVersion as discardPlanVersion, getVersion as getPlanVersion, type DraftSource } from "./planversionen";
-import { applyRunToDraft, cancelRun, createRun, deleteRun, executeQueued, setFixed, undoApply } from "./solverlauf";
+import { applyRunToDraft, cancelRun, createRun, DEFAULT_PASSES, deleteRun, executeQueued, setFixed, undoApply } from "./solverlauf";
 import { publishVersion, undoPublish } from "./veroeffentlichen";
 import { QUELLE_LIVE, quelleQuery, writableSource } from "./quelle";
 import type { PlanSource } from "./plan-quelle";
@@ -1022,7 +1022,7 @@ export async function startSolverAction(_prev: FormState, form: FormData): Promi
     id = await createRun(
       db,
       user.id,
-      { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights, refYmd: str("refYmd") || null, versionId: str("versionId") && str("versionId") !== QUELLE_LIVE ? str("versionId") : null, mode: str("mode") || null, scope: str("scope") || null },
+      { label: str("label") || null, effort: str("effort") || "normal", seed: num("seed") ?? 1, preset, weights, refYmd: str("refYmd") || null, versionId: str("versionId") && str("versionId") !== QUELLE_LIVE ? str("versionId") : null, mode: str("mode") || null, scope: str("scope") || null, passes: str("lauf") === "mehrfach" ? (num("passes") ?? DEFAULT_PASSES) : null },
       today,
     );
   } catch (err) {
