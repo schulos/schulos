@@ -8,9 +8,10 @@ import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
 import { groups, rooms, subjects, users } from "@/core/db/schema";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { createLesson, defaultValidity, saveCoupling, slotsOverlap, suggestRoom, updateLesson } from "./manage";
+import { afterOf, createLesson, defaultValidity, liveUnitPlan, saveCoupling, slotsOverlap, suggestRoom, updateLesson } from "./manage";
 import { idWhere, lessonCols, LIVE, overlapWhere, requireWritable, type PlanSource } from "./plan-quelle";
-import type { LESSON_WEEKS } from "./schema";
+import { timetableLessons, type LESSON_WEEKS } from "./schema";
+import { applyLiveUnits, type LiveOptions } from "./sofortkorrektur";
 import { distribution, planningYear, type Assignment } from "./verteilung";
 import { allPrefs, blockedReasons } from "./zeitwuensche";
 import { dayLimitReasons, type DayLimits } from "./tagesgrenzen";
@@ -376,6 +377,7 @@ export async function placeAssignment(
   todayYmd: string,
   from?: string,
   source: PlanSource = LIVE,
+  opts: LiveOptions = {},
 ): Promise<void> {
   await requireWritable(db, source);
   const a = (await openAssignments(db, groupId, from ?? todayYmd, source)).find((x) => x.id === assignmentId);
@@ -389,7 +391,7 @@ export async function placeAssignment(
   const slot = { weekday, periodNr, week: "all" as const, ...(same ? { validFrom: r0.validFrom, validUntil: r0.validUntil } : pl.validity) };
   if (pl.rows.length === 1) {
     const r = pl.rows[0]!;
-    await createLesson(db, actorId, { ...slot, groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[0]!, assignmentId: pl.rowAssignments[0] ?? null }, source);
+    await createLesson(db, actorId, { ...slot, groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[0]!, assignmentId: pl.rowAssignments[0] ?? null }, source, opts);
   } else {
     await saveCoupling(
       db,
@@ -397,6 +399,7 @@ export async function placeAssignment(
       null,
       { ...slot, parts: pl.rows.map((r, i) => ({ groupId: r.groupId, subjectId: r.subjectId, teacherId: r.teacherId, roomId: cell.rooms[i]!, assignmentId: pl.rowAssignments[i] ?? null })) },
       source,
+      opts,
     );
   }
 }
@@ -448,8 +451,11 @@ export function moveGridInput(m: MoveUnit, swapGroupId: string, weekdays: number
   };
 }
 
-/** Verschiebt eine Stunde/Kopplung in einen freien Slot oder tauscht sie mit der Stunde der Gruppe dort. */
-export async function moveLesson(db: Db, actorId: string, lessonId: string, groupId: string, weekday: number, periodNr: number, source: PlanSource = LIVE): Promise<"moved" | "swapped"> {
+/**
+ * Verschiebt eine Stunde/Kopplung in einen freien Slot oder tauscht sie mit der Stunde der Gruppe dort. SP3-05: im gültigen Plan als
+ * Sofort-Korrektur (laufende Stunden ab dem nächsten Schultag, beim Tauschen beide Einheiten in einer Aktion).
+ */
+export async function moveLesson(db: Db, actorId: string, lessonId: string, groupId: string, weekday: number, periodNr: number, source: PlanSource = LIVE, opts: LiveOptions = {}): Promise<"moved" | "swapped"> {
   await requireWritable(db, source);
   const m = await movePlacement(db, lessonId, source);
   if (!m || !m.unit.length) throw new ValidationError({ id: "Stunde gibt es nicht mehr" });
@@ -460,7 +466,7 @@ export async function moveLesson(db: Db, actorId: string, lessonId: string, grou
   if (cell.state === "free") {
     const slot = { weekday, periodNr, week: first.week, validFrom: first.validFrom, validUntil: first.validUntil };
     if (!first.couplingId) {
-      await updateLesson(db, actorId, first.id, { ...slot, groupId: first.groupId, subjectId: first.subjectId, teacherId: first.teacherId, roomId: cell.rooms[0]! }, source);
+      await updateLesson(db, actorId, first.id, { ...slot, groupId: first.groupId, subjectId: first.subjectId, teacherId: first.teacherId, roomId: cell.rooms[0]! }, source, opts);
     } else {
       await saveCoupling(
         db,
@@ -471,17 +477,32 @@ export async function moveLesson(db: Db, actorId: string, lessonId: string, grou
           parts: m.unit.map((u, i) => ({ id: u.id, groupId: u.groupId, subjectId: u.subjectId, teacherId: u.teacherId, roomId: cell.rooms[i]! })),
         },
         source,
+        opts,
       );
     }
     return "moved";
   }
   // Tauschen: beide Einheiten wechseln den Slot, Räume bleiben
   const partner = m.lessons.find((l) => l.id === cell.partnerIds[0])!;
-  await db.transaction(async (tx) => {
-    const t = lessonCols(source);
-    for (const u of m.unit) await tx.update(t).set({ weekday, periodNr }).where(idWhere(source, u.id));
-    for (const id of cell.partnerIds) await tx.update(t).set({ weekday: first.weekday, periodNr: first.periodNr }).where(idWhere(source, id));
-  });
+  if (source.kind === "live") {
+    const rows = await db.select().from(timetableLessons).where(inArray(timetableLessons.id, [...m.unit.map((u) => u.id), ...cell.partnerIds]));
+    const unitRows = rows.filter((r) => m.unit.some((u) => u.id === r.id));
+    const partnerRows = rows.filter((r) => cell.partnerIds.includes(r.id));
+    const at = (rs: typeof rows, d: number, p: number) => rs.map((r) => ({ ...afterOf(r), weekday: d, periodNr: p }));
+    let a = await liveUnitPlan(db, unitRows, at(unitRows, weekday, periodNr), Boolean(first.couplingId), opts);
+    let b = await liveUnitPlan(db, partnerRows, at(partnerRows, first.weekday, first.periodNr), Boolean(partner.couplingId), opts);
+    // beide Einheiten zum selben Zeitpunkt: läuft eine schon, werden beide ab dem Stichtag geteilt (sonst lägen bis dahin zwei Stunden im Slot)
+    if (a.plan.mode !== b.plan.mode) {
+      a = await liveUnitPlan(db, unitRows, at(unitRows, weekday, periodNr), Boolean(first.couplingId), opts, true);
+      b = await liveUnitPlan(db, partnerRows, at(partnerRows, first.weekday, first.periodNr), Boolean(partner.couplingId), opts, true);
+    }
+    await applyLiveUnits(db, actorId, [a.plan, b.plan], { ...opts, today: a.today });
+  } else
+    await db.transaction(async (tx) => {
+      const t = lessonCols(source);
+      for (const u of m.unit) await tx.update(t).set({ weekday, periodNr }).where(idWhere(source, u.id));
+      for (const id of cell.partnerIds) await tx.update(t).set({ weekday: first.weekday, periodNr: first.periodNr }).where(idWhere(source, id));
+    });
   await audit(db, actorId, source.kind === "draft" ? "stundenplan.draft.lesson.swap" : "stundenplan.lesson.swap", groupId, {
     ...(source.kind === "draft" ? { draft: source.versionId } : {}),
     lesson: first.id,
@@ -491,4 +512,3 @@ export async function moveLesson(db: Db, actorId: string, lessonId: string, grou
   });
   return "swapped";
 }
-

@@ -8,7 +8,6 @@ import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
 import {
   classbookEntries,
-  groupMembers,
   groups,
   notifications,
   rooms,
@@ -26,13 +25,13 @@ import { addDays, fromBerlinLocal, isCalendarDate, TZ } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { readSendWindows } from "./benachrichtigung";
 import { planDiff, type DiffKind } from "./plan-diff";
-import { changeLists, holdsOn, planMessage, transferPlan, transferRefs, type ChangeItem, type ChangeNames, type RefTransfer, type TransferLesson, type TransferPlan } from "./plan-uebertrag";
+import { changeLists, holdsOn, planMessage, transferPlan, transferRefs, type ChangeItem, type RefTransfer, type TransferLesson, type TransferPlan } from "./plan-uebertrag";
 import { checkValidFrom, getVersion, OPEN_STATUSES, versionNumber } from "./planversionen";
 import { timetableDraftLessons, timetablePlanVersions, type PlanVersionStatus, type TimetablePlanVersion } from "./schema";
 import { plannedSendAt } from "./sendezeit";
 import { roomClashes, substitutionsToRestore, type UndoSubstitution } from "./solverlauf";
 import { deletedEntries, moveChangeHistory, recordLessonCascade, recordSubstitutionChanges, snapshotOf } from "./vertretung-historie";
-import { informedParents } from "./vertretung-gong";
+import { changeNames, notifyGroupLists } from "./plan-gong";
 
 const dayFmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TZ });
 const shortDayFmt = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: TZ });
@@ -318,44 +317,13 @@ export async function publishPreview(db: Db, versionId: string, from: string, to
 
 // ---------------------------------------------------------------- Änderungsliste
 
-async function changeNames(db: Db): Promise<ChangeNames> {
-  const [g, s, t] = await Promise.all([
-    db.select({ id: groups.id, name: groups.name }).from(groups),
-    db.select({ id: subjects.id, name: subjects.name }).from(subjects),
-    db.select({ id: users.id, code: users.shortCode, name: users.name }).from(users).where(eq(users.role, "lehrkraft")),
-  ]);
-  return {
-    groups: new Map(g.map((x) => [x.id, x.name])),
-    subjects: new Map(s.map((x) => [x.id, x.name])),
-    teachers: new Map(t.map((x) => [x.id, x.code?.trim() || x.name])),
-  };
-}
-
 const planHref = (from: string) => `/stundenplan?woche=${from}`;
 
 /** Änderungsliste an Schüler:innen und Eltern einer Version (zur geplanten Zeit). Gibt die Zahl der Nachrichten zurück. */
 async function sendStudentList(db: Db, v: Pick<TimetablePlanVersion, "id" | "major" | "minor" | "validFrom">, notify: { groups: Record<string, string[]> }): Promise<number> {
-  const groupIds = Object.keys(notify.groups);
-  if (!groupIds.length || !v.validFrom) return 0;
-  const members = await db
-    .select({ u: groupMembers.userId, g: groupMembers.groupId })
-    .from(groupMembers)
-    .innerJoin(users, eq(users.id, groupMembers.userId))
-    .where(and(inArray(groupMembers.groupId, groupIds), eq(groupMembers.role, "member"), eq(users.role, "schueler")));
-  const groupsOf = new Map<string, Set<string>>();
-  for (const m of members) groupsOf.set(m.u, (groupsOf.get(m.u) ?? new Set()).add(m.g));
-  const linesOf = (gs: Iterable<string>) => [...new Set([...gs].flatMap((g) => notify.groups[g] ?? []))];
-  const items = new Map<string, string[]>();
-  for (const [u, gs] of groupsOf) items.set(u, linesOf(gs));
-  // Eltern nach Moduleinstellung (wie bei Vertretungen) – alle betroffenen Kinder in einer Nachricht
-  for (const [p, kids] of await informedParents(db, [...groupsOf.keys()])) {
-    if (items.has(p)) continue;
-    items.set(p, linesOf([...kids].flatMap((k) => [...(groupsOf.get(k) ?? [])])));
-  }
+  if (!v.validFrom) return 0;
   const label = shortDayFmt.format(fromBerlinLocal(v.validFrom));
-  const list = [...items].filter(([, lines]) => lines.length > 0).map(([userId, lines]) => ({ userId, ...planMessage(label, versionNumber(v), lines), href: planHref(v.validFrom!) }));
-  if (!list.length) return 0;
-  return notifyBundled(db, list, { moduleId: "stundenplan", bundleKey: planBundleKey(v.id) });
+  return notifyGroupLists(db, notify.groups, (lines) => planMessage(label, versionNumber(v), lines), { href: planHref(v.validFrom), bundleKey: planBundleKey(v.id) });
 }
 
 /**

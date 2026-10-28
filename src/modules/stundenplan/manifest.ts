@@ -81,6 +81,21 @@ export default defineModule({
       note: "sichtbar für die Planung (`stundenplan.manage`) und die Prüfung (`stundenplan.review`, ab „in Prüfung“); eine Lehrkraft sieht nur eigene Kommentare; nie Schüler:innen, Eltern, Monitor oder Gong. Bei Kontolöschung werden Verfasser:in, Bezug und „erledigt von“ leer; der Text bleibt bis zur Löschung der Version",
     },
     {
+      // SP3-05 (F-10-2, F-10-13): Protokoll der Sofort-Korrekturen am gültigen Plan – Vorher/Nachher mit Kennungen, Kontolöschung ersetzt sie
+      table: "timetable_plan_changes",
+      purpose: "Sofort-Korrekturen am gültigen Stundenplan nachvollziehen und Betroffene benachrichtigen",
+      categories: [
+        "Art der Änderung (geteilt, direkt geändert, entfallen, neu) und Stichtag",
+        "Stunde vorher/nachher (Gruppe, Fach, Lehrkraft, Raum, Zeit – Kennungen, keine Namen)",
+        "Begründung (optional, ohne Personen)",
+        "Geändert von/am",
+        "Änderungsliste an Schüler:innen/Eltern: geplant und versandt (Zeitpunkte)",
+      ],
+      class: "LK-SJ-1J",
+      start: "created_at",
+      note: "nur für die Planung (`stundenplan.manage`) sichtbar; Lehrkräfte, Schüler:innen und Eltern bekommen nur ihre Änderungsliste als Gong. Bei Kontolöschung wird die Lehrkraft in Vorher/Nachher durch „gelöschte Lehrkraft“ ersetzt, „geändert von“ wird leer",
+    },
+    {
       table: "timetable_substitutions",
       purpose: "Vertretungen und Ausfälle bekanntgeben",
       categories: [

@@ -211,9 +211,10 @@ describe("VT-01 Vertretung mehr Infos", () => {
       ["create", MO2, true, "lehrkraft_abwesend"],
     ]);
 
-    // Stunde löschen: die Vertretungen gehen per Kaskade mit – vorher in der Historie
+    // Stunde löschen: die Vertretungen gehen per Kaskade mit – vorher in der Historie (SP3-05: Planung vor Schuljahresbeginn, die Stunde hat
+    // noch keinen Vergangenheitsbezug und wird ganz gelöscht; im laufenden Plan endet sie am Vortag – sofortkorrektur.test.ts)
     await h.db.delete(timetableSubstitutionChanges);
-    await deleteLesson(h.db, PLANUNG, ids["7b-4"]!, MO);
+    await deleteLesson(h.db, PLANUNG, ids["7b-4"]!, "2026-07-31");
     all = await history();
     expect(all.map((c) => [c.action, c.date, c.lessonId, (c.before as { lessonId: string }).lessonId])).toEqual([
       ["delete", MO, null, ids["7b-4"]],

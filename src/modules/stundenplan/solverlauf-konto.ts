@@ -6,7 +6,7 @@
 // weil die Kontolöschung (`src/core/privacy/konto.ts`) es aufruft.
 import { inArray, or, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { timetablePlanVersions, timetableSolverRuns, users } from "@/core/db/schema";
+import { timetablePlanChanges, timetablePlanVersions, timetableSolverRuns, users } from "@/core/db/schema";
 
 /** Platzhalter für die Kennung einer gelöschten Lehrkraft in Solver-Läufen – zugleich ihre Anzeige. */
 export const DELETED_TEACHER = "gelöschte Lehrkraft";
@@ -159,6 +159,34 @@ export async function scrubPlanVersions(db: Db, ids: readonly string[]): Promise
     for (const f of ["undo", "notify"] as const) {
       if (r[f] === null || r[f] === undefined) continue;
       const next = scrubIds(r[f], set, labels);
+      if (JSON.stringify(next) !== JSON.stringify(r[f])) patch[f] = next;
+    }
+    if (!Object.keys(patch).length) continue;
+    await db.update(t).set(patch).where(sql`${t.id} = ${r.id}`);
+    changed++;
+  }
+  return changed;
+}
+
+/**
+ * SP3-05 (§5 Querschnitt d, F-10-13): Protokoll der Sofort-Korrekturen – Vorher/Nachher (`before`/`after`) enthalten Lehrkraft-Kennungen;
+ * sie werden durch den Platzhalter ersetzt („Handelnde:r“ leert der Fremdschlüssel). Gibt die Zahl der geänderten Zeilen zurück.
+ */
+export async function scrubPlanChanges(db: Db, ids: readonly string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const set = new Set(ids);
+  const t = timetablePlanChanges;
+  const text = sql`coalesce(${t.before}::text, '') || coalesce(${t.after}::text, '')`;
+  const rows = await db
+    .select({ id: t.id, before: t.before, after: t.after })
+    .from(t)
+    .where(or(...ids.map((id) => sql`strpos(${text}, ${JSON.stringify(id)}) > 0`)));
+  let changed = 0;
+  for (const r of rows) {
+    const patch: { before?: unknown; after?: unknown } = {};
+    for (const f of ["before", "after"] as const) {
+      if (r[f] === null || r[f] === undefined) continue;
+      const next = scrubIds(r[f], set);
       if (JSON.stringify(next) !== JSON.stringify(r[f])) patch[f] = next;
     }
     if (!Object.keys(patch).length) continue;

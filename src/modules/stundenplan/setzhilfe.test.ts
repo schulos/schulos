@@ -169,6 +169,8 @@ describe("Setzhilfe (Demo-Schule)", () => {
   });
 
   it("verschiebt in freie Felder und tauscht mit Stunden der Klasse", async () => {
+    // SP3-05: Planung vor Schuljahresbeginn (ohne Vergangenheitsbezug) ändert in place; den Split im laufenden Plan prüft sofortkorrektur.test.ts
+    const beforeYear = { today: "2026-07-31" };
     const [placed] = await h.db.select().from(timetableLessons).where(and(eq(timetableLessons.subjectId, "F"), eq(timetableLessons.groupId, "g-7b")));
     const m = (await movePlacement(h.db, placed!.id))!;
     const grid = placementGrid(moveGridInput(m, "g-7b", [0, 1, 2, 3, 4], [1, 2, 3, 4, 5, 6, 7, 8]));
@@ -177,7 +179,7 @@ describe("Setzhilfe (Demo-Schule)", () => {
     const free = [...grid].find(([, c]) => c.state === "free");
     if (free) {
       const [d, p] = free[0].split("-").map(Number);
-      expect(await moveLesson(h.db, "u-admin", placed!.id, "g-7b", d!, p!)).toBe("moved");
+      expect(await moveLesson(h.db, "u-admin", placed!.id, "g-7b", d!, p!, undefined, beforeYear)).toBe("moved");
       const [after] = await h.db.select().from(timetableLessons).where(eq(timetableLessons.id, placed!.id));
       expect([after!.weekday, after!.periodNr]).toEqual([d, p]);
     }
@@ -188,7 +190,7 @@ describe("Setzhilfe (Demo-Schule)", () => {
     expect(swap).toBeDefined();
     const [d, p] = swap![0].split("-").map(Number);
     const partnerIds = swap![1].state === "swap" ? swap![1].partnerIds : [];
-    expect(await moveLesson(h.db, "u-admin", placed!.id, "g-7b", d!, p!)).toBe("swapped");
+    expect(await moveLesson(h.db, "u-admin", placed!.id, "g-7b", d!, p!, undefined, beforeYear)).toBe("swapped");
     const [moved] = await h.db.select().from(timetableLessons).where(eq(timetableLessons.id, placed!.id));
     const [partner] = await h.db.select().from(timetableLessons).where(eq(timetableLessons.id, partnerIds[0]!));
     expect([moved!.weekday, moved!.periodNr]).toEqual([d, p]);

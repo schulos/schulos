@@ -104,6 +104,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "stundenplan.plan.preview_comment": "Rückmeldung aus der Lehrkräfte-Vorschau",
   // SP3-04: Veröffentlichen
   "stundenplan.plan.publish": "Stundenplan-Version veröffentlicht",
+  "stundenplan.plan.correction": "Stundenplan direkt korrigiert (Sofort-Korrektur)",
   "stundenplan.plan.unpublish": "Veröffentlichung einer Stundenplan-Version zurückgenommen",
   "stundenplan.draft.lesson.create": "Stunde im Entwurf angelegt",
   "stundenplan.draft.lesson.update": "Stunde im Entwurf geändert",

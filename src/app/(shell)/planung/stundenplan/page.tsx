@@ -6,13 +6,11 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
 import { hasPermission } from "@/core/permissions";
-import { eq } from "drizzle-orm";
-import { schoolYears } from "@/core/db/schema";
 import { toBerlinDate } from "@/core/time";
-import { copyPeriodAction, toggleFixedAction, deleteCouplingAction, deleteLessonAction, moveLessonAction, placeAssignmentAction, saveCouplingAction, saveLessonAction } from "@/modules/stundenplan/actions";
+import { toggleFixedAction, deleteCouplingAction, deleteLessonAction, moveLessonAction, placeAssignmentAction, saveCouplingAction, saveLessonAction } from "@/modules/stundenplan/actions";
 import { coupledGroupLabel } from "@/modules/stundenplan/display";
-import { periodPreview } from "@/modules/stundenplan/periode";
-import { ValidationError } from "@/modules/verwaltung/users";
+import { correctionCount, correctionFrom, correctionSummary, FOLLOW_UP_HINT, type CorrectionSummary } from "@/modules/stundenplan/sofortkorrektur";
+import { validVersion, versionNumber } from "@/modules/stundenplan/planversionen";
 import { DIAGNOSIS_LABELS, groupPlanFindings } from "@/modules/stundenplan/diagnose";
 import { couplingParts, defaultValidity, lessonsOfGroup, plannableGroups, suggestRoom, WEEKDAYS } from "@/modules/stundenplan/manage";
 import { loadPickList, teacherSubjectMap } from "@/modules/stundenplan/lehrfaecher";
@@ -23,7 +21,7 @@ import { QUELLE_LIVE, quelleQuery, resolveQuelle } from "@/modules/stundenplan/q
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
-import { Input, Select } from "@schulos/ui/field";
+import { Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader, SubjectBar } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
 import { ExportMenu } from "@/ui/export-menu";
@@ -37,7 +35,7 @@ export const metadata: Metadata = { title: "Stundenplan pflegen" };
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "UTC" });
 const fmtYmd = (ymd: string) => dateFmt.format(new Date(`${ymd}T00:00:00Z`));
 
-type Search = { stand?: string; periode?: string; kopiert?: string; ab?: string; gruppe?: string; neu?: string; stunde?: string; kopplung?: string; von?: string; setzen?: string; verschieben?: string; fehler?: string; quelle?: string };
+type Search = { stand?: string; korrektur?: string; gruppe?: string; neu?: string; stunde?: string; kopplung?: string; von?: string; setzen?: string; verschieben?: string; fehler?: string; quelle?: string };
 
 export default async function StundenplanPflegePage({ searchParams }: { searchParams: Promise<Search> }) {
   const { perms } = await requireUser();
@@ -53,11 +51,19 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
   const src = q.source;
   const quelle = q.value === QUELLE_LIVE ? null : q.value;
   const readOnly = !q.editable;
-  // Planungsstand: heute oder der Beginn einer künftigen Periode (nach „Periode kopieren“)
+  // Planungsstand: heute oder ein künftiger Stichtag (z. B. nach einer Sofort-Korrektur ab dem nächsten Schultag)
   const stand = !draft && sp.stand && /^\d{4}-\d{2}-\d{2}$/.test(sp.stand) && sp.stand > today ? sp.stand : undefined;
   const view = draft ? (draft.validFrom ?? today) : (stand ?? today);
   /** Beginn neuer Stunden: Stichtag des Entwurfs bzw. der Planungsstand */
   const from = draft ? (draft.validFrom ?? undefined) : stand;
+
+  // SP3-05: im gültigen Plan ist jede Änderung eine Sofort-Korrektur ab dem nächsten Schultag (Hinweis, Ergebnis der letzten Aktion, Zähler)
+  const correction = !draft && sp.korrektur ? await correctionSummary(db, sp.korrektur) : null;
+  const liveFrom = draft ? null : await correctionFrom(db, today);
+  const valid = !draft && year ? await validVersion(db, year.id) : null;
+  const liveTotal = valid ? await correctionCount(db, valid.id) : 0;
+  const liveVersion = valid ? versionNumber(valid) : null;
+  const liveNoteText = liveFrom ? `Laufende Stunden ändern sich ab ${fmtYmd(liveFrom)} (bis dahin bleibt alles, wie es war – Klassenbuch und Vertretungen davor bleiben zugeordnet). Betroffene bekommen einen Gong.` : undefined;
 
   const header = (
     <>
@@ -102,6 +108,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
         {stand && <input type="hidden" name="stand" value={stand} />}
         <Button type="submit">Anzeigen</Button>
       </form>
+      {!draft && <LiveNote correction={correction} from={liveFrom} total={liveTotal} versionLabel={liveVersion} today={today} groupId={group?.id ?? null} />}
       {draft && (
         <p data-testid="entwurf-hinweis" className="rounded-xl border border-warn-border bg-warn-soft px-4 py-3 text-sm">
           Du arbeitest im <strong>{q.label}</strong>
@@ -118,15 +125,21 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
     return (
       <main className="flex flex-col gap-6">
         {header}
-        {sp.kopiert !== undefined && (
-          <p role="status" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
-            {sp.kopiert === "0"
-              ? "Es lief keine Stunde über den Stichtag – nichts kopiert."
-              : `${sp.kopiert} Stunden ab ${sp.ab ? fmtYmd(sp.ab) : "dem Stichtag"} kopiert. Gruppe wählen, um den neuen Plan zu bearbeiten.`}
-          </p>
-        )}
         <EmptyState title="Keine Gruppe gewählt">Wähle eine Klasse, einen Kurs oder eine AG, um ihren Stundenplan zu bearbeiten.</EmptyState>
-        {!draft && <PeriodCard cutoff={sp.periode} error={sp.fehler} suggestion={await suggestedCutoff(db, today)} today={today} />}
+        {!draft && (
+          <Card aria-labelledby="halbjahr-title">
+            <h2 id="halbjahr-title" className="text-base font-semibold">
+              Halbjahreswechsel
+            </h2>
+            <p className="text-sm text-muted">
+              Der Plan fürs 2. Halbjahr entsteht als Entwurf aus dem gültigen Plan (Vorlage „Neues Halbjahr“ unter{" "}
+              <Link href="/planung/versionen" className="font-medium text-accent-ink hover:underline">
+                Planversionen
+              </Link>
+              ) und gilt erst mit dem Veröffentlichen ab dem Stichtag – Klassenbuch und Vertretungen davor bleiben an den bisherigen Stunden.
+            </p>
+          </Card>
+        )}
       </main>
     );
   }
@@ -204,6 +217,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
           deleteAction={coupledRow ? deleteCouplingAction.bind(null, coupledRow.l.couplingId!, group.id, stand ?? null, quelle) : undefined}
           initial={initial}
           cancelHref={base}
+          liveNote={slotOf && slotOf.l.validFrom <= today ? liveNoteText : undefined}
           options={{
             ...options,
             groups: PLANNED_GROUP_KINDS.map((k) => ({
@@ -253,6 +267,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
           initial={initial}
           cancelHref={base}
           couplingHref={editing ? `${base}&kopplung=neu&von=${editing.l.id}` : `${base}&kopplung=neu&neu=${sp.neu}`}
+          liveNote={editing && editing.l.validFrom <= today ? liveNoteText : undefined}
           suggestions={Object.fromEntries(master.subjects.map((s) => [s.id, suggestRoom(s, group.homeRoomId, master.rooms) ?? ""]))}
           options={options}
         />
@@ -402,62 +417,69 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
   );
 }
 
-/** Vorschlag für den Stichtag: Beginn des 2. Halbjahres, wenn er noch bevorsteht. */
-async function suggestedCutoff(db: Awaited<ReturnType<typeof getDb>>, today: string): Promise<string | undefined> {
-  const [y] = await db.select().from(schoolYears).where(eq(schoolYears.isCurrent, true));
-  return y?.term2StartsOn && y.term2StartsOn > today ? y.term2StartsOn : undefined;
-}
+const KIND_TEXT = { split: "ab dem Stichtag neu", inplace: "direkt geändert", delete: "entfallen", create: "neu angelegt" } as const;
 
-/** Halbjahreswechsel: Stichtag wählen → Vorschau → kopieren. */
-async function PeriodCard({ cutoff, error, suggestion, today }: { cutoff?: string; error?: string; suggestion?: string; today: string }) {
-  let preview: Awaited<ReturnType<typeof periodPreview>> | null = null;
-  let previewError = error ?? null;
-  if (cutoff && !error) {
-    try {
-      preview = await periodPreview(await getDb(), cutoff, today);
-    } catch (err) {
-      if (!(err instanceof ValidationError)) throw err;
-      previewError = Object.values(err.fieldErrors)[0] ?? "Datum prüfen";
-    }
-  }
+/**
+ * SP3-05 (F-10-2): Hinweis im gültigen Plan – Änderungen sind Sofort-Korrekturen ab dem nächsten Schultag; nach einer Aktion ihr Ergebnis
+ * (mit Link auf den Plan ab dem Stichtag) und ab `FOLLOW_UP_HINT` geänderten Stunden der Rat, größere Änderungen als Folgeversion zu planen.
+ */
+function LiveNote({
+  correction,
+  from,
+  total,
+  versionLabel,
+  today,
+  groupId,
+}: {
+  correction: CorrectionSummary | null;
+  from: string | null;
+  total: number;
+  versionLabel: string | null;
+  today: string;
+  groupId: string | null;
+}) {
+  const many = (correction?.suggestFollowUp ?? false) || total >= FOLLOW_UP_HINT;
+  const kinds = correction
+    ? (Object.entries(correction.kinds) as [keyof typeof KIND_TEXT, number][])
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => `${n} ${KIND_TEXT[k]}`)
+        .join(", ")
+    : "";
   return (
-    <Card aria-labelledby="period-title">
-      <h2 id="period-title" className="text-base font-semibold">
-        Neue Periode (Halbjahreswechsel)
-      </h2>
-      <p className="text-sm text-muted">
-        Alle Stunden, die über den Stichtag laufen, enden am Vortag; eine Kopie gilt ab dem Stichtag. Danach lässt sich der Plan ab dem Stichtag ändern, ohne
-        Klassenbuch und Vertretungen davor anzufassen.
-      </p>
-      <form className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1.5 text-sm font-medium">
-          Stichtag
-          <Input type="date" name="periode" defaultValue={cutoff ?? suggestion ?? ""} required className="w-48" />
-        </label>
-        <Button type="submit">Vorschau</Button>
-      </form>
-      {previewError && (
-        <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-          {previewError}
+    <div className="flex flex-col gap-2">
+      {correction && (
+        <p role="status" data-testid="korrektur-ergebnis" className="rounded-xl border border-border bg-accent-soft px-4 py-3 text-sm text-accent-ink">
+          Sofort-Korrektur {correction.from > today ? `ab ${fmtYmd(correction.from)}` : "gespeichert"}: {correction.lessons === 1 ? "1 Stunde" : `${correction.lessons} Stunden`} ({kinds}). Betroffene
+          Lehrkräfte haben einen Gong bekommen, Klassen/Kurse bekommen ihn zur Vortags-Uhrzeit.
+          {groupId && correction.from > today && (
+            <>
+              {" "}
+              <Link href={`/planung/stundenplan?gruppe=${encodeURIComponent(groupId)}`} className="font-medium underline">
+                Plan heute ansehen
+              </Link>
+            </>
+          )}
         </p>
       )}
-      {preview && (
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface-2 p-4 text-sm">
-          <p>
-            Ab {fmtYmd(preview.cutoff)}: <strong>{preview.split}</strong> Stunden werden kopiert
-            {preview.moved > 0 && `, ${preview.moved} Vertretungen/Klassenbuch-Einträge ab dem Stichtag ziehen mit um`}.
-            {preview.alreadyFuture > 0 && ` ${preview.alreadyFuture} Stunden beginnen schon ab dem Stichtag oder später und bleiben, wie sie sind.`}
-          </p>
-          {preview.split > 0 && (
-            <form action={copyPeriodAction.bind(null, preview.cutoff)}>
-              <Button type="submit" variant="primary">
-                Periode ab {fmtYmd(preview.cutoff)} anlegen
-              </Button>
-            </form>
-          )}
-        </div>
+      {from && (
+        <p data-testid="korrektur-hinweis" className="text-sm text-muted">
+          Gültiger Plan{versionLabel ? ` (Version ${versionLabel})` : ""}: Änderungen an laufenden Stunden gelten als Sofort-Korrektur ab {fmtYmd(from)} – die
+          Stunde endet am Vortag, ab dann gilt die neue; Klassenbuch, Vertretungen und Material davor bleiben zugeordnet. Stunden, die erst später beginnen
+          oder heute neu angelegt sind, ändern sich direkt.
+        </p>
       )}
-    </Card>
+      {many && (
+        <p role="note" data-testid="folgeversion-hinweis" className="rounded-xl border border-warn-border bg-warn-soft px-4 py-3 text-sm">
+          {correction?.suggestFollowUp && correction.lessons >= FOLLOW_UP_HINT
+            ? `Diese Änderung betrifft ${correction.lessons} Stunden.`
+            : `Seit Version ${versionLabel ?? "?"} gilt, wurden ${Math.max(total, correction?.versionTotal ?? 0)} Stunden direkt geändert.`}{" "}
+          Größere Änderungen besser als Folgeversion planen – Entwurf aus dem gültigen Plan, Änderungen ansehen, Prüfung und Freigabe, dann veröffentlichen:{" "}
+          <Link href="/planung/versionen#vorlagen" className="font-medium text-accent-ink hover:underline">
+            Vorlage „Änderung im laufenden Plan“
+          </Link>
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -7,6 +7,7 @@ import { Button } from "@schulos/ui/button";
 import { Field, Input, Select } from "@schulos/ui/field";
 import { offSubjectKey, type PickTeacher } from "@/modules/stundenplan/lehrfaecher-auswahl";
 import { TeacherSelect } from "../teacher-select";
+import { LiveReason } from "./live-reason";
 
 export interface LessonFormValues {
   groupId: string;
@@ -33,8 +34,11 @@ export function LessonForm({
   cancelHref,
   couplingHref,
   suggestions,
+  liveNote,
 }: {
   couplingHref?: string;
+  /** SP3-05: laufende Stunde im gültigen Plan – Hinweis „Sofort-Korrektur ab …“ und Begründung */
+  liveNote?: string;
   /** Raumvorschlag je Fach (Raumwunsch des Fachs, sonst Stammraum) */
   suggestions?: Record<string, string>;
   action: (prev: FormState, form: FormData) => Promise<FormState>;
@@ -131,6 +135,7 @@ export function LessonForm({
       <Field label="Gültig bis" hint="leer = unbefristet" error={fe.validUntil}>
         <Input type="date" name="validUntil" defaultValue={v.validUntil} />
       </Field>
+      {liveNote && <LiveReason note={liveNote} error={fe.reason} defaultValue={v.reason} className="sm:col-span-2" />}
       {state.error && (
         <p role="alert" className="text-sm text-danger sm:col-span-2">
           {state.error}

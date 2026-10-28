@@ -118,7 +118,8 @@ describe("R1b Vertretung", () => {
     expect((await needsOn(h.db, MO)).open.find((o) => o.lessonId === ids["7a-4"])?.status).toBe("merge");
     const before = (await h.db.select().from(notifications).where(and(eq(notifications.userId, BRA), eq(notifications.moduleId, "stundenplan")))).at(-1)?.title;
     expect(before).toMatch(/Zusammenlegung/);
-    await deleteLesson(h.db, "u-admin", ids["7b-4"]!, "2026-10-01");
+    // SP3-05: Planung vor Schuljahresbeginn – ohne Vergangenheitsbezug wird die Stunde ganz gelöscht
+    await deleteLesson(h.db, "u-admin", ids["7b-4"]!, "2026-07-31");
     const row = (await rowsByLesson()).get(ids["7a-4"]!);
     expect(row).toMatchObject({ kind: "merge", mergeLessonId: null });
     expect((await needsOn(h.db, MO)).open.find((o) => o.lessonId === ids["7a-4"])?.status).toBe("open");
@@ -126,7 +127,8 @@ describe("R1b Vertretung", () => {
     expect(changeLabel(e)).toBe("Zusammenlegung aufgehoben");
     // die bisher mitbetreuende Lehrkraft und die Lehrkraft der Stunde erfahren es
     // (Tagesnachricht je Person und Tag wird ersetzt: BRA hat an dem Tag nichts mehr)
-    const gong = await h.db.select().from(notifications).where(and(eq(notifications.userId, BRA), eq(notifications.moduleId, "stundenplan")));
+    // (SP3-05: daneben kommt die Änderungsliste der Sofort-Korrektur als eigener Gong – hier zählt die Tagesnachricht)
+    const gong = await h.db.select().from(notifications).where(and(eq(notifications.userId, BRA), eq(notifications.bundleKey, `stundenplan:${MO}`)));
     expect(gong.at(-1)?.title).not.toBe(before);
     expect(gong.at(-1)?.title).toMatch(/keine Änderungen mehr/);
     const kle = await h.db.select().from(notifications).where(and(eq(notifications.userId, KLE), eq(notifications.moduleId, "stundenplan")));
