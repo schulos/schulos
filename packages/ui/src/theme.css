@@ -26,6 +26,8 @@
   --muted: #5b6472;
   --accent: var(--school);
   --accent-fg: #ffffff;
+  /* Hover der Primärknöpfe: dunkler statt heller (der Filter brightness-110 senkte den Kontrast zu --accent-fg unter 4,5:1; TD-16) */
+  --accent-hover: color-mix(in oklab, var(--school) 85%, #000);
   --accent-soft: color-mix(in oklab, var(--school) 11%, var(--surface));
   --accent-ink: color-mix(in oklab, var(--school) 78%, #000);
   --warn: #8a3b00;
@@ -50,6 +52,7 @@
   --muted: #9aa3b2;
   --accent: color-mix(in oklab, var(--school) 80%, #fff);
   --accent-fg: #0b0e12;
+  --accent-hover: color-mix(in oklab, var(--accent) 90%, #fff);
   --accent-soft: color-mix(in oklab, var(--school) 22%, var(--surface));
   --accent-ink: color-mix(in oklab, var(--school) 55%, #fff);
   --warn: #ffb380;
@@ -73,6 +76,7 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
+  --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
   --color-accent-ink: var(--accent-ink);
   --color-warn: var(--warn);
