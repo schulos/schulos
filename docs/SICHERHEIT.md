@@ -210,7 +210,7 @@ Scan (`zap-full-scan`) gegen eine Wegwerf-Demo ist möglich, wenn nötig – nic
 ## 7. Prüfungen
 
 - **Statisch, jede Änderung:** tsc, eslint, `security.yml` (s. S13).
-- **Dynamisch:** E2E-Annahmen oben (CI-Job `verify`); ZAP-Baseline gegen den Compose-Stack (`scripts/zap-scan.sh`, CI-Job `stack`, Berichte als Artefakt `zap-berichte`).
+- **Dynamisch:** E2E-Annahmen oben (CI-Job `e2e`); ZAP-Baseline gegen den Compose-Stack (`scripts/zap-scan.sh`, CI-Job `stack`, Berichte als Artefakt `zap-berichte`).
 - **Review:** `/security-review` je Block; `/code-review ultra` (von der Projektleitung ausgelöst) vor dem ersten echten Einsatz (B-55).
 - **Externer Penetrationstest (SEC-16): Pflicht vor einem Pilot mit Außenzugang** – Prüfumfang Außenzugang, Gerätezertifikate,
   Anmeldung, Backup-Pfad (INSTALLATION.md §5b Punkt 10, PLAN.md Track B); Befunde als SEC-Folgeaufgaben, hohe/kritische vor dem Pilot behoben.
