@@ -16,6 +16,7 @@ import { actorNames, canSeeVersion, openCommentCounts, selfApproved, type Viewer
 import { ensureBaseVersions, listVersions, nextNumber, OPEN_STATUSES, STATUS_LABELS, suggestedValidFrom, versionNumber, type VersionSummary } from "@/modules/stundenplan/planversionen";
 import type { PlanVersionSource, PlanVersionStatus } from "@/modules/stundenplan/schema";
 import { planningYear } from "@/modules/stundenplan/verteilung";
+import { planningYearForPage, switchYearHref } from "../planungsjahr";
 import { publishedTimeline } from "@/modules/stundenplan/plan-archiv";
 import { isPublishUndoable } from "@/modules/stundenplan/veroeffentlichen";
 import { Badge } from "@schulos/ui/badge";
@@ -192,7 +193,8 @@ export default async function VersionenPage({
   const today = toBerlinDate(new Date());
   const years = await db.select().from(schoolYears).orderBy(asc(schoolYears.startsOn));
   const fallback = await planningYear(db);
-  const year = years.find((y) => y.id === sp.jahr) ?? fallback;
+  // SP3-09a: Schuljahr aus dem Kopf des Planungsbereichs; `jahr=` (Deeplink) stellt ihn um
+  const year = (await planningYearForPage(db, "/planung/versionen", sp))?.year ?? null;
   if (!year) {
     return (
       <main className="flex flex-col gap-6">
@@ -243,14 +245,15 @@ export default async function VersionenPage({
       {years.length > 1 && (
         <nav aria-label="Schuljahr" className="flex flex-wrap gap-1.5">
           {years.map((y) => (
-            <Link
+            // SP3-09a: stellt das Planungsjahr des ganzen Bereichs um (volle Navigation, damit der Kopf mitzieht)
+            <a
               key={y.id}
-              href={`/planung/versionen?jahr=${encodeURIComponent(y.id)}`}
+              href={switchYearHref(y.id, "/planung/versionen")}
               aria-current={y.id === year.id ? "page" : undefined}
               className="rounded-full border border-border px-3 py-1 text-sm text-muted hover:text-ink aria-[current=page]:border-accent aria-[current=page]:bg-accent-soft aria-[current=page]:text-accent-ink"
             >
               {y.name}
-            </Link>
+            </a>
           ))}
         </nav>
       )}
@@ -528,8 +531,8 @@ function NewYearCard({ t, followingYear }: { t: NewYearTemplate; followingYear: 
             </fieldset>
             {!t.planningYear && (
               <p className="text-xs text-muted">
-                Stundenplan, Unterrichtsverteilung und „Automatisch planen“ arbeiten im aktuellen Schuljahr – im Entwurf für {t.year.name}, sobald der
-                Schuljahreswechsel abgeschlossen ist.
+                Lehraufträge, Matrix, Deputate und der Entwurf lassen sich schon vor dem Schuljahreswechsel im Planungsjahr {t.year.name} bearbeiten (Kopf des
+                Planungsbereichs); „Automatisch planen“ arbeitet noch im laufenden Schuljahr.
               </p>
             )}
             <Button type="submit" variant="primary">
@@ -541,9 +544,9 @@ function NewYearCard({ t, followingYear }: { t: NewYearTemplate; followingYear: 
         )}
         {followingYear && (
           <p className="text-sm">
-            <Link href={`/planung/versionen?jahr=${encodeURIComponent(followingYear.id)}#vorlagen`} className="font-medium text-accent-ink hover:underline">
+            <a href={switchYearHref(followingYear.id, "/planung/versionen#vorlagen")} className="font-medium text-accent-ink hover:underline">
               Neues Schuljahr {followingYear.name} planen
-            </Link>
+            </a>
           </p>
         )}
       </article>
@@ -551,28 +554,28 @@ function NewYearCard({ t, followingYear }: { t: NewYearTemplate; followingYear: 
   );
 }
 
-/** SP3-07: nach dem Anlegen „Neues Schuljahr“ – Lehraufträge aus dem Vorjahr (Matrix), im Entwurf arbeiten. */
+/**
+ * SP3-07: nach dem Anlegen „Neues Schuljahr“ – Lehraufträge aus dem Vorjahr (Matrix), im Entwurf arbeiten. SP3-09a: auch vor dem Abschluss
+ * des Schuljahreswechsels – die Links tragen den Entwurf, die Seiten stellen das Planungsjahr auf sein Schuljahr um (volle Navigation, `<a>`).
+ * „Automatisch planen“ arbeitet bis SP3-09b nur im laufenden Schuljahr.
+ */
 function NewYearSteps({ versionId, planningYear, yearName }: { versionId: string; planningYear: boolean; yearName: string }) {
   const q = encodeURIComponent(versionId);
   const link = "font-medium underline";
-  if (!planningYear)
-    return (
-      <p>
-        Weiter, sobald {yearName} das aktuelle Schuljahr ist (Abschluss des Schuljahreswechsels): Lehraufträge aus dem Vorjahr in der Matrix übernehmen, dann im
-        Entwurf planen.
-      </p>
-    );
   return (
     <nav aria-label="Nächste Schritte" className="flex flex-wrap gap-x-4 gap-y-1">
-      <Link href={`/planung/unterricht?ansicht=matrix&vorschlag=vorjahr&quelle=${q}`} className={link}>
+      <a href={`/planung/unterricht?ansicht=matrix&vorschlag=vorjahr&quelle=${q}`} className={link}>
         Lehraufträge aus dem Vorjahr übernehmen
-      </Link>
-      <Link href={`/planung/stundenplan?quelle=${q}`} className={link}>
+      </a>
+      <a href={`/planung/stundenplan?quelle=${q}`} className={link}>
         Im Entwurf arbeiten
-      </Link>
-      <Link href={`/planung/solver?quelle=${q}`} className={link}>
-        Automatisch planen
-      </Link>
+      </a>
+      {!planningYear && <span>(Planungsjahr {yearName} – „Automatisch planen“ folgt, sobald es das laufende Schuljahr ist)</span>}
+      {planningYear && (
+        <Link href={`/planung/solver?quelle=${q}`} className={link}>
+          Automatisch planen
+        </Link>
+      )}
     </nav>
   );
 }

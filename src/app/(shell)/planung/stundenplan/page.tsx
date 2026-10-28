@@ -16,7 +16,9 @@ import { couplingParts, defaultValidity, lessonsOfGroup, plannableGroups, sugges
 import { loadPickList, teacherSubjectMap } from "@/modules/stundenplan/lehrfaecher";
 import { timetableMasterData } from "@/modules/stundenplan/service";
 import { assignmentPlacement, movePlacement, moveGridInput, openAssignments, placementGrid, type Cell } from "@/modules/stundenplan/setzhilfe";
-import { planningYear, PLANNED_GROUP_KINDS } from "@/modules/stundenplan/verteilung";
+import { PLANNED_GROUP_KINDS } from "@/modules/stundenplan/verteilung";
+import { yearOfVersion } from "@/modules/stundenplan/planungsjahr";
+import { planningYearForPage } from "../planungsjahr";
 import { QUELLE_LIVE, quelleQuery, resolveQuelle } from "@/modules/stundenplan/quelle";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -35,7 +37,7 @@ export const metadata: Metadata = { title: "Stundenplan pflegen" };
 const dateFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeZone: "UTC" });
 const fmtYmd = (ymd: string) => dateFmt.format(new Date(`${ymd}T00:00:00Z`));
 
-type Search = { stand?: string; korrektur?: string; gruppe?: string; neu?: string; stunde?: string; kopplung?: string; von?: string; setzen?: string; verschieben?: string; fehler?: string; quelle?: string };
+type Search = { stand?: string; korrektur?: string; gruppe?: string; neu?: string; stunde?: string; kopplung?: string; von?: string; setzen?: string; verschieben?: string; fehler?: string; quelle?: string; jahr?: string };
 
 export default async function StundenplanPflegePage({ searchParams }: { searchParams: Promise<Search> }) {
   const { perms } = await requireUser();
@@ -43,14 +45,26 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
   const sp = await searchParams;
   const db = await getDb();
   const today = toBerlinDate(new Date());
-  const [groupList, master, fakultas, year] = await Promise.all([plannableGroups(db), timetableMasterData(db), teacherSubjectMap(db), planningYear(db)]);
+  // SP3-09a: Planungsjahr aus dem Kopf des Bereichs; ein Entwurf in der URL kennt sein Jahr (Deeplink stellt um)
+  const draftYear = sp.quelle && sp.quelle !== QUELLE_LIVE ? ((await yearOfVersion(db, sp.quelle))?.id ?? null) : null;
+  const py = await planningYearForPage(db, "/planung/stundenplan", sp, draftYear);
+  const year = py?.year ?? null;
+  const [groupList, master, fakultas] = await Promise.all([plannableGroups(db, year?.id), timetableMasterData(db), teacherSubjectMap(db)]);
   const group = groupList.find((g) => g.id === sp.gruppe);
   // SP3-02: Quelle „Gültiger Plan“ oder ein offener Entwurf – im Entwurf ist der Planungsstand sein Stichtag
-  const q = await resolveQuelle(db, sp.quelle, year?.id ?? null);
+  let q = await resolveQuelle(db, sp.quelle, year?.id ?? null);
+  // SP3-09a: außerhalb des laufenden Schuljahrs gibt es keinen gültigen Plan zum Pflegen – dort nur Entwürfe (Vorgabe: der neueste)
+  const liveAllowed = !py || py.isBase;
+  if (!liveAllowed && q.value === QUELLE_LIVE) {
+    const first = q.options.find((o) => o.value !== QUELLE_LIVE);
+    if (first) q = await resolveQuelle(db, first.value, year?.id ?? null);
+  }
+  const sourceOptions = liveAllowed ? q.options : q.options.filter((o) => o.value !== QUELLE_LIVE);
   const draft = q.version;
   const src = q.source;
   const quelle = q.value === QUELLE_LIVE ? null : q.value;
-  const readOnly = !q.editable;
+  const noDraft = !liveAllowed && !draft;
+  const readOnly = !q.editable || !(py?.writable ?? true) || noDraft;
   // Planungsstand: heute oder ein künftiger Stichtag (z. B. nach einer Sofort-Korrektur ab dem nächsten Schultag)
   const stand = !draft && sp.stand && /^\d{4}-\d{2}-\d{2}$/.test(sp.stand) && sp.stand > today ? sp.stand : undefined;
   const view = draft ? (draft.validFrom ?? today) : (stand ?? today);
@@ -96,9 +110,9 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
             </optgroup>
           ))}
         </Select>
-        {q.options.length > 1 && (
+        {sourceOptions.length > (liveAllowed ? 1 : 0) && (
           <Select name="quelle" defaultValue={q.value} aria-label="Plan" className="w-72">
-            {q.options.map((o) => (
+            {sourceOptions.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -108,12 +122,12 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
         {stand && <input type="hidden" name="stand" value={stand} />}
         <Button type="submit">Anzeigen</Button>
       </form>
-      {!draft && <LiveNote correction={correction} from={liveFrom} total={liveTotal} versionLabel={liveVersion} today={today} groupId={group?.id ?? null} />}
+      {!draft && liveAllowed && <LiveNote correction={correction} from={liveFrom} total={liveTotal} versionLabel={liveVersion} today={today} groupId={group?.id ?? null} />}
       {draft && (
         <p data-testid="entwurf-hinweis" className="rounded-xl border border-warn-border bg-warn-soft px-4 py-3 text-sm">
           Du arbeitest im <strong>{q.label}</strong>
           {draft.validFrom ? ` ab ${fmtYmd(draft.validFrom)}` : ""}. Änderungen wirken erst mit dem Veröffentlichen – der gültige Plan, Vertretungen und Klassenbuch
-          bleiben unverändert.{readOnly ? " Dieser Entwurf ist nicht mehr bearbeitbar." : ""}{" "}
+          bleiben unverändert.{readOnly ? (py?.writable === false ? " Das Schuljahr ist abgeschlossen – nur lesbar." : " Dieser Entwurf ist nicht mehr bearbeitbar.") : ""}{" "}
           <Link href={`/planung/versionen/aenderungen?version=${encodeURIComponent(draft.id)}`} className="font-medium text-accent-ink hover:underline">
             Änderungen zum gültigen Plan
           </Link>
@@ -121,11 +135,49 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
       )}
     </>
   );
+  if (noDraft && year) {
+    return (
+      <main className="flex flex-col gap-6">
+        {header}
+        {py?.writable ? (
+          <EmptyState title={`Noch kein Entwurf für ${year.name}`}>
+            Im Folgejahr planst du in einem Entwurf: unter{" "}
+            <Link href="/planung/versionen#vorlagen" className="font-medium text-accent-ink underline">
+              Planversionen
+            </Link>{" "}
+            mit der Vorlage „Neues Schuljahr“ anlegen (hochgestuft aus dem Vorjahr oder leer). Klassen gibt es erst nach der Versetzung im{" "}
+            <Link href="/verwaltung/schuljahreswechsel" className="font-medium text-accent-ink underline">
+              Schuljahreswechsel
+            </Link>
+            .
+          </EmptyState>
+        ) : (
+          <EmptyState title={`Schuljahr ${year.name} abgeschlossen`}>
+            Der Plan bleibt lesbar unter{" "}
+            <Link href="/planung/versionen" className="font-medium text-accent-ink underline">
+              Planversionen
+            </Link>{" "}
+            („Plan am Tag X“, Druck).
+          </EmptyState>
+        )}
+      </main>
+    );
+  }
   if (!group) {
     return (
       <main className="flex flex-col gap-6">
         {header}
-        <EmptyState title="Keine Gruppe gewählt">Wähle eine Klasse, einen Kurs oder eine AG, um ihren Stundenplan zu bearbeiten.</EmptyState>
+        {groupList.length === 0 && py && !py.isBase ? (
+          <EmptyState title={`Noch keine Klassen im Schuljahr ${py.year.name}`}>
+            Klassen des Folgejahrs entstehen mit der Versetzung im{" "}
+            <Link href="/verwaltung/schuljahreswechsel" className="font-medium text-accent-ink underline">
+              Schuljahreswechsel
+            </Link>{" "}
+            (Verwaltung).
+          </EmptyState>
+        ) : (
+          <EmptyState title="Keine Gruppe gewählt">Wähle eine Klasse, einen Kurs oder eine AG, um ihren Stundenplan zu bearbeiten.</EmptyState>
+        )}
         {!draft && (
           <Card aria-labelledby="halbjahr-title">
             <h2 id="halbjahr-title" className="text-base font-semibold">
@@ -164,7 +216,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
     if (m?.unit.length) grid = placementGrid(moveGridInput(m, group.id, [...gridDims[0]], [...gridDims[1]]));
   }
   const modeOn = Boolean(grid);
-  const yearEnd = (await defaultValidity(db, today)).validUntil;
+  const yearEnd = (await defaultValidity(db, today, from)).validUntil;
   const endsEarly = (until: string | null) => until !== null && (yearEnd === null || until < yearEnd);
 
   const editing = !readOnly && !modeOn && sp.stunde ? lessons.find((r) => r.l.id === sp.stunde && !r.l.couplingId) : undefined;
@@ -176,7 +228,7 @@ export default async function StundenplanPflegePage({ searchParams }: { searchPa
     weekdays: WEEKDAYS.map((d, i) => ({ value: String(i), label: d })),
     periods: master.periods.map((p) => ({ value: String(p.nr), label: `${p.nr}. Stunde (${p.startsAt}–${p.endsAt})` })),
     subjects: master.subjects.map((s) => ({ value: s.id, label: s.name })),
-    teachers: formOpen ? await loadPickList(db, today) : [],
+    teachers: formOpen ? await loadPickList(db, today, year) : [],
     rooms: master.rooms.map((r) => ({ value: r.id, label: r.id === r.name ? r.id : `${r.id} – ${r.name}` })),
   };
 

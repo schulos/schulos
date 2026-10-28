@@ -14,7 +14,8 @@ import { WEEKDAYS } from "./manage";
 import type { LESSON_WEEKS } from "./schema";
 import { longBreaksAfter } from "./solver-check";
 import { bandsWithSharedStudents, conflictsFrom } from "./solver-input";
-import { distribution, planningYear, PLANNED_GROUP_KINDS, type Distribution } from "./verteilung";
+import { distribution, PLANNED_GROUP_KINDS, type Distribution } from "./verteilung";
+import { yearOfSource } from "./planungsjahr";
 import { loadDayLimits } from "./jahrgangsregeln";
 import { classWeek, dayProblems, isAfternoon, problemText, ruleSummary, weeklyCapacity, type DayLimits } from "./tagesgrenzen";
 import { presenceDays, teacherDayProblems, teacherProblemText, teacherRuleSummary, teacherWeek, teacherWeeklyCapacity } from "./lehrkraftregeln";
@@ -502,9 +503,9 @@ export async function diagnoseYear(
   return { refYmd: ref, findings, counts: countFindings(findings) };
 }
 
-/** Plan-Hinweise einer Gruppe (Hohlstunden, Fach mehrfach am Tag, Räume) für die Pflege-Seite. */
+/** Plan-Hinweise einer Gruppe (Hohlstunden, Fach mehrfach am Tag, Räume) für die Pflege-Seite; SP3-09a: im Schuljahr der Quelle. */
 export async function groupPlanFindings(db: Db, groupId: string, todayYmd: string, source: PlanSource = LIVE): Promise<Finding[]> {
-  const year = await planningYear(db);
+  const year = await yearOfSource(db, source);
   if (!year) return [];
   const school = await readSchoolSettings(db);
   const { findings } = await diagnoseYear(db, year, todayYmd, defaultObligation(school.profile.form), undefined, { source });

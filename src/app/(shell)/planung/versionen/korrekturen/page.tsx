@@ -11,7 +11,7 @@ import { TZ, fromBerlinLocal } from "@/core/time";
 import { correctionLog, LOG_ROW_LIMIT } from "@/modules/stundenplan/korrekturprotokoll";
 import { PLAN_MANAGE } from "@/modules/stundenplan/rechte";
 import type { PlanChangeKind } from "@/modules/stundenplan/schema";
-import { planningYear } from "@/modules/stundenplan/verteilung";
+import { planningYearForPage } from "../../planungsjahr";
 import { Badge } from "@schulos/ui/badge";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 
@@ -33,7 +33,8 @@ export default async function KorrekturenPage({ searchParams }: { searchParams: 
   const sp = await searchParams;
   const db = await getDb();
   const years = await db.select().from(schoolYears).orderBy(asc(schoolYears.startsOn));
-  const year = years.find((y) => y.id === sp.jahr) ?? (await planningYear(db));
+  // SP3-09a: Schuljahr aus dem Kopf des Planungsbereichs; `jahr=` (Deeplink, Jahresauswahl unten) stellt ihn um
+  const year = (await planningYearForPage(db, "/planung/versionen/korrekturen", sp))?.year;
   if (!year) notFound();
   const { batches, truncated } = await correctionLog(db, year.id);
   return (

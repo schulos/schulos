@@ -182,8 +182,15 @@ async function substituteFigures(db: Db, today: string): Promise<SubstituteFigur
 
 /** Kennzahlen der Planungs-Übersicht; Teile ohne passendes Recht bleiben `null` (werden gar nicht erst berechnet). */
 /** R2-P12: `dist` = schon berechnete Unterrichtsverteilung des Planungsjahres (die Übersicht teilt sie mit dem Fachbedarf). */
-export async function planningOverview(db: Db, today: string, rights: { manage: boolean; substitute: boolean }, dist?: Distribution): Promise<PlanningOverview> {
-  const y = await planningYear(db);
+/** SP3-09a: `selected` = gewähltes Planungsjahr (Folgejahr), sonst das laufende. */
+export async function planningOverview(
+  db: Db,
+  today: string,
+  rights: { manage: boolean; substitute: boolean },
+  dist?: Distribution,
+  selected?: { id: string; name: string; startsOn: string; endsOn: string; isCurrent: boolean } | null,
+): Promise<PlanningOverview> {
+  const y = selected ?? (await planningYear(db));
   const year: PlanningYearInfo | null = y ? { id: y.id, name: y.name, startsOn: y.startsOn, endsOn: y.endsOn, isCurrent: y.isCurrent } : null;
   const fahrplan = rights.manage && year ? await fahrplanSummary(db, year, today) : null;
   const [manage, substitute] = await Promise.all([

@@ -224,7 +224,8 @@ describe("Querschnitt: kein fremder Leser des Entwurfs (SP3-01, §5 b)", () => {
 
   it("SP3-02: nur die Planung arbeitet mit der Planquelle – Vertretung, Wochenplan, Heute, Anzeige, Freigabe, Gong, Exporte, Vorlagen und Sofort-Korrektur lesen nur den gültigen Plan", () => {
     const planners = files.filter((f) => f.path.startsWith("src/modules/stundenplan/") && /lessonCols\(|lessonTable\(|PlanSource|plan-quelle/.test(f.text)).map((f) => f.path.replace("src/modules/stundenplan/", "")).sort();
-    expect(planners).toEqual(["actions.ts", "diagnose.ts", "fahrplan.ts", "manage.ts", "plan-diff.ts", "plan-quelle.ts", "planversionen.ts", "quelle.ts", "schema.ts", "setzhilfe.ts", "solver-input.ts", "solverlauf.ts", "verteilung.ts"]);
+    // SP3-09a: planungsjahr.ts liest nur das Schuljahr einer Quelle (Entwurf → seine Version), keine Stunden
+    expect(planners).toEqual(["actions.ts", "diagnose.ts", "fahrplan.ts", "manage.ts", "plan-diff.ts", "plan-quelle.ts", "planungsjahr.ts", "planversionen.ts", "quelle.ts", "schema.ts", "setzhilfe.ts", "solver-input.ts", "solverlauf.ts", "verteilung.ts"]);
     for (const reader of ["service.ts", "vertretung.ts", "today.ts", "display.ts", "widgets.tsx", "freigabe.ts", "vertretung-gong.ts", "abwesenheit.ts", "raumsperren.ts", "exporte.ts", "laufzeit.ts", "sofortkorrektur.ts", "arbeitsplatz.ts", "vorschlaege.ts"])
       expect(planners).not.toContain(reader);
   });

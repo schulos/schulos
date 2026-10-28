@@ -246,9 +246,10 @@ export function pickList(
 /**
  * Auswahlliste des Planungsjahres (Restdeputat am Stichtag) – für Formulare außerhalb der Unterrichtsverteilung. Nicht aktive Lehrkräfte
  * sind markiert (R2-P2). Ohne Stundenplanmodul (R2-P7) nur aktive Lehrkräfte ohne Lehrfächer und ohne Deputat – kein Fachfilter.
+ * SP3-09a: `forYear` = anderes Planungsjahr (Pflege im Entwurf des Folgejahrs), sonst das laufende.
  */
-export async function loadPickList(db: Db, todayYmd: string): Promise<PickTeacher[]> {
-  const [year, active, moduleOn] = await Promise.all([planningYear(db), activeTeacherIds(db), timetableModuleOn(db)]);
+export async function loadPickList(db: Db, todayYmd: string, forYear?: { id: string; startsOn: string; endsOn: string } | null): Promise<PickTeacher[]> {
+  const [year, active, moduleOn] = await Promise.all([forYear ? Promise.resolve(forYear) : planningYear(db), activeTeacherIds(db), timetableModuleOn(db)]);
   if (!year || !moduleOn) {
     const rows = await db
       .select({ id: users.id, code: users.shortCode, name: users.name })

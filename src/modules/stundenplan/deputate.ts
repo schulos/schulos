@@ -136,7 +136,7 @@ export async function setDeputy(db: Db, actorId: string, schoolYearId: string, t
       .insert(timetableDeputies)
       .values({ schoolYearId, teacherId, ...values })
       .onConflictDoUpdate({ target: [timetableDeputies.schoolYearId, timetableDeputies.teacherId], set: values });
-  await audit(db, actorId, "stundenplan.deputy.obligation", teacherId, values);
+  await audit(db, actorId, "stundenplan.deputy.obligation", teacherId, { ...values, year: schoolYearId });
 }
 
 export interface ReductionInput {
@@ -172,13 +172,13 @@ export async function addReduction(db: Db, actorId: string, input: ReductionInpu
     .insert(timetableReductions)
     .values({ schoolYearId: input.schoolYearId, teacherId: input.teacherId, reason: input.reason as ReductionReason, hours: input.hours, note, validFrom, validUntil })
     .returning({ id: timetableReductions.id });
-  await audit(db, actorId, "stundenplan.deputy.reduction_add", input.teacherId, { reason: input.reason, hours: input.hours, validFrom, validUntil });
+  await audit(db, actorId, "stundenplan.deputy.reduction_add", input.teacherId, { reason: input.reason, hours: input.hours, validFrom, validUntil, year: input.schoolYearId });
   return row!.id;
 }
 
 export async function deleteReduction(db: Db, actorId: string, id: string): Promise<void> {
   const [old] = await db.delete(timetableReductions).where(eq(timetableReductions.id, id)).returning();
-  if (old) await audit(db, actorId, "stundenplan.deputy.reduction_delete", old.teacherId, { reason: old.reason, hours: old.hours });
+  if (old) await audit(db, actorId, "stundenplan.deputy.reduction_delete", old.teacherId, { reason: old.reason, hours: old.hours, year: old.schoolYearId });
 }
 
 // ---------------------------------------------------------------- Tagesregeln je Lehrkraft (SP2-04)
@@ -216,7 +216,7 @@ export async function saveTeacherRule(db: Db, actorId: string, schoolYearId: str
       .insert(timetableTeacherDayRules)
       .values({ schoolYearId, teacherId, ...rule })
       .onConflictDoUpdate({ target: [timetableTeacherDayRules.schoolYearId, timetableTeacherDayRules.teacherId], set: rule });
-  await audit(db, actorId, "stundenplan.deputy.day_rule", teacherId, { maxPerDay: rule.maxPerDay, maxDays: rule.maxDays });
+  await audit(db, actorId, "stundenplan.deputy.day_rule", teacherId, { maxPerDay: rule.maxPerDay, maxDays: rule.maxDays, year: schoolYearId });
 }
 
 /** Regeln des Planungsjahres (bzw. `schoolYearId`) mit Kürzeln – für Setzhilfe und Diagnose. Ohne Regeln: leer. */

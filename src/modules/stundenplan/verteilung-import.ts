@@ -450,7 +450,7 @@ export async function executeAssignmentImport(db: Db, actorId: string, year: { i
     }
     return { created, updated, bands: plan.newBands.length };
   });
-  await audit(db, actorId, "stundenplan.assignment.csv_import", null, { ...outcome });
+  await audit(db, actorId, "stundenplan.assignment.csv_import", null, { ...outcome, year: year.id });
   return outcome;
 }
 

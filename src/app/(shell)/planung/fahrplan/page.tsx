@@ -1,11 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc } from "drizzle-orm";
 import { CircleAlert, CircleCheck, CircleDot } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
-import { schoolYears } from "@/core/db/schema";
 import { hasPermission } from "@/core/permissions";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { acknowledgeAction, pruneAcksAction, revokeAckAction, startFahrplanAction, stepDateAction, tickAction } from "@/modules/stundenplan/fahrplan-actions";
@@ -26,7 +24,7 @@ import {
 import { actorNames, canSeeVersion, type Viewer } from "@/modules/stundenplan/planpruefung";
 import { ensureBaseVersions, getVersion, OPEN_STATUSES, STATUS_LABELS, versionNumber } from "@/modules/stundenplan/planversionen";
 import { PLAN_MANAGE, PLAN_REVIEW } from "@/modules/stundenplan/rechte";
-import { planningYear } from "@/modules/stundenplan/verteilung";
+import { planningYearForPage } from "../planungsjahr";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Input } from "@schulos/ui/field";
@@ -93,8 +91,8 @@ export default async function FahrplanPage({ searchParams }: { searchParams: Pro
   const schoolData = hasPermission(perms, "verwaltung.school");
 
   const picked = sp.version ? await getVersion(db, sp.version) : null;
-  const years = await db.select().from(schoolYears).orderBy(asc(schoolYears.startsOn));
-  const year = (picked && years.find((y) => y.id === picked.schoolYearId)) ?? years.find((y) => y.id === sp.jahr) ?? (await planningYear(db));
+  // SP3-09a: Schuljahr aus dem Kopf des Planungsbereichs; der gewählte Entwurf bzw. `jahr=` stellen ihn um (Deeplink)
+  const year = (await planningYearForPage(db, "/planung/fahrplan", sp, picked?.schoolYearId ?? null))?.year ?? null;
   if (!year) {
     return (
       <main className="flex flex-col gap-6">
