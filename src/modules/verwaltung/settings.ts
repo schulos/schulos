@@ -13,4 +13,19 @@ export const ACCOUNT_GRACE = defineSetting({
   permission: "verwaltung.privacy",
 });
 
-export const VERWALTUNG_SETTINGS = [ACCOUNT_GRACE];
+/**
+ * RS-02/RS-03 (Projektleitung 2026-10-28): Schüler:innen und Eltern sehen im Raumsteckbrief die Belegung nur als frei/belegt –
+ * ohne Klasse, Fach oder Lehrkraft. Die Schule kann die Belegung für sie auch ganz ausblenden.
+ */
+export const ROOM_OCCUPANCY_FAMILY = defineSetting({
+  key: "verwaltung.room_occupancy_family",
+  label: "Raumsteckbrief: Belegung für Schüler:innen und Eltern",
+  help: "Beschäftigte sehen die Belegung immer mit Klasse und Lehrkraft; Schüler:innen und Eltern höchstens „frei“ oder „belegt“.",
+  options: [
+    { value: "frei_belegt", label: "nur frei/belegt (Vorgabe)" },
+    { value: "aus", label: "nicht zeigen" },
+  ],
+  default: "frei_belegt",
+});
+
+export const VERWALTUNG_SETTINGS = [ACCOUNT_GRACE, ROOM_OCCUPANCY_FAMILY];

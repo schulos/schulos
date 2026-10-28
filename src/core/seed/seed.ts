@@ -9,6 +9,7 @@ import {
   groups,
   parentChild,
   periods,
+  roomInfoValues,
   rooms,
   schoolClosures,
   schoolYears,
@@ -25,6 +26,7 @@ import { SUBJECT_TEMPLATE, defaultTimeGrid } from "@/core/school/templates";
 import { MODULES } from "@/modules";
 import { seedAufgaben } from "@/modules/aufgaben/seed";
 import { seedBuchungen } from "@/modules/buchungen/seed";
+import { ensureDefaultInfoFields } from "@/modules/verwaltung/raumsteckbrief";
 import buecherei from "@/modules/buecherei/manifest";
 import { seedBuecherei, seedLernmittel } from "@/modules/buecherei/seed";
 import { seedDateien } from "@/modules/dateien/seed";
@@ -58,6 +60,7 @@ import {
   LAST_NAMES,
   PARENT_FIRST_NAMES,
   ROOMS,
+  ROOM_INFO_DEMO,
   SCHOOL_COLOR,
   SCHOOL_NAME,
   TEACHERS,
@@ -143,6 +146,9 @@ export async function seedDemoSchool(
   // Fächer, Zeitraster und Stundentafel kommen aus denselben Vorlagen, die auch eine echte Schule übernimmt
   await db.insert(subjects).values(SUBJECT_TEMPLATE.map((s, i) => ({ ...s, sortOrder: i })));
   await db.insert(rooms).values(ROOMS);
+  // RS-03: Infofelder – Sachangaben ohne Personen (Vorgabefelder auch nach dem Leeren aller Tabellen beim Demo-Reset)
+  await ensureDefaultInfoFields(db);
+  await db.insert(roomInfoValues).values(ROOM_INFO_DEMO);
   await db.insert(periods).values(defaultTimeGrid({ form: "gesamtschule" }).periods);
   if (opts.closures !== false) await db.insert(schoolClosures).values(DEMO_CLOSURES);
   await db.insert(appSettings).values([

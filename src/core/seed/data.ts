@@ -69,6 +69,16 @@ export const ROOMS: {
   { id: "015", name: "Raum 015", kind: "klassenraum", building: "Hauptgebäude", floor: "EG", capacity: 30, equipment: ["beamer"], accessible: true },
 ];
 
+/** RS-03: Demo-Infofelder (Feld-IDs der Vorgaben aus Migration 0115) – Sachangaben, keine Personen. */
+export const ROOM_INFO_DEMO: { roomId: string; fieldId: string; value: string }[] = [
+  { roomId: "NW2", fieldId: "technik", value: "Beamer über HDMI am Lehrerpult, Netzwerkdose links neben der Tafel" },
+  { roomId: "NW2", fieldId: "sicherheit", value: "Not-Aus für Gas und Strom am Lehrerpult, Augendusche am Waschbecken, Feuerlöscher an der Tür" },
+  { roomId: "NW2", fieldId: "lueftung", value: "Abzug vor Versuchen einschalten; Fenster nur kippen" },
+  { roomId: "NW2", fieldId: "flaeche", value: "72 m²" },
+  { roomId: "101", fieldId: "technik", value: "Digitale Tafel, Lehrer-PC mit Schulnetz-Anmeldung" },
+  { roomId: "101", fieldId: "lueftung", value: "Fenster lassen sich ganz öffnen" },
+];
+
 /** Lehrkräfte: [Vorname, Nachname, Kürzel, Fächer]. Die ersten Einträge tauchen im UI-Konzept auf. */
 export const TEACHERS: [string, string, string, string[]][] = [
   ["Jana", "Brandt", "BRA", ["D", "E"]],

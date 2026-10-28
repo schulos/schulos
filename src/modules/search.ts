@@ -11,6 +11,7 @@ import { newsSearch } from "./news/search";
 import { notenbuchSearch } from "./notenbuch/search";
 import { sitzplanSearch } from "./sitzplan/search";
 import { sprechtagSearch } from "./sprechtag/search";
+import { raeumeSearch } from "./verwaltung/search";
 
 export const SEARCH_PROVIDERS: readonly SearchProvider[] = [
   adressbuchSearch,
@@ -24,4 +25,5 @@ export const SEARCH_PROVIDERS: readonly SearchProvider[] = [
   sitzplanSearch,
   notenbuchSearch,
   buechereiSearch,
+  raeumeSearch,
 ];

@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { hasPermission } from "@/core/permissions";
+import { roomHref } from "@/core/room-href";
 import { deleteRoomAction, setRoomActiveAction, updateRoomAction } from "@/modules/verwaltung/room-actions";
 import { getRoom, listRooms, roomUsage } from "@/modules/verwaltung/rooms";
 import { Button } from "@schulos/ui/button";
@@ -22,7 +24,15 @@ export default async function RaumPage({ params }: { params: Promise<{ id: strin
   const buildings = [...new Set(all.map((r) => r.building).filter((b): b is string => !!b))];
   return (
     <main className="flex max-w-3xl flex-col gap-6">
-      <PageHeader eyebrow="Stammdaten · Raum" title={room.id === room.name ? room.id : `${room.id} – ${room.name}`} />
+      <PageHeader
+        eyebrow="Stammdaten · Raum"
+        title={room.id === room.name ? room.id : `${room.id} – ${room.name}`}
+        actions={
+          <Button asChild>
+            <Link href={roomHref(room.id)}>Zum Steckbrief</Link>
+          </Button>
+        }
+      />
       <Card>
         <RoomForm
           key={room.id}
