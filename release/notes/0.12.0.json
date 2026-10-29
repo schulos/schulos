@@ -1,0 +1,16 @@
+{
+  "minVersion": "0.5.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Das nächste Schuljahr planen: Im Planungsbereich lässt sich das Schuljahr wählen. Unterrichtsverteilung, Lehraufträge, Deputate, Zeitwünsche, automatische Planung, Diagnose und Fahrplan arbeiten dann im Folgejahr, während das laufende Schuljahr unverändert bleibt" },
+    { "kind": "neu", "text": "Raumsteckbrief: Jeder Raum hat eine eigene Seite mit Belegung, Mängeln, Buchen und Infofeldern. Schüler:innen und Eltern sehen nur „frei/belegt“ und die öffentlichen Angaben; gesperrte oder stillgelegte Räume sind deutlich markiert" },
+    { "kind": "neu", "text": "Fotos und Ausstattung für Räume: bis zu acht Fotos mit Titelbild (Ortsdaten werden entfernt) und ein Ausstattungskatalog mit Mengen, der beim Eintragen von selbst wächst. Raumverantwortliche pflegen ihren eigenen Raum" },
+    { "kind": "neu", "text": "Raumlayout: Tische, Plätze, Pult, Tafel und Tür im Raster anordnen. Lehrkräfte übernehmen das Layout als Vorlage für ihren Sitzplan; im Klausurplan zeigt SchulOS die Prüfungsplätze des Raums und warnt bei Überbelegung" },
+    { "kind": "neu", "text": "Gebäude und Etagen als Stammdaten mit Raumfinder; Türschilder mit QR-Code zum Ausdrucken. Der Code führt nach der Anmeldung zum Raumsteckbrief und verrät ohne Anmeldung nichts" },
+    { "kind": "neu", "text": "Handbuch der Schule: Anleitungen und Abläufe in Bereichen und Seiten, je Seite für bestimmte Gruppen sichtbar, mit Suche, Anhängen, Verlauf und Erinnerung zur Überprüfung. Starter-Seiten für Eltern, Schüler:innen und Personal; das „?“ oben führt zur passenden Seite" },
+    { "kind": "neu", "text": "Ganztag: Anwesenheitslisten für AGs und Förderkurse mit Terminserien, Erfassung per Klick auch am Handy, Vorbelegung aus Krankmeldungen. Bei Pflichtangeboten abends ein Hinweis an die Klassenleitung; Familien sehen ihre Anwesenheit, die Verwaltung eine Auswertung ohne Namen" },
+    { "kind": "verbessert", "text": "Primärknöpfe behalten beim Überfahren mit der Maus ausreichenden Kontrast (hell und dunkel)" },
+    { "kind": "sicherheit", "text": "Leitfaden für Datenpannen im neuen Betriebshandbuch: Ablauf mit 72-Stunden-Frist, Rollen, Sofortmaßnahmen in SchulOS, Kurzseite zu Erpressungstrojanern und Vorlagen für Meldung, Dokumentation und Benachrichtigung" },
+    { "kind": "sicherheit", "text": "Datenschutz: Raumverantwortliche, Handbuch-Ansprechpersonen und Ganztagslisten sind in Auskunft und Kontolöschung berücksichtigt; Ganztagslisten werden zum Schuljahresende gelöscht und enthalten keine Gründe" }
+  ]
+}
