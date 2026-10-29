@@ -1,16 +1,18 @@
 // Klausurplan: Klassenarbeiten/Klausuren je Gruppe mit Regelprüfung je Schüler:in
 // (höchstens eine am Tag, höchstens drei in der Woche – auch über Kurse hinweg).
-import { and, asc, eq, gte, inArray, lte, ne } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, lte, ne } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@/core/db/client";
 import { audit } from "@/core/audit";
-import { exams, groupMembers, groups, periods, subjects, timetableLessons, users } from "@/core/db/schema";
+import { exams, groupMembers, groups, periods, rooms, subjects, timetableLessons, users } from "@/core/db/schema";
 import { childrenOf } from "@/core/school/majority";
 import { notify } from "@/core/notifications";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
 import { dayOffLabel, dayOffOn } from "@/core/school/calendar";
 import { TZ, addDays, fromBerlinLocal, mondayOf, weekdayMon0 } from "@/core/time";
 import type { Occurrence } from "@/modules/kalender/service";
+import { isStaffRole } from "@/core/roles";
+import { examSeatWarning, examSeatsByRoom } from "@/modules/verwaltung/raumlayout";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { EXAM_KINDS } from "./schema";
 
@@ -113,6 +115,10 @@ export async function createExam(db: Db, viewer: PermissionSet, input: ExamInput
   if (!ps.has(input.periodFrom) || !ps.has(input.periodTo) || input.periodTo < input.periodFrom) fe.periodFrom = "Stunden prüfen";
   const [s] = await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.id, input.subjectId));
   if (!s) fe.subjectId = "Fach wählen";
+  if (input.roomId) {
+    const [r] = await db.select({ id: rooms.id }).from(rooms).where(and(eq(rooms.id, input.roomId), eq(rooms.active, true)));
+    if (!r) fe.roomId = "Raum gibt es nicht (mehr)";
+  }
   if (Object.keys(fe).length) throw new ValidationError(fe);
   const violations = await ruleViolations(db, input.groupId, input.date);
   if (violations.length && !(input.override && hasPermission(viewer, "klausurplan.manage"))) throw new ValidationError({ date: violations.join(" · ") });
@@ -255,4 +261,35 @@ export async function examOccurrences(db: Db, viewer: PermissionSet, fromYmd: st
     ownerId: null,
     href: "/klausurplan",
   }));
+}
+
+// ------------------------------------------------------------------ RS-09: Prüfungsplätze aus dem Raumlayout
+
+/** Schüler:innen je Gruppe (für den Abgleich mit den Prüfungsplätzen). */
+async function studentCounts(db: Db, groupIds: readonly string[]): Promise<Map<string, number>> {
+  if (groupIds.length === 0) return new Map();
+  const rows = await db
+    .select({ g: groupMembers.groupId, n: count() })
+    .from(groupMembers)
+    .innerJoin(users, eq(users.id, groupMembers.userId))
+    .where(and(inArray(groupMembers.groupId, [...new Set(groupIds)]), eq(users.role, "schueler"), eq(users.status, "active")))
+    .groupBy(groupMembers.groupId);
+  return new Map(rows.map((r) => [r.g, Number(r.n)]));
+}
+
+/**
+ * Warnungen bei Überbelegung (RS-09, nur als Hinweis – das Eintragen wird nie blockiert): mehr Schüler:innen als
+ * Prüfungsplätze im Raum laut Raumlayout (Variante „Prüfung“ bzw. jeder zweite Platz des Standard-Layouts). Nur für
+ * Beschäftigte – Layouts sind nicht für Schüler:innen und Eltern. Arbeiten ohne Raum oder Räume ohne Layout: keine Warnung.
+ */
+export async function examSeatWarnings(db: Db, viewer: PermissionSet, list: readonly Pick<ExamRow, "id" | "groupId" | "roomId">[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const withRoom = list.filter((e) => e.roomId);
+  if (!isStaffRole(viewer.role) || withRoom.length === 0) return out;
+  const [seats, students] = await Promise.all([examSeatsByRoom(db, withRoom.map((e) => e.roomId!)), studentCounts(db, withRoom.map((e) => e.groupId))]);
+  for (const e of withRoom) {
+    const w = examSeatWarning(students.get(e.groupId) ?? 0, seats.get(e.roomId!), e.roomId!);
+    if (w) out.set(e.id, w);
+  }
+  return out;
 }

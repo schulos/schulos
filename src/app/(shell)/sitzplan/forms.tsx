@@ -59,16 +59,21 @@ export function NewPlanForm({
   subjects,
   rooms,
   defaultGroupId,
+  layouts = [],
 }: {
   groups: { id: string; name: string; subjectId: string | null; roomId: string | null }[];
   subjects: Option[];
   rooms: Option[];
   defaultGroupId: string;
+  /** RS-09: Raumlayouts als Vorlage (Kopie beim Anlegen) */
+  layouts?: { id: string; label: string }[];
 }) {
   const [state, formAction, pending] = useActionState(createPlanAction, {});
   const [groupId, setGroupId] = useState(state.values?.groupId ?? defaultGroupId);
   const group = groups.find((g) => g.id === groupId) ?? groups[0]!;
   const v: Record<string, string> = { title: group.name, rows: "5", cols: "8", preset: "reihen", ...state.values };
+  const [preset, setPreset] = useState(v.preset ?? "reihen");
+  const fromLayout = preset.startsWith("layout:");
   const fe = state.fieldErrors ?? {};
   return (
     <form action={formAction} aria-label="Neuer Sitzplan" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -85,20 +90,29 @@ export function NewPlanForm({
         <Input key={`t-${group.id}`} name="title" defaultValue={state.values ? v.title : group.name} required maxLength={80} />
       </Field>
       <SubjectRoom key={group.id} subjects={subjects} rooms={rooms} subjectId={state.values?.subjectId ?? group.subjectId ?? ""} roomId={state.values?.roomId ?? group.roomId ?? ""} fe={fe} />
-      <Field label="Tischanordnung" error={fe.preset}>
-        <Select name="preset" defaultValue={v.preset}>
+      <Field label="Tischanordnung" error={fe.preset} hint={fromLayout ? "Kopie: spätere Änderungen am Raumlayout ändern diesen Sitzplan nicht" : undefined}>
+        <Select name="preset" value={preset} onChange={(e) => setPreset(e.target.value)}>
           {PRESETS.map((p) => (
             <option key={p} value={p}>
               {PRESET_LABELS[p]}
             </option>
           ))}
+          {layouts.length > 0 && (
+            <optgroup label="Aus Raumlayout (Kopie)">
+              {layouts.map((l) => (
+                <option key={l.id} value={`layout:${l.id}`}>
+                  {l.label}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </Select>
       </Field>
-      <Field label="Reihen" hint="von vorn (Tafel) nach hinten" error={fe.rows}>
-        <Input type="number" name="rows" defaultValue={v.rows} min={1} max={12} required />
+      <Field label="Reihen" hint={fromLayout ? "aus dem Raumlayout" : "von vorn (Tafel) nach hinten"} error={fe.rows}>
+        <Input type="number" name="rows" defaultValue={v.rows} min={1} max={12} required={!fromLayout} disabled={fromLayout} />
       </Field>
       <Field label="Plätze je Reihe" error={fe.cols}>
-        <Input type="number" name="cols" defaultValue={v.cols} min={1} max={12} required />
+        <Input type="number" name="cols" defaultValue={v.cols} min={1} max={12} required={!fromLayout} disabled={fromLayout} />
       </Field>
       <Status state={state} />
       <div className="sm:col-span-full">

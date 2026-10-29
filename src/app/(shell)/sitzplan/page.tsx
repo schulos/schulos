@@ -8,6 +8,7 @@ import { de } from "@/core/db/sort";
 import { hasPermission } from "@/core/permissions";
 import { TZ, toBerlinDate } from "@/core/time";
 import { EDIT, listPlans, myGroups } from "@/modules/sitzplan/service";
+import { layoutOptions } from "@/modules/verwaltung/raumlayout";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { NewPlanForm } from "./forms";
@@ -23,12 +24,13 @@ export default async function SitzplanPage({ searchParams }: { searchParams: Pro
   if (!hasPermission(perms, EDIT)) notFound();
   const db = await getDb();
   const today = toBerlinDate(new Date());
-  const [groups, plans, subjectRows, roomRows, sp] = await Promise.all([
+  const [groups, plans, subjectRows, roomRows, sp, layouts] = await Promise.all([
     myGroups(db, perms, today),
     listPlans(db, perms, today),
     db.select({ id: subjects.id, name: subjects.name }).from(subjects).orderBy(subjects.sortOrder, de(subjects.name)),
     db.select({ id: rooms.id, name: rooms.name }).from(rooms).orderBy(rooms.id),
     searchParams,
+    layoutOptions(db, perms),
   ]);
   const preselect = groups.find((g) => g.id === sp.gruppe);
   const byGroup = new Map<string, typeof plans>();
@@ -54,6 +56,7 @@ export default async function SitzplanPage({ searchParams }: { searchParams: Pro
               subjects={subjectRows}
               rooms={roomRows}
               defaultGroupId={preselect?.id ?? groups[0]!.id}
+              layouts={layouts.map((l) => ({ id: l.id, label: `${l.roomId} – ${l.name}${l.isDefault ? " (Standard)" : ""}, ${l.seats} Plätze` }))}
             />
           </Card>
           <section aria-labelledby="liste" className="flex flex-col gap-3">

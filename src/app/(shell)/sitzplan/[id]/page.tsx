@@ -6,7 +6,8 @@ import { getDb } from "@/core/db/client";
 import { rooms, subjects } from "@/core/db/schema";
 import { de } from "@/core/db/sort";
 import { toBerlinDate } from "@/core/time";
-import { getPlan } from "@/modules/sitzplan/service";
+import { roomHref } from "@/core/room-href";
+import { getPlan, planLayoutSource } from "@/modules/sitzplan/service";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
@@ -23,9 +24,10 @@ export default async function SitzplanEditPage({ params }: { params: Promise<{ i
   const view = await getPlan(db, perms, decodeURIComponent((await params).id), toBerlinDate(new Date()));
   if (!view) notFound();
   const { plan } = view;
-  const [subjectRows, roomRows] = await Promise.all([
+  const [subjectRows, roomRows, source] = await Promise.all([
     db.select({ id: subjects.id, name: subjects.name }).from(subjects).orderBy(subjects.sortOrder, de(subjects.name)),
     db.select({ id: rooms.id, name: rooms.name }).from(rooms).orderBy(rooms.id),
+    planLayoutSource(db, plan),
   ]);
   return (
     <main className="flex flex-col gap-6">
@@ -43,6 +45,15 @@ export default async function SitzplanEditPage({ params }: { params: Promise<{ i
           </>
         }
       />
+      {source && (
+        <p role={source.changed ? "status" : undefined} data-testid="sitzplan-raumlayout" className={source.changed ? "rounded-lg bg-warn-soft px-4 py-2 text-sm text-warn" : "text-sm text-muted"}>
+          Tische als Kopie aus dem Raumlayout „{source.name}“ (Raum {source.roomId}).{" "}
+          {source.changed && "Das Raumlayout wurde seitdem geändert – dieser Sitzplan bleibt, wie er ist. "}
+          <Link href={`${roomHref(source.roomId)}/layout`} className="font-medium text-accent-ink hover:underline">
+            Raumlayout ansehen
+          </Link>
+        </p>
+      )}
       <PlanEditor planId={plan.id} initial={{ rows: plan.rows, cols: plan.cols, desks: plan.desks, seats: view.seats }} students={view.students} />
       <Card aria-labelledby="angaben">
         <h2 id="angaben" className="text-base font-semibold">

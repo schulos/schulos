@@ -1,19 +1,9 @@
 // Sitzplan (P5-01/P5-02): reine Logik für Raster, Tischanordnungen und Sitzverteilung – ohne Datenbank, getestet.
-// Koordinaten: Reihe 0 ist vorn (Tafel), Spalte 0 links aus Sicht der Klasse.
+// Koordinaten: Reihe 0 ist vorn (Tafel), Spalte 0 links aus Sicht der Klasse. Raster, Vorlagen und Zellschlüssel teilt sich
+// der Sitzplan seit RS-08 mit dem Raumlayout (`src/core/raster.ts`).
+import { cellKey, parseCellKey, presetCells, sizeError, sortCells } from "@/core/raster";
 
-export const MAX_ROWS = 12;
-export const MAX_COLS = 12;
-
-export const PRESETS = ["reihen", "gruppen", "u-form", "alle", "leer"] as const;
-export type Preset = (typeof PRESETS)[number];
-
-export const PRESET_LABELS: Record<Preset, string> = {
-  reihen: "Reihen mit Zweiertischen",
-  gruppen: "Gruppentische (je 4)",
-  "u-form": "U-Form",
-  alle: "Alle Felder sind Tische",
-  leer: "Leer (Tische selbst setzen)",
-};
+export { MAX_COLS, MAX_ROWS, PRESETS, PRESET_LABELS, type Preset } from "@/core/raster";
 
 export interface Seat {
   studentId: string;
@@ -21,41 +11,17 @@ export interface Seat {
   col: number;
 }
 
-export const deskKey = (row: number, col: number) => `${row}:${col}`;
-
-export function parseDeskKey(key: string): { row: number; col: number } | null {
-  const m = /^(\d{1,2}):(\d{1,2})$/.exec(key);
-  return m ? { row: Number(m[1]), col: Number(m[2]) } : null;
-}
-
+export const deskKey = cellKey;
+export const parseDeskKey = parseCellKey;
 /** Tische einer Vorlage im Raster `rows` × `cols`, sortiert von vorn links nach hinten rechts. */
-export function presetDesks(preset: Preset, rows: number, cols: number): string[] {
-  const out: string[] = [];
-  for (let r = 0; r < rows; r++)
-    for (let c = 0; c < cols; c++) {
-      const desk =
-        preset === "alle" ||
-        (preset === "reihen" && c % 3 !== 2) ||
-        (preset === "gruppen" && r % 3 !== 2 && c % 3 !== 2) ||
-        (preset === "u-form" && (c === 0 || c === cols - 1 || r === rows - 1));
-      if (desk) out.push(deskKey(r, c));
-    }
-  return out;
-}
-
+export const presetDesks = presetCells;
 /** Tische in Lesereihenfolge (vorn links zuerst). */
-export function sortDesks(desks: readonly string[]): string[] {
-  return [...desks].sort((a, b) => {
-    const x = parseDeskKey(a)!;
-    const y = parseDeskKey(b)!;
-    return x.row - y.row || x.col - y.col;
-  });
-}
+export const sortDesks = sortCells;
 
 /** Prüft Raster und Tische; gibt eine Fehlermeldung oder null zurück. */
 export function layoutError(rows: number, cols: number, desks: readonly string[]): string | null {
-  if (!Number.isInteger(rows) || rows < 1 || rows > MAX_ROWS) return `Reihen: 1 bis ${MAX_ROWS}`;
-  if (!Number.isInteger(cols) || cols < 1 || cols > MAX_COLS) return `Plätze je Reihe: 1 bis ${MAX_COLS}`;
+  const size = sizeError(rows, cols);
+  if (size) return size;
   const seen = new Set<string>();
   for (const d of desks) {
     const p = parseDeskKey(d);

@@ -15,6 +15,7 @@ export function ExamForm({
   groups,
   subjects,
   periods,
+  rooms = [],
   canOverride,
   defaultDate,
 }: {
@@ -22,6 +23,8 @@ export function ExamForm({
   groups: (Option & { subjectId: string | null; course: boolean })[];
   subjects: Option[];
   periods: Option[];
+  /** RS-09: optional ein Raum – Beschäftigte sehen eine Warnung, wenn die Prüfungsplätze laut Raumlayout nicht reichen */
+  rooms?: Option[];
   canOverride: boolean;
   defaultDate: string;
 }) {
@@ -84,6 +87,18 @@ export function ExamForm({
           ))}
         </Select>
       </Field>
+      {rooms.length > 0 && (
+        <Field label="Raum" hint="optional" error={fe.roomId}>
+          <Select name="roomId" defaultValue={v.roomId ?? ""}>
+            <option value="">ohne Raum</option>
+            {rooms.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       {canOverride && (
         <label className="flex min-h-11 items-center gap-2 sm:col-span-full">
           <input type="checkbox" name="override" defaultChecked={v.override === "on"} className="size-4 accent-[var(--accent)]" /> Ausnahme von den Regeln genehmigen (höchstens 1 am Tag, 3 pro Woche)
@@ -97,6 +112,11 @@ export function ExamForm({
       {state.ok && (
         <p role="status" className="text-sm text-success sm:col-span-full">
           Eingetragen – die Schüler:innen sind benachrichtigt.
+        </p>
+      )}
+      {state.ok && state.message && (
+        <p role="alert" className="text-sm text-warn sm:col-span-full" data-testid="pruefungsplaetze-warnung">
+          {state.message}
         </p>
       )}
       <div className="sm:col-span-full">

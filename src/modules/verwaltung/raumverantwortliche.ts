@@ -153,6 +153,10 @@ export const HISTORY_ACTIONS = [
   "verwaltung.room.equipment",
   "verwaltung.room.responsible.add",
   "verwaltung.room.responsible.remove",
+  "verwaltung.room.layout.create",
+  "verwaltung.room.layout.update",
+  "verwaltung.room.layout.default",
+  "verwaltung.room.layout.delete",
 ] as const;
 
 export interface RoomHistoryEntry {
@@ -197,6 +201,8 @@ export async function roomHistory(db: Db, viewer: PermissionSet, roomId: string,
     else if (r.action.startsWith("verwaltung.room.responsible."))
       detail = typeof m.groupId === "string" ? (names.get(m.groupId) ?? "Gruppe") : typeof m.userId === "string" ? (names.get(m.userId) ?? "Person") : null;
     else if (r.action === "verwaltung.room.update" && typeof m.renamedFrom === "string") detail = `Kürzel vorher ${m.renamedFrom}`;
+    else if (r.action.startsWith("verwaltung.room.layout.") && typeof m.name === "string")
+      detail = [m.name, typeof m.renamedFrom === "string" && `vorher ${m.renamedFrom}`, typeof m.seats === "number" && `${m.seats} Plätze`].filter(Boolean).join(" · ");
     return {
       id: r.id,
       at: r.at,

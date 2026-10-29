@@ -15,6 +15,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import type { LayoutCells, LayoutVariant } from "../raumlayout-raster";
 import { roleEnum, users } from "./schema-auth";
 
 const id = () =>
@@ -335,6 +336,40 @@ export const roomResponsibles = pgTable(
     index("room_responsibles_group_idx").on(t.groupId),
   ],
 );
+
+/**
+ * RS-08: Raumlayouts – Raster wie im Sitzplan (bis 12 × 12) mit Elementen je Zelle („r:c“ → platz, tisch, pult, tafel, tuer,
+ * fenster, schrank, waschbecken, abzug). Je Raum ein Standard-Layout und optional weitere benannte (z. B. „Klausur“). Plätze
+ * sind leer – kein Personenbezug; sichtbar nur für Beschäftigte, gepflegt über `canEditRoomInfo`. Sitzpläne übernehmen ein
+ * Layout als Kopie (RS-09), spätere Änderungen hier ändern sie nicht.
+ */
+export const roomLayouts = pgTable(
+  "room_layouts",
+  {
+    id: id(),
+    roomId: text("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    name: text("name").notNull(),
+    /** reihen, u-form, gruppen, pruefung, frei (`LAYOUT_VARIANTS`) */
+    variant: text("variant").$type<LayoutVariant>().notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    rows: integer("rows").notNull(),
+    cols: integer("cols").notNull(),
+    cells: jsonb("cells").$type<LayoutCells>().notNull().default({}),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("room_layouts_rows", sql`${t.rows} between 1 and 12`),
+    check("room_layouts_cols", sql`${t.cols} between 1 and 12`),
+    check("room_layouts_variant", sql`${t.variant} in ('reihen', 'u-form', 'gruppen', 'pruefung', 'frei')`),
+    uniqueIndex("room_layouts_name_uq").on(t.roomId, sql`lower(${t.name})`),
+    uniqueIndex("room_layouts_default_uq").on(t.roomId).where(sql`${t.isDefault}`),
+  ],
+);
+
+export type RoomLayout = typeof roomLayouts.$inferSelect;
 
 // ------------------------------------------------------------------------ Rechte
 

@@ -26,6 +26,9 @@ function fail(err: unknown, form?: FormData): FormState {
 export async function createPlanAction(_prev: FormState, form: FormData): Promise<FormState> {
   const { perms } = await requireUser();
   let id: string;
+  // RS-09: „Tischanordnung“ kann ein Raumlayout sein („layout:<id>“) – dann als Kopie
+  const preset = str(form, "preset");
+  const layoutId = preset.startsWith("layout:") ? preset.slice("layout:".length) : null;
   try {
     id = await createPlan(
       await getDb(),
@@ -37,7 +40,8 @@ export async function createPlanAction(_prev: FormState, form: FormData): Promis
         roomId: str(form, "roomId") || null,
         rows: Number(str(form, "rows")),
         cols: Number(str(form, "cols")),
-        preset: str(form, "preset") as Preset,
+        preset: (layoutId ? "leer" : preset) as Preset,
+        layoutId,
       },
       today(),
     );

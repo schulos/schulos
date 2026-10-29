@@ -255,6 +255,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   room_equipment_types: "Ausstattungskatalog des Raumsteckbriefs (RS-05, Name) – keine Personen",
   room_equipment_items: "Ausstattung je Raum mit Menge (RS-05) – Sachangaben, wer geändert hat steht nur im Audit-Log",
   room_photos: "Raumfotos (RS-04): Räume und Sachen, keine Personen (Hinweis am Upload), Metadaten entfernt; wer hochgeladen hat, steht nur im Audit-Log",
+  room_layouts: "Raumlayouts (RS-08): Raster mit Plätzen, Tischen und Objekten – Plätze sind leer, keine Personen; wer geändert hat, steht nur im Audit-Log",
   periods: "Zeitraster",
   grade_levels: "Jahrgangsstufen",
   school_closures: "Ferien und unterrichtsfreie Tage",

@@ -204,6 +204,49 @@ Stand 2026-10-29, Migration 0120 (`room_responsibles`).
   für KU1 ein → Lehrkraft pflegt Foto, Ausstattung, Infofelder, sieht die Historie, darf MU1 nicht; Schülerin sieht nur
   Öffentliches; Lehrkraft und Schülerin 360 px dunkel mit axe; räumt auf).
 
+## Umgesetzt (RS-08/09)
+
+Stand 2026-10-29, Migration 0121 (`room_layouts`; `sitzplan_plans.layout_id`, `layout_copied_at`).
+
+- **Raster wie der Sitzplan** (bis 12 × 12, Reihe 1 vorn, keine freie Zeichnung): Größe, Zellschlüssel, Vorlagen und
+  Pfeiltasten liegen jetzt gemeinsam in `src/core/raster.ts` (aus `sitzplan/layout.ts` ausgegliedert, der Sitzplan nutzt sie
+  unverändert); die Layout-Logik (Elemente, Varianten, Platzzahl, Prüfungsplätze, Hinweise) rein in `src/core/raumlayout-raster.ts`.
+- **Elemente je Feld:** Platz, Tisch ohne Platz, Lehrkraftpult, Tafel/Display, Tür, Fenster, Schrank, Waschbecken, Abzug; leere
+  Felder sind Gang/frei. **Platz-Felder zählen als Sitzplätze.** Varianten: Reihen, U-Form, Gruppentische, Prüfung, frei – je
+  Variante eine Vorlage (Plätze wie im Sitzplan, vorn Tafel und Pult; Prüfung im Schachbrett).
+- **Vorgabe (RS-08): ein Standard-Layout + optional weitere benannte** (z. B. „Klausur“), höchstens 8 je Raum, Name eindeutig je
+  Raum (Schreibweise egal). Das erste Layout wird Standard; umstellbar; beim Löschen des Standards rückt das älteste übrige nach.
+- **Kapazität:** Abgleich mit `rooms.capacity` nur als Hinweis („Vorschlag: n“) im Editor, im Steckbrief und auf der Layout-Seite –
+  die Platzzahl in den Stammdaten ändert sich nie automatisch (bleibt bei `verwaltung.school`).
+- **Seiten:** Karte „Raumlayout“ im Steckbrief (nur Beschäftigte: Standard-Layout als Raster, Platz-/Prüfungsplätze, weitere
+  Layouts), `/raeume/[id]/layout` (Auswahl der Layouts, Editor für Pflegende, sonst nur Ansicht), Druck
+  `/druck/raum/[id]/layout?l=…` (A4 quer, mit Legende der Elemente).
+- **Bedienung:** Element wählen (Radiogruppe), dann Feld anklicken bzw. Enter/Leertaste – dasselbe Element noch einmal leert;
+  Pfeiltasten bewegen im Raster (ein Tabstopp, „roving tabindex“), Entf leert; Ansagen per `aria-live`. Jedes Feld ist beschriftet
+  („Reihe 2, Spalte 3: Platz“), die Ansicht ist eine Tabelle mit Beschriftung je Zelle. 360 px: das Raster scrollt im Kasten, die
+  Seite nicht; Hinweis „Bearbeiten am besten auf einem großen Bildschirm“.
+- **Rechte:** sehen nur Beschäftigte (`canViewLayouts`, Sicht „personal“; Schüler:innen/Eltern 404 bzw. keine Karte); pflegen nur,
+  wer `canEditRoomInfo` erfüllt (Recht „Raumdaten pflegen“, `verwaltung.school`, Raumverantwortliche für den eigenen Raum).
+- **Audit/Historie:** `verwaltung.room.layout.create/update/default/delete` (Ziel Raumkürzel, Layoutname, Platzzahl) – erscheinen
+  in der Karte „Änderungen“.
+- **Sitzplan (RS-09):** „Tischanordnung“ beim Anlegen bietet „Aus Raumlayout (Kopie)“ (Layouts aktiver Räume). Raster und
+  Platz-Felder werden als Tische **kopiert**, der Raum wird eingetragen, falls keiner gewählt ist; der Plan gehört der Lehrkraft.
+  Spätere Änderungen oder das Löschen des Layouts ändern bestehende Sitzpläne nicht – der Plan zeigt nur „Tische als Kopie aus
+  dem Raumlayout …“ bzw. „Das Raumlayout wurde seitdem geändert – dieser Sitzplan bleibt, wie er ist.“ (Vergleich
+  `layout_copied_at` mit dem Änderungszeitpunkt des Layouts). Objekte (Tafel, Tür …) übernimmt der Sitzplan nicht.
+- **Klausurplan (RS-09):** Andockstelle war `exams.room_id` (gab es schon, im Formular aber nicht wählbar). Jetzt optional „Raum“
+  im Formular (für Beschäftigte, nur aktive Räume, Prüfung auf Existenz). **Prüfungsplätze** je Raum (`examSeatsByRoom`): ein
+  Layout der Variante „Prüfung“ zählt mit allen Plätzen (Standard bevorzugt), sonst aus dem Standard-Layout **jeder zweite
+  Platz** (links und davor frei). Mehr Schüler:innen als Prüfungsplätze → **Warnung** nach dem Eintragen und in der Liste, nur
+  für Beschäftigte, nie blockierend. Räume ohne Layout: keine Warnung.
+- **Datenschutz:** `room_layouts` ohne Personenbezug (`NO_PERSONAL_DATA`, DATENSCHUTZ.md §3.4) – Plätze sind leer; die neuen
+  Spalten am Sitzplan sind nur Verweis und Zeitpunkt.
+- **Tests:** `raumlayout.test` (rein: Platzzahl, Prüfungsplätze, Vorlagen, Prüfung, Kapazitätshinweis; Rechte inkl.
+  Verantwortliche und fremder Raum, Sicht Schülerin, Name/Variante/Raster/Grenze, Standard/Löschen, Historie; Sitzplan aus
+  Vorlage = Kopie, Layoutänderung und -löschung lassen ihn unverändert; Prüfungsplätze und Warnung; Gegenprobe: ohne
+  Rechte-/Sichtprüfung rot); E2E `raumlayout.spec.ts` (Layout per Tastatur anlegen, Sitzplan aus Layout, Änderung → Hinweis,
+  Lehrkraft 360 px dunkel mit axe, Druck, Schülerin 404, räumt auf). Bestehende Sitzplan-Specs unverändert grün.
+
 ## Abschluss Stufe 1–2
 
 Stufe 1–2 (RS-02…RS-07) ist mit RS-06/07 vollständig: Steckbrief mit Belegung, Banner, Infofeldern, Fotos, Ausstattungskatalog,

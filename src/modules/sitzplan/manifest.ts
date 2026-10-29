@@ -17,7 +17,7 @@ export default defineModule({
   retention: [
     {
       table: "sitzplan_plans",
-      purpose: "Sitzordnung einer Lerngruppe für den Unterricht (Raster, Tische, Titel, Fach, Raum)",
+      purpose: "Sitzordnung einer Lerngruppe für den Unterricht (Raster, Tische, Titel, Fach, Raum, ggf. Verweis auf das kopierte Raumlayout)",
       categories: ["Lerngruppe", "anlegende Lehrkraft", "Fach und Raum"],
       class: "LK-SJ",
       start: "updated_at",
