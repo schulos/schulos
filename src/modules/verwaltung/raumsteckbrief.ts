@@ -27,6 +27,7 @@ import {
 import { readModuleSetting } from "@/core/modules/settings";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
 import { addDays } from "@/core/time";
+import { placeRanks } from "./gebaeude-etagen";
 import { CATEGORY_LABELS, OPEN_STATUSES, PRIORITY_LABELS, STATUS_LABELS, ticketNumber, type TicketCategory, type TicketPriority, type TicketStatus } from "@/modules/gebaeude/labels";
 import { inspectionState } from "@/modules/gebaeude/pruefungen";
 import { ROOM_BLOCK_LABELS, occupancyOn } from "@/modules/stundenplan/raeume";
@@ -412,17 +413,47 @@ export async function roomProfile(db: Db, viewer: PermissionSet, roomId: string,
   };
 }
 
-/** Aktive Räume für die Raumliste und die globale Suche (alle Angemeldeten; keine Personendaten), mit Titelbild (RS-04). */
-export async function roomDirectory(db: Db, q?: string, limit = 500) {
+/**
+ * Aktive Räume für die Raumliste/den Raumfinder und die globale Suche (alle Angemeldeten; keine Personendaten), mit Titelbild
+ * (RS-04). RS-10: Filter nach Gebäude bzw. Etage (Stammdaten), sortiert nach der Reihenfolge der Gebäude und Etagen.
+ */
+export async function roomDirectory(db: Db, q?: string, limit = 500, place: { buildingId?: string; floorId?: string } = {}) {
   const term = q?.trim();
   const like = term ? `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : null;
-  const rows = await db
-    .select({ id: rooms.id, name: rooms.name, kind: rooms.kind, building: rooms.building, floor: rooms.floor, capacity: rooms.capacity, accessible: rooms.accessible })
-    .from(rooms)
-    .where(and(eq(rooms.active, true), like ? or(sql`${rooms.id} ilike ${like}`, sql`${rooms.name} ilike ${like}`) : undefined));
-  // Sortierung in JS (Gebäude, dann Kürzel numerisch) – nicht von der Collation abhängig
+  const [rows, ranks] = await Promise.all([
+    db
+      .select({
+        id: rooms.id,
+        name: rooms.name,
+        kind: rooms.kind,
+        building: rooms.building,
+        floor: rooms.floor,
+        buildingId: rooms.buildingId,
+        floorId: rooms.floorId,
+        capacity: rooms.capacity,
+        accessible: rooms.accessible,
+      })
+      .from(rooms)
+      .where(
+        and(
+          eq(rooms.active, true),
+          like ? or(sql`${rooms.id} ilike ${like}`, sql`${rooms.name} ilike ${like}`) : undefined,
+          place.buildingId ? eq(rooms.buildingId, place.buildingId) : undefined,
+          place.floorId ? eq(rooms.floorId, place.floorId) : undefined,
+        ),
+      ),
+    placeRanks(db),
+  ]);
+  // Sortierung in JS (Gebäude und Etage nach ihrer Reihenfolge, dann Kürzel numerisch) – nicht von der Collation abhängig;
+  // Räume ohne Gebäude ans Ende, ohne Etage vor die Etagen ihres Gebäudes
+  const rank = (m: Map<string, number>, id: string | null, none: number) => (id === null ? none : (m.get(id) ?? none));
   const list = rows
-    .sort((a, b) => (a.building ?? "").localeCompare(b.building ?? "", "de") || a.id.localeCompare(b.id, "de", { numeric: true }))
+    .sort(
+      (a, b) =>
+        rank(ranks.building, a.buildingId, 1e6) - rank(ranks.building, b.buildingId, 1e6) ||
+        rank(ranks.floor, a.floorId, -1) - rank(ranks.floor, b.floorId, -1) ||
+        a.id.localeCompare(b.id, "de", { numeric: true }),
+    )
     .slice(0, limit);
   const covers = await coverPhotos(db, list.map((r) => r.id));
   return list.map((r) => ({ ...r, coverId: covers.get(r.id)?.id ?? null }));

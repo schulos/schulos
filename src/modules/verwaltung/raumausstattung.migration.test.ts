@@ -91,7 +91,9 @@ describe("Migration 0117 (Ausstattungskatalog) auf Bestandsdaten", () => {
     expect((await listRooms(h.db, true)).find((r) => r.id === "ALT")!.equipment.map((e) => e.typeId)).toEqual(["audio", "beamer"]);
     // Solver-Eingabe (Räume nach Art und Plätzen) unverändert
     const solverAfter = await solverInputFromDb(h.db, YEAR, "2026-10-05");
-    expect(solverAfter.rooms).toEqual(solverBefore.rooms);
+    // (Reihenfolge ohne ORDER BY ist nicht festgelegt – spätere Migrationen wie 0122 schreiben Zeilen um)
+    const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    expect([...solverAfter.rooms].sort(byId)).toEqual([...solverBefore.rooms].sort(byId));
     expect(solverAfter.rooms.length).toBe(oldList.length);
   });
 });

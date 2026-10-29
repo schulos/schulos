@@ -6,7 +6,8 @@ import { getDb } from "@/core/db/client";
 import { hasPermission } from "@/core/permissions";
 import { roomHref } from "@/core/room-href";
 import { deleteRoomAction, setRoomActiveAction, updateRoomAction } from "@/modules/verwaltung/room-actions";
-import { getRoom, listRooms, roomUsage } from "@/modules/verwaltung/rooms";
+import { placeOptions, placeValue } from "@/modules/verwaltung/gebaeude-etagen";
+import { getRoom, roomUsage } from "@/modules/verwaltung/rooms";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
@@ -19,9 +20,8 @@ export default async function RaumPage({ params }: { params: Promise<{ id: strin
   if (!hasPermission(perms, "verwaltung.school")) notFound();
   const id = decodeURIComponent((await params).id);
   const db = await getDb();
-  const [room, all, usage] = await Promise.all([getRoom(db, id), listRooms(db), roomUsage(db, id)]);
+  const [room, buildings, usage] = await Promise.all([getRoom(db, id), placeOptions(db), roomUsage(db, id)]);
   if (!room) notFound();
-  const buildings = [...new Set(all.map((r) => r.building).filter((b): b is string => !!b))];
   return (
     <main className="flex max-w-3xl flex-col gap-6">
       <PageHeader
@@ -38,7 +38,7 @@ export default async function RaumPage({ params }: { params: Promise<{ id: strin
           key={room.id}
           action={updateRoomAction.bind(null, room.id)}
           deleteAction={deleteRoomAction.bind(null, room.id)}
-          initial={{ ...room, code: room.id }}
+          initial={{ ...room, code: room.id, place: placeValue(room) }}
           buildings={buildings}
           used={usage.get(room.id) ?? 0}
           submitLabel="Speichern"

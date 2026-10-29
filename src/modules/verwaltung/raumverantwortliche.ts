@@ -157,6 +157,8 @@ export const HISTORY_ACTIONS = [
   "verwaltung.room.layout.update",
   "verwaltung.room.layout.default",
   "verwaltung.room.layout.delete",
+  "verwaltung.room.qr.create",
+  "verwaltung.room.qr.renew",
 ] as const;
 
 export interface RoomHistoryEntry {

@@ -45,8 +45,8 @@ Schlüsselausgabe an Personen, CO₂-Sensorik, 3D- oder maßstäbliche Pläne, T
 Neue Tabellen im Kernschema mit Präfix `room_` (Räume sind Kernstammdaten, die Seite darf nicht von abschaltbaren Modulen
 abhängen): `room_photos`, `room_equipment_types` (Katalog, wächst beim Eintragen), `room_equipment_items` (Raum, Typ,
 Menge, Notiz), Infofelder (Tabelle `room_info` oder Spalten an `rooms`), `room_layouts` (Variante, Raster, Tische, Objekte,
-Platzzahl), `room_responsibles`; später `buildings`, `building_floors`, `room_codes`. `rooms.building`/`rooms.floor` bleiben
-als Anzeigespalten, bis die Datenübernahme in die Stammdaten läuft. Migrationen mehrstufig: erst anlegen und übernehmen,
+Platzzahl), `room_responsibles`; seit RS-10/11 `buildings`, `building_floors` und `label_codes` (statt `room_codes`). `rooms.building`/`rooms.floor` bleiben
+als Anzeigekopie, die nur aus den Stammdaten geschrieben wird. Migrationen mehrstufig: erst anlegen und übernehmen,
 nach Umstellung aller Verbraucher die alte Spalte `rooms.equipment` entfernen.
 
 ## Rechte
@@ -253,3 +253,56 @@ Stufe 1–2 (RS-02…RS-07) ist mit RS-06/07 vollständig: Steckbrief mit Belegu
 Raumverantwortlichen und Historie; Pflege über „Raumdaten pflegen“ bzw. Verantwortung für den eigenen Raum, Stammdaten weiter
 bei `verwaltung.school`. Offen und bewusst später: Mengenfilter in der Raumsuche (optional, RS-05), Layout (Stufe 3, RS-08/RS-09),
 Gebäude/Etagen und Tür-QR (Stufe 4, RS-10…RS-12). Die rechtliche Einordnung bleibt Aufgabe der Schule (DSB-FRAGEN §22).
+
+## Umgesetzt (RS-10…12)
+
+Stand 2026-10-29, Migration 0122 (`buildings`, `building_floors`, `rooms.building_id`/`floor_id`, `label_codes`). Statt
+`room_codes` gibt es eine allgemeine Tabelle `label_codes` (gemeinsamer Unterbau mit der Inventar-Idee).
+
+- **Gebäude und Etagen als Stammdaten (RS-10):** Gebäude mit Name und Reihenfolge, Etagen je Gebäude mit Name und Reihenfolge
+  (Name eindeutig, Schreibweise egal; höchstens 50 Gebäude, 30 Etagen je Gebäude). Pflege unter
+  `/verwaltung/stammdaten/raeume/gebaeude` nur mit `verwaltung.school`; Umbenennen gilt sofort für alle Räume, Löschen nur ohne
+  zugeordnete Räume (auch stillgelegte). Im Raumformular eine Auswahl „Gebäude und Etage“ (Etage legt das Gebäude fest; nur
+  Gebäude ohne Etage geht). `rooms.building`/`rooms.floor` bleiben als **Anzeigekopie**, geschrieben nur von `rooms.ts` und
+  `gebaeude-etagen.ts` – Mängel, Prüfungen, Raumsuche, Steckbrief, Druck und Exporte lesen unverändert.
+- **Datenübernahme:** je Gebäude die häufigste Schreibweise (Leerraum weg, Groß-/Kleinschreibung egal), Gebäude alphabetisch;
+  Etagen sortiert nach UG/Keller, EG, „n. OG“ nach der Zahl, Dach, Rest alphabetisch. Räume mit Etage, aber ohne Gebäude kommen
+  in das Sammelgebäude „Ohne Gebäude“ (wie die bisherige Überschrift der Raumliste), leere Angaben bleiben leer. Der
+  Migrationstest prüft: Anzeige je Demo-Raum, Gruppen und Gruppenreihenfolge im Raumfinder vorher = nachher.
+- **Raumfinder `/raeume`** (alle Angemeldeten, öffentliche Angaben laut Sichtbarkeitstabelle): Suche nach Kürzel/Name, Filter
+  Gebäude und Etage, gruppiert nach Gebäude → Etage in der Reihenfolge der Verwaltung, Kürzel numerisch; die Stammdaten-Raumliste
+  sortiert ebenso. Die Raumsuche im Stundenplan filtert weiter über die Anzeigekopie.
+- **Grundriss:** nicht gebaut (Bild-Upload, Verorten per Tastatur und Barrierefreiheit sind nicht klein) → BACKLOG RS-13.
+- **Tür-QR (RS-11):** je Raum ein Code für `/r/<code>` – 16 Zeichen aus 32 ohne Verwechsler (80 Bit Zufall), stabil beim
+  Nachdruck, „Neuen Code erzeugen“ im Steckbrief macht den alten sofort ungültig. **Ohne Anmeldung zeigt `/r/…` nur die
+  Anmeldeseite**, für gültige und ungültige Codes gleich (der Proxy leitet ohne Sitzung um, die Seite liest den Code erst nach der
+  Anmeldung; SICHERHEIT.md S89). Nach der Anmeldung geht es auf den Steckbrief, der nach Rolle filtert (Belegung heute,
+  Mangel melden, Raum buchen); unbekannter Code → 404.
+- **Drucken:** Türschild mit Schulname, Raumkürzel, Raumname, Gebäude · Etage, QR und Kurz-URL in Klartext – A5 quer (zwei je
+  A4-Blatt zum Schneiden) oder A4 hoch, über den Druckdialog auch als PDF. Einzeln aus der Karte „Tür-QR“ im Steckbrief,
+  Sammeldruck über `/raeume/tuerschilder` (Auswahl, alle eines Gebäudes). Fehlende Codes entstehen beim ersten Druck.
+- **Rechte:** Tür-QR sehen, drucken und neu erzeugen nur, wer `canEditRoomInfo` erfüllt (Recht „Raumdaten pflegen“,
+  `verwaltung.school`, Raumverantwortliche für den eigenen Raum); Gebäude/Etagen pflegt `verwaltung.school`.
+- **Gemeinsamer Unterbau** `src/core/etiketten/`: `codes.ts` (Codeerzeugung, Normalisieren, Arten `LABEL_KINDS` mit
+  Kurz-URL-Präfix, Druckformate `SIGN_FORMATS`), `service.ts` (Code je Ziel anlegen/neu erzeugen/auflösen, ohne Rechte),
+  `qr.ts` (QR-SVG mit `uqr`, Kurz-URL aus der Basisadresse); Darstellung `src/ui/qr-schild.tsx`. **Andockpunkt Inventar:** Art
+  „inventar“ ergänzen, Spalte mit Fremdschlüssel und Prüfungen in `label_codes`, Seite `/i/[code]` nach dem Muster von
+  `/r/[code]`, Etikettformat in `SIGN_FORMATS`; Rechte und Audit in der Fachseite (wie `verwaltung/tuer-qr.ts`).
+- **Audit/Historie:** `verwaltung.room.building.*`, `verwaltung.room.floor.*` (Filter „Räume“), `verwaltung.room.qr.create/renew`
+  (Ziel Raumkürzel, ohne Code) – die QR-Vorgänge erscheinen in der Karte „Änderungen“.
+- **Datenschutz (RS-12):** alle drei Tabellen ohne Personenbezug (`NO_PERSONAL_DATA`, DATENSCHUTZ.md §3.4); der Code geht mit dem
+  Raum (Fremdschlüssel mit Kaskade, Umbenennen zieht mit). Der Tür-QR verrät ohne Anmeldung nichts.
+- **Demo-Daten:** Hauptgebäude (EG, 1. OG, 2. OG), Naturwissenschaften (EG, 1. OG), Pavillon, Sporthalle – in dieser Reihenfolge.
+- **Tests:** `gebaeude-etagen.test` (Seed, Sortierung/Filter, Rechte, Anlegen/Umbenennen/Löschen, Ort im Raumformular),
+  `gebaeude.migration.test`, `tuer-qr.test` (Code-Format, Eindeutigkeit, Normalisieren, stabil, Neuerzeugen entwertet, Rechte
+  inkl. Verantwortliche und fremder Raum, Umbenennen/Löschen des Raums, `/r/` nicht öffentlich); Gegenprobe: ohne
+  Rechteprüfung in `gebaeude-etagen.ts` bzw. `tuer-qr.ts` werden die Rechte-Tests rot. E2E `gebaeude-qr.spec.ts` (Gebäude
+  pflegen und aufräumen, Raumfinder als Schülerin 360 px dunkel mit axe, Türschild drucken, `/r/<code>` abgemeldet gültig =
+  ungültig → Anmeldung → Steckbrief, Neuerzeugen entwertet). Bestehende Raum-Specs unverändert grün.
+
+## Abschluss Raumsteckbrief
+
+Mit RS-10…12 ist der Raumsteckbrief vollständig: Stufe 1–2 (Steckbrief, Infofelder, Fotos, Ausstattungskatalog,
+Verantwortliche, Historie), Stufe 3 (Raumlayout, Sitzplan-Kopie, Prüfungsplätze) und Stufe 4 (Gebäude/Etagen, Raumfinder,
+Tür-QR). Bewusst offen: Grundriss je Etage (RS-13, optional) und der Mengenfilter in der Raumsuche (optional, RS-05). Die
+Inventar-Idee dockt am Etiketten-Unterbau an. Die rechtliche Einordnung bleibt Aufgabe der Schule (DSB-FRAGEN §22).

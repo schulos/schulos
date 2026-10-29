@@ -4,6 +4,7 @@ import type { DbHandle } from "@/core/db/client";
 import { auditLog, periods, rooms, subjects, timetableLessons, users } from "@/core/db/schema";
 import { createTestDb } from "@/core/db/testing";
 import { timetableMasterData } from "@/modules/stundenplan/service";
+import { ensurePlace } from "./gebaeude-etagen";
 import { createGroup } from "./groups";
 import { createRoom, deleteRoom, getRoom, listRooms, roomUsage, setRoomActive, updateRoom, type RoomInput } from "./rooms";
 import { ValidationError } from "./users";
@@ -21,13 +22,17 @@ describe("Stammdaten · Räume", () => {
   afterAll(() => h.close());
 
   it("legt an (Ausstattung seit RS-05 im Steckbrief), validiert", async () => {
-    await createRoom(h.db, "u-admin", room("NW2", { name: "Chemie-Raum", kind: "nw", building: " Naturwissenschaften ", floor: "EG", capacity: "28", accessible: true }));
+    // RS-10: Gebäude/Etage aus den Stammdaten – die Etage legt das Gebäude fest, die Namen landen in der Anzeigekopie
+    const place = await ensurePlace(h.db, "Naturwissenschaften", "EG");
+    await createRoom(h.db, "u-admin", room("NW2", { name: "Chemie-Raum", kind: "nw", floorId: place.floorId, capacity: "28", accessible: true }));
     expect(await getRoom(h.db, "NW2")).toEqual({
       id: "NW2",
       name: "Chemie-Raum",
       kind: "nw",
       building: "Naturwissenschaften",
       floor: "EG",
+      buildingId: place.buildingId,
+      floorId: place.floorId,
       capacity: 28,
       accessible: true,
       active: true,

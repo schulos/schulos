@@ -14,8 +14,8 @@ export interface RoomFormValues {
   code: string;
   name: string;
   kind: string;
-  building: string | null;
-  floor: string | null;
+  /** RS-10: Auswahlwert f:<etage>, b:<gebäude> oder leer */
+  place: string;
   capacity: number | null;
   accessible: boolean;
   active: boolean;
@@ -34,8 +34,8 @@ export function RoomForm({
   action: Action;
   deleteAction?: Action;
   initial?: RoomFormValues;
-  /** vorhandene Gebäude als Vorschläge */
-  buildings: string[];
+  /** RS-10: Gebäude mit Etagen aus den Stammdaten */
+  buildings: { id: string; name: string; floors: { id: string; name: string }[] }[];
   used?: number;
   submitLabel: string;
 }) {
@@ -68,17 +68,26 @@ export function RoomForm({
       <Field label="Kapazität" hint="Plätze, optional" error={fe.capacity}>
         <Input name="capacity" type="number" min={1} max={2000} inputMode="numeric" defaultValue={val("capacity", initial?.capacity?.toString() ?? "")} />
       </Field>
-      <Field label="Gebäude" hint="Optional" error={fe.building}>
-        <Input name="building" list="buildings" defaultValue={val("building", initial?.building ?? "")} />
+      <Field label="Gebäude und Etage" hint="Optional" error={fe.place}>
+        <Select name="place" defaultValue={val("place", initial?.place ?? "")}>
+          <option value="">keine Angabe</option>
+          {buildings.map((b) => (
+            <optgroup key={b.id} label={b.name}>
+              <option value={`b:${b.id}`}>{b.name} (ohne Etage)</option>
+              {b.floors.map((f) => (
+                <option key={f.id} value={`f:${f.id}`}>
+                  {b.name} · {f.name}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </Select>
       </Field>
-      <datalist id="buildings">
-        {buildings.map((b) => (
-          <option key={b} value={b} />
-        ))}
-      </datalist>
-      <Field label="Etage" hint="z. B. EG, 1. OG" error={fe.floor}>
-        <Input name="floor" defaultValue={val("floor", initial?.floor ?? "")} />
-      </Field>
+      <p className="self-end text-sm text-muted">
+        <Link href="/verwaltung/stammdaten/raeume/gebaeude" className="font-medium text-accent-ink hover:underline">
+          Gebäude und Etagen verwalten
+        </Link>
+      </p>
 
       <p className="text-sm text-muted sm:col-span-2">
         {initial ? (
