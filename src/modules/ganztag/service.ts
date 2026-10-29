@@ -15,6 +15,8 @@ import {
   groups,
   schoolYears,
   users,
+  type GanztagExcused,
+  type GanztagMarkSource,
   type GanztagMarkStatus,
   type GanztagSessionStatus,
   type GroupKind,
@@ -28,6 +30,7 @@ import { guardianRecipients } from "@/core/school/majority";
 import { addDays, isCalendarDate, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { setGroupFeature } from "@/modules/verwaltung/groups";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { absenceCoverage, excusedFor, reconcileSession } from "./abgleich";
 import { EDIT_DAYS } from "./settings";
 
 export const MANAGE = "ganztag.manage";
@@ -163,6 +166,54 @@ export async function setListFeature(db: Db, viewer: PermissionSet, groupId: str
   if (on) await db.insert(ganztagGroupSettings).values({ groupId }).onConflictDoNothing();
 }
 
+/**
+ * GT-07: Liste für Gruppen einschalten, die gerade aus einer Kurswahl der Art `ag` entstanden bzw. ergänzt worden sind. Die Rechte
+ * prüft der Aufrufer (Übernahme braucht „Gruppen verwalten“ – damit ließe sich das Merkmal auch in der Gruppenverwaltung schalten).
+ * Gruppen anderer Arten werden übersprungen. Gibt die Zahl der eingeschalteten Gruppen zurück.
+ */
+export async function enableListForGroups(db: Db, actorId: string, groupIds: readonly string[]): Promise<number> {
+  if (groupIds.length === 0) return 0;
+  const rows = await db
+    .select({ id: groups.id })
+    .from(groups)
+    .where(and(inArray(groups.id, [...groupIds]), inArray(groups.kind, [...LIST_KINDS]), isNull(groups.archivedAt)));
+  for (const g of rows) {
+    await setGroupFeature(db, actorId, g.id, LIST_FEATURE, true);
+    await db.insert(ganztagGroupSettings).values({ groupId: g.id }).onConflictDoNothing();
+  }
+  return rows.length;
+}
+
+export interface OfferSettings {
+  /** verpflichtendes Angebot: unentschuldigtes Fehlen geht als Tageshinweis an die Klassenleitung */
+  mandatory: boolean;
+  notifyClassLead: boolean;
+  /** „fehlt (entschuldigt)“ aus Krankmeldung/Beurlaubung vorbelegen */
+  prefillAbsences: boolean;
+}
+
+export const DEFAULT_OFFER_SETTINGS: OfferSettings = { mandatory: false, notifyClassLead: true, prefillAbsences: true };
+
+export async function readOfferSettings(db: Db, groupId: string): Promise<OfferSettings> {
+  const [r] = await db
+    .select({ mandatory: ganztagGroupSettings.mandatory, notifyClassLead: ganztagGroupSettings.notifyClassLead, prefillAbsences: ganztagGroupSettings.prefillAbsences })
+    .from(ganztagGroupSettings)
+    .where(eq(ganztagGroupSettings.groupId, groupId));
+  return r ?? DEFAULT_OFFER_SETTINGS;
+}
+
+/** GT-04: Einstellungen eines Angebots (verpflichtend, Hinweis an die Klassenleitung, Vorbelegung) – nur „Ganztag verwalten“. */
+export async function setOfferSettings(db: Db, viewer: PermissionSet, groupId: string, input: OfferSettings): Promise<void> {
+  if (!canManage(viewer)) throw new ForbiddenError(MANAGE);
+  if (!(await loadOffer(db, groupId))) throw new ValidationError({ groupId: "Für diese Gruppe ist keine Anwesenheitsliste eingeschaltet" });
+  const values = { mandatory: input.mandatory, notifyClassLead: input.notifyClassLead, prefillAbsences: input.prefillAbsences, updatedAt: new Date() };
+  await db
+    .insert(ganztagGroupSettings)
+    .values({ groupId, ...values })
+    .onConflictDoUpdate({ target: ganztagGroupSettings.groupId, set: values });
+  await audit(db, viewer.userId, "ganztag.settings", groupId, { mandatory: input.mandatory, notifyClassLead: input.notifyClassLead, prefillAbsences: input.prefillAbsences });
+}
+
 export interface OfferSummary {
   id: string;
   name: string;
@@ -229,6 +280,7 @@ export interface OfferDetail {
   sessions: SessionRow[];
   /** Vorgabe für neue Serien: das laufende Schuljahr ab heute */
   defaults: { validFrom: string; validTo: string };
+  settings: OfferSettings;
 }
 
 /** Ein Angebot mit Serien und Terminen – null, wenn es nicht sichtbar ist (keine Leitung/kein Verwalten oder Liste aus). */
@@ -238,7 +290,7 @@ export async function getOffer(db: Db, viewer: PermissionSet, groupId: string, n
   if (!offer) return null;
   const today = toBerlinDate(now);
   const markCount = sql<number>`(select count(*)::int from "ganztag_marks" gm where gm."session_id" = "ganztag_sessions"."id")`;
-  const [leaders, [members], series, sessions, year] = await Promise.all([
+  const [leaders, [members], series, sessions, year, settings] = await Promise.all([
     leaderNames(db, [groupId]),
     db.select({ n: count() }).from(groupMembers).where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.role, "member"))),
     db
@@ -268,6 +320,7 @@ export async function getOffer(db: Db, viewer: PermissionSet, groupId: string, n
       .where(eq(ganztagSessions.groupId, groupId))
       .orderBy(asc(ganztagSessions.date), asc(ganztagSessions.startsAt)),
     currentYear(db, today),
+    readOfferSettings(db, groupId),
   ]);
   return {
     group: offer,
@@ -276,6 +329,7 @@ export async function getOffer(db: Db, viewer: PermissionSet, groupId: string, n
     series: series.map((s) => ({ ...s, sessions: Number(s.sessions) })),
     sessions: sessions.map((s) => ({ ...s, marks: Number(s.marks) })),
     defaults: { validFrom: year && year.startsOn > today ? year.startsOn : today, validTo: year?.endsOn ?? addDays(today, 180) },
+    settings,
   };
 }
 
@@ -285,7 +339,7 @@ async function yearOf(db: Db, ymd: string) {
   return rows.find((y) => y.startsOn <= ymd && ymd <= y.endsOn) ?? null;
 }
 
-async function currentYear(db: Db, today: string) {
+export async function currentYear(db: Db, today: string) {
   const rows = await db.select({ id: schoolYears.id, startsOn: schoolYears.startsOn, endsOn: schoolYears.endsOn, isCurrent: schoolYears.isCurrent }).from(schoolYears);
   return rows.find((y) => y.startsOn <= today && today <= y.endsOn) ?? rows.find((y) => y.isCurrent) ?? null;
 }
@@ -386,7 +440,7 @@ async function loadSession(db: Db, sessionId: string) {
 }
 
 /** Teilnehmende einer Gruppe: Mitglieder (nicht Leitung) mit der Rolle Schüler:in. */
-async function participantIds(db: Db, groupId: string): Promise<string[]> {
+export async function participantIds(db: Db, groupId: string): Promise<string[]> {
   const rows = await db
     .select({ id: groupMembers.userId })
     .from(groupMembers)
@@ -405,6 +459,8 @@ export async function setSessionCancelled(db: Db, viewer: PermissionSet, session
   const offer = await requireOffer(db, viewer, s.groupId);
   if (cancelled && s.status === "erfasst") throw new ValidationError({ sessionId: "Der Termin ist schon erfasst – erst die Liste leeren" });
   if (cancelled === (s.status === "ausgefallen")) return 0;
+  // GT-04: Vorbelegungen aus den Abwesenheiten gehören zu keiner Erfassung – beim Ausfall fallen sie weg
+  if (cancelled) await db.delete(ganztagMarks).where(and(eq(ganztagMarks.sessionId, sessionId), eq(ganztagMarks.source, "abwesenheiten")));
   await db
     .update(ganztagSessions)
     .set({ status: cancelled ? "ausgefallen" : "geplant", cancelledAt: cancelled ? now : null })
@@ -440,6 +496,10 @@ export interface ListRow {
   className: string | null;
   status: GanztagMarkStatus | null;
   minutesLate: number | null;
+  /** GT-04: bei „fehlt“ der Stand aus den Abwesenheiten (ja = Meldung/Beurlaubung, nein = nicht entschuldigt, offen = keine Meldung) */
+  excused: GanztagExcused | null;
+  /** Herkunft der Markierung; `abwesenheiten` = vorbelegt, von der Leitung noch nicht bestätigt */
+  source: GanztagMarkSource | null;
   /** nicht (mehr) Mitglied der Gruppe – nur sichtbar, weil eine Markierung existiert */
   former: boolean;
 }
@@ -450,6 +510,8 @@ export interface SessionList {
   rows: ListRow[];
   state: RecordState;
   editDays: number;
+  /** verpflichtendes Angebot (GT-04) */
+  mandatory: boolean;
   counts: { anwesend: number; fehlt: number; verspaetet: number; offen: number };
 }
 
@@ -461,6 +523,10 @@ export async function getSessionList(db: Db, viewer: PermissionSet, sessionId: s
   if (!offer) return null;
   const editDays = Number(await readModuleSetting(db, EDIT_DAYS));
   const ids = await participantIds(db, s.groupId);
+  const state = recordState(s, toBerlinDate(now), editDays, canManage(viewer));
+  const settings = await readOfferSettings(db, s.groupId);
+  // GT-04: Abgleich mit den Abwesenheiten – vorbelegt wird nur, solange die Liste erfasst werden kann
+  if (state !== "ausgefallen") await reconcileSession(db, s, ids, { prefill: state === "offen" && settings.prefillAbsences });
   const marks = await db.select().from(ganztagMarks).where(eq(ganztagMarks.sessionId, sessionId));
   const all = [...new Set([...ids, ...marks.map((m) => m.studentId)])];
   const people = all.length
@@ -482,7 +548,16 @@ export async function getSessionList(db: Db, viewer: PermissionSet, sessionId: s
   const member = new Set(ids);
   const rows: ListRow[] = people.map((p) => {
     const m = markOf.get(p.id);
-    return { studentId: p.id, name: p.name, className: classOf.get(p.id) ?? null, status: m?.status ?? null, minutesLate: m?.minutesLate ?? null, former: !member.has(p.id) };
+    return {
+      studentId: p.id,
+      name: p.name,
+      className: classOf.get(p.id) ?? null,
+      status: m?.status ?? null,
+      minutesLate: m?.minutesLate ?? null,
+      excused: m?.status === "fehlt" ? m.excused : null,
+      source: m?.source ?? null,
+      former: !member.has(p.id),
+    };
   });
   const counts = { anwesend: 0, fehlt: 0, verspaetet: 0, offen: 0 };
   for (const r of rows) counts[r.status ?? "offen"]++;
@@ -490,8 +565,9 @@ export async function getSessionList(db: Db, viewer: PermissionSet, sessionId: s
     session: { id: s.id, date: s.date, startsAt: s.startsAt, endsAt: s.endsAt, status: s.status, allPresent: s.allPresent },
     group: { id: offer.id, name: offer.name },
     rows,
-    state: recordState(s, toBerlinDate(now), editDays, canManage(viewer)),
+    state,
     editDays,
+    mandatory: settings.mandatory,
     counts,
   };
 }
@@ -508,9 +584,15 @@ async function requireRecordable(db: Db, viewer: PermissionSet, sessionId: strin
   return s;
 }
 
-/** Status nach einer Änderung: erfasst, sobald es eine Markierung gibt, sonst wieder geplant. */
+/**
+ * Status nach einer Änderung: erfasst, sobald es eine Markierung der Leitung gibt (auch über „alle anwesend“), sonst wieder geplant.
+ * Vorbelegungen aus den Abwesenheiten (GT-04) allein machen eine Liste nicht zur Erfassung.
+ */
 async function refreshStatus(tx: Db, sessionId: string, viewer: PermissionSet, now: Date) {
-  const [n] = await tx.select({ n: count() }).from(ganztagMarks).where(eq(ganztagMarks.sessionId, sessionId));
+  const [n] = await tx
+    .select({ n: count() })
+    .from(ganztagMarks)
+    .where(and(eq(ganztagMarks.sessionId, sessionId), ne(ganztagMarks.source, "abwesenheiten")));
   const recorded = (n?.n ?? 0) > 0;
   await tx
     .update(ganztagSessions)
@@ -539,15 +621,17 @@ export async function setMark(
     if (!Number.isInteger(minutesLate) || minutesLate < 1 || minutesLate > 240) throw new ValidationError({ minutesLate: "Minuten zwischen 1 und 240" });
     late = minutesLate;
   }
+  // GT-04: „entschuldigt?“ kommt allein aus den Abwesenheiten (nur bei „fehlt“; ohne Meldung offen)
+  const excused: GanztagExcused = status === "fehlt" ? excusedFor(await absenceCoverage(db, [studentId], s.date), studentId) : "offen";
   await db.transaction(async (tx) => {
     if (status === null) await tx.delete(ganztagMarks).where(and(eq(ganztagMarks.sessionId, sessionId), eq(ganztagMarks.studentId, studentId)));
     else
       await tx
         .insert(ganztagMarks)
-        .values({ sessionId, studentId, status, minutesLate: late, source: "leitung", recordedBy: viewer.userId, recordedAt: now })
+        .values({ sessionId, studentId, status, minutesLate: late, excused, source: "leitung", recordedBy: viewer.userId, recordedAt: now })
         .onConflictDoUpdate({
           target: [ganztagMarks.sessionId, ganztagMarks.studentId],
-          set: { status, minutesLate: late, source: "leitung", recordedBy: viewer.userId, recordedAt: now },
+          set: { status, minutesLate: late, excused, source: "leitung", recordedBy: viewer.userId, recordedAt: now },
         });
     await refreshStatus(tx, sessionId, viewer, now);
   });

@@ -4,7 +4,10 @@ import { and, eq, gt, inArray, isNotNull, isNull, lte, ne } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
 import { gradeLevels, groupMembers, groups, kurswahlAngebote, kurswahlVerfahren, kurswahlWahlen, schoolYears, timetableAssignmentGroups, timetableAssignments, users, type KurswahlVerfahren } from "@/core/db/schema";
+import { isEnabled, loadModuleStates } from "@/core/modules/registry";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
+import { MODULES } from "@/modules";
+import { enableListForGroups } from "@/modules/ganztag/service";
 import { createAssignment, planningYear } from "@/modules/stundenplan/verteilung";
 import { addMembers, createGroup } from "@/modules/verwaltung/groups";
 import { ValidationError } from "@/modules/verwaltung/users";
@@ -102,6 +105,12 @@ export async function transferPreview(db: Db, perms: PermissionSet, v: KurswahlV
   return { groups: planned, conflicts };
 }
 
+/** GT-07: Ist das Modul Ganztag eingeschaltet? (sonst gibt es das Häkchen nicht) */
+export async function ganztagEnabled(db: Db): Promise<boolean> {
+  const m = MODULES.find((x) => x.id === "ganztag");
+  return !!m && isEnabled(m, await loadModuleStates(db));
+}
+
 /** Übernehmen legt Gruppen an und befüllt sie – das ist Gruppenverwaltung (G4D-S02). */
 export const TRANSFER_GROUPS = "verwaltung.groups";
 
@@ -111,7 +120,14 @@ export const TRANSFER_GROUPS = "verwaltung.groups";
  * fest und ist für die Familien sichtbar. Mit Konflikten nur nach Bestätigung. Braucht zusätzlich `verwaltung.groups`.
  * Alles in einer Transaktion, die das Verfahren zuerst belegt (G4D-C02: kein Doppelklick, keine halbe Übernahme).
  */
-export async function transfer(db: Db, perms: PermissionSet, verfahrenId: string, opts: { acceptConflicts: boolean }, today: string, now = new Date()): Promise<string[]> {
+export async function transfer(
+  db: Db,
+  perms: PermissionSet,
+  verfahrenId: string,
+  opts: { acceptConflicts: boolean; /** GT-07: bei Wahlen der Art `ag` die Anwesenheitsliste (Ganztag) für die Gruppen einschalten */ ganztagList?: boolean },
+  today: string,
+  now = new Date(),
+): Promise<string[]> {
   if (!hasPermission(perms, MANAGE)) throw new ForbiddenError(MANAGE);
   if (!hasPermission(perms, TRANSFER_GROUPS)) throw new ForbiddenError(TRANSFER_GROUPS);
   const v = await getVerfahren(db, verfahrenId);
@@ -120,6 +136,7 @@ export async function transfer(db: Db, perms: PermissionSet, verfahrenId: string
   if (!v.allocatedAt) throw new ValidationError({ transfer: "Erst die Zuteilung berechnen" });
   if (verfahrenState(v, today) === "offen") throw new ValidationError({ transfer: "Die Wahl ist noch offen – erst nach dem Wahlende übernehmen" });
   const created: string[] = [];
+  const withList = Boolean(opts.ganztagList) && v.kind === "ag" && (await ganztagEnabled(db));
   await db.transaction(async (tx) => {
     // belegen: nur eine Übernahme je Verfahren, und nur auf genau die gelesene Zuteilung
     const claimed = await tx
@@ -140,6 +157,7 @@ export async function transfer(db: Db, perms: PermissionSet, verfahrenId: string
     const offers = new Map((await listAngebote(tx, v.id)).map((o) => [o.id, o]));
     const yearId = await yearOf(tx, v);
     const kind = KIND_GROUP[v.kind];
+    const touched: string[] = [];
     for (const p of preview.groups) {
       const o = offers.get(p.offerId)!;
       let groupId = p.groupId ?? p.existingId;
@@ -153,8 +171,11 @@ export async function transfer(db: Db, perms: PermissionSet, verfahrenId: string
       // G4D-S02: Leitung nur in neu angelegten Gruppen – in vorhandenen bleibt sie Sache der Gruppenverwaltung
       if (fresh && o.teacherId) await addMembers(tx, perms.userId, groupId, [o.teacherId], "leader");
       await tx.update(kurswahlAngebote).set({ groupId }).where(eq(kurswahlAngebote.id, o.id));
+      touched.push(groupId);
     }
-    await audit(tx, perms.userId, "kurswahl.transfer", v.id, { groups: preview.groups.length, created: created.length, conflicts: preview.conflicts.length });
+    // GT-07: Anwesenheitsliste für die entstandenen bzw. ergänzten AGs (Recht „Gruppen verwalten“ ist oben geprüft)
+    const lists = withList ? await enableListForGroups(tx, perms.userId, touched) : 0;
+    await audit(tx, perms.userId, "kurswahl.transfer", v.id, { groups: preview.groups.length, created: created.length, conflicts: preview.conflicts.length, ...(withList ? { ganztagLists: lists } : {}) });
   });
   return created;
 }

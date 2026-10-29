@@ -99,3 +99,40 @@ Tageshinweis als Job mit `notifyBundled`. GT-05 → Lesefunktion „eigene Zeile
 Art `ag` `setListFeature` (bzw. `setGroupFeature` + `ganztag_group_settings`) für die neuen Gruppen aufrufen. GT-08 → Löschtabelle,
 VVT-Text, E2E für Familie/Klassenleitung.
 
+
+## Umgesetzt (GT-04…GT-08) – Modul fertig
+
+Stand 2026-10-29, ohne neue Migration (Spalten und Schalter aus 0118 genügen). Damit ist der Block GT abgeschlossen; die unter
+„Später, einzeln freigeben“ genannten Erweiterungen bleiben offen.
+
+- **Abgleich mit den Abwesenheiten (GT-04, `abgleich.ts`):** Stand je Kind und Tag aus `excusedStateOn` plus noch offene Meldungen
+  („gemeldet“) – Beurlaubung, „entschuldigt“ oder „gemeldet“ = `ja`, „nicht entschuldigt“ = `nein`, sonst keine Meldung. Beim Öffnen einer
+  erfassbaren Liste werden Kinder mit `ja` „fehlt (entschuldigt)“ vorbelegt (Herkunft `abwesenheiten`, ohne „erfasst von“), je Angebot
+  abschaltbar. „Entschuldigt?“ einer Zeile „fehlt“ kommt immer aus den Abwesenheiten (auch bei Klick der Leitung, `offen` ohne Meldung)
+  und wird beim Öffnen und im Tageslauf nachgezogen (Nachmeldungen bis 14 Tage). Vorbelegungen, deren Meldung wegfällt, verschwinden;
+  beim Ausfall ebenso. Vorbelegungen allein machen eine Liste nicht „erfasst“. Die Leitung kann jede Zeile ändern; leert sie eine
+  vorbelegte Zeile, kommt die Vorbelegung beim nächsten Öffnen wieder, solange die Meldung gilt (eigene Festlegung).
+- **Einstellungen je Angebot** (nur „Ganztag verwalten“, Karte „Einstellungen“ auf der Angebotsseite): verpflichtend (Vorgabe aus),
+  Klassenleitung benachrichtigen (an), Vorbelegung aus den Abwesenheiten (an).
+- **Tageshinweis an die Klassenleitung:** Job `ganztag-hinweis` (19–23 Uhr, nur bei eingeschaltetem Modul) – je Klassenleitung ein
+  gebündelter Gong (`notifyBundled`, Schlüssel `ganztag-fehlen:<Datum>`) zu den **heutigen** erfassten Terminen verpflichtender Angebote
+  mit „fehlt“ und nicht entschuldigt (Name, Klasse, Angebot – kein Grund); höchstens einmal je Tag, ein zweiter Lauf schickt nichts.
+  Später nachgetragene Listen lösen keinen Hinweis mehr aus, stehen aber in der Übersicht der Klassenleitung. Keine Schreibverbindung
+  ins Klassenbuch (Test prüft `classbook_absences`).
+- **Klassenleitung** (`/ganztag/klasse`, Knopf „Meine Klasse“): Zeilen „fehlt“/„verspätet“ der Kinder der eigenen Klasse(n) in diesem
+  Schuljahr mit Angebot, Pflichtangebot und „entschuldigt?“, Summen und Teilnahme je Kind; Lesezugriff protokolliert (`lesen.ganztag`).
+- **Familie (GT-05):** Menüpunkt „Ganztag“ auch für Schüler:innen und Eltern (gleiche Seite `/ganztag`, Ansicht nach Rolle).
+  Schüler:innen sehen ihre Angebote (nächster Termin, Ausfälle der nächsten vier Wochen) und ihre eigenen Zeilen, Eltern dasselbe je
+  Kind nach `childrenOf(…, "inform")` (minderjährig bzw. eigenständig mit Einwilligung); Einsicht der Eltern protokolliert. Gelesen wird
+  nur über `ganztag_marks.student_id`.
+- **Auswertung (GT-06,** `/ganztag/auswertung`, „Ganztag auswerten“ oder „Ganztag verwalten“): „offen heute“ (heutige Termine ohne
+  Erfassung, mit Leitung) und je Angebot und Monat des laufenden Schuljahres Termine, Ausfälle, nicht erfasst, Teilnehmertage
+  (anwesend + verspätet), gefehlt (davon entschuldigt) und Quote; CSV unter `/api/ganztag/auswertung`. Die Abfragen lesen keine
+  Schüler-IDs (Test prüft, dass weder IDs noch Namen vorkommen).
+- **Kurswahl (GT-07):** bei der Übernahme einer Wahl der Art `ag` und eingeschaltetem Modul das Häkchen „Anwesenheitsliste (Ganztag) für
+  diese Gruppen einschalten“ (Vorgabe aus) → `enableListForGroups` für die neuen bzw. ergänzten Gruppen in derselben Transaktion; das
+  Recht dafür ist „Gruppen verwalten“, das die Übernahme ohnehin verlangt.
+- **Datenschutz/Doku (GT-08):** VVT-Text (Empfänger Klassenleitung, Familie, Auswertung) und Hinweis zur Quelle aus den Abwesenheiten im
+  Manifest, Löschtabelle unverändert (`LK-SJ`, Markierungen folgen), DATENSCHUTZ.md §3.4, DSB-FRAGEN §21 neu erzeugt (Vorgaben je
+  Angebot, Fragen zu Namen im Hinweis und kleinen Gruppen). Kontolöschung: Zeilen gehen mit dem Konto der Schüler:in, der Hinweis mit dem
+  Konto der Klassenleitung. Tests `src/modules/ganztag/rest.test.ts`, E2E `e2e/ganztag-rest.spec.ts`.

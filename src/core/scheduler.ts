@@ -19,6 +19,7 @@ import { runPrefWindowReminders } from "@/modules/stundenplan/zeitwunsch-fenster
 import { runSprechtagReminders } from "@/modules/sprechtag/erinnerung";
 import { runKurswahlReminders } from "@/modules/kurswahl/erinnerung";
 import { runReviewReminders } from "@/modules/hilfe/service";
+import { runClassLeadHints } from "@/modules/ganztag/klassenleitung";
 import { purgeExpiredOfflineDevices } from "@/modules/notenbuch/offline";
 import { runReservations } from "@/modules/buecherei/reservations";
 import { runSchoolbookDunning } from "@/modules/buecherei/ausgabe";
@@ -134,6 +135,19 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
       const m = MODULES.find((x) => x.id === "hilfe");
       if (!m || !isEnabled(m, await loadModuleStates(db))) return;
       return runReviewReminders(db, now);
+    },
+  },
+  {
+    // GT-04: abends ein gebündelter Hinweis je Klassenleitung zu unentschuldigtem Fehlen in verpflichtenden Ganztagsangeboten
+    // (heutige Termine, höchstens einmal je Tag; kein Klassenbuch-Eintrag), vorher Abgleich „entschuldigt?“ mit den Abwesenheiten
+    name: "ganztag-hinweis",
+    at: "19:00",
+    until: "23:00",
+    ttlMs: 10 * 60_000,
+    run: async (db, now) => {
+      const m = MODULES.find((x) => x.id === "ganztag");
+      if (!m || !isEnabled(m, await loadModuleStates(db))) return;
+      return runClassLeadHints(db, now);
     },
   },
   {

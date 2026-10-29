@@ -45,7 +45,11 @@ export default async function TerminPage({ params }: { params: Promise<{ id: str
       ) : (
         <AttendanceList sessionId={session.id} rows={list.rows} allPresent={session.allPresent} editable={list.state === "offen"} />
       )}
-      <p className="text-xs text-muted">Nur anwesend, fehlt oder verspätet – keine Gründe eintragen. Entschuldigungen laufen über die Abwesenheiten.</p>
+      <p className="text-xs text-muted">
+        Nur anwesend, fehlt oder verspätet – keine Gründe eintragen. Entschuldigungen laufen über die Abwesenheiten; liegt dort eine Krankmeldung oder Beurlaubung
+        vor, steht „entschuldigt“ an der Zeile.
+        {list.mandatory && " Verpflichtendes Angebot: unentschuldigtes Fehlen geht abends als Hinweis an die Klassenleitung (kein Eintrag ins Klassenbuch)."}
+      </p>
     </main>
   );
 }

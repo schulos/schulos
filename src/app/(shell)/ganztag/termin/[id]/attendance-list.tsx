@@ -79,6 +79,9 @@ export function AttendanceList({ sessionId, rows, allPresent, editable }: { sess
                 <span className="text-xs text-muted">
                   {r.className ?? "ohne Klasse"}
                   {r.former && " · nicht mehr in der Gruppe"}
+                  {/* GT-04: nur die Quelle aus den Abwesenheiten, nie der Grund */}
+                  {m.status === "fehlt" && r.status === "fehlt" && r.excused === "ja" && (r.source === "abwesenheiten" ? " · entschuldigt (vorbelegt aus den Abwesenheiten)" : " · entschuldigt (Abwesenheiten)")}
+                  {m.status === "fehlt" && r.status === "fehlt" && r.excused === "nein" && " · nicht entschuldigt (Abwesenheiten)"}
                 </span>
               </span>
               <span className="flex flex-wrap items-center gap-1.5">

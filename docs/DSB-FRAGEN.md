@@ -641,22 +641,25 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
 <!-- dsb:ganztag -->
 | Punkt | |
 |---|---|
-| Was SchulOS tut | Anwesenheitslisten nur für Gruppen der Arten AG, Förderkurs und frei mit eingeschaltetem Merkmal „Anwesenheitsliste“ (schaltet nur „Ganztag verwalten“). Termine aus wöchentlichen Serien (Ferien, Feiertage und unterrichtsfreie Tage übersprungen) oder einzeln; ein Ausfall geht als Gong ohne Grund an Teilnehmende und Eltern. Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, keine Schreibverbindung ins Klassenbuch. Listen starten leer, „alle anwesend“ ist ein Schalter. Die Leitung sieht nur ihre eigenen Gruppen, „Ganztag verwalten“ alle. Löschung zum Schuljahresende (LK-SJ), Markierungen gehen mit dem Termin bzw. dem Konto. |
-| Vorgabe | Modul nach einem Update zunächst aus; „Ganztag verwalten“ und „Ganztag auswerten“ für die Verwaltung, „auswerten“ auch für die Schulleitung. Die Leitung kann bis 7 Tage nach dem Termin nachtragen, danach nur die Verwaltung des Ganztags. |
-| Die Schule entscheidet / dokumentiert | Klärt, ob Fehlen im Ganztag als Schulversäumnis zählt und welche Rechtsgrundlage gilt (schulform- und länderabhängig, zu prüfen); nimmt die Anwesenheit im Ganztag ins VVT auf; legt fest, welche Angebote eine Liste führen; erfasst Angebote externer Partner selbst nach Papierliste (keine Konten für Externe). |
+| Was SchulOS tut | Anwesenheitslisten nur für Gruppen der Arten AG, Förderkurs und frei mit eingeschaltetem Merkmal „Anwesenheitsliste“ (schaltet nur „Ganztag verwalten“). Termine aus wöchentlichen Serien (Ferien, Feiertage und unterrichtsfreie Tage übersprungen) oder einzeln; ein Ausfall geht als Gong ohne Grund an Teilnehmende und Eltern. Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, keine Schreibverbindung ins Klassenbuch. Listen starten leer, „alle anwesend“ ist ein Schalter. Liegt in den Abwesenheiten eine Krankmeldung oder Beurlaubung vor, steht „fehlt (entschuldigt)“ schon in der Liste – übernommen wird nur die Quelle, nie der Grund. Die Leitung sieht nur ihre eigenen Gruppen, „Ganztag verwalten“ alle, die Klassenleitung die Zeilen ihrer Klasse, Schüler:innen und Eltern nur die eigenen bzw. die ihres Kindes (Regeln wie bei den Fehlzeiten), „Ganztag auswerten“ nur Zahlen je Angebot und Monat ohne Namen. Bei verpflichtenden Angeboten geht abends ein gebündelter Hinweis zu unentschuldigtem Fehlen an die Klassenleitung – ohne Eintrag ins Klassenbuch. Löschung zum Schuljahresende (LK-SJ), Markierungen gehen mit dem Termin bzw. dem Konto. |
+| Vorgabe | Modul nach einem Update zunächst aus; „Ganztag verwalten“ und „Ganztag auswerten“ für die Verwaltung, „auswerten“ auch für die Schulleitung. Die Leitung kann bis 7 Tage nach dem Termin nachtragen, danach nur die Verwaltung des Ganztags. Je Angebot: nicht verpflichtend, Hinweis an die Klassenleitung und Vorbelegung aus den Abwesenheiten eingeschaltet. Das Häkchen „Anwesenheitsliste einschalten“ bei der Übernahme einer AG-Wahl ist aus. |
+| Die Schule entscheidet / dokumentiert | Klärt, ob Fehlen im Ganztag als Schulversäumnis zählt und welche Rechtsgrundlage gilt (schulform- und länderabhängig, zu prüfen); legt fest, welche Angebote eine Liste führen und welche verpflichtend sind (nur dann geht ein Hinweis an die Klassenleitung); nimmt die Anwesenheit im Ganztag ins VVT auf (Vorlage unter Verwaltung → Datenschutz); erfasst Angebote externer Partner selbst nach Papierliste (keine Konten für Externe). |
 | Einstellungen | „Nachträgliche Erfassung durch die Leitung“ (Vorgabe: bis 7 Tage danach) |
 | In SchulOS | Verwaltung → Rechte & Module → Ganztag |
 <!-- /dsb -->
 
-**Hintergrund und Fragen** (Herkunft: GT-01…GT-03, [GANZTAG.md](GANZTAG.md))
+**Hintergrund und Fragen** (Herkunft: GT-01…GT-08, [GANZTAG.md](GANZTAG.md))
 
-- **Kontext:** Das Modul „Ganztag“ führt Anwesenheitslisten je Termin für AGs, Förderkurse und freie Gruppen. Abgleich mit den
-  Abwesenheiten und Hinweis an die Klassenleitung (GT-04), Familienansicht (GT-05) und Auswertung ohne Namen (GT-06) folgen.
+- **Kontext:** Das Modul „Ganztag“ führt Anwesenheitslisten je Termin für AGs, Förderkurse und freie Gruppen. Krankmeldungen und
+  Beurlaubungen aus den Abwesenheiten belegen „fehlt (entschuldigt)“ vor (nur die Quelle). Die Klassenleitung sieht die Zeilen ihrer
+  Klasse und bekommt bei verpflichtenden Angeboten abends einen gebündelten Hinweis; Familien sehen nur die eigenen Zeilen; die
+  Auswertung zählt je Angebot und Monat ohne Namen.
 - **Entscheidungen der Projektleitung (2026-10-28):** eigenes Modul `ganztag` · Listen nur mit Gruppenmerkmal · eigene Terminserien je
   Gruppe, Ferien übersprungen · Listen starten leer, „alle anwesend“ als Schalter · keine Gründe, kein Gesundheitsbezug, keine
   Schreibverbindung ins Klassenbuch · Löschklasse `LK-SJ` · keine Konten für externe Anbieter.
 - **Fragen an die DSB:** Zählt Fehlen im Ganztag an dieser Schule als Schulversäumnis (dann Aufbewahrung wie Fehlzeiten)? Genügt die
-  Löschung zum Schuljahresende für Rückfragen zur Aufsicht?
+  Löschung zum Schuljahresende für Rückfragen zur Aufsicht? Darf der Hinweis an die Klassenleitung die Namen der Kinder nennen
+  (Gong im Konto der Klassenleitung, geht mit ihm)? Ist eine Auswertung je Angebot bei sehr kleinen Gruppen noch „ohne Namen“?
 - **Vorschlag:** Vorgaben übernehmen; die Liste nur für Angebote einschalten, für die die Schule die Aufsicht trägt.
 
 ## 22. Raumsteckbrief: Raumdaten, Fotos und Raumverantwortliche
