@@ -70,10 +70,16 @@ test("Vertretungsbedarf: Lehrkraft krank → offene Stunden; Klasse auf Exkursio
 test("Vertretungsvorschläge mit Punkten übernehmen, Statistik zählt die Vertretung", async ({ page }) => {
   const errors = collectErrors(page);
   await login(page, "frank.schulte");
-  await page.goto("/planung/vertretungen");
-  await page.getByLabel("Lehrkraft (z. B. erkrankt)").selectOption({ label: "KRA – Stefan Krause" });
-  await page.getByRole("button", { name: "Anzeigen" }).click();
+  // TD-16: nicht vom Vorgabedatum abhängen (je nach Wochentag unterrichtet KRA nur in der 9a, und deren Stunden sind frei) –
+  // den nächsten Tag der Woche nehmen, an dem KRA Stunden mit Vorschlägen hat
   const group = page.getByRole("group", { name: /^Vorschläge: / }).first();
+  for (let weekday = 0; weekday < 5; weekday++) {
+    await page.goto(`/planung/vertretungen?datum=${nextWeekday(weekday)}`);
+    await page.getByLabel("Lehrkraft (z. B. erkrankt)").selectOption({ label: "KRA – Stefan Krause" });
+    await page.getByRole("button", { name: "Anzeigen" }).click();
+    await expect(page).toHaveURL(/lehrkraft=/);
+    if ((await group.getByText(/Punkte$/).count()) > 0) break;
+  }
   await expect(group.getByText(/Punkte$/).first()).toBeVisible();
   await expect(group).toContainText(/Randstunde|Hohlstunde|unterrichtet|hat sonst frei|Freisetzung/);
   await page.screenshot({ path: ".data/shots/e2e/vertretung-vorschlaege.png", fullPage: true });

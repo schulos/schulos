@@ -62,7 +62,7 @@ export function LoginForm({ action, next }: { action: FormAction<LoginState>; ne
       <button
         type="submit"
         disabled={pending}
-        className="h-11 rounded-xl bg-accent font-semibold text-accent-fg transition hover:brightness-110 disabled:opacity-60"
+        className="h-11 rounded-xl bg-accent font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-60"
       >
         {pending ? "Anmelden …" : "Anmelden"}
       </button>
@@ -117,7 +117,7 @@ export function SecondFactorForm({ action, next }: { action: FormAction<SecondFa
       <button
         type="submit"
         disabled={pending}
-        className="h-11 rounded-xl bg-accent font-semibold text-accent-fg transition hover:brightness-110 disabled:opacity-60"
+        className="h-11 rounded-xl bg-accent font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-60"
       >
         {pending ? "Prüfen …" : "Bestätigen"}
       </button>
