@@ -21,6 +21,8 @@ export const STORAGE_KEY_COLUMNS: readonly { table: string; column: string }[] =
   // RS-04: Raumfotos und ihre Vorschaubilder
   { table: "room_photos", column: "storage_key" },
   { table: "room_photos", column: "thumb_key" },
+  // HB-05: Anhänge der Handbuchseiten
+  { table: "hilfe_attachments", column: "storage_key" },
 ];
 
 /** Spalten mit „key“ im Namen, die keine Dateischlüssel sind – mit Begründung. */

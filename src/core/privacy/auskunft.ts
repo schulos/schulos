@@ -99,6 +99,8 @@ export const ACTOR_KEEP: Record<string, string[] | ((row: Record<string, unknown
   anmeldung_ereignisse: ["antrag_id", "kind"],
   // Handbuch (HB-01): wer eine Seite angelegt bzw. zuletzt geändert hat – mit Seitentitel, ohne Inhalt
   hilfe_pages: ["slug", "title"],
+  // Handbuch (HB-05): wer einen Anhang hochgeladen hat – mit Seite und Dateiname, ohne die Datei
+  hilfe_attachments: ["page_id", "name"],
   // Ganztag (GT-03): wer eine Liste bzw. Zeile erfasst hat – mit Termin, ohne die Schüler:in und ohne Status
   ganztag_sessions: ["group_id", "date", "starts_at"],
   ganztag_marks: ["session_id"],
@@ -122,6 +124,9 @@ export const EXPORT_FILES: { table: string; key: string; name: string; via: stri
   // RS-04: Raumfotos zeigen Räume, keine Personen, und tragen keinen Personenbezug – nie Teil einer Auskunft
   { table: "room_photos", key: "storage_key", name: "mime", via: [] },
   { table: "room_photos", key: "thumb_key", name: "mime", via: [] },
+  // HB-05: Handbuch-Anhänge sind Inhalte der Schule, keine persönlichen Dateien: wer hochgeladen hat, steht nur als Handlung
+  // (ACTOR_KEEP), die Datei selbst gehört zur Seite und nie zu einer Auskunft
+  { table: "hilfe_attachments", key: "storage_key", name: "name", via: [] },
 ];
 
 export interface ExportSection {

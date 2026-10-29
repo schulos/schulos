@@ -10,6 +10,8 @@ import { isSelfResponsible } from "@/core/school/majority";
 import { buildNav, isEnabled, loadModuleStates, type NavGroup } from "@/core/modules/registry";
 import { readModuleSettings } from "@/core/modules/settings";
 import { MODULES } from "@/modules";
+import { contextPagesFor } from "@/modules/hilfe/context";
+import { visibleSlugs } from "@/modules/hilfe/service";
 import { ensureModuleDefaults } from "@/modules/startup";
 import { unreadTotal } from "@/modules/messenger/service";
 import { initials } from "@schulos/ui/misc";
@@ -21,6 +23,8 @@ export interface ShellData {
   badges: Record<string, number>;
   /** HB-03: „?“ in der Kopfzeile zeigen (Handbuch eingeschaltet) */
   help: boolean;
+  /** HB-07: Kontexthilfe – Modulpfad → Adresse der Handbuchseite, nur Seiten, die die Person sehen darf */
+  helpPages: Record<string, string>;
   userId: string;
   user: { name: string; avatar: string; photo?: string; roleLabel: string; detail?: string; officeHours?: boolean; selfResponsible?: boolean };
 }
@@ -57,11 +61,16 @@ export const getShellData = cache(async ({ user, perms }: CurrentUser): Promise<
     ...(classLeads.length ? [`Klassenleitung ${classLeads.join(", ")}`] : []),
   ];
   const detail = extras.length ? [roleLabel, ...extras].join(" · ") : undefined;
+  const help = MODULES.some((m) => m.id === "hilfe" && isEnabled(m, states));
+  const contextPages = contextPagesFor(user.role);
+  const seen = help ? await visibleSlugs(db, perms, Object.values(contextPages)) : new Set<string>();
+  const helpPages = Object.fromEntries(Object.entries(contextPages).filter(([, slug]) => seen.has(slug)));
   return {
     nav: buildNav(MODULES, states, perms, { selfResponsible, classLead: user.role === "lehrkraft" && memberships.some((l) => l.kind === "klasse" && l.role === "leader" && !l.archivedAt), settings }),
     unread: unreadRow?.n ?? 0,
     badges: { messenger: chatUnread },
-    help: MODULES.some((m) => m.id === "hilfe" && isEnabled(m, states)),
+    help,
+    helpPages,
     userId: user.id,
     user: { name: user.name, avatar: user.shortCode ?? initials(user.name), photo: photoUrl(user.id, photo?.at), roleLabel, detail, officeHours: user.role === "beratung", selfResponsible },
   };

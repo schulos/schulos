@@ -1,11 +1,12 @@
 // Handbuch (HB-01…HB-04, docs/HANDBUCH.md): Bereiche → Seiten mit Zielgruppen, Ansprechperson und Überprüfung.
 // Sichtbarkeit filtert der Service selbst: Pflegende (`hilfe.edit`/`hilfe.manage`) sehen alles, die Ansprechperson ihre Seite
 // (auch als Entwurf), alle anderen nur veröffentlichte Seiten ihrer Zielgruppen (Regel wie News, `core/school/audience`).
-import { and, asc, eq, ilike, inArray, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, lte, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
-import { groups, hilfePages, hilfeSections, hilfeTargets, users, type HilfePageStatus } from "@/core/db/schema";
+import { groups, hilfeAttachments, hilfePages, hilfeRevisions, hilfeSections, hilfeTargets, users, type HilfePageStatus } from "@/core/db/schema";
+import type { FileStorage } from "@/core/files/storage";
 import { de } from "@/core/db/sort";
 import { ROLE_LABELS } from "@/core/labels";
 import { readModuleSetting } from "@/core/modules/settings";
@@ -380,6 +381,8 @@ export async function updatePage(db: Db, actor: PermissionSet, id: string, input
       };
   await validatePage(db, effective);
   await db.transaction(async (tx) => {
+    // HB-06: der bisherige Stand wandert in den Verlauf, wenn sich Titel oder Text ändern
+    if (effective.title.trim() !== existing.title || effective.body.trim() !== existing.body) await saveRevision(tx, existing);
     const sectionChanged = full && effective.sectionId !== existing.sectionId;
     let position = existing.position;
     if (sectionChanged) {
@@ -430,10 +433,71 @@ export async function movePage(db: Db, actor: PermissionSet, id: string, dir: -1
   await swapPositions(db, "page", siblings.map((s) => s.id), id, dir);
 }
 
-export async function deletePage(db: Db, actor: PermissionSet, id: string): Promise<void> {
+export async function deletePage(db: Db, actor: PermissionSet, id: string, storage?: FileStorage): Promise<void> {
   if (!canManage(actor)) throw new ForbiddenError(MANAGE);
+  const files = await db.select({ key: hilfeAttachments.storageKey }).from(hilfeAttachments).where(eq(hilfeAttachments.pageId, id));
   await db.delete(hilfePages).where(eq(hilfePages.id, id));
   await audit(db, actor.userId, "hilfe.page.delete", id);
+  // Anhänge gehen mit der Seite (Datensatz per cascade); schlägt das Löschen der Datei fehl, räumt der Dateispeicher-Lauf auf
+  if (storage) for (const f of files) await storage.delete(f.key).catch(() => {});
+}
+
+// ---------------------------------------------------------------- Verlauf (HB-06)
+
+/** Vorgabe (HB-06): so viele Fassungen je Seite bleiben erhalten. */
+export const REVISIONS_KEEP = 20;
+
+/** Legt den aktuellen Stand der Seite im Verlauf ab und kappt auf die letzten REVISIONS_KEEP Fassungen. */
+async function saveRevision(tx: Db, page: { id: string; title: string; body: string; updatedBy: string | null; updatedAt: Date }): Promise<void> {
+  await tx.insert(hilfeRevisions).values({ pageId: page.id, title: page.title, body: page.body, authorId: page.updatedBy, authoredAt: page.updatedAt });
+  const keep = await tx
+    .select({ id: hilfeRevisions.id })
+    .from(hilfeRevisions)
+    .where(eq(hilfeRevisions.pageId, page.id))
+    .orderBy(desc(hilfeRevisions.seq))
+    .limit(REVISIONS_KEEP);
+  await tx.delete(hilfeRevisions).where(and(eq(hilfeRevisions.pageId, page.id), notInArray(hilfeRevisions.id, keep.map((k) => k.id))));
+}
+
+export interface RevisionItem {
+  id: string;
+  title: string;
+  body: string;
+  authorName: string | null;
+  authoredAt: Date;
+}
+
+/** Verlauf einer Seite, neueste zuerst – nur Pflegende. */
+export async function listRevisions(db: Db, viewer: PermissionSet, pageId: string): Promise<RevisionItem[]> {
+  if (!canEditAll(viewer)) throw new ForbiddenError(EDIT);
+  return db
+    .select({ id: hilfeRevisions.id, title: hilfeRevisions.title, body: hilfeRevisions.body, authorName: users.name, authoredAt: hilfeRevisions.authoredAt })
+    .from(hilfeRevisions)
+    .leftJoin(users, eq(users.id, hilfeRevisions.authorId))
+    .where(eq(hilfeRevisions.pageId, pageId))
+    .orderBy(desc(hilfeRevisions.seq));
+}
+
+/**
+ * Stellt eine frühere Fassung wieder her (nur Pflegende): Titel und Text der Fassung werden aktuell; der Stand davor kommt selbst
+ * in den Verlauf, nichts geht verloren. Adresse, Status und Zielgruppen bleiben. Gilt als Prüfung. Gibt die Adresse der Seite zurück.
+ */
+export async function restoreRevision(db: Db, actor: PermissionSet, revisionId: string, today = toBerlinDate(new Date())): Promise<string> {
+  if (!canEditAll(actor)) throw new ForbiddenError(EDIT);
+  const [rev] = await db.select().from(hilfeRevisions).where(eq(hilfeRevisions.id, revisionId));
+  if (!rev) throw new ValidationError({ revision: "Diese Fassung gibt es nicht mehr" });
+  const page = await pageRow(db, rev.pageId);
+  if (!page) throw new ValidationError({ revision: "Die Seite gibt es nicht mehr" });
+  await db.transaction(async (raw) => {
+    const tx = raw as unknown as Db;
+    if (rev.title !== page.title || rev.body !== page.body) await saveRevision(tx, page);
+    await tx
+      .update(hilfePages)
+      .set({ title: rev.title, body: rev.body, updatedBy: actor.userId, updatedAt: new Date(), reviewedOn: today, reviewRemindedAt: null })
+      .where(eq(hilfePages.id, page.id));
+  });
+  await audit(db, actor.userId, "hilfe.page.restore", page.id, { revision: revisionId });
+  return page.slug;
 }
 
 // ---------------------------------------------------------------- Überprüfung (HB-04)
@@ -494,4 +558,14 @@ export async function runReviewReminders(db: Db, now: Date): Promise<number> {
     if (claimed.length) await audit(tx, null, "hilfe.review.remind", null, { pages: claimed.length });
     return claimed.length;
   });
+}
+
+/** Welche dieser Adressen sieht der Betrachter? (Kontexthilfe: „?“ führt nur auf Seiten, die es für ihn gibt.) */
+export async function visibleSlugs(db: Db, viewer: PermissionSet, slugs: string[]): Promise<Set<string>> {
+  if (slugs.length === 0) return new Set();
+  const rows = await db
+    .select({ slug: hilfePages.slug })
+    .from(hilfePages)
+    .where(and(inArray(hilfePages.slug, [...new Set(slugs)]), await pageVisibility(db, viewer)));
+  return new Set(rows.map((r) => r.slug));
 }

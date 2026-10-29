@@ -617,22 +617,22 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
 <!-- dsb:handbuch -->
 | Punkt | |
 |---|---|
-| Was SchulOS tut | Schulinternes Handbuch (Bereich → Seite) nur für angemeldete Personen; jede Seite hat Zielgruppen (Rollen oder Gruppen, Eltern sehen Seiten für die Klassen ihrer Kinder mit), Entwürfe sehen nur Pflegende und die Ansprechperson. Personenbezug nur über Ansprechperson und „angelegt/geändert von“ – diese Verweise werden bei der Kontolöschung geleert, die Seiten bleiben (keine automatische Löschfrist). Der Editor weist darauf hin, keine Schülerdaten sowie keine Gesundheits- oder Notendaten einzutragen. Die Erinnerung „Überprüfung fällig“ geht einmal je Frist als Gong nur an die Ansprechperson. |
-| Vorgabe | Pflege mit „Handbuch bearbeiten“ (Verwaltung; Funktionsgruppen über Gruppenrechte), die Ansprechperson darf ihre eigene Seite bearbeiten (nur Titel und Text). Neue Seiten sind zunächst nur für Personal sichtbar. Erinnerung zur Überprüfung nach 12 Monaten. |
-| Die Schule entscheidet / dokumentiert | Legt fest, wer das Handbuch pflegt, und vergibt „Handbuch bearbeiten“ an Funktionsgruppen; benennt Ansprechpersonen nur mit deren Wissen; nimmt das Handbuch als Verarbeitungstätigkeit „interne Hilfe und Anleitungen“ ins VVT auf; prüft, ob Seiten für Schüler:innen und Eltern freigegeben werden. Rechtliche Einordnung: zu prüfen. |
+| Was SchulOS tut | Schulinternes Handbuch (Bereich → Seite) nur für angemeldete Personen; jede Seite hat Zielgruppen (Rollen oder Gruppen, Eltern sehen Seiten für die Klassen ihrer Kinder mit), Entwürfe sehen nur Pflegende und die Ansprechperson. Personenbezug nur über Ansprechperson, „angelegt/geändert von“, Verfasser:in früherer Fassungen und wer einen Anhang hochgeladen hat – diese Verweise werden bei der Kontolöschung geleert, Seiten, Anhänge und Fassungen bleiben (keine automatische Löschfrist). Anhänge (PDF, Bilder, Office-Dateien; höchstens 10 je Seite und 20 MB) werden an den Dateiinhalten geprüft, bei eingeschaltetem Virenscan vor dem Speichern gescannt und sind nur für die Zielgruppen der Seite abrufbar. Der Seitenverlauf hebt die letzten 20 Fassungen je Seite auf (nur für Pflegende sichtbar, Wiederherstellen legt den Stand davor selbst in den Verlauf). Starter-Seiten sind neutrale Vorlagen ohne Personenbezug. Der Editor weist darauf hin, keine Schülerdaten sowie keine Gesundheits- oder Notendaten einzutragen oder anzuhängen. Die Erinnerung „Überprüfung fällig“ geht einmal je Frist als Gong nur an die Ansprechperson. |
+| Vorgabe | Pflege mit „Handbuch bearbeiten“ (Verwaltung; Funktionsgruppen über Gruppenrechte), die Ansprechperson darf ihre eigene Seite bearbeiten (nur Titel und Text). Neue Seiten sind zunächst nur für Personal sichtbar; die mitgelieferten Starter-Seiten (nach Klick übernommen) sind für Eltern bzw. Schüler:innen freigegeben. Anhänge: höchstens 10 je Seite, 20 MB. Verlauf: letzte 20 Fassungen je Seite. Erinnerung zur Überprüfung nach 12 Monaten. |
+| Die Schule entscheidet / dokumentiert | Legt fest, wer das Handbuch pflegt, und vergibt „Handbuch bearbeiten“ an Funktionsgruppen; benennt Ansprechpersonen nur mit deren Wissen; nimmt das Handbuch als Verarbeitungstätigkeit „interne Hilfe und Anleitungen“ ins VVT auf; prüft, ob Seiten für Schüler:innen und Eltern freigegeben werden, und achtet darauf, dass Anhänge keine Personendaten enthalten; passt die Starter-Seiten an die Abläufe der Schule an. Rechtliche Einordnung: zu prüfen. |
 | Einstellungen | „Erinnerung zur Überprüfung“ (Vorgabe: nach 12 Monaten) |
 | In SchulOS | Verwaltung → Rechte & Module → Handbuch |
 <!-- /dsb -->
 
-**Hintergrund und Fragen** (Herkunft: HB-01…HB-04, [HANDBUCH.md](HANDBUCH.md))
+**Hintergrund und Fragen** (Herkunft: HB-01…HB-08, [HANDBUCH.md](HANDBUCH.md))
 
 - **Kontext:** Das Modul „Handbuch“ sammelt Abläufe und Anleitungen der Schule. Der Inhalt ist organisatorisch; Personenbezug entsteht
-  nur durch die Ansprechperson und wer eine Seite angelegt bzw. zuletzt geändert hat. Anhänge und Seitenverlauf folgen später (HB-05/HB-06).
+  nur durch die Ansprechperson, wer eine Seite angelegt bzw. zuletzt geändert hat, die Verfasser:in früherer Fassungen (Seitenverlauf, HB-06) und wer einen Anhang hochgeladen hat (HB-05). Starter-Seiten (HB-07) sind neutrale Vorlagen.
 - **Entscheidungen der Projektleitung (2026-10-28):** eigenes Modul `hilfe` · Pflege über „Handbuch bearbeiten“ plus Ansprechperson für
   die eigene Seite · Zielgruppen je Seite wie bei News, eigene Seiten zunächst nur für Personal · Erinnerung nach 12 Monaten, abschaltbar ·
-  Seiten werden nie automatisch gelöscht, Personenbezüge folgen dem Konto.
+  Seiten werden nie automatisch gelöscht, Personenbezüge folgen dem Konto · Anhänge und Verlauf freigegeben (HB-05/06): Anhänge höchstens 10 je Seite, 20 MB, mit Typprüfung und Virenscan; Verlauf die letzten 20 Fassungen je Seite.
 - **Fragen an die DSB:** Genügt der Hinweis im Editor, um Schülerdaten aus dem Handbuch herauszuhalten, oder braucht es eine Regel in der
-  Dienstanweisung? Dürfen Ansprechpersonen namentlich auch für Schüler:innen und Eltern sichtbar sein (Seiten an diese Zielgruppen)?
+  Dienstanweisung? Dürfen Ansprechpersonen namentlich auch für Schüler:innen und Eltern sichtbar sein (Seiten an diese Zielgruppen)? Genügt der Hinweis am Upload, dass Anhänge keine Personendaten enthalten dürfen?
 - **Vorschlag:** Vorgaben übernehmen; Ansprechpersonen nur mit deren Einverständnis eintragen; Seiten für Schüler:innen und Eltern erst
   nach kurzer Durchsicht durch die Schulleitung veröffentlichen.
 
