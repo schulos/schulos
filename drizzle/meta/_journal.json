@@ -848,6 +848,13 @@
       "when": 1793237545729,
       "tag": "0120_rs_06_verantwortliche",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1793241445754,
+      "tag": "0121_rs_08_raumlayout",
+      "breakpoints": true
     }
   ]
 }

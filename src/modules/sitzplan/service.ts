@@ -26,6 +26,8 @@ import {
 import { readModuleSetting } from "@/core/modules/settings";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
 import { photoUrl } from "@/core/privacy/profilbild";
+import { seatKeys } from "@/core/raumlayout-raster";
+import { canViewLayouts, layoutById } from "@/modules/verwaltung/raumlayout";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { PRESETS, keepSeatsOnDesks, layoutError, presetDesks, seatInitials, seatsError, type Preset, type Seat } from "./layout";
 import { PHOTOS_SETTING } from "./settings";
@@ -251,6 +253,8 @@ export interface CreatePlanInput extends PlanMetaInput {
   rows: number;
   cols: number;
   preset: Preset;
+  /** RS-09: Tische als Kopie aus einem Raumlayout (Raster und Platz-Zellen); Reihen/Spalten/Vorlage zählen dann nicht */
+  layoutId?: string | null;
 }
 
 async function checkMeta(db: Db, input: PlanMetaInput): Promise<PlanMetaInput> {
@@ -266,13 +270,24 @@ async function checkMeta(db: Db, input: PlanMetaInput): Promise<PlanMetaInput> {
   return { title, subjectId, roomId };
 }
 
-/** Legt einen Plan für eine eigene Gruppe an (Tische aus einer Vorlage, noch niemand sitzt). */
+/**
+ * Legt einen Plan für eine eigene Gruppe an (Tische aus einer Vorlage, noch niemand sitzt). RS-09: mit `layoutId` werden
+ * Raster und Platz-Zellen des Raumlayouts **kopiert** – der Plan gehört der Lehrkraft, spätere Änderungen am Raumlayout ändern
+ * ihn nicht (nur ein Hinweis, `planLayoutSource`). Ohne Raumangabe wird der Raum des Layouts eingetragen.
+ */
 export async function createPlan(db: Db, viewer: PermissionSet, input: CreatePlanInput, today: string): Promise<string> {
   if (!(await canUseGroup(db, viewer, input.groupId, today))) throw new ForbiddenError(EDIT);
-  const meta = await checkMeta(db, input);
-  if (!(PRESETS as readonly string[]).includes(input.preset)) throw new ValidationError({ preset: "Anordnung wählen" });
-  const err = layoutError(input.rows, input.cols, []);
-  if (err) throw new ValidationError({ [err.startsWith("Reihen") ? "rows" : "cols"]: err });
+  const layout = input.layoutId ? await layoutById(db, input.layoutId) : null;
+  if (input.layoutId && (!layout || !canViewLayouts(viewer))) throw new ValidationError({ preset: "Dieses Raumlayout gibt es nicht (mehr)" });
+  const meta = await checkMeta(db, layout && !input.roomId?.trim() ? { ...input, roomId: layout.roomId } : input);
+  let grid: { rows: number; cols: number; desks: string[] };
+  if (layout) grid = { rows: layout.rows, cols: layout.cols, desks: seatKeys(layout.cells) };
+  else {
+    if (!(PRESETS as readonly string[]).includes(input.preset)) throw new ValidationError({ preset: "Anordnung wählen" });
+    const err = layoutError(input.rows, input.cols, []);
+    if (err) throw new ValidationError({ [err.startsWith("Reihen") ? "rows" : "cols"]: err });
+    grid = { rows: input.rows, cols: input.cols, desks: presetDesks(input.preset, input.rows, input.cols) };
+  }
   const [year] = await db.select({ id: schoolYears.id }).from(schoolYears).where(eq(schoolYears.isCurrent, true));
   const [row] = await db
     .insert(sitzplanPlans)
@@ -281,13 +296,29 @@ export async function createPlan(db: Db, viewer: PermissionSet, input: CreatePla
       ...meta,
       ownerId: viewer.userId,
       schoolYearId: year?.id ?? null,
-      rows: input.rows,
-      cols: input.cols,
-      desks: presetDesks(input.preset, input.rows, input.cols),
+      ...grid,
+      layoutId: layout?.id ?? null,
+      layoutCopiedAt: layout ? new Date() : null,
     })
     .returning({ id: sitzplanPlans.id });
-  await audit(db, viewer.userId, "sitzplan.anlegen", row!.id, { gruppe: input.groupId });
+  await audit(db, viewer.userId, "sitzplan.anlegen", row!.id, { gruppe: input.groupId, ...(layout ? { raumlayout: layout.id } : {}) });
   return row!.id;
+}
+
+export interface PlanLayoutSource {
+  layoutId: string;
+  roomId: string;
+  name: string;
+  /** Raumlayout wurde nach dem Anlegen des Plans geändert (der Plan bleibt, wie er ist) */
+  changed: boolean;
+}
+
+/** RS-09: Aus welchem Raumlayout stammt der Plan, und wurde es seitdem geändert? null ohne Vorlage bzw. gelöschtes Layout. */
+export async function planLayoutSource(db: Db, plan: Pick<SitzplanPlan, "layoutId" | "layoutCopiedAt">): Promise<PlanLayoutSource | null> {
+  if (!plan.layoutId) return null;
+  const layout = await layoutById(db, plan.layoutId);
+  if (!layout) return null;
+  return { layoutId: layout.id, roomId: layout.roomId, name: layout.name, changed: !plan.layoutCopiedAt || layout.updatedAt.getTime() > plan.layoutCopiedAt.getTime() };
 }
 
 /** Titel, Fach und Raum ändern. */
@@ -334,7 +365,17 @@ export async function copyPlan(db: Db, viewer: PermissionSet, id: string, title:
   const newId = await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(sitzplanPlans)
-      .values({ groupId: plan.groupId, ...meta, ownerId: viewer.userId, schoolYearId: plan.schoolYearId, rows: plan.rows, cols: plan.cols, desks: plan.desks })
+      .values({
+        groupId: plan.groupId,
+        ...meta,
+        ownerId: viewer.userId,
+        schoolYearId: plan.schoolYearId,
+        rows: plan.rows,
+        cols: plan.cols,
+        desks: plan.desks,
+        layoutId: plan.layoutId,
+        layoutCopiedAt: plan.layoutCopiedAt,
+      })
       .returning({ id: sitzplanPlans.id });
     if (seats.length) await tx.insert(sitzplanSeats).values(seats.map((s) => ({ planId: row!.id, studentId: s.studentId, row: s.row, col: s.col })));
     return row!.id;

@@ -2,7 +2,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "../../core/db/schema-auth";
-import { groups, rooms, schoolYears, subjects } from "../../core/db/schema-core";
+import { groups, roomLayouts, rooms, schoolYears, subjects } from "../../core/db/schema-core";
 
 /**
  * Ein Sitzplan einer Lerngruppe (optional für ein Fach bzw. einen Raum). Sehen und ändern dürfen nur Lehrkräfte der Gruppe
@@ -26,6 +26,9 @@ export const sitzplanPlans = pgTable(
     rows: integer("rows").notNull(),
     cols: integer("cols").notNull(),
     desks: jsonb("desks").$type<string[]>().notNull().default([]),
+    /** RS-09: aus welchem Raumlayout die Tische als Kopie stammen (Hinweis, wenn das Layout danach geändert wurde) */
+    layoutId: text("layout_id").references(() => roomLayouts.id, { onDelete: "set null" }),
+    layoutCopiedAt: timestamp("layout_copied_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -6,7 +6,8 @@ import { loadSchoolCalendar } from "@/core/school/calendar";
 import { hasPermission } from "@/core/permissions";
 import { TZ, addDays, fromBerlinLocal, isoWeek, mondayOf, toBerlinDate } from "@/core/time";
 import { createExamAction, deleteExamAction } from "@/modules/klausurplan/actions";
-import { KIND_LABEL, listExams, plannableExamGroups } from "@/modules/klausurplan/service";
+import { KIND_LABEL, examSeatWarnings, listExams, plannableExamGroups } from "@/modules/klausurplan/service";
+import { isStaffRole } from "@/core/roles";
 import { timetableMasterData } from "@/modules/stundenplan/service";
 import { planDays } from "@/modules/stundenplan/vertretung";
 import { Badge } from "@schulos/ui/badge";
@@ -29,6 +30,9 @@ export default async function KlausurplanPage() {
   const [groups, master, list] = await Promise.all([plannableExamGroups(db, perms), timetableMasterData(db), listExams(db, perms, today, addDays(today, WEEKS * 7))]);
   const manage = hasPermission(perms, "klausurplan.manage");
   const weeks = [...new Set(list.map((e) => mondayOf(e.date)))];
+  // RS-09: Überbelegung laut Raumlayout (nur Beschäftigte, nur Hinweis)
+  const seatWarnings = await examSeatWarnings(db, perms, list);
+  const staff = isStaffRole(perms.role);
 
   return (
     <main className="flex flex-col gap-6">
@@ -43,6 +47,7 @@ export default async function KlausurplanPage() {
             groups={groups.map((g) => ({ value: g.id, label: g.name, subjectId: g.subjectId, course: g.kind === "kurs" }))}
             subjects={master.subjects.map((s) => ({ value: s.id, label: s.name }))}
             periods={master.periods.map((p) => ({ value: String(p.nr), label: `${p.nr}. (${p.startsAt})` }))}
+            rooms={staff ? master.rooms.filter((r) => r.active).map((r) => ({ value: r.id, label: r.id === r.name ? r.name : `${r.id} – ${r.name}` })) : []}
             canOverride={manage}
             defaultDate={planDays(addDays(today, 7), cal)[0]}
           />
@@ -73,8 +78,10 @@ export default async function KlausurplanPage() {
                         </span>
                         <span className="text-sm text-muted">
                           {e.title} · {e.periodFrom === e.periodTo ? `${e.periodFrom}. Std` : `${e.periodFrom}.–${e.periodTo}. Std`} ({e.startsAt}–{e.endsAt})
+                          {e.roomId && ` · Raum ${e.roomId}`}
                           {e.teacherCode && ` · ${e.teacherCode}`}
                         </span>
+                        {seatWarnings.get(e.id) && <span className="text-sm text-warn">{seatWarnings.get(e.id)}</span>}
                       </span>
                       <Badge tone={e.kind === "test" ? "neutral" : "danger"}>{KIND_LABEL[e.kind]}</Badge>
                       <Link href={`/stundenplan?woche=${e.date}`} className="text-sm font-medium text-accent-ink hover:underline">

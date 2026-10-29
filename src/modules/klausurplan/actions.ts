@@ -6,7 +6,7 @@ import { getDb } from "@/core/db/client";
 import { toBerlinDate } from "@/core/time";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { createExam, deleteExam, type ExamInput } from "./service";
+import { createExam, deleteExam, examSeatWarnings, type ExamInput } from "./service";
 
 const { requireUser } = moduleActions("klausurplan");
 
@@ -24,8 +24,12 @@ export async function createExamAction(_prev: FormState, form: FormData): Promis
     roomId: str("roomId") || null,
     override: form.get("override") === "on",
   };
+  let warning: string | undefined;
   try {
-    await createExam(await getDb(), perms, input, toBerlinDate(new Date()));
+    const db = await getDb();
+    const id = await createExam(db, perms, input, toBerlinDate(new Date()));
+    // RS-09: Überbelegung laut Raumlayout nur als Hinweis
+    warning = (await examSeatWarnings(db, perms, [{ id, groupId: input.groupId, roomId: input.roomId }])).get(id);
   } catch (err) {
     if (err instanceof ValidationError) {
       const values = Object.fromEntries([...form.entries()].filter(([k]) => !k.startsWith("$")).map(([k, v]) => [k, String(v)]));
@@ -34,7 +38,7 @@ export async function createExamAction(_prev: FormState, form: FormData): Promis
     throw err;
   }
   revalidatePath("/", "layout");
-  return { ok: true };
+  return { ok: true, message: warning };
 }
 
 export async function deleteExamAction(id: string): Promise<void> {

@@ -9,6 +9,9 @@ import { hasPermission } from "@/core/permissions";
 import { TZ, addDays, isoWeek, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { canEditRoomInfo, canMaintainAllRooms, roomProfile } from "@/modules/verwaltung/raumsteckbrief";
 import { HISTORY_LIMIT, responsiblesFor, roomHistory } from "@/modules/verwaltung/raumverantwortliche";
+import { listRoomLayouts } from "@/modules/verwaltung/raumlayout";
+import { capacityHint } from "@/core/raumlayout-raster";
+import { LayoutGrid } from "@/ui/raumlayout";
 import { InfoList, PhotoGallery, RoomBanners, RoomCover, RoomFacts, WeekGrid, fmtDay, roomTitle } from "@/ui/raum-steckbrief";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -26,6 +29,7 @@ const changedAt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-d
  * Räume sind Kernstammdaten; Abschnitte aus abschaltbaren Modulen erscheinen nur, wenn das Modul an ist.
  * RS-04: Titelbild im Kopf (alle), Galerie als Karte (Beschäftigte); RS-05: Ausstattung mit Menge im Kopf (alle).
  * RS-06: Karte „Verantwortliche“ (nur Beschäftigte) und „Änderungen“ aus dem Audit (nur Pflegende) im unteren Raster.
+ * RS-08: Karte „Raumlayout“ (nur Beschäftigte) mit dem Standard-Layout, Link auf alle Layouts bzw. den Editor.
  */
 export default async function RaumSteckbriefPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ woche?: string; gespeichert?: string }> }) {
   const { perms } = await requireUser();
@@ -48,11 +52,14 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
   const canEditInfo = await canEditRoomInfo(db, perms, room.id);
   const canManageResponsibles = canMaintainAllRooms(perms);
   // RS-06: Verantwortliche sehen nur Beschäftigte, die Historie nur Pflegende (Recht oder Verantwortung für diesen Raum)
-  const [responsibles, history, adressbuch] = await Promise.all([
+  const [responsibles, history, adressbuch, layouts] = await Promise.all([
     responsiblesFor(db, perms, room.id),
     canEditInfo ? roomHistory(db, perms, room.id) : Promise.resolve(null),
     moduleOn("adressbuch"),
+    // RS-08: Layouts nur für Beschäftigte (null für Schüler:innen/Eltern)
+    listRoomLayouts(db, perms, room.id),
   ]);
+  const mainLayout = layouts?.[0] ?? null;
   const weekHref = (m: string) => `/raeume/${enc}?woche=${m}#belegung`;
 
   return (
@@ -203,6 +210,26 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
           <Card aria-labelledby="fotos" className="scroll-mt-20">
             <CardHeader title={<span id="fotos">Fotos</span>} action={canEditInfo ? { href: `/raeume/${enc}/fotos`, label: "Fotos bearbeiten" } : undefined} />
             <PhotoGallery photos={profile.photos} roomId={room.id} />
+          </Card>
+        )}
+        {layouts && (
+          <Card aria-labelledby="raumlayout" className="scroll-mt-20 lg:col-span-2">
+            <CardHeader
+              title={<span id="raumlayout">Raumlayout</span>}
+              action={layouts.length > 0 || canEditInfo ? { href: `/raeume/${enc}/layout`, label: canEditInfo ? "Layouts bearbeiten" : "Alle Layouts" } : undefined}
+            />
+            {mainLayout ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm text-muted">
+                  {mainLayout.name} · {mainLayout.seats} {mainLayout.seats === 1 ? "Platz" : "Plätze"} · {mainLayout.examSeats} Prüfungsplätze
+                  {layouts.length > 1 && ` · weitere: ${layouts.slice(1).map((l) => l.name).join(", ")}`}
+                </p>
+                <LayoutGrid rows={mainLayout.rows} cols={mainLayout.cols} cells={mainLayout.cells} caption={`Raumlayout ${mainLayout.name}, Raum ${room.id}`} />
+                {capacityHint(mainLayout.seats, room.capacity) && <p className="text-xs text-muted">{capacityHint(mainLayout.seats, room.capacity)}</p>}
+              </div>
+            ) : (
+              <p className="text-sm text-muted">Noch kein Layout eingetragen.</p>
+            )}
           </Card>
         )}
         {responsibles && (
