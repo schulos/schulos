@@ -24,6 +24,9 @@ export async function RoomsSection({ db, q, art }: { db: Db; q?: string; art?: s
         </h2>
         <span className="flex flex-wrap gap-2">
           <Button asChild>
+            <Link href="/verwaltung/stammdaten/raeume/gebaeude">Gebäude und Etagen</Link>
+          </Button>
+          <Button asChild>
             <Link href="/verwaltung/stammdaten/raeume/infofelder">Infofelder</Link>
           </Button>
           <Button asChild>

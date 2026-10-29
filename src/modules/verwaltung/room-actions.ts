@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requirePermission } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import type { FormState } from "./actions";
+import { parsePlaceValue } from "./gebaeude-etagen";
 import { createRoom, deleteRoom, setRoomActive, updateRoom, type RoomInput } from "./rooms";
 import { ValidationError } from "./users";
 
@@ -16,8 +17,8 @@ function readRoom(form: FormData): RoomInput {
     code: String(form.get("code") ?? ""),
     name: String(form.get("name") ?? ""),
     kind: String(form.get("kind") ?? ""),
-    building: String(form.get("building") ?? ""),
-    floor: String(form.get("floor") ?? ""),
+    // RS-10: eine Auswahl „Gebäude und Etage“ (f:<etage> bzw. b:<gebäude>)
+    ...parsePlaceValue(String(form.get("place") ?? "")),
     capacity: String(form.get("capacity") ?? ""),
     accessible: form.get("accessible") === "on",
     active: form.get("active") === "on",

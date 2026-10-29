@@ -60,14 +60,55 @@ export const subjects = pgTable("subjects", {
   roomKind: roomKindEnum("room_kind"),
 });
 
+/**
+ * RS-10: Gebäude als Stammdaten (statt Freitext an `rooms`) mit Reihenfolge – für Sortierung, Filter und den Raumfinder.
+ * Keine Personen. Pflege `verwaltung.school`; ein Gebäude mit zugeordneten Räumen lässt sich nicht löschen.
+ */
+export const buildings = pgTable(
+  "buildings",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("buildings_name_uq").on(sql`lower(${t.name})`)],
+);
+
+/** RS-10: Etagen je Gebäude (z. B. „EG“, „1. OG“) mit Reihenfolge; Name eindeutig je Gebäude (Schreibweise egal). */
+export const buildingFloors = pgTable(
+  "building_floors",
+  {
+    id: id(),
+    buildingId: text("building_id")
+      .notNull()
+      .references(() => buildings.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("building_floors_name_uq").on(t.buildingId, sql`lower(${t.name})`)],
+);
+
+export type Building = typeof buildings.$inferSelect;
+export type BuildingFloor = typeof buildingFloors.$inferSelect;
+
 export const rooms = pgTable("rooms", {
   /** Raumkürzel, z. B. „112", „TH1" */
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   kind: roomKindEnum("kind").notNull().default("klassenraum"),
+  /**
+   * Anzeigekopie des Gebäudenamens (seit RS-10 aus `building_id`, geschrieben nur von `rooms.ts`/`gebaeude-etagen.ts`) –
+   * bleibt, damit Mängel, Prüfungen, Raumsuche und Exporte unverändert lesen können.
+   */
   building: text("building"),
-  /** z. B. „EG“, „1. OG“ */
+  /** Anzeigekopie des Etagennamens (seit RS-10 aus `floor_id`), z. B. „EG“, „1. OG“ */
   floor: text("floor"),
+  /** RS-10: Gebäude (Stammdaten); leer = keine Angabe */
+  buildingId: text("building_id").references(() => buildings.id),
+  /** RS-10: Etage – gehört immer zum Gebäude in `building_id` (prüft der Dienst) */
+  floorId: text("floor_id").references(() => buildingFloors.id),
   capacity: integer("capacity"),
   // Ausstattung: seit RS-05 im Katalog `room_equipment_types` mit Menge je Raum (`room_equipment_items`)
   accessible: boolean("accessible").notNull().default(false),
@@ -370,6 +411,29 @@ export const roomLayouts = pgTable(
 );
 
 export type RoomLayout = typeof roomLayouts.$inferSelect;
+
+/**
+ * RS-11: Codes für Kurz-URLs auf gedruckten Etiketten (Tür-QR `/r/<code>`; gemeinsamer Unterbau, später auch Inventar).
+ * Je Ziel genau ein gültiger Code; Neuerzeugen ersetzt die Zeile, der alte Code ist sofort ungültig. Das Ziel steht in einer
+ * typisierten Spalte je Art (Fremdschlüssel mit Kaskade – Umbenennen und Löschen eines Raums ziehen mit); eine neue Art bekommt
+ * eine eigene Spalte und erweitert die Prüfungen. Keine Personen.
+ */
+export const labelCodes = pgTable(
+  "label_codes",
+  {
+    /** 16 Zeichen aus 32 (80 Bit Zufall), `src/core/etiketten/codes.ts` */
+    code: text("code").primaryKey(),
+    /** Art des Ziels (`LABEL_KINDS`): bisher nur „raum“ */
+    kind: text("kind").notNull(),
+    roomId: text("room_id").references(() => rooms.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check("label_codes_kind", sql`${t.kind} in ('raum')`),
+    check("label_codes_target", sql`(${t.kind} = 'raum') = (${t.roomId} is not null)`),
+    uniqueIndex("label_codes_room_uq").on(t.roomId),
+  ],
+);
 
 // ------------------------------------------------------------------------ Rechte
 

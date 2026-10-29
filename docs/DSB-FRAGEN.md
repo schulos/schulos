@@ -677,7 +677,9 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
 
 - **Kontext:** Der Raumsteckbrief bündelt Stammdaten, Belegung, Infofelder, Fotos und Ausstattung je Raum. Räume selbst haben keinen
   Personenbezug; er entsteht nur über Raumverantwortliche (Fachraumleitung o. Ä.) und darüber, wer etwas geändert hat (Audit-Log).
-  Die Belegung für Schüler:innen und Eltern ist in §13 geregelt. Layout (Stufe 3) sowie Gebäude/Etagen und Tür-QR (Stufe 4) folgen.
+  Die Belegung für Schüler:innen und Eltern ist in §13 geregelt. Layouts (Stufe 3, Plätze leer) sowie Gebäude/Etagen und Tür-QR
+  (Stufe 4, RS-10…RS-12) haben keinen Personenbezug; der Tür-QR zeigt ohne Anmeldung nur die Anmeldeseite, nach der Anmeldung den
+  Steckbrief mit derselben Filterung nach Rolle.
 - **Entscheidungen der Projektleitung (2026-10-28):** neues Recht „Raumdaten pflegen“ plus Raumverantwortliche für den eigenen Raum;
   Stammdaten bleiben bei „Schuldaten und Stammdaten pflegen“ · Verantwortliche sieht nur Personal · Zuordnung folgt dem Konto (`LK-KONTO`)
   · Historie aus dem Audit ohne Inhalte der Infofelder · höchstens 8 Fotos, 1600 px, ein Titelbild, keine Personen.

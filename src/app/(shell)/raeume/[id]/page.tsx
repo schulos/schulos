@@ -10,6 +10,10 @@ import { TZ, addDays, isoWeek, mondayOf, toBerlinDate, weekdayMon0 } from "@/cor
 import { canEditRoomInfo, canMaintainAllRooms, roomProfile } from "@/modules/verwaltung/raumsteckbrief";
 import { HISTORY_LIMIT, responsiblesFor, roomHistory } from "@/modules/verwaltung/raumverantwortliche";
 import { listRoomLayouts } from "@/modules/verwaltung/raumlayout";
+import { renewRoomCodeAction } from "@/modules/verwaltung/gebaeude-actions";
+import { roomCode } from "@/modules/verwaltung/tuer-qr";
+import { labelUrl } from "@/core/etiketten/qr";
+import { RenewQrButton } from "./tuer-qr-renew";
 import { capacityHint } from "@/core/raumlayout-raster";
 import { LayoutGrid } from "@/ui/raumlayout";
 import { InfoList, PhotoGallery, RoomBanners, RoomCover, RoomFacts, WeekGrid, fmtDay, roomTitle } from "@/ui/raum-steckbrief";
@@ -31,7 +35,7 @@ const changedAt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-d
  * RS-06: Karte „Verantwortliche“ (nur Beschäftigte) und „Änderungen“ aus dem Audit (nur Pflegende) im unteren Raster.
  * RS-08: Karte „Raumlayout“ (nur Beschäftigte) mit dem Standard-Layout, Link auf alle Layouts bzw. den Editor.
  */
-export default async function RaumSteckbriefPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ woche?: string; gespeichert?: string }> }) {
+export default async function RaumSteckbriefPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ woche?: string; gespeichert?: string; qr?: string }> }) {
   const { perms } = await requireUser();
   const id = decodeURIComponent((await params).id);
   const sp = await searchParams;
@@ -52,12 +56,14 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
   const canEditInfo = await canEditRoomInfo(db, perms, room.id);
   const canManageResponsibles = canMaintainAllRooms(perms);
   // RS-06: Verantwortliche sehen nur Beschäftigte, die Historie nur Pflegende (Recht oder Verantwortung für diesen Raum)
-  const [responsibles, history, adressbuch, layouts] = await Promise.all([
+  const [responsibles, history, adressbuch, layouts, qrCode] = await Promise.all([
     responsiblesFor(db, perms, room.id),
     canEditInfo ? roomHistory(db, perms, room.id) : Promise.resolve(null),
     moduleOn("adressbuch"),
     // RS-08: Layouts nur für Beschäftigte (null für Schüler:innen/Eltern)
     listRoomLayouts(db, perms, room.id),
+    // RS-11: Tür-QR nur für Pflegende (sonst null)
+    canEditInfo ? roomCode(db, perms, room.id) : Promise.resolve(null),
   ]);
   const mainLayout = layouts?.[0] ?? null;
   const weekHref = (m: string) => `/raeume/${enc}?woche=${m}#belegung`;
@@ -257,6 +263,30 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
                 ))}
               </ul>
             )}
+          </Card>
+        )}
+        {canEditInfo && room.active && (
+          <Card aria-labelledby="tuer-qr" className="scroll-mt-20">
+            <CardHeader title={<span id="tuer-qr">Tür-QR</span>} />
+            {sp.qr === "neu" && (
+              <p role="status" className="mb-3 rounded-lg bg-success-soft px-3 py-2 text-sm text-success">
+                Neuer Code erzeugt – der alte gilt nicht mehr. Bitte das Türschild neu drucken.
+              </p>
+            )}
+            <p className="text-sm text-muted">
+              Der QR-Code am Türschild führt nach der Anmeldung hierher; ohne Anmeldung zeigt er nur die Anmeldeseite.
+            </p>
+            <p className="mt-2 text-sm break-all" data-testid="tuer-qr-url">
+              {qrCode ? <span className="font-mono">{labelUrl("raum", qrCode)}</span> : "Noch kein Code – er entsteht beim ersten Druck."}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button asChild variant="secondary" size="sm">
+                <Link href={`/druck/tuerschilder?raum=${enc}`}>
+                  <Printer aria-hidden /> Türschild drucken
+                </Link>
+              </Button>
+              {qrCode && <RenewQrButton action={renewRoomCodeAction.bind(null, room.id)} roomId={room.id} />}
+            </div>
           </Card>
         )}
         {history && (

@@ -29,6 +29,7 @@ import { MODULES } from "@/modules";
 import { seedAufgaben } from "@/modules/aufgaben/seed";
 import { seedBuchungen } from "@/modules/buchungen/seed";
 import { ensureDefaultEquipmentTypes } from "@/modules/verwaltung/raumausstattung";
+import { ensurePlace } from "@/modules/verwaltung/gebaeude-etagen";
 import { ensureDefaultInfoFields } from "@/modules/verwaltung/raumsteckbrief";
 import buecherei from "@/modules/buecherei/manifest";
 import { seedBuecherei, seedLernmittel } from "@/modules/buecherei/seed";
@@ -150,7 +151,12 @@ export async function seedDemoSchool(
   await db.insert(schoolYears).values({ id: yearId, name: "2026/27", startsOn: "2026-08-01", endsOn: "2027-07-31", isCurrent: true, term2StartsOn: "2027-02-01" });
   // Fächer, Zeitraster und Stundentafel kommen aus denselben Vorlagen, die auch eine echte Schule übernimmt
   await db.insert(subjects).values(SUBJECT_TEMPLATE.map((s, i) => ({ ...s, sortOrder: i })));
-  await db.insert(rooms).values(ROOMS.map((r) => ({ id: r.id, name: r.name, kind: r.kind, building: r.building, floor: r.floor, capacity: r.capacity, accessible: r.accessible })));
+  // RS-10: Gebäude und Etagen als Stammdaten – Reihenfolge wie in ROOMS (Hauptgebäude EG/1. OG/2. OG, Naturwissenschaften, …)
+  const places = new Map<string, { buildingId: string; floorId: string | null }>();
+  for (const r of ROOMS) places.set(r.id, await ensurePlace(db, r.building, r.floor));
+  await db.insert(rooms).values(
+    ROOMS.map((r) => ({ id: r.id, name: r.name, kind: r.kind, building: r.building, floor: r.floor, ...places.get(r.id), capacity: r.capacity, accessible: r.accessible })),
+  );
   // RS-05: Ausstattungskatalog (Vorgaben auch nach dem Leeren aller Tabellen beim Demo-Reset) und Mengen je Raum
   await ensureDefaultEquipmentTypes(db);
   await db.insert(roomEquipmentItems).values(ROOMS.flatMap((r) => Object.entries(r.equipment).map(([typeId, quantity]) => ({ roomId: r.id, typeId, quantity }))));

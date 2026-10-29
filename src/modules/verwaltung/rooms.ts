@@ -1,9 +1,10 @@
 // Stammdaten Räume: Art, Gebäude/Etage, Kapazität, barrierefrei, aktiv. Ausstattung seit RS-05 im Katalog (raumausstattung.ts),
 // gepflegt im Raumsteckbrief.
-import { and, asc, count, eq, ilike, or, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, getTableColumns, ilike, or, sql, type SQL } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
-import { ROOM_KINDS, bookingResources, bookings, exams, rooms, timetableLessons, timetableSubstitutions, type RoomKind } from "@/core/db/schema";
+import { ROOM_KINDS, bookingResources, bookings, buildingFloors, buildings, exams, rooms, timetableLessons, timetableSubstitutions, type RoomKind } from "@/core/db/schema";
+import { resolvePlace } from "./gebaeude-etagen";
 import { ValidationError } from "./users";
 
 export type Room = typeof rooms.$inferSelect;
@@ -17,11 +18,14 @@ export async function listRooms(db: Db, f: { q?: string; kind?: RoomKind; active
   }
   if (f.kind) where.push(eq(rooms.kind, f.kind));
   if (f.activeOnly) where.push(eq(rooms.active, true));
+  // RS-10: nach der Reihenfolge der Gebäude und Etagen (Stammdaten), Räume ohne Angabe am Ende
   return db
-    .select()
+    .select(getTableColumns(rooms))
     .from(rooms)
+    .leftJoin(buildings, eq(buildings.id, rooms.buildingId))
+    .leftJoin(buildingFloors, eq(buildingFloors.id, rooms.floorId))
     .where(where.length ? and(...where) : undefined)
-    .orderBy(asc(rooms.building), asc(rooms.id));
+    .orderBy(sql`${buildings.sortOrder} asc nulls last`, asc(buildings.name), sql`${buildingFloors.sortOrder} asc nulls first`, asc(rooms.id));
 }
 
 export async function getRoom(db: Db, id: string): Promise<Room | null> {
@@ -51,8 +55,9 @@ export interface RoomInput {
   code: string;
   name: string;
   kind: string;
-  building?: string | null;
-  floor?: string | null;
+  /** RS-10: Gebäude aus den Stammdaten (bei gesetzter Etage egal – dann gilt deren Gebäude) */
+  buildingId?: string | null;
+  floorId?: string | null;
   /** leer = unbekannt */
   capacity?: string | number | null;
   accessible: boolean;
@@ -74,13 +79,23 @@ async function validate(db: Db, input: RoomInput, exceptId?: string) {
   const capRaw = input.capacity === null || input.capacity === undefined ? "" : String(input.capacity).trim();
   const capacity = capRaw === "" ? null : Number(capRaw);
   if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1 || capacity > 2000)) fe.capacity = "Kapazität 1–2000 oder leer";
+  let place: Awaited<ReturnType<typeof resolvePlace>> = { buildingId: null, floorId: null, building: null, floor: null };
+  try {
+    place = await resolvePlace(db, { buildingId: input.buildingId, floorId: input.floorId });
+  } catch (err) {
+    if (!(err instanceof ValidationError)) throw err;
+    Object.assign(fe, err.fieldErrors);
+  }
   if (Object.keys(fe).length) throw new ValidationError(fe);
   return {
     id: code,
     name: input.name.trim(),
     kind: input.kind as RoomKind,
-    building: input.building?.trim() || null,
-    floor: input.floor?.trim() || null,
+    // Anzeigekopie aus den Stammdaten (RS-10)
+    building: place.building,
+    floor: place.floor,
+    buildingId: place.buildingId,
+    floorId: place.floorId,
     capacity,
     accessible: input.accessible,
     active: input.active,
