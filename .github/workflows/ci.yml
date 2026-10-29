@@ -110,6 +110,10 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: bash scripts/ci/next-cache.sh holen
       - name: Build
+        # Build-VM (12 GB, ohne Swap): V8 nimmt dort nur ~2 GB Heap, der Next-Build braucht mehr (OOM am 28.10.);
+        # auf GitHub-Runnern (16 GB) entspricht 4096 der Vorgabe
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: npm run build
       - name: Next-Build-Cache sichern (Build-VM)
         if: runner.environment == 'self-hosted'

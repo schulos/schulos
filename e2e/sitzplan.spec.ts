@@ -12,11 +12,13 @@ async function openSevenBLesson(page: Page) {
   await page.goto("/klassenbuch");
   // zwei Schultage zurück, damit sich die Stunde nicht mit klassenbuch.spec überschneidet; dann bis zu einer Stunde der 7b
   const lesson = page.getByRole("link", { name: /7b.*(Offen|Eingetragen)$/ }).first();
+  // per Adresse statt Klick: die Überschrift steht auf beiden Seiten, ein Klick-Warten zählte sonst evtl. noch die alte Seite
   for (let i = 0; i < 8; i++) {
-    await page.getByRole("link", { name: "Vorheriger Schultag" }).click();
+    await page.goto((await page.getByRole("link", { name: "Vorheriger Schultag" }).getAttribute("href"))!);
     await expect(page.getByRole("heading", { name: "Meine Stunden" })).toBeVisible();
     if (i >= 1 && (await lesson.count()) > 0) break;
   }
+  await expect(lesson).not.toHaveCount(0);
   // TD-16: per Adresse öffnen statt zu klicken – die Liste wird nachgeladen/neu gezeichnet, der Knoten war „nicht stabil“ bzw. abgehängt
   await page.goto((await lesson.getAttribute("href"))!);
   await expect(page.getByLabel("Thema der Stunde")).toBeVisible();
