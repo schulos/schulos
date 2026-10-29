@@ -1,4 +1,4 @@
-import type { Role } from "@/core/db/schema";
+import type { GroupKind, Role } from "@/core/db/schema";
 import type { RetentionDecl } from "@/core/retention";
 import type { ModuleSettingDecl } from "./settings";
 
@@ -87,6 +87,11 @@ export interface ModuleManifest {
   defaultGrants?: Partial<Record<Role, string[]>>;
   /** Gruppenmerkmale: "<id>.<merkmal>" → Beschreibung */
   groupFeatures?: Record<string, string>;
+  /**
+   * GT-01: Einschränkungen eines Gruppenmerkmals – `kinds`: nur für diese Gruppenarten angeboten; `manageOnly`: nicht von der
+   * Kursleitung im Kursraum schaltbar, nur in der Gruppenverwaltung (bzw. auf einer eigenen Seite des Moduls).
+   */
+  groupFeatureRules?: Record<string, { kinds?: readonly GroupKind[]; manageOnly?: boolean }>;
   nav?: ModuleNavItem[];
   /** Moduleinstellungen (Q5-14): Schalter unter Verwaltung → Rechte & Module, Schlüssel "<id>.<name>" */
   settings?: readonly ModuleSettingDecl[];

@@ -32,6 +32,7 @@ import {
   ShieldCheck,
   StickyNote,
   Table2,
+  UserCheck,
   Users,
   Wrench,
   type LucideIcon,
@@ -72,6 +73,7 @@ const ICONS: Record<string, LucideIcon> = {
   ShieldCheck,
   StickyNote,
   Table2,
+  UserCheck,
   Users,
   Wrench,
 };

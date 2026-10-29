@@ -27,3 +27,4 @@ export * from "../../modules/notenbuch/schema";
 export * from "../../modules/kurse/schema";
 export * from "../../modules/buecherei/schema";
 export * from "../../modules/hilfe/schema";
+export * from "../../modules/ganztag/schema";

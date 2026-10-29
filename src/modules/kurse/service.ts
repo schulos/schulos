@@ -94,16 +94,19 @@ export function canManageCourse(viewer: PermissionSet, group: { id: string; arch
   return hasPermission(viewer, "group.features", { groupId: group.id }) || hasPermission(viewer, "verwaltung.groups");
 }
 
-/** Gruppenmerkmale, die sich im Kursraum schalten lassen: nur die aktiver Module. */
-export function courseFeatures(states: ModuleStateMap) {
-  return availableGroupFeatures(MODULES.filter((m) => isEnabled(m, states)));
+/** Gruppenmerkmale, die sich im Kursraum schalten lassen: nur die aktiver Module, passend zur Gruppenart, ohne `manageOnly` (GT-01). */
+export function courseFeatures(states: ModuleStateMap, kind?: GroupKind) {
+  return availableGroupFeatures(
+    MODULES.filter((m) => isEnabled(m, states)),
+    { kind, course: true },
+  );
 }
 
 /** P3-02: Leitung schaltet einen Bereich ihres Kurses an/aus (protokolliert wie in der Gruppenverwaltung). */
 export async function setCourseFeature(db: Db, viewer: PermissionSet, groupId: string, feature: string, enabled: boolean, states: ModuleStateMap) {
   const data = await getGroup(db, groupId);
   if (!data || !canManageCourse(viewer, data.group)) throw new ForbiddenError("group.features");
-  if (!courseFeatures(states).some((f) => f.id === feature)) throw new ValidationError({ feature: "Diesen Bereich gibt es nicht" });
+  if (!courseFeatures(states, data.group.kind).some((f) => f.id === feature)) throw new ValidationError({ feature: "Diesen Bereich gibt es nicht" });
   await setGroupFeature(db, viewer.userId, groupId, feature, enabled);
 }
 
@@ -238,7 +241,7 @@ export async function courseHub(db: Db, viewer: PermissionSet, groupId: string, 
     forum,
     quickPolls,
     conference,
-    manage: canManageCourse(viewer, group) ? courseFeatures(states).map((f) => ({ ...f, enabled: has(f.id) })) : null,
+    manage: canManageCourse(viewer, group) ? courseFeatures(states, group.kind).map((f) => ({ ...f, enabled: has(f.id) })) : null,
     group: {
       id: group.id,
       name: group.name,

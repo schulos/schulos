@@ -271,6 +271,8 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   buecherei_teaching_materials: "Schulbuchausleihe: Lernmittel je Jahrgang/Fach/Kurs (bibliografische Angaben, Preis) – keine Personen",
   buecherei_material_copies: "Schulbuchausleihe: Exemplare mit Inventarnummer, Zustand (Vermerk zur Sache), Aussonderung – keine Personen",
   hilfe_sections: "Handbuch: Bereiche (Titel, Reihenfolge) – keine Personen",
+  ganztag_series: "Ganztag: Terminserien je Angebot (Wochentag, Zeit, gültig von/bis) – keine Personen",
+  ganztag_group_settings: "Ganztag: Einstellungen je Angebot (verpflichtend, Benachrichtigung, Vorbelegung) – keine Personen",
   buecherei_booklists: "Schulbuchausleihe: Hinweistext der Bücherliste je Jahrgang – keine Personen",
 };
 
