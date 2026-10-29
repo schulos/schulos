@@ -1,6 +1,6 @@
 // Handbuch (HB-01, docs/HANDBUCH.md) – nur relative Imports (drizzle-kit).
 // Zwei Ebenen: Bereich → Seite. Personenbezug nur über Ansprechperson und Bearbeiter:in (folgen dem Konto, `set null`);
-// Seiten selbst werden nie automatisch gelöscht. Später (HB-05/HB-06): `hilfe_attachments`, `hilfe_revisions`.
+// Seiten selbst werden nie automatisch gelöscht. Anhänge (HB-05) und Fassungen (HB-06) hängen an der Seite.
 import { sql } from "drizzle-orm";
 import { check, date, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { roleEnum, users } from "../../core/db/schema-auth";
@@ -77,5 +77,54 @@ export const hilfeTargets = pgTable(
   ],
 );
 
+/**
+ * Anhänge einer Seite (HB-05): PDF, Bilder, Office-Dateien. Sichtbar ist ein Anhang genau für die, die die Seite sehen.
+ * Die Datei liegt im Dateispeicher (`storage_key`, Dateispeicher-Abgleich + Auskunft); wer sie hochgeladen hat, folgt dem Konto.
+ */
+export const hilfeAttachments = pgTable(
+  "hilfe_attachments",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    pageId: text("page_id")
+      .notNull()
+      .references(() => hilfePages.id, { onDelete: "cascade" }),
+    storageKey: text("storage_key").notNull(),
+    name: text("name").notNull(),
+    mime: text("mime").notNull(),
+    size: integer("size").notNull(),
+    uploadedBy: text("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("hilfe_attachments_page_idx").on(t.pageId, t.createdAt)],
+);
+
+/**
+ * Frühere Fassungen einer Seite (HB-06): beim Ändern von Titel oder Text wird der bisherige Stand hier abgelegt, die letzten
+ * 20 je Seite bleiben. `authorId`/`authoredAt` = wer diese Fassung geschrieben hat und wann (folgt dem Konto, `set null`).
+ */
+export const hilfeRevisions = pgTable(
+  "hilfe_revisions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    pageId: text("page_id")
+      .notNull()
+      .references(() => hilfePages.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** fortlaufende Nummer – Reihenfolge der Fassungen (Zeitstempel können gleich sein) */
+    seq: integer("seq").generatedAlwaysAsIdentity().notNull(),
+    authorId: text("author_id").references(() => users.id, { onDelete: "set null" }),
+    authoredAt: timestamp("authored_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("hilfe_revisions_page_idx").on(t.pageId, t.createdAt)],
+);
+
 export type HilfePage = typeof hilfePages.$inferSelect;
 export type HilfeSection = typeof hilfeSections.$inferSelect;
+export type HilfeAttachment = typeof hilfeAttachments.$inferSelect;
+export type HilfeRevision = typeof hilfeRevisions.$inferSelect;

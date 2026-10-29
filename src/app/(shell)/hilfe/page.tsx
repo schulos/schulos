@@ -4,11 +4,13 @@ import { FolderTree, Plus } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { canEditAll, listOutline, searchPages } from "@/modules/hilfe/service";
+import { starterStatus } from "@/modules/hilfe/starter";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { Input } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
+import { StarterCard } from "./starter-card";
 
 export const metadata: Metadata = { title: "Handbuch" };
 
@@ -23,6 +25,7 @@ export default async function HilfePage({ searchParams }: { searchParams: Promis
   const q = (await searchParams).q?.trim() ?? "";
   const db = await getDb();
   const editor = canEditAll(perms);
+  const starters = editor && !q ? (await starterStatus(db)).missing : [];
   const [outline, hits] = await Promise.all([q ? Promise.resolve([]) : listOutline(db, perms), q ? searchPages(db, perms, q) : Promise.resolve([])]);
 
   return (
@@ -50,6 +53,8 @@ export default async function HilfePage({ searchParams }: { searchParams: Promis
       <form role="search" action="/hilfe">
         <Input name="q" type="search" defaultValue={q} placeholder="Handbuch durchsuchen …" aria-label="Handbuch durchsuchen" />
       </form>
+
+      {starters.length > 0 && <StarterCard titles={starters.map((p) => p.title)} />}
 
       {q ? (
         hits.length === 0 ? (

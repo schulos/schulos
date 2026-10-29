@@ -63,7 +63,7 @@ export default async function ShellLayout({ children }: { children: React.ReactN
             </Link>
             <SearchButton />
             <div className="ml-auto flex items-center gap-2">
-              {shell.help && <HelpButton />}
+              {shell.help && <HelpButton pages={shell.helpPages} />}
               <Gong initialUnread={shell.unread} />
               <UserMenu user={shell.user} userId={current.perms.userId} demoAccounts={demoAccounts} source={sourceLink()}
                 issue={ISSUE_ROLES.includes(current.user.role) ? issueLink() : undefined}

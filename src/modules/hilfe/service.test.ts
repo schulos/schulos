@@ -178,12 +178,12 @@ describe("Handbuch (Demo-Schule)", () => {
     const hits = async (id: string, q: string) => (await searchPages(h.db, await p(id), q)).map((x) => x.slug);
     expect(await hits("u-jana.brandt", "Unterschriften")).toEqual(["schluesselausgabe"]);
     expect(await hits(mutter, "Unterschriften")).toEqual([]);
-    expect(await hits(mutter, "Termin")).toEqual(["elternsprechtage"]);
-    expect(await hits("u-jana.brandt", "Termin")).toEqual([]);
+    expect(await hits(mutter, "Sprechtage")).toEqual(["elternsprechtage"]);
+    expect(await hits("u-jana.brandt", "Sprechtage")).toEqual([]);
     expect(await hits("u-jana.brandt", "schlüssel")).toEqual(["schluesselausgabe"]);
     expect(await hits(mutter, "50%_")).toEqual([]);
     // globale Suche (Strg+K): Gruppe „Handbuch“
-    const global = await hilfeSearch.search(h.db, { perms: await p(mutter) } as never, "Termin");
+    const global = await hilfeSearch.search(h.db, { perms: await p(mutter) } as never, "Sprechtage");
     expect(global).toEqual([expect.objectContaining({ group: "Handbuch", href: "/hilfe/elternsprechtage" })]);
   });
 

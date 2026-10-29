@@ -3,13 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getDb } from "@/core/db/client";
+import { getStorage } from "@/core/files/storage";
 import { formValues } from "@/core/form-values";
 import { moduleActions } from "@/core/modules/guard";
 import { ROLES, type Role } from "@/core/roles";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { addAttachment, deleteAttachment } from "./attachments";
 import type { HilfePageStatus } from "./schema";
-import { createPage, createSection, deletePage, deleteSection, markReviewed, movePage, moveSection, renameSection, updatePage, type PageInput } from "./service";
+import { createPage, createSection, deletePage, deleteSection, markReviewed, movePage, moveSection, renameSection, restoreRevision, updatePage, type PageInput } from "./service";
+import { installStarterPages } from "./starter";
 
 // Rechte prüft der Service (Pflegende bzw. Ansprechperson der Seite); moduleActions sperrt das ausgeschaltete Modul.
 const { requireUser } = moduleActions("hilfe");
@@ -70,7 +73,7 @@ export async function movePageAction(id: string, dir: -1 | 1): Promise<void> {
 
 export async function deletePageAction(id: string): Promise<void> {
   const { perms } = await requireUser();
-  await deletePage(await getDb(), perms, id);
+  await deletePage(await getDb(), perms, id, getStorage());
   revalidatePath("/hilfe", "layout");
   redirect("/hilfe");
 }
@@ -113,4 +116,37 @@ export async function deleteSectionAction(id: string): Promise<FormState> {
   }
   revalidatePath("/hilfe", "layout");
   return { ok: true, message: "Bereich gelöscht." };
+}
+
+export async function addAttachmentAction(pageId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const file = form.get("file");
+  const data = file instanceof File ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array();
+  try {
+    await addAttachment(await getDb(), getStorage(), perms, pageId, { name: file instanceof File ? file.name : "", data });
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/hilfe", "layout");
+  return { ok: true, message: "Anhang hochgeladen." };
+}
+
+export async function deleteAttachmentAction(id: string): Promise<void> {
+  const { perms } = await requireUser();
+  await deleteAttachment(await getDb(), getStorage(), perms, id);
+  revalidatePath("/hilfe", "layout");
+}
+
+export async function restoreRevisionAction(revisionId: string): Promise<void> {
+  const { perms } = await requireUser();
+  const slug = await restoreRevision(await getDb(), perms, revisionId);
+  revalidatePath("/hilfe", "layout");
+  redirect(`/hilfe/${slug}`);
+}
+
+export async function installStarterPagesAction(): Promise<FormState> {
+  const { perms } = await requireUser();
+  const created = await installStarterPages(await getDb(), perms);
+  revalidatePath("/", "layout");
+  return { ok: true, message: created.length ? `${created.length} Starter-Seiten angelegt.` : "Alle Starter-Seiten sind schon vorhanden." };
 }

@@ -29,6 +29,22 @@ export default defineModule({
       note: "Seiten werden nie automatisch gelöscht; nur die Verweise auf Personen (Ansprechperson, angelegt/geändert von) folgen dem Konto und werden bei der Kontolöschung geleert",
     },
     { table: "hilfe_targets", purpose: "Zielgruppen einer Handbuchseite", categories: ["Rolle oder Gruppe"], follows: "hilfe_pages" },
+    {
+      table: "hilfe_attachments",
+      purpose: "Anhänge einer Handbuchseite (PDF, Bilder, Office-Dateien)",
+      categories: ["Datei", "Dateiname", "hochgeladen von", "Zeitpunkt"],
+      class: "LK-KONTO",
+      start: "uploaded_by",
+      note: "Anhänge gehen mit der Seite (Seite löschen) oder einzeln weg; nur der Verweis auf die hochladende Person folgt dem Konto und wird bei der Kontolöschung geleert",
+    },
+    {
+      table: "hilfe_revisions",
+      purpose: "Frühere Fassungen einer Handbuchseite (Verlauf, die letzten 20 je Seite)",
+      categories: ["Titel und Text der Fassung", "Verfasser:in", "Zeitpunkt"],
+      class: "LK-KONTO",
+      start: "author_id",
+      note: "Ältere Fassungen fallen beim Speichern heraus (Vorgabe 20 je Seite) und gehen mit der Seite; nur der Verweis auf die Verfasser:in folgt dem Konto und wird bei der Kontolöschung geleert",
+    },
   ],
   processing: {
     title: "Handbuch (interne Hilfe und Anleitungen)",
