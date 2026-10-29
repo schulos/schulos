@@ -1,7 +1,7 @@
 "use server";
 
-// RS-04/RS-05: Fotos und Ausstattung im Raumsteckbrief, Ausstattungskatalog aufräumen. Rechte prüft der Service
-// (`canEditRoomInfo`, `canManageInfoFields`); hier zusätzlich `requireUser`. Verwaltung ist ein Kernmodul (nicht abschaltbar).
+// RS-04…RS-06: Fotos, Ausstattung und Verantwortliche im Raumsteckbrief, Ausstattungskatalog aufräumen. Rechte prüft der Service
+// (`canEditRoomInfo`, `canMaintainAllRooms`, `canManageInfoFields`); hier zusätzlich `requireUser`. Verwaltung ist ein Kernmodul (nicht abschaltbar).
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
@@ -10,6 +10,7 @@ import { roomHref } from "@/core/room-href";
 import type { FormState } from "./actions";
 import { addRoomEquipment, deleteEquipmentType, mergeEquipmentTypes, renameEquipmentType, setRoomEquipmentQuantities } from "./raumausstattung";
 import { addRoomPhoto, deleteRoomPhoto, setCoverPhoto, setPhotoCaption } from "./raumfotos";
+import { addResponsible, removeResponsible } from "./raumverantwortliche";
 import { ValidationError } from "./users";
 
 const CATALOG_PAGE = "/verwaltung/stammdaten/raeume/ausstattung";
@@ -97,6 +98,25 @@ export async function saveRoomEquipmentAction(roomId: string, _prev: FormState, 
   }
   touchRoom(roomId);
   return { ok: true };
+}
+
+// ---------------------------------------------------------------- Raumverantwortliche (RS-06)
+
+export async function addResponsibleAction(roomId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await addResponsible(await getDb(), perms, roomId, { target: String(form.get("target") ?? ""), note: String(form.get("note") ?? "") });
+  } catch (err) {
+    return fail(err, form);
+  }
+  touchRoom(roomId);
+  return { ok: true };
+}
+
+export async function removeResponsibleAction(roomId: string, id: string): Promise<void> {
+  const { perms } = await requireUser();
+  await removeResponsible(await getDb(), perms, id);
+  touchRoom(roomId);
 }
 
 // ---------------------------------------------------------------- Katalog aufräumen (RS-05, Verwaltung)

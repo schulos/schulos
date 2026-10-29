@@ -165,3 +165,48 @@ Stand 2026-10-28, Migration 0117 (`room_photos`, `room_equipment_types`, `room_e
 `room_responsibles` erweitern – Infofelder, Fotos und Ausstattung folgen dann automatisch (Services und Seiten prüfen nur
 diese Funktion); Karte „Verantwortliche“ im unteren Raster der Seite (Platzhalter-Kommentar in `/raeume/[id]/page.tsx`);
 Historie aus dem Audit über die Aktionen `verwaltung.room.*` mit Ziel = Raumkürzel (Fotos, Ausstattung, Infofelder).
+
+## Umgesetzt (RS-06/07)
+
+Stand 2026-10-29, Migration 0120 (`room_responsibles`).
+
+- **Recht „Raumdaten pflegen“** (`verwaltung.rooms_info`, Modul Verwaltung): Infofelder, Fotos, Ausstattung und Verantwortliche
+  **aller** Räume, keine Stammdaten. Vorgabe (`defaultGrants`) für die Rolle Verwaltung (Sekretariat; kommt bei bestehenden
+  Instanzen beim nächsten Start dazu), im Demo-Seed zusätzlich für die Gruppe Hausmeisterei. Es zählt wie alles unter
+  `verwaltung.*` als Verwaltungsrecht: Zwei-Faktor-Pflicht sofort, Vergabe wird gemeldet und nur von Personen mit dem Recht
+  vergeben. `verwaltung.school` umfasst die Raumdaten weiterhin. Infofelder-Definitionen und das Aufräumen des
+  Ausstattungskatalogs bleiben bei `verwaltung.school`.
+- **Raumverantwortliche** (`room_responsibles`): je Zeile eine Person **oder** eine Gruppe, optional „Aufgabe oder Kontakt“
+  (höchstens 120 Zeichen, Hinweis „keine privaten Telefonnummern“), höchstens 10 je Raum. Personen nur Beschäftigte
+  (`STAFF_ROLES`), Gruppen nur Fachschaft, Gremium oder frei (keine Klassen/Kurse/AGs). Pflege unter
+  `/raeume/[id]/verantwortliche` mit „Raumdaten pflegen“ bzw. `verwaltung.school`; Verantwortliche selbst tragen niemanden ein.
+- **Rechteprüfung** `canEditRoomInfo(db, viewer, roomId)` (jetzt asynchron): Recht bzw. `verwaltung.school` → alle Räume; sonst nur
+  Beschäftigte ohne Sperre (gesperrt, Startpasswort, 2FA offen), die selbst oder über eine ihrer Gruppen für **diesen** Raum
+  eingetragen sind. Infofelder, Fotos und Ausstattung (Services und Seiten) hängen nur an dieser Funktion; Stammdaten (Name, Art,
+  Plätze, Stilllegen) und Raumsperren prüfen weiter ihre eigenen Rechte. Eine Zuordnung an Schüler:innen (an der Prüfung vorbei)
+  gibt kein Pflegerecht.
+- **Steckbrief:** Karte „Verantwortliche“ nur für Beschäftigte (aktive Konten bzw. nicht archivierte Gruppen; Name verlinkt ins
+  Adressbuch, wenn das Modul an ist), Link „Verantwortliche bearbeiten“ nur mit dem Recht. Karte **„Änderungen“** nur für Pflegende
+  des Raums: die letzten 30 Vorgänge aus dem Audit-Log (`verwaltung.room.create/update/activate/deactivate/info/photo.*/equipment/
+  responsible.*` mit Ziel = Raumkürzel) mit Vorgang, Zeitpunkt, handelnder Person und Feldnamen bzw. Ausstattung/Menge bzw.
+  eingetragener Person/Gruppe – nie die Texte der Infofelder (stehen nicht im Audit). Katalog- und Infofeld-Verwaltung (Ziel
+  ist nicht der Raum) erscheinen nicht. Nach einem Raum-Umbenennen beginnt die Historie unter dem neuen Kürzel (ältere Einträge
+  tragen das alte Kürzel, „Raum geändert · Kürzel vorher …“).
+- **Audit:** `verwaltung.room.responsible.add/remove` (Ziel Raum, `userId` bzw. `groupId`; bei der Kontolöschung pseudonymisiert).
+- **Datenschutz (RS-07):** `room_responsibles` in `CORE_RETENTION` mit `LK-KONTO` (Start `user_id`, Kaskade bei der Kontolöschung;
+  Gruppenzeilen gehen mit Gruppe bzw. Raum), Zeile in DATENSCHUTZ.md §3.4, Zweck/Kategorien für VVT und Datenschutzhinweise aus
+  der Deklaration; die eigene Zuordnung steht in der Auskunft (generisch über den Fremdschlüssel). Neues DSB-Thema 22
+  „Raumsteckbrief“ (DSB-FRAGEN.md, Einrichtung); die Belegung für Schüler:innen/Eltern bleibt bei Thema 13.
+- **Demo-Daten:** NW2 → Demo-Lehrkraft ALB („Fachraumleitung Chemie“), IF1 → Fachschaft Informatik.
+- **Tests:** `raumverantwortliche.test` (Rechte-Matrix Recht/Hausmeisterei/Person/Gruppe/Lehrkraft/Schülerin, fremder Raum,
+  Stammdaten-Recht, Sperre, Eintragen und Prüfungen, Sichtbarkeit, Historie ohne Texte, Auskunft, Kontolöschung; Gegenprobe:
+  ohne Rechteprüfung bzw. ohne Raumfilter rot), `raumdaten.test`; E2E `raumverantwortliche.spec.ts` (Sekretariat trägt Lehrkraft
+  für KU1 ein → Lehrkraft pflegt Foto, Ausstattung, Infofelder, sieht die Historie, darf MU1 nicht; Schülerin sieht nur
+  Öffentliches; Lehrkraft und Schülerin 360 px dunkel mit axe; räumt auf).
+
+## Abschluss Stufe 1–2
+
+Stufe 1–2 (RS-02…RS-07) ist mit RS-06/07 vollständig: Steckbrief mit Belegung, Banner, Infofeldern, Fotos, Ausstattungskatalog,
+Raumverantwortlichen und Historie; Pflege über „Raumdaten pflegen“ bzw. Verantwortung für den eigenen Raum, Stammdaten weiter
+bei `verwaltung.school`. Offen und bewusst später: Mengenfilter in der Raumsuche (optional, RS-05), Layout (Stufe 3, RS-08/RS-09),
+Gebäude/Etagen und Tür-QR (Stufe 4, RS-10…RS-12). Die rechtliche Einordnung bleibt Aufgabe der Schule (DSB-FRAGEN §22).

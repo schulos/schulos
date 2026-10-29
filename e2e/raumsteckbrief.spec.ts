@@ -33,7 +33,7 @@ test("RS-02: Steckbrief als Lehrkraft – Belegung mit Klasse und Lehrkraft, Per
   await expect(info.getByText("nur Personal").first()).toBeVisible();
   await expect(page.getByRole("article", { name: "Offene Mängel" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Mangel melden" })).toHaveAttribute("href", "/gebaeude/melden?raum=NW2");
-  // Lehrkräfte pflegen keine Infofelder und bearbeiten keine Stammdaten (bis RS-06)
+  // Lehrkräfte ohne Verantwortung für den Raum pflegen keine Infofelder und bearbeiten keine Stammdaten (RS-06)
   await expect(page.getByRole("link", { name: "Infofelder bearbeiten" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Raum NW2 bearbeiten" })).toHaveCount(0);
   await axeClean(page);

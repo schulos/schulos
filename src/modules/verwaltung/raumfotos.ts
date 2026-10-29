@@ -1,7 +1,7 @@
 // RS-04 (docs/RAUMSTECKBRIEF.md): Fotos je Raum – höchstens 8, auf dem Server auf 1600 px verkleinert, ohne Metadaten
 // (EXIF/GPS), mit Vorschaubild, ein Titelbild, Bildunterschrift. Keine Personen auf den Fotos (Hinweis am Upload).
 // Sichtbarkeit (Projektleitung 2026-10-28): das Titelbild sehen alle Angemeldeten (auch Schüler:innen/Eltern), die Galerie nur
-// Beschäftigte (`roomAudience` = „personal“). Pflegen darf bis RS-06, wer `canEditRoomInfo` erfüllt. Dateien liegen im
+// Beschäftigte (`roomAudience` = „personal“). Pflegen darf, wer `canEditRoomInfo` erfüllt (RS-06). Dateien liegen im
 // Dateispeicher (`storage_key`, `thumb_key` in STORAGE_KEY_COLUMNS) und gehen mit der Dateispeicher-Sicherung ins Backup.
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { audit } from "@/core/audit";
@@ -12,7 +12,7 @@ import { cleanImage, type ImageRules } from "@/core/images";
 import { resizeToJpeg } from "@/core/images-resize";
 import { ForbiddenError, type PermissionSet } from "@/core/permissions";
 import { scanUpload } from "@/modules/upload-scan";
-import { canEditRoomInfo, roomAudience } from "./raum-rechte";
+import { ROOM_DATA_PERMISSION, canEditRoomInfo, roomAudience } from "./raum-rechte";
 import { ValidationError } from "./users";
 
 export const ROOM_PHOTOS_MAX = 8;
@@ -77,7 +77,7 @@ export async function addRoomPhoto(
   roomId: string,
   input: { photo: Uint8Array; caption?: string | null },
 ): Promise<string> {
-  if (!canEditRoomInfo(viewer, roomId)) throw new ForbiddenError("verwaltung.school");
+  if (!(await canEditRoomInfo(db, viewer, roomId))) throw new ForbiddenError(ROOM_DATA_PERMISSION);
   const [room] = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, roomId));
   if (!room) throw new ValidationError({ photo: `Raum ${roomId} gibt es nicht` });
   const caption = normalizeCaption(input.caption);
@@ -119,7 +119,7 @@ export async function addRoomPhoto(
 async function loadPhoto(db: Db, viewer: PermissionSet, photoId: string) {
   const [p] = await db.select().from(roomPhotos).where(eq(roomPhotos.id, photoId));
   if (!p) throw new ValidationError({ photo: "Foto gibt es nicht" });
-  if (!canEditRoomInfo(viewer, p.roomId)) throw new ForbiddenError("verwaltung.school");
+  if (!(await canEditRoomInfo(db, viewer, p.roomId))) throw new ForbiddenError(ROOM_DATA_PERMISSION);
   return p;
 }
 

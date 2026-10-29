@@ -195,6 +195,14 @@ export const CORE_RETENTION: RetentionDecl[] = [
     note: "Ende = Archivierung beim Schuljahreswechsel; Gruppen ohne Schuljahr (Fachschaft, Gremium) bleiben bestehen",
   },
   { table: "group_members", purpose: "Mitgliedschaft in Gruppen", categories: ["Mitgliedschaft", "Leitung ja/nein"], class: "LK-KONTO", start: "user_id" },
+  {
+    table: "room_responsibles",
+    purpose: "Raumverantwortliche im Raumsteckbrief (RS-06): Ansprechperson für das Personal, pflegt Infofelder, Fotos und Ausstattung ihres Raums",
+    categories: ["Raum", "verantwortliche Person oder Gruppe", "Aufgabe/Kontakt (ohne Personendaten)", "eingetragen am"],
+    class: "LK-KONTO",
+    start: "user_id",
+    note: "Zuordnung geht mit dem Konto (Kaskade bei der Kontolöschung) bzw. mit Raum oder Gruppe; nur für Personal sichtbar; Gruppenzeilen ohne Personenbezug",
+  },
   { table: "notifications", purpose: "Hinweise im Gong", categories: ["Hinweistext", "Gelesen-Zeitpunkt"], class: "LK-90", start: "created_at" },
   {
     table: "audit_log",

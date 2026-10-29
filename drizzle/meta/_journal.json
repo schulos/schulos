@@ -841,6 +841,13 @@
       "when": 1793235001408,
       "tag": "0119_hb_05_handbuch_rest",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1793237545729,
+      "tag": "0120_rs_06_verantwortliche",
+      "breakpoints": true
     }
   ]
 }

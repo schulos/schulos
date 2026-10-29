@@ -7,7 +7,7 @@ import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
 import { roomEquipmentItems, roomEquipmentTypes, rooms } from "@/core/db/schema";
 import { ForbiddenError, type PermissionSet } from "@/core/permissions";
-import { canEditRoomInfo, canManageInfoFields } from "./raum-rechte";
+import { ROOM_DATA_PERMISSION, canEditRoomInfo, canManageInfoFields } from "./raum-rechte";
 import { ValidationError } from "./users";
 
 export const EQUIPMENT_NAME_MAX = 60;
@@ -127,7 +127,7 @@ export async function addRoomEquipment(
   roomId: string,
   input: { name: string; quantity?: string | number | null },
 ): Promise<{ typeId: string; name: string; created: boolean }> {
-  if (!canEditRoomInfo(viewer, roomId)) throw new ForbiddenError("verwaltung.school");
+  if (!(await canEditRoomInfo(db, viewer, roomId))) throw new ForbiddenError(ROOM_DATA_PERMISSION);
   await requireRoom(db, roomId);
   const name = normalizeEquipmentName(input.name);
   const fe: Record<string, string> = {};
@@ -171,7 +171,7 @@ export async function addRoomEquipment(
  * geschrieben; gibt deren Zahl zurück.
  */
 export async function setRoomEquipmentQuantities(db: Db, viewer: PermissionSet, roomId: string, quantities: Record<string, string | number>): Promise<number> {
-  if (!canEditRoomInfo(viewer, roomId)) throw new ForbiddenError("verwaltung.school");
+  if (!(await canEditRoomInfo(db, viewer, roomId))) throw new ForbiddenError(ROOM_DATA_PERMISSION);
   await requireRoom(db, roomId);
   const current = await roomEquipment(db, roomId);
   const byId = new Map(current.map((e) => [e.typeId, e]));

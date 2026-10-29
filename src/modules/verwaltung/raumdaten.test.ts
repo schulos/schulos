@@ -104,7 +104,7 @@ describe("RS-05: Ausstattungskatalog mit Menge je Raum", () => {
     await expect(setRoomEquipmentQuantities(h.db, sabine, "NW1", { abzug: "1" })).rejects.toMatchObject({ fieldErrors: { abzug: "Diese Ausstattung steht nicht am Raum" } });
   });
 
-  it("Rechte: pflegen nur mit verwaltung.school (bis RS-06) – Lehrkraft und Schülerin nicht, auch nicht den Katalog", async () => {
+  it("Rechte: ohne Pflegerecht und ohne Verantwortung pflegen Lehrkraft und Schülerin nicht, auch nicht den Katalog", async () => {
     for (const who of [JANA, LEA]) {
       const viewer = await p(who);
       await expect(addRoomEquipment(h.db, viewer, "101", { name: "Beamer" })).rejects.toBeInstanceOf(ForbiddenError);
@@ -247,7 +247,7 @@ describe("RS-04: Raumfotos", () => {
     expect(await photoFile(h.db, jana, "gibt-es-nicht", false)).toBeNull();
   });
 
-  it("Rechte: hochladen, Titelbild, Unterschrift, löschen nur mit verwaltung.school (bis RS-06)", async () => {
+  it("Rechte: hochladen, Titelbild, Unterschrift, löschen nicht ohne Pflegerecht bzw. Verantwortung", async () => {
     const [cover, other] = await listRoomPhotos(h.db, await p(SABINE), "NW2");
     for (const who of [JANA, LEA]) {
       const viewer = await p(who);

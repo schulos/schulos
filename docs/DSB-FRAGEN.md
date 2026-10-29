@@ -658,3 +658,28 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
 - **Fragen an die DSB:** Zählt Fehlen im Ganztag an dieser Schule als Schulversäumnis (dann Aufbewahrung wie Fehlzeiten)? Genügt die
   Löschung zum Schuljahresende für Rückfragen zur Aufsicht?
 - **Vorschlag:** Vorgaben übernehmen; die Liste nur für Angebote einschalten, für die die Schule die Aufsicht trägt.
+
+## 22. Raumsteckbrief: Raumdaten, Fotos und Raumverantwortliche
+
+<!-- dsb:raumsteckbrief -->
+| Punkt | |
+|---|---|
+| Was SchulOS tut | Eine Seite je Raum für alle Angemeldeten, Inhalte je Sicht gefiltert: Schüler:innen und Eltern sehen Kopf, Titelbild, Ausstattung grob, Infofelder „für alle“ und die Belegung nur als frei/belegt (§13); Beschäftigte zusätzlich Technik-, Nutzungs- und Sicherheitsangaben, Galerie, offene Mängel ohne Namen und die Raumverantwortlichen. Räume, Infofelder, Fotos und Ausstattung haben keinen Personenbezug: Fotos werden auf 1600 px verkleinert und ohne Metadaten (EXIF/GPS) gespeichert, Hinweise am Upload und im Formular („keine Personen“, „keine Personendaten“). Personenbezug nur über Raumverantwortliche (nur Beschäftigte, Person oder Gruppe); sie pflegen Infofelder, Fotos und Ausstattung ihres Raums, nie Stammdaten. Die Änderungshistorie sehen nur Pflegende, aus dem Audit-Log ohne Texte. Zuordnungen gehen mit dem Konto (LK-KONTO). |
+| Vorgabe | „Raumdaten pflegen“ (alle Räume) für die Rolle Verwaltung, Stammdaten weiter nur mit „Schuldaten und Stammdaten pflegen“; keine Raumverantwortlichen eingetragen; Titelbild für alle, weitere Fotos nur für Beschäftigte. Das Recht zählt als Verwaltungsrecht (Zwei-Faktor-Pflicht sofort). |
+| Die Schule entscheidet / dokumentiert | Legt fest, wer Raumdaten pflegt (z. B. Gruppe Hausmeisterei), und trägt Fachraumleitungen nur mit deren Wissen als verantwortlich ein; achtet darauf, dass Fotos keine Personen und keine Aushänge mit Namen zeigen und Infofelder keine privaten Telefonnummern enthalten; nimmt Raumverantwortliche in die Verarbeitungstätigkeit „Benutzerverwaltung/Organisation“ des VVT auf. Rechtliche Einordnung: zu prüfen. |
+| In SchulOS | Raumsteckbrief (/raeume) und Verwaltung → Rechte & Module |
+<!-- /dsb -->
+
+**Hintergrund und Fragen** (Herkunft: RS-02…RS-07, [RAUMSTECKBRIEF.md](RAUMSTECKBRIEF.md))
+
+- **Kontext:** Der Raumsteckbrief bündelt Stammdaten, Belegung, Infofelder, Fotos und Ausstattung je Raum. Räume selbst haben keinen
+  Personenbezug; er entsteht nur über Raumverantwortliche (Fachraumleitung o. Ä.) und darüber, wer etwas geändert hat (Audit-Log).
+  Die Belegung für Schüler:innen und Eltern ist in §13 geregelt. Layout (Stufe 3) sowie Gebäude/Etagen und Tür-QR (Stufe 4) folgen.
+- **Entscheidungen der Projektleitung (2026-10-28):** neues Recht „Raumdaten pflegen“ plus Raumverantwortliche für den eigenen Raum;
+  Stammdaten bleiben bei „Schuldaten und Stammdaten pflegen“ · Verantwortliche sieht nur Personal · Zuordnung folgt dem Konto (`LK-KONTO`)
+  · Historie aus dem Audit ohne Inhalte der Infofelder · höchstens 8 Fotos, 1600 px, ein Titelbild, keine Personen.
+- **Fragen an die DSB:** Genügt der Hinweis am Upload, um Personen auf Raumfotos auszuschließen, oder braucht es eine Regel in der
+  Dienstanweisung? Ist die namentliche Nennung von Raumverantwortlichen gegenüber dem gesamten Personal von der Organisationsaufgabe
+  gedeckt oder braucht es das Einverständnis der Person?
+- **Vorschlag:** Vorgaben übernehmen; Raumverantwortliche nur mit deren Wissen eintragen; bevorzugt Gruppen (Fachschaft) statt
+  Einzelpersonen, wenn mehrere Personen einen Fachraum betreuen.

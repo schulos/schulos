@@ -4,7 +4,7 @@
 // hier im Service, nicht erst in der Seite. Räume sind Kernstammdaten – Abschnitte aus abschaltbaren Modulen (Stundenplan,
 // Gebäude & Technik, Buchungen) kommen nur, wenn der Aufrufer das Modul als eingeschaltet meldet.
 // RS-04 Fotos (Titelbild für alle, Galerie für Beschäftigte, raumfotos.ts), RS-05 Ausstattungskatalog mit Menge
-// (raumausstattung.ts). Andockpunkt RS-06: Raumverantwortliche und Recht „Raumdaten pflegen“ (erweitert `canEditRoomInfo`).
+// (raumausstattung.ts). RS-06: Recht „Raumdaten pflegen“ und Raumverantwortliche (`canEditRoomInfo`, raumverantwortliche.ts).
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
@@ -30,7 +30,7 @@ import { addDays } from "@/core/time";
 import { CATEGORY_LABELS, OPEN_STATUSES, PRIORITY_LABELS, STATUS_LABELS, ticketNumber, type TicketCategory, type TicketPriority, type TicketStatus } from "@/modules/gebaeude/labels";
 import { inspectionState } from "@/modules/gebaeude/pruefungen";
 import { ROOM_BLOCK_LABELS, occupancyOn } from "@/modules/stundenplan/raeume";
-import { canEditRoomInfo, canManageInfoFields, roomAudience, visibleFor, type RoomAudience } from "./raum-rechte";
+import { ROOM_DATA_PERMISSION, canEditRoomInfo, canManageInfoFields, roomAudience, visibleFor, type RoomAudience } from "./raum-rechte";
 import { roomEquipment, type RoomEquipmentEntry } from "./raumausstattung";
 import { coverPhotos, listRoomPhotos, type RoomPhoto } from "./raumfotos";
 import { ROOM_OCCUPANCY_FAMILY } from "./settings";
@@ -38,7 +38,7 @@ import { ValidationError } from "./users";
 
 // ---------------------------------------------------------------- Sicht und Rechte (raum-rechte.ts)
 
-export { canEditRoomInfo, canManageInfoFields, roomAudience, visibleFor, type RoomAudience } from "./raum-rechte";
+export { ROOM_DATA_PERMISSION, canEditRoomInfo, canMaintainAllRooms, canManageInfoFields, roomAudience, visibleFor, type RoomAudience } from "./raum-rechte";
 
 // ---------------------------------------------------------------- Infofelder (RS-03)
 
@@ -165,7 +165,7 @@ export async function roomInfoForm(db: Db, roomId: string): Promise<(RoomInfoFie
  * im Audit genannt (Bezeichnungen, nicht die Texte). Gibt die Zahl der Änderungen zurück.
  */
 export async function setRoomInfo(db: Db, viewer: PermissionSet, roomId: string, values: Record<string, string>): Promise<number> {
-  if (!canEditRoomInfo(viewer, roomId)) throw new ForbiddenError("verwaltung.school");
+  if (!(await canEditRoomInfo(db, viewer, roomId))) throw new ForbiddenError(ROOM_DATA_PERMISSION);
   const [room] = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, roomId));
   if (!room) throw new ValidationError({ room: `Raum ${roomId} gibt es nicht` });
   const current = await roomInfoForm(db, roomId);
