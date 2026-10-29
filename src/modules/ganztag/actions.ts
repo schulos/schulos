@@ -8,7 +8,7 @@ import { moduleActions } from "@/core/modules/guard";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { GANZTAG_MARK_STATUS, type GanztagMarkStatus } from "./schema";
-import { createSeries, createSession, deleteSeries, deleteSession, setAllPresent, setListFeature, setMark, setSessionCancelled } from "./service";
+import { createSeries, createSession, deleteSeries, deleteSession, setAllPresent, setListFeature, setMark, setOfferSettings, setSessionCancelled } from "./service";
 
 // Rechte prüft der Service (Gruppenleitung bzw. „Ganztag verwalten“); moduleActions sperrt das ausgeschaltete Modul.
 const { requireUser } = moduleActions("ganztag");
@@ -129,4 +129,20 @@ export async function setAllPresentAction(sessionId: string, on: boolean): Promi
   }
   revalidatePath(`/ganztag/termin/${sessionId}`);
   return {};
+}
+
+/** GT-04: verpflichtend, Hinweis an die Klassenleitung, Vorbelegung aus den Abwesenheiten (nur „Ganztag verwalten“). */
+export async function setOfferSettingsAction(groupId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await setOfferSettings(await getDb(), perms, groupId, {
+      mandatory: form.get("mandatory") === "on",
+      notifyClassLead: form.get("notifyClassLead") === "on",
+      prefillAbsences: form.get("prefillAbsences") === "on",
+    });
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath(`/ganztag/gruppe/${groupId}`);
+  return { ok: true, message: "Einstellungen gespeichert." };
 }

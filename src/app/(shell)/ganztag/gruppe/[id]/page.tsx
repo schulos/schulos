@@ -9,7 +9,7 @@ import { canManage, dateLabel, getOffer, WEEKDAYS, type SessionRow } from "@/mod
 import { Badge } from "@schulos/ui/badge";
 import { Card } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
-import { DeleteSeries, SeriesForm, SessionActions, SessionForm } from "./forms";
+import { DeleteSeries, OfferSettingsForm, SeriesForm, SessionActions, SessionForm } from "./forms";
 
 export const metadata: Metadata = { title: "Ganztag: Angebot" };
 
@@ -63,6 +63,7 @@ export default async function GruppePage({ params }: { params: Promise<{ id: str
       <PageHeader eyebrow={`Ganztag · ${GROUP_KIND_LABELS[offer.group.kind]}`} title={offer.group.name} />
       <p className="text-muted">
         {offer.leaders.length ? `Leitung: ${offer.leaders.join(", ")}` : "Ohne Leitung"} · {offer.members === 1 ? "1 Mitglied" : `${offer.members} Mitglieder`}
+        {offer.settings.mandatory && " · verpflichtendes Angebot"}
       </p>
 
       <Card className="gap-3">
@@ -105,6 +106,13 @@ export default async function GruppePage({ params }: { params: Promise<{ id: str
         <h2 className="text-lg font-semibold">Einzeltermin</h2>
         <SessionForm groupId={offer.group.id} today={today} />
       </Card>
+
+      {manager && (
+        <Card className="gap-3">
+          <h2 className="text-lg font-semibold">Einstellungen</h2>
+          <OfferSettingsForm groupId={offer.group.id} settings={offer.settings} />
+        </Card>
+      )}
     </main>
   );
 }

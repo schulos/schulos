@@ -307,6 +307,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "ganztag.session.delete": "Ganztag: Termin gelöscht",
   "ganztag.list.all_present": "Ganztag: „alle anwesend“ eingeschaltet",
   "ganztag.list.all_present_off": "Ganztag: „alle anwesend“ ausgeschaltet",
+  "ganztag.settings": "Ganztag: Einstellungen eines Angebots geändert",
+  "lesen.ganztag": "Ganztag-Anwesenheit eingesehen (Klassenleitung bzw. Eltern)",
   "kurswahl.angebot.off_subject": "Kurswahl: Angebot mit fachfremder Lehrkraft",
   "kurswahl.allocate": "Kurswahl: Zuteilung berechnet",
   "kurswahl.assign": "Kurswahl: Zuteilung von Hand korrigiert",

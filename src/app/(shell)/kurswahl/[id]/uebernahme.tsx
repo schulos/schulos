@@ -3,7 +3,7 @@ import { getDb } from "@/core/db/client";
 import type { KurswahlVerfahren } from "@/core/db/schema";
 import { hasPermission, type PermissionSet } from "@/core/permissions";
 import { MANAGE, type VerfahrenState } from "@/modules/kurswahl/service";
-import { assignmentSuggestions, TRANSFER_GROUPS, transferPreview } from "@/modules/kurswahl/uebernahme";
+import { assignmentSuggestions, ganztagEnabled, TRANSFER_GROUPS, transferPreview } from "@/modules/kurswahl/uebernahme";
 import { assignmentsAction, transferAction } from "@/modules/kurswahl/uebernahme-actions";
 import { Badge } from "@schulos/ui/badge";
 import { Card } from "@schulos/ui/card";
@@ -18,7 +18,11 @@ export async function UebernahmePart({ perms, v, state }: { perms: PermissionSet
   const done = Boolean(v.transferredAt);
   // SP-05: die Vorschau nennt Schüler:innen (Konflikte) – nur für `kurswahl.manage`; `kurswahl.view` sieht erst die übernommenen Gruppen
   const manage = hasPermission(perms, MANAGE);
-  const [preview, suggestions] = await Promise.all([done || !manage ? null : transferPreview(db, perms, v), done ? assignmentSuggestions(db, perms, v) : []]);
+  const [preview, suggestions, ganztag] = await Promise.all([
+    done || !manage ? null : transferPreview(db, perms, v),
+    done ? assignmentSuggestions(db, perms, v) : [],
+    v.kind === "ag" && !done ? ganztagEnabled(db) : false,
+  ]);
   return (
     <section aria-labelledby="uebernahme" className="flex flex-col gap-3">
       <h2 id="uebernahme" className="font-display text-xl font-bold">
@@ -52,7 +56,7 @@ export async function UebernahmePart({ perms, v, state }: { perms: PermissionSet
           {state === "offen" ? (
             <p className="text-sm text-muted">Übernehmen geht erst nach dem Wahlende.</p>
           ) : hasPermission(perms, TRANSFER_GROUPS) ? (
-            <TransferForm action={transferAction.bind(null, v.id)} conflicts={preview.conflicts.length} />
+            <TransferForm action={transferAction.bind(null, v.id)} conflicts={preview.conflicts.length} ganztag={ganztag} />
           ) : (
             <p className="text-sm text-muted">Übernehmen darf, wer Gruppen verwaltet (Recht „Gruppen verwalten“).</p>
           )}

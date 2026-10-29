@@ -1,34 +1,78 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Settings2 } from "lucide-react";
+import { BarChart3, Settings2, Users } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
+import { canEvaluate } from "@/modules/ganztag/auswertung";
+import { familyView } from "@/modules/ganztag/familie";
+import { leadsClass } from "@/modules/ganztag/klassenleitung";
 import { canManage, dateLabel, listOffers } from "@/modules/ganztag/service";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
+import { FamilyGanztag } from "./familie";
 
 export const metadata: Metadata = { title: "Ganztag" };
 
 export default async function GanztagPage() {
-  const { perms } = await requireUser();
+  const { user, perms } = await requireUser();
   const db = await getDb();
+
+  // GT-05: Schüler:innen und Eltern sehen nur die eigenen Zeilen bzw. die ihres Kindes
+  if (user.role === "schueler" || user.role === "eltern") {
+    const self = user.role === "schueler";
+    const children = await familyView(db, perms);
+    return (
+      <main className="flex max-w-4xl flex-col gap-6">
+        <PageHeader title="Ganztag" />
+        <p className="text-muted">
+          {self ? "Deine AGs und Kurse mit Anwesenheitsliste und deine eigene Anwesenheit." : "AGs und Kurse mit Anwesenheitsliste und die Anwesenheit Ihres Kindes."} Entschuldigt wird über die
+          Abwesenheiten.
+        </p>
+        {children.length === 0 ? (
+          <EmptyState title="Keine Kinder zu sehen">Volljährige, eigenständige Schüler:innen sehen ihre Anwesenheit selbst – es sei denn, sie haben eingewilligt, dass ihre Eltern weiter informiert werden.</EmptyState>
+        ) : (
+          children.map((c) => <FamilyGanztag key={c.id} child={c} self={self} />)
+        )}
+      </main>
+    );
+  }
+
   const manager = canManage(perms);
-  const offers = await listOffers(db, perms);
+  const [offers, classLead] = await Promise.all([listOffers(db, perms), leadsClass(db, perms)]);
+  const evaluate = canEvaluate(perms);
 
   return (
     <main className="flex max-w-4xl flex-col gap-6">
       <PageHeader
         title="Ganztag"
         actions={
-          manager && (
-            <Button asChild>
-              <Link href="/ganztag/angebote">
-                <Settings2 aria-hidden /> Angebote mit Liste
-              </Link>
-            </Button>
+          (manager || evaluate || classLead) && (
+            <>
+              {classLead && (
+                <Button asChild variant="secondary">
+                  <Link href="/ganztag/klasse">
+                    <Users aria-hidden /> Meine Klasse
+                  </Link>
+                </Button>
+              )}
+              {evaluate && (
+                <Button asChild variant="secondary">
+                  <Link href="/ganztag/auswertung">
+                    <BarChart3 aria-hidden /> Auswertung
+                  </Link>
+                </Button>
+              )}
+              {manager && (
+                <Button asChild>
+                  <Link href="/ganztag/angebote">
+                    <Settings2 aria-hidden /> Angebote mit Liste
+                  </Link>
+                </Button>
+              )}
+            </>
           )
         }
       />

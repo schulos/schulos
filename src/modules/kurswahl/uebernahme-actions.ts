@@ -18,7 +18,7 @@ function fail(err: unknown): FormState {
 export async function transferAction(verfahrenId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const { perms } = await requireUser();
   try {
-    await transfer(await getDb(), perms, verfahrenId, { acceptConflicts: form.get("acceptConflicts") === "on" }, toBerlinDate(new Date()));
+    await transfer(await getDb(), perms, verfahrenId, { acceptConflicts: form.get("acceptConflicts") === "on", ganztagList: form.get("ganztagList") === "on" }, toBerlinDate(new Date()));
   } catch (err) {
     return fail(err);
   }
