@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import AxeBuilder from "./axe";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { login } from "./helpers";
 
@@ -56,6 +56,39 @@ test("A11Y-01: öffentliche Seiten ohne axe-Befund (hell und dunkel)", async ({ 
       await open(page, path);
       await axe(page, `${path} (${scheme})`);
     }
+  }
+});
+
+// TD-16: Primärknöpfe (bg-accent/text-accent-fg) behalten im Hover-Zustand einen Kontrast ≥ 4,5:1 – hell und dunkel,
+// auch mit anderer Schulfarbe (--school). Der Zeiger bleibt bewusst über dem Knopf (`keepPointer`).
+test("A11Y-01: Primärknopf im Hover-Zustand erreicht den Kontrast (hell und dunkel)", async ({ page }) => {
+  test.setTimeout(120_000);
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await open(page, "/login");
+    const button = page.getByRole("button", { name: "Anmelden", exact: true });
+    await button.hover();
+    await page.waitForTimeout(400); // Übergang des Hover-Zustands abwarten
+    // axe wertet CSS-`filter` nicht aus – Hintergrund (inkl. brightness-Filter) und Schrift deshalb selbst messen
+    const ratio = await button.evaluate((el) => {
+      const px = (css: string) => {
+        const c = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+        c.fillStyle = "#000";
+        c.fillStyle = css;
+        c.fillRect(0, 0, 1, 1);
+        return Array.from(c.getImageData(0, 0, 1, 1).data.slice(0, 3));
+      };
+      const lin = (v: number) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+      const lum = ([r, g, b]: number[]) => 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
+      const cs = getComputedStyle(el);
+      const factor = Number(/brightness\(([\d.]+)\)/.exec(cs.filter)?.[1] ?? 1);
+      const bg = px(cs.backgroundColor).map((v) => Math.min(255, v * factor));
+      const [hi, lo] = [lum(bg), lum(px(cs.color))].sort((a, b) => b - a);
+      return (hi! + 0.05) / (lo! + 0.05);
+    });
+    expect(ratio, `Hover-Kontrast Primärknopf (${scheme})`).toBeGreaterThanOrEqual(4.5);
+    const r = await new AxeBuilder({ page }).keepPointer().withRules(["color-contrast"]).include("form button[type=submit]").analyze();
+    expect(r.violations.map((v) => v.id), `axe im Hover-Zustand (${scheme})`).toEqual([]);
   }
 });
 

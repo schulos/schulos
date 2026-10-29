@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import AxeBuilder from "./axe";
 // Läuft nach freigabe-vertretungsplan/gate2*: die Vertretungen machen die Tage im Modus „Freigabe“ zu Entwürfen.
 import { expect, test } from "@playwright/test";
 import { collectErrors, login } from "./helpers";

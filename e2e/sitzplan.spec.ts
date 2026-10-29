@@ -17,7 +17,8 @@ async function openSevenBLesson(page: Page) {
     await expect(page.getByRole("heading", { name: "Meine Stunden" })).toBeVisible();
     if (i >= 1 && (await lesson.count()) > 0) break;
   }
-  await lesson.click();
+  // TD-16: per Adresse öffnen statt zu klicken – die Liste wird nachgeladen/neu gezeichnet, der Knoten war „nicht stabil“ bzw. abgehängt
+  await page.goto((await lesson.getAttribute("href"))!);
   await expect(page.getByLabel("Thema der Stunde")).toBeVisible();
 }
 

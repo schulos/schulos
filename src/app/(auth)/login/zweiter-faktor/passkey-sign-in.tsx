@@ -51,7 +51,7 @@ export function PasskeySignIn({ next, primary }: { next: string; primary: boolea
         disabled={pending}
         className={
           primary
-            ? "h-11 rounded-xl bg-accent font-semibold text-accent-fg transition hover:brightness-110 disabled:opacity-60"
+            ? "h-11 rounded-xl bg-accent font-semibold text-accent-fg transition hover:bg-accent-hover disabled:opacity-60"
             : "h-11 rounded-xl border border-border bg-surface font-medium text-ink transition hover:bg-surface-2 disabled:opacity-60"
         }
       >

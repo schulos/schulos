@@ -1,4 +1,4 @@
-import AxeBuilder from "@axe-core/playwright";
+import AxeBuilder from "./axe";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { acknowledgeWarnings, collectErrors, deDate, login, undoAndDiscardVersion } from "./helpers";
 
