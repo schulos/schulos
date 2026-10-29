@@ -69,6 +69,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "verwaltung.room.photo.cover": "Titelbild eines Raums gewählt",
   "verwaltung.room.photo.delete": "Raumfoto gelöscht",
   "verwaltung.room.equipment": "Ausstattung eines Raums geändert",
+  "verwaltung.room.responsible.add": "Raumverantwortliche eingetragen",
+  "verwaltung.room.responsible.remove": "Raumverantwortliche entfernt",
   "verwaltung.room.equipment_type.create": "Ausstattung in den Katalog aufgenommen",
   "verwaltung.room.equipment_type.rename": "Ausstattung im Katalog umbenannt",
   "verwaltung.room.equipment_type.merge": "Ausstattung im Katalog zusammengeführt",

@@ -17,12 +17,12 @@ import { CaptionForm, DeletePhotoButton, PhotoUploadForm } from "./photo-forms";
 
 export const metadata: Metadata = { title: "Fotos bearbeiten" };
 
-/** RS-04: Fotos eines Raums pflegen (höchstens 8, ein Titelbild) – bis RS-06 mit `verwaltung.school` (`canEditRoomInfo`). */
+/** RS-04: Fotos eines Raums pflegen (höchstens 8, ein Titelbild) – Recht „Raumdaten pflegen“ bzw. Raumverantwortliche (RS-06). */
 export default async function RaumFotosPage({ params }: { params: Promise<{ id: string }> }) {
   const { perms } = await requireUser();
   const id = decodeURIComponent((await params).id);
-  if (!canEditRoomInfo(perms, id)) notFound();
   const db = await getDb();
+  if (!(await canEditRoomInfo(db, perms, id))) notFound();
   const room = await getRoom(db, id);
   if (!room) notFound();
   const photos = await listRoomPhotos(db, perms, room.id);

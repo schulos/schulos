@@ -297,6 +297,18 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     settings: ["ganztag.edit_days"],
     where: { label: "Verwaltung → Rechte & Module → Ganztag", href: "/verwaltung/rechte" },
   },
+  {
+    id: "raumsteckbrief",
+    nr: 22,
+    title: "Raumsteckbrief: Raumdaten, Fotos und Raumverantwortliche",
+    schulos:
+      "Eine Seite je Raum für alle Angemeldeten, Inhalte je Sicht gefiltert: Schüler:innen und Eltern sehen Kopf, Titelbild, Ausstattung grob, Infofelder „für alle“ und die Belegung nur als frei/belegt (§13); Beschäftigte zusätzlich Technik-, Nutzungs- und Sicherheitsangaben, Galerie, offene Mängel ohne Namen und die Raumverantwortlichen. Räume, Infofelder, Fotos und Ausstattung haben keinen Personenbezug: Fotos werden auf 1600 px verkleinert und ohne Metadaten (EXIF/GPS) gespeichert, Hinweise am Upload und im Formular („keine Personen“, „keine Personendaten“). Personenbezug nur über Raumverantwortliche (nur Beschäftigte, Person oder Gruppe); sie pflegen Infofelder, Fotos und Ausstattung ihres Raums, nie Stammdaten. Die Änderungshistorie sehen nur Pflegende, aus dem Audit-Log ohne Texte. Zuordnungen gehen mit dem Konto (LK-KONTO).",
+    vorgabe:
+      "„Raumdaten pflegen“ (alle Räume) für die Rolle Verwaltung, Stammdaten weiter nur mit „Schuldaten und Stammdaten pflegen“; keine Raumverantwortlichen eingetragen; Titelbild für alle, weitere Fotos nur für Beschäftigte. Das Recht zählt als Verwaltungsrecht (Zwei-Faktor-Pflicht sofort).",
+    schule:
+      "Legt fest, wer Raumdaten pflegt (z. B. Gruppe Hausmeisterei), und trägt Fachraumleitungen nur mit deren Wissen als verantwortlich ein; achtet darauf, dass Fotos keine Personen und keine Aushänge mit Namen zeigen und Infofelder keine privaten Telefonnummern enthalten; nimmt Raumverantwortliche in die Verarbeitungstätigkeit „Benutzerverwaltung/Organisation“ des VVT auf. Rechtliche Einordnung: zu prüfen.",
+    where: { label: "Raumsteckbrief (/raeume) und Verwaltung → Rechte & Module", href: "/raeume" },
+  },
 ];
 
 /** Rein: die Kurzfassung eines Themas für docs/DSB-FRAGEN.md (zwischen den Markern). */

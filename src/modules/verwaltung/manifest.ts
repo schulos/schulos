@@ -16,9 +16,13 @@ export default defineModule({
     "verwaltung.rights": "Rechte und Module verwalten",
     "verwaltung.privacy": "Löschlauf ausführen und Löschsperren setzen (Datenschutz)",
     "verwaltung.school": "Schuldaten und Stammdaten pflegen",
+    // RS-06: alle Räume – Raumverantwortliche pflegen ihren eigenen Raum ohne dieses Recht; Stammdaten bleiben bei verwaltung.school
+    "verwaltung.rooms_info": "Raumdaten pflegen (Infofelder, Fotos, Ausstattung, Verantwortliche – keine Stammdaten)",
     "verwaltung.system": "Systembetrieb: Backupserver koppeln (später Updates)",
   },
-  defaultGrants: { verwaltung: ["verwaltung.access", "verwaltung.users", "verwaltung.groups", "verwaltung.school", "verwaltung.zwei_faktor"] },
+  defaultGrants: {
+    verwaltung: ["verwaltung.access", "verwaltung.users", "verwaltung.groups", "verwaltung.school", "verwaltung.zwei_faktor", "verwaltung.rooms_info"],
+  },
   nav: [{ href: "/verwaltung", label: "Verwaltung", requires: "verwaltung.access" }],
   settings: VERWALTUNG_SETTINGS,
 });

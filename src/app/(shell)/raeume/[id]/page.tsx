@@ -7,7 +7,8 @@ import { getDb } from "@/core/db/client";
 import { moduleOn } from "@/core/modules/guard";
 import { hasPermission } from "@/core/permissions";
 import { TZ, addDays, isoWeek, mondayOf, toBerlinDate, weekdayMon0 } from "@/core/time";
-import { canEditRoomInfo, roomProfile } from "@/modules/verwaltung/raumsteckbrief";
+import { canEditRoomInfo, canMaintainAllRooms, roomProfile } from "@/modules/verwaltung/raumsteckbrief";
+import { HISTORY_LIMIT, responsiblesFor, roomHistory } from "@/modules/verwaltung/raumverantwortliche";
 import { InfoList, PhotoGallery, RoomBanners, RoomCover, RoomFacts, WeekGrid, fmtDay, roomTitle } from "@/ui/raum-steckbrief";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -18,12 +19,13 @@ export const metadata: Metadata = { title: "Raumsteckbrief" };
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 const reported = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: TZ });
+const changedAt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: TZ });
 
 /**
  * RS-02 Raumsteckbrief: für alle Angemeldeten, Inhalte je Sicht gefiltert (Service `roomProfile`). Kein Modul-Layout –
  * Räume sind Kernstammdaten; Abschnitte aus abschaltbaren Modulen erscheinen nur, wenn das Modul an ist.
  * RS-04: Titelbild im Kopf (alle), Galerie als Karte (Beschäftigte); RS-05: Ausstattung mit Menge im Kopf (alle).
- * Platz für RS-06 (Verantwortliche) im unteren Raster.
+ * RS-06: Karte „Verantwortliche“ (nur Beschäftigte) und „Änderungen“ aus dem Audit (nur Pflegende) im unteren Raster.
  */
 export default async function RaumSteckbriefPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ woche?: string; gespeichert?: string }> }) {
   const { perms } = await requireUser();
@@ -43,7 +45,14 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
   const canReport = gebaeude && hasPermission(perms, "gebaeude.report") && room.active;
   const canBook = buchungen && hasPermission(perms, "buchungen.book") && profile.bookingResourceId !== null && room.active;
   const canEdit = hasPermission(perms, "verwaltung.school");
-  const canEditInfo = canEditRoomInfo(perms, room.id);
+  const canEditInfo = await canEditRoomInfo(db, perms, room.id);
+  const canManageResponsibles = canMaintainAllRooms(perms);
+  // RS-06: Verantwortliche sehen nur Beschäftigte, die Historie nur Pflegende (Recht oder Verantwortung für diesen Raum)
+  const [responsibles, history, adressbuch] = await Promise.all([
+    responsiblesFor(db, perms, room.id),
+    canEditInfo ? roomHistory(db, perms, room.id) : Promise.resolve(null),
+    moduleOn("adressbuch"),
+  ]);
   const weekHref = (m: string) => `/raeume/${enc}?woche=${m}#belegung`;
 
   return (
@@ -196,7 +205,56 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
             <PhotoGallery photos={profile.photos} roomId={room.id} />
           </Card>
         )}
-        {/* RS-06: Raumverantwortliche und Kontakt, Historie für Pflegende */}
+        {responsibles && (
+          <Card aria-labelledby="verantwortliche" className="scroll-mt-20">
+            <CardHeader
+              title={<span id="verantwortliche">Verantwortliche</span>}
+              action={canManageResponsibles ? { href: `/raeume/${enc}/verantwortliche`, label: "Verantwortliche bearbeiten" } : undefined}
+            />
+            {responsibles.length === 0 ? (
+              <p className="text-sm text-muted">Niemand eingetragen.</p>
+            ) : (
+              <ul className="flex flex-col gap-2 text-sm">
+                {responsibles.map((r) => (
+                  <li key={r.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    {adressbuch && r.kind === "person" ? (
+                      <Link href={`/adressbuch/person/${encodeURIComponent(r.refId)}`} className="font-medium hover:underline">
+                        {r.name}
+                      </Link>
+                    ) : (
+                      <span className="font-medium">{r.name}</span>
+                    )}
+                    {r.kind === "gruppe" && <Badge tone="neutral">Gruppe</Badge>}
+                    {r.note && <span className="text-muted">{r.note}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
+        {history && (
+          <Card aria-labelledby="aenderungen" className="scroll-mt-20">
+            <CardHeader title={<span id="aenderungen">Änderungen</span>} />
+            {history.length === 0 ? (
+              <p className="text-sm text-muted">Noch keine Änderungen protokolliert.</p>
+            ) : (
+              <ol className="flex flex-col gap-2 text-sm">
+                {history.map((h) => (
+                  <li key={h.id} className="flex flex-col">
+                    <span>
+                      <span className="font-medium">{h.label}</span>
+                      {h.detail && <span className="text-muted"> · {h.detail}</span>}
+                    </span>
+                    <span className="text-xs text-muted">
+                      {changedAt.format(h.at)} · {h.actor}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+            <p className="mt-3 text-xs text-muted">Aus dem Protokoll, die letzten {HISTORY_LIMIT} Vorgänge – ohne die Texte der Infofelder.</p>
+          </Card>
+        )}
       </div>
     </main>
   );

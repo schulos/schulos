@@ -11,6 +11,7 @@ import {
   periods,
   roomEquipmentItems,
   roomInfoValues,
+  roomResponsibles,
   rooms,
   schoolClosures,
   schoolYears,
@@ -328,6 +329,11 @@ export async function seedDemoSchool(
   await insertChunked(children, (c) => db.insert(parentChild).values(c));
   await insertChunked(groupRows.map((g) => ({ ...g, ownerId: g.ownerId ?? null })), (c) => db.insert(groups).values(c));
   await insertChunked(members, (c) => db.insert(groupMembers).values(c));
+  // RS-06: Raumverantwortliche – Fachraumleitung Chemie als Person, der Informatik-Raum bei der Fachschaft
+  await db.insert(roomResponsibles).values([
+    { roomId: "NW2", userId: teacher("ALB"), note: "Fachraumleitung Chemie" },
+    { roomId: "IF1", groupId: "g-fs-if", note: "Fachschaft Informatik pflegt Technik und Ausstattung" },
+  ]);
 
   await syncDefaultGrants(db, MODULES);
   await db.insert(grants).values([
@@ -338,6 +344,8 @@ export async function seedDemoSchool(
     { permission: "elternbriefe.send_all", groupId: "g-schulleitung" },
     { permission: "klausurplan.manage", groupId: "g-schulleitung" },
     { permission: "gebaeude.manage", groupId: "g-hausmeisterei" },
+    // RS-06: Raumdaten aller Räume (Fotos, Ausstattung, Infofelder) – keine Stammdaten
+    { permission: "verwaltung.rooms_info", groupId: "g-hausmeisterei" },
     { permission: "buecherei.desk", groupId: "g-buecherei" },
     { permission: "buecherei.stock", groupId: "g-buecherei" },
     // Schulanmeldung (P4-32): die Schulleitung entscheidet (§ 46 SchulG NRW), das Sekretariat bearbeitet über die Rolle

@@ -16,12 +16,12 @@ import { AddEquipmentForm, QuantitiesForm } from "./equipment-forms";
 
 export const metadata: Metadata = { title: "Ausstattung bearbeiten" };
 
-/** RS-05: Ausstattung eines Raums mit Menge pflegen – Katalog wächst beim Eintragen; bis RS-06 mit `verwaltung.school`. */
+/** RS-05: Ausstattung eines Raums mit Menge pflegen – Katalog wächst beim Eintragen; Recht „Raumdaten pflegen“ bzw. Raumverantwortliche (RS-06). */
 export default async function RaumAusstattungPage({ params }: { params: Promise<{ id: string }> }) {
   const { perms } = await requireUser();
   const id = decodeURIComponent((await params).id);
-  if (!canEditRoomInfo(perms, id)) notFound();
   const db = await getDb();
+  if (!(await canEditRoomInfo(db, perms, id))) notFound();
   const room = await getRoom(db, id);
   if (!room) notFound();
   const [items, catalog] = await Promise.all([roomEquipment(db, room.id), listEquipmentTypes(db)]);

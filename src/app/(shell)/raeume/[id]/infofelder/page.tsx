@@ -15,12 +15,12 @@ import { RoomInfoForm } from "./info-form";
 
 export const metadata: Metadata = { title: "Infofelder bearbeiten" };
 
-/** RS-03: Infofelder eines Raums pflegen – bis RS-06 mit `verwaltung.school` (`canEditRoomInfo`). */
+/** RS-03: Infofelder eines Raums pflegen – Recht „Raumdaten pflegen“ bzw. Raumverantwortliche (RS-06, `canEditRoomInfo`). */
 export default async function RaumInfofelderPage({ params }: { params: Promise<{ id: string }> }) {
   const { perms } = await requireUser();
   const id = decodeURIComponent((await params).id);
-  if (!canEditRoomInfo(perms, id)) notFound();
   const db = await getDb();
+  if (!(await canEditRoomInfo(db, perms, id))) notFound();
   const [room, fields] = await Promise.all([getRoom(db, id), roomInfoForm(db, id)]);
   if (!room) notFound();
   return (

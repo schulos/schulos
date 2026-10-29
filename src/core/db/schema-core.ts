@@ -309,6 +309,33 @@ export const groupFeatures = pgTable(
   (t) => [primaryKey({ columns: [t.groupId, t.feature] })],
 );
 
+/**
+ * RS-06: Raumverantwortliche (Fachraumleitung o. Ä.) – eine Person ODER eine Gruppe je Zeile. Verantwortliche Beschäftigte
+ * pflegen Infofelder, Fotos und Ausstattung ihres Raums (nie die Stammdaten); sichtbar nur für Personal. Personenbezug folgt
+ * dem Konto (`LK-KONTO`, Kaskade bei der Kontolöschung), Gruppenzeilen gehen mit der Gruppe.
+ */
+export const roomResponsibles = pgTable(
+  "room_responsibles",
+  {
+    id: id(),
+    roomId: text("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    groupId: text("group_id").references(() => groups.id, { onDelete: "cascade" }),
+    /** Aufgabe bzw. Kontakt ohne Personendaten, z. B. „Fachraumleitung Chemie“ (höchstens 120 Zeichen) */
+    note: text("note"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check("room_responsibles_one_target", sql`(${t.userId} is null) <> (${t.groupId} is null)`),
+    uniqueIndex("room_responsibles_user_uq").on(t.roomId, t.userId),
+    uniqueIndex("room_responsibles_group_uq").on(t.roomId, t.groupId),
+    index("room_responsibles_user_idx").on(t.userId),
+    index("room_responsibles_group_idx").on(t.groupId),
+  ],
+);
+
 // ------------------------------------------------------------------------ Rechte
 
 /**
