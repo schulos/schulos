@@ -166,6 +166,10 @@ Diese Seite ausdrucken und beim Notfallordner ablegen.
    „aus Backup wiederherstellen“ bzw. „aus Offsite-Kopie wiederherstellen“ (mit Wiederherstellungsschlüssel); der Bestätigungscode
    wird auf dem Hauptsystem eingegeben. Den alten, befallenen Server nicht weiterverwenden, bevor er untersucht und neu aufgesetzt ist.
    Ein neues Hauptsystem koppelt über den **Ersatz-Kopplungscode** an dieselbe Sicherung (INSTALLATION.md §4.4, „Neue Hardware“).
+   **Zertifikate (CA-01):** Eine Wiederherstellung bringt die **gleiche Wurzel** der eigenen CA (Caddy) und der Schul-CA für
+   Gerätezertifikate zurück – Geräte, die SchulOS vertrauen, brauchen nichts Neues. Eine **Neuinstallation ohne Wiederherstellung**
+   erzeugt dagegen **neue Wurzeln**: dann das neue Wurzelzertifikat an alle Geräte verteilen und Gerätezertifikate neu ausstellen.
+   Für die Schul-CA müssen in der neuen `.env` dieselben CA-Passwörter stehen wie vorher (Notfallordner).
    Danach alle Passwörter der Verwaltungskonten ändern, den Wartungs-Zugang und die SMTP-/Offsite-Zugangsdaten erneuern.
 7. **Betroffenheit einschätzen.** Wurden Daten nur verschlüsselt (Verfügbarkeit), oder liegt Abfluss vor (Erpresser drohen mit
    Veröffentlichung)? Datenträger sind per Plattenverschlüsselung geschützt, solange der Server **aus** war; ein laufender, übernommener

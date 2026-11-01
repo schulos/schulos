@@ -144,10 +144,19 @@ export async function dumpFile(ctx: ResticContext, snapshotId: string, file: str
 }
 
 /** Neuester Stand im Repository (über den rest-server; Lesen ist auch im append-only-Modus erlaubt). */
-export async function latestSnapshot(ctx: ResticContext): Promise<{ id: string; shortId: string; time: string } | null> {
+export async function latestSnapshot(ctx: ResticContext): Promise<{ id: string; shortId: string; time: string; paths: string[] } | null> {
   const r = await firstAccess(ctx, ["snapshots", "latest", "--json", "--no-lock"]);
   if (r.code !== 0) throw new ResticError(`Stände nicht lesbar: ${lastLine(r.stderr)}`);
-  const list = JSON.parse(r.stdout || "[]") as { id: string; short_id: string; time: string }[];
+  const list = JSON.parse(r.stdout || "[]") as { id: string; short_id: string; time: string; paths?: string[] }[];
   const s = list.at(-1);
-  return s ? { id: s.id, shortId: s.short_id, time: s.time } : null;
+  return s ? { id: s.id, shortId: s.short_id, time: s.time, paths: s.paths ?? [] } : null;
+}
+
+/** Gesicherte Pfade eines Stands (CA-01: ältere Stände enthalten die CA-Schlüssel noch nicht). */
+export async function snapshotPaths(ctx: ResticContext, snapshotId: string): Promise<string[]> {
+  if (!SNAPSHOT_ID.test(snapshotId)) throw new ResticError("Ungültige Snapshot-ID – Wiederherstellung abgebrochen.");
+  const r = await ctx.exec(ctx.bin, ["snapshots", "--json", "--no-lock", "--", snapshotId], { env: env(ctx) });
+  if (r.code !== 0) throw new ResticError(`Stand nicht lesbar: ${lastLine(r.stderr)}`);
+  const list = JSON.parse(r.stdout || "[]") as { paths?: string[] }[];
+  return list[0]?.paths ?? [];
 }

@@ -81,6 +81,8 @@ describe("Backup-Agent", () => {
         return { code: 0, stdout: "", stderr: "" };
       }
       if (cmd === "pg_restore") return { code: 0, stdout: args[0] === "--list" ? TOC : "", stderr: "" };
+      // CA-01: gesicherte Pfade des Stands (hier ohne CA-Schlüssel – ein Stand von vor CA-01)
+      if (args[0] === "snapshots") return { code: 0, stdout: JSON.stringify([{ paths: ["/tmp/schulos-agent/datenbank"] }]), stderr: "" };
       return { code: 99, stdout: "", stderr: "?" };
     };
     const request = (async (url: string, opts: { body?: unknown; headers?: Record<string, string> }) => {
@@ -287,7 +289,10 @@ describe("Backup-Agent", () => {
       "pg_restore", // Inhaltsverzeichnis prüfen
       "pg_restore",
       "restic restore",
+      "restic", // CA-01: gesicherte Pfade des Stands
     ]);
+    expect(calls.at(-1)!.args).toEqual(["snapshots", "--json", "--no-lock", "--", "7da39b69".padEnd(64, "e")]);
+    expect(restoreReports.at(-1)!.details).toMatchObject({ caddyCa: "nicht im Stand", geraeteCa: "nicht im Stand" });
     expect(reports.at(-1)).toMatchObject({ trigger: "vor-wiederherstellung", status: "ok" });
     const [dumpRestore, pgList, pgRestore, filesRestore] = calls.slice(3);
     expect(dumpRestore!.args).toEqual(expect.arrayContaining(["--verify", "--overwrite", "always"]));
@@ -411,7 +416,7 @@ describe("Wiederherstellung auf neuer Hardware (Installer)", () => {
     const cfg = { ...agentConfig({ SCHULOS_CONFIG_DIR: path.join(dir, "config"), FILES_DIR: path.join(dir, "files"), DATABASE_URL: "postgres://u:p@db/schulos" }), workDir: path.join(dir, "work") };
     mkdirSync(path.join(dir, "config"), { recursive: true });
     const r = await restoreFromScratch({ cfg, exec, request: (() => {}) as never, now: () => new Date(), log: () => {} }, { ...PAIRING, caPem: null });
-    expect(r).toEqual({ snapshot: "abc123de", details: { datenbank: "eingespielt", dateien: "wie im Stand", geheimnis: "übernommen" } });
+    expect(r).toEqual({ snapshot: "abc123de", details: { datenbank: "eingespielt", dateien: "wie im Stand", geheimnis: "übernommen", caddyCa: "nicht im Stand", geraeteCa: "nicht im Stand" } });
     expect(calls.map((c) => (c.cmd === "restic" ? `restic ${c.args[0]}` : c.cmd))).toEqual(["restic snapshots", "restic restore", "pg_restore", "pg_restore", "restic restore", "restic dump"]);
     expect(calls[4]!.args).toEqual(expect.arrayContaining(["--target", path.join(dir, "files"), "--delete", `${SNAP_ID}:${path.join(dir, "files")}`]));
     expect(calls[5]!.args).toEqual(["dump", "--", SNAP_ID, path.join(dir, "config", "secret.env")]);

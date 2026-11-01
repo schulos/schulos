@@ -30,11 +30,16 @@ LABEL org.opencontainers.image.version=${SCHULOS_VERSION} \
 # pg_dump in der Version des Datenbankservers (PostgreSQL 18); restic als statisches Binary aus dem offiziellen Image
 # Volume-Ordner mit Besitzer node wie im App-Image: bei einer Wiederherstellung hängt der Agent als Erster an den frischen
 # Volumes (App noch aus) – Docker übernimmt den Besitzer des Ordners im Image, sonst gehören sie root (EACCES, QEMU-Test §7.6)
+# CA-01: ebenso step_ca (nur lesend eingehängt – legt der Agent das Volume zuerst an, muss es trotzdem step, uid 1000, gehören)
+# und die Übergabeordner einer Wiederherstellung (Caddy liest über die Gruppe 1000). caddy-data bewusst NICHT anlegen: das
+# Volume caddy_data muss root gehören, sonst kann Caddy (root ohne Capabilities) dort nichts anlegen.
 # apk.log enthält Uhrzeiten → raus (reproduzierbares Image, B-47)
 RUN apk add --no-cache tini postgresql18-client \
  && rm /var/log/apk.log \
- && mkdir -p /srv/schulos/config /srv/schulos/files \
- && chown -R node:node /srv/schulos
+ && mkdir -p /srv/schulos/config /srv/schulos/files /srv/schulos/step-ca /srv/schulos/rueckspiel-caddy /srv/schulos/rueckspiel-step-ca \
+ && chown -R node:node /srv/schulos \
+ && chmod 2770 /srv/schulos/rueckspiel-caddy \
+ && chmod 0700 /srv/schulos/rueckspiel-step-ca
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 COPY --from=rclone /usr/local/bin/rclone /usr/local/bin/rclone
 COPY --from=build /app/apps/agent/dist/agent.mjs /opt/schulos-agent/agent.mjs
