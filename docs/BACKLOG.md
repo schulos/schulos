@@ -701,6 +701,61 @@ Konzept, Datenmodell, Rechte und Entscheidungen: [`GANZTAG.md`](GANZTAG.md). Rei
 - [x] **GT-07** (S) Kurswahl: Häkchen „Anwesenheitsliste für diese Gruppen einschalten“ bei der Übernahme einer Wahl der Art `ag` (Projektleitung 2026-10-28) · ✅ 2026-10-29: Häkchen (Vorgabe aus) nur bei Art `ag` und eingeschaltetem Modul, `enableListForGroups` in der Übernahme-Transaktion
 - [x] **GT-08** (S) Datenschutz/Doku/Tests: Löschtabelle, DSB-Thema, VVT, Moduleinstellungen den DSB-Themen zuordnen, E2E (Projektleitung 2026-10-28) · ✅ 2026-10-29: VVT/Manifest, DATENSCHUTZ §3.4, DSB-FRAGEN §21, `rest.test.ts`, `e2e/ganztag-rest.spec.ts` – Modul Ganztag fertig
 
+## Zertifikate – CA-Backup und eigene CA, Let's Encrypt per DNS (freigegeben von der Projektleitung 2026-11-01, Fragebogen Runde 12)
+**Reihenfolge Runde 12 (Projektleitung 2026-11-01, rf-1):** CA-01 (Backup/Restore von `caddy_data` + `step_ca`) zuerst als Sofort-Fix → Betriebsmonitoring → CA Teil A (CA-02…05) → Klassenbildung Stufe 1–2 → Inventar INV-01/02 → CA Teil B (CA-06…08) → Inventar Rest (INV-03…07). Web-Push und Beobachtungsnotizen: jetzt nur die DSB-Fragen (WP-01, BN-01), der Bau erst nach dem DSB-Votum.
+Konzept, Befund und Entscheidungen: [`ZERTIFIKATE.md`](ZERTIFIKATE.md). Kurz: Das Backup sichert `caddy_data` (Root + Schlüssel der eigenen CA) und `step_ca` bisher nicht, jede Wiederherstellung bringt eine neue Root (CA-01, eigene kleine Aufgabe vor dem Rest). Root-Download auch ohne Anmeldung unter `/ca.crt`, nur Schulnetz, mit Fingerabdruck; Apple-`.mobileconfig` + Anleitungstabelle ohne Herstellerbindung; Alarm bei Wechsel der Root. Teil B (DNS-01) mit cloudflare, hetzner, ionos, netcup, inwx, desec, route53, rfc2136; eigenes Caddy-Image nur bei DNS-01. Migrationsnummer erst direkt vor dem PR (keine Migration vorgesehen).
+- [ ] **CA-01** (M) `caddy_data` + `step_ca` in Backup und Restore (Volumes read-only im `backup-agent`, `apps/agent` Pfade/Restore mit Rechten 600, Backupserver entsprechend), Tests, Systemtest – **Sofort-Fix, vor allem anderen** (Projektleitung 2026-11-01)
+- [ ] **CA-02** (S) Root + SHA-256-Fingerabdruck über `schulosctl` ins `config`-Volume, `SystemStatus` um `tls` erweitern, Fingerabdruck in `schulosctl status` und Erststart-Ausgabe (Projektleitung 2026-11-01)
+- [ ] **CA-03** (S) Download-Route (angemeldet für Admin, `/ca.crt` ohne Anmeldung nur im Schulnetz, nur bei TLS-Modus `internal`), Seite in Verwaltung → System, Alarm bei Wechsel der Root bis zur Bestätigung (Projektleitung 2026-11-01)
+- [ ] **CA-04** (S–M) Apple-`.mobileconfig` + Hilfeseite (Modul `hilfe`) und INSTALLATION §TLS mit Verteilwegen (Projektleitung 2026-11-01)
+- [ ] **CA-05** (S) Backupserver: Root-Download in `apps/backup` (Projektleitung 2026-11-01)
+- [ ] **CA-06** (M) Installer-Option „öffentliche Domain, Server nur im Schulnetz (DNS-01)“: Anbieterliste, Token nur in `.env`, Abschlussprüfung (Projektleitung 2026-11-01)
+- [ ] **CA-07** (M) Eigenes Caddy-Image (xcaddy, gepinnt, Digest auf der ISO, Update-Weg, Dependabot), nur bei DNS-01 (Projektleitung 2026-11-01)
+- [ ] **CA-08** (S–M) Ablaufwarnung (Verwaltung → System + Mail), Doku-Checkliste für den Schulträger, Systemtest mit ACME-Staging (Projektleitung 2026-11-01)
+
+## Betriebsmonitoring – Health-Details und `schulosctl status --json` (freigegeben von der Projektleitung 2026-11-01, Fragebogen Runde 12)
+Konzept und Entscheidungen: [`BETRIEBSMONITORING.md`](BETRIEBSMONITORING.md). Reihenfolge: nach CA-01. Kurz: `/api/health` bleibt schlank; neu `/api/health/details` nur Schulnetz bzw. mit Token (von außen gesperrt), `schulosctl status --json` mit Exit-Codes, Karte „Betrieb“ in Verwaltung → System, Warnungen an die bisherigen Alarmempfänger; Stufe 1 ohne Verlauf; nur JSON (OpenMetrics auf Wunsch eines Schulträgers); IP-freies Zugriffsprotokoll standardmäßig an (höchstens 48 h). Migrationsnummer erst direkt vor dem PR (Stufe 1 ohne Migration).
+- [ ] **BM-01** (S) Typ `HealthReport` + `collectHealth` (`src/core/system/health.ts`) + Tests (Projektleitung 2026-11-01)
+- [ ] **BM-02** (S) Route `/api/health/details` mit Token/Schulnetz-Zugriff, Allowlist in Caddyfile + `external-access.ts` (Test vergleicht beide), Kernsetting `health.details` (Projektleitung 2026-11-01)
+- [ ] **BM-03** (S) `schulosctl status --json` mit Exit-Codes 0/1/2 + Test (Projektleitung 2026-11-01)
+- [ ] **BM-04** (S) Karte „Betrieb“ in Verwaltung → System + neue Alarme (Mail-Stau, Zertifikat) (Projektleitung 2026-11-01)
+- [ ] **BM-05** (M) IP-freier Zugriffslog des Reverse-Proxys + Auswerter (Zähler, höchstens 48 h) (Projektleitung 2026-11-01)
+- [ ] **BM-06** (S) Doku (INSTALLATION, BETRIEBSHANDBUCH, SICHERHEIT), VVT-Eintrag „Betriebsüberwachung“, E2E (Projektleitung 2026-11-01)
+
+## Klassenbildung – Vorschlag für Neuaufnahmen (freigegeben von der Projektleitung 2026-11-01, Fragebogen Runde 12)
+Konzept und Entscheidungen: [`KLASSENBILDUNG.md`](KLASSENBILDUNG.md). Reihenfolge: Stufe 1–2 (KB-01…03) nach CA Teil A. Kurz: Vorschlag mit Begründung je Kind und Kennzahlen je Klasse im Schritt „Neuaufnahmen“ des Schuljahreswechsels; Wünsche (zusammen/nicht zusammen, höchstens 2 je Kind, ohne Begründung) intern durch das Sekretariat, Mehrlinge standardmäßig zusammen mit Häkchen „getrennt“; kein Geschlecht, keine weiteren Kriterien; Entwurf nur im Browser, Rechte des Schritts. Migrationsnummer erst direkt vor dem PR (nur KB-03 mit Migration).
+- [ ] **KB-01** (M) Reine Funktion `klassenbildung.ts` (harte Regeln: Größe ±1, Familien zusammen; weiche Ziele: Grundschulen mischen) + Eigenschaftstests, ersetzt `proposeAssignment`-Heuristik (Projektleitung 2026-11-01)
+- [ ] **KB-02** (S) Anzeige im Schritt „Neuaufnahmen“: Begründung je Kind, Kennzahlen je Klasse, „Neu vorschlagen“, Festpinnen; Einstellung `anmeldung.klassengroesse` (Projektleitung 2026-11-01)
+- [ ] **KB-03** (M) Wünsche: `anmeldung_klassenwuensche` + Migration, Erfassen im Vorgang (`anmeldung.manage`), „getrennt“-Häkchen je Familie, Einbezug in den Vorschlag, Löschklasse LK-90, Auskunft ohne Partnername (Projektleitung 2026-11-01)
+- [ ] **KB-04** (S) Doku (PHASE4-Verweis, DATENSCHUTZ, Handbuch), E2E (Projektleitung 2026-11-01)
+
+## Inventar – Ausbau von `gebaeude_assets` mit QR-Etiketten (freigegeben von der Projektleitung 2026-11-01, Fragebogen Runde 12)
+Konzept und Entscheidungen: [`INVENTAR.md`](INVENTAR.md). Reihenfolge: INV-01/02 nach der Klassenbildung, der Rest nach CA Teil B. Kurz: Ausbau des Moduls `gebaeude` statt zweiter Liste, Kategorien als Tabelle (Prüfpflicht als Eigenschaft), neues Recht `gebaeude.inventory` + verantwortliche Gruppe je Kategorie, Etiketten `/i/<code>` (A4-Bögen, Endlosrolle 62 mm), ohne Anmeldung nur Anmeldeseite, Ausleihe als eigene Stufe (LK-ENDE-1J), Ausstattung des Raumsteckbriefs bleibt Selbstauskunft, Schlüsselbuch und Gefahrstoffe getrennte Ideen. Migrationsnummer erst direkt vor dem PR.
+- [ ] **INV-01** (M) Kategorien-Tabelle + Vorlagen, mehrstufige Migration Enum → Kategorie, erweiterte Felder, Sammelposten, automatische Inventarnummern, Recht `gebaeude.inventory`, Liste/Filter, CSV-Import angepasst (Projektleitung 2026-11-01)
+- [ ] **INV-02** (M) Art „inventar“ in `label_codes`, Seite `/i/<code>`, Druckformate (Bögen, Endlosrolle), Sammeldruck (Projektleitung 2026-11-01)
+- [ ] **INV-03** (M) Mobile Asset-Seite mit Aktionen, Tickets mit `asset_id` (Mangel vorbelegt), Historie, Fotos (Projektleitung 2026-11-01)
+- [ ] **INV-04** (M) Inventur-Modus (Soll/Ist je Raum, Scan über Handykamera, Protokoll CSV/Druck, optional In-App-Scan) (Projektleitung 2026-11-01)
+- [ ] **INV-05** (M) Ausleihe (Rückgabedatum, Erinnerungen, Leihvertrag als Druck, Löschklasse LK-ENDE-1J, Auskunft) (Projektleitung 2026-11-01)
+- [ ] **INV-06** (S–M) Export/Import im Schulträgerformat, Frist-Hinweise (Garantie/Zweckbindung) in „Offenes“, Karte „Inventar“ im Raumsteckbrief (Projektleitung 2026-11-01)
+- [ ] **INV-07** (S) Doku (Handbuch, BETRIEBSHANDBUCH, DATENSCHUTZ §3.4), E2E für Etikettendruck, Scan-Weg und Rechte (laufend) (Projektleitung 2026-11-01)
+
+## Web-Push – Weckruf bei geschlossener App (freigegeben von der Projektleitung 2026-11-01 unter Vorbehalt DSB-Votum, Fragebogen Runde 12)
+Konzept und Entscheidungen: [`WEBPUSH.md`](WEBPUSH.md). Bis zum positiven schriftlichen Votum gilt „Kein Push“; jetzt nur WP-01, alles andere **erst nach DSB-Votum**. Kurz: Opt-in je Gerät, Standard aus, festes Muster „Neue Benachrichtigung in SchulOS“ ohne Namen/Inhalt, Personal und Eltern ab Start, Schüler:innen schulweit einschaltbar, Abos löschen bei Abmelden oder nach 90 Tagen ohne Zustellung, nur mit vertrauenswürdigem Zertifikat, Ruhezeiten fest 20–6 Uhr und Wochenende. Migrationsnummer erst direkt vor dem PR.
+- [ ] **WP-01** (S) DSB-Fragen ergänzen: neues Thema „Web-Push“ in der DSB-Checkliste (`checkliste.ts`), `docs/DSB-FRAGEN.md` neu erzeugen, Test grün (Projektleitung 2026-11-01)
+- [ ] **WP-02** (M) Tabellen `push_*`, Migration, `retention`, VAPID-Schlüsselablage, Service mit Tests – erst nach DSB-Votum (Projektleitung 2026-11-01)
+- [ ] **WP-03** (S–M) Service-Worker-Handler (`push`, `notificationclick`), `service-worker.test.ts`, SICHERHEIT S63 – erst nach DSB-Votum (Projektleitung 2026-11-01)
+- [ ] **WP-04** (M) Zustellung: Einhängen in den Gong, Bündelung, Ruhezeiten, Fehlerbehandlung 404/410, Job – erst nach DSB-Votum (Projektleitung 2026-11-01)
+- [ ] **WP-05** (M) UI im Profil (Opt-in, Geräteliste, Kategorien) + Hauptschalter/Rollenfreigabe – erst nach DSB-Votum (Projektleitung 2026-11-01)
+- [ ] **WP-06** (S) Betrieb: Ausgangsfreigabe/Installerhinweis, Alarm bei Dauerfehler – erst nach DSB-Votum (Projektleitung 2026-11-01)
+- [ ] **WP-07** (M) Datenschutzdokumente, Hilfe/Handbuch, E2E mit Mock-Push-Dienst – erst nach DSB-Votum (Projektleitung 2026-11-01)
+
+## Beobachtungsnotizen – Notenbuch (freigegeben von der Projektleitung 2026-11-01 unter Vorbehalt DSB-Votum, Fragebogen Runde 12)
+Konzept und Entscheidungen: [`BEOBACHTUNGSNOTIZEN.md`](BEOBACHTUNGSNOTIZEN.md). Jetzt nur BN-01, alles andere **erst nach DSB-Votum**. Kurz: Kategorie + Datum + Freitext bis 300 Zeichen, nur Fachlehrkräfte des Lehrauftrags, Schüler:innen/Eltern nur über Auskunft/Einsicht, Löschklasse LK-SJ-1J, nicht mit dem Buch übertragen, nicht offline, Hinweis + Warnung bei Diagnosewörtern; Moduleinstellung Vorgabe aus. Migrationsnummer erst direkt vor dem PR.
+- [ ] **BN-01** (S) DSB-Fragen ergänzen: neues Thema „Beobachtungsnotizen“ in der DSB-Checkliste (`checkliste.ts`), `docs/DSB-FRAGEN.md` neu erzeugen, Test grün (Projektleitung 2026-11-01)
+- [ ] **BN-02** (M) `notenbuch_notes`, Migration, Service, Rechteprüfung, Moduleinstellung `notenbuch.notes`, Manifest (`retention`), Auskunft, Tests – erst nach DSB-Votum (Projektleitung 2026-11-01)
+- [ ] **BN-03** (M) Oberfläche im Notenbuch, Hinweis- und Wortwarnung, `NOTICE_VERSION` anheben – erst nach DSB-Votum (Projektleitung 2026-11-01)
+- [ ] **BN-04** (S) Handbuch, Nutzungsordnungs-Baustein, Datenschutzdoku, E2E – erst nach DSB-Votum (Projektleitung 2026-11-01)
+
 ## Technische Schulden / Folgepunkte
 - [x] **TD-01** Deutsche Sortierung in DB-Listen (Benutzer, Adressbuch, Gruppen): PGlite sortiert per C-Collation (ä hinter z). Entweder ICU-Collation prüfen oder Sortierschlüssel-Spalte (umlaut-normalisiert). In der Aufgaben-Matrix bereits per Intl.Collator gelöst.
 - [x] **TD-02** Formulare verlieren nach einem Validierungsfehler die Eingaben (React 19 setzt Formulare nach einer Action zurück). In der Stundenplan-Pflege per `FormState.values` + `key` gelöst; Kalender-, Benutzer-, Gruppen- und News-Formulare prüfen und ggf. gleich lösen.
