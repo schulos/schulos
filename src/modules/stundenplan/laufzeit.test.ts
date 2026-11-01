@@ -26,6 +26,8 @@ describe("Vorlagen „Neues Halbjahr“ und „Änderung im laufenden Plan“ (S
   const viewer: Viewer = { userId: "u-frank.schulte", manage: true, review: true };
   beforeAll(async () => {
     h = await createSeededTestDb();
+    // Demo-Vertretungen liegen am nächsten echten Schultag – die Tests hier nutzen feste Daten (u. a. 2026-11-02)
+    await h.db.delete(timetableSubstitutions);
   }, 120_000);
   afterAll(() => h.close());
 
