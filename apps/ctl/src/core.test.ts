@@ -5,7 +5,7 @@ import { dockerExposureProblem, formatBytes, formatStatus, parseArgs, parseCompo
 describe("Aufruf", () => {
   it("Befehle, Installationsordner, Optionen", () => {
     expect(parseArgs([])).toEqual({ dir: "/opt/schulos", command: { name: "help" } });
-    expect(parseArgs(["status"], { SCHULOS_DIR: "/srv/x" })).toEqual({ dir: "/srv/x", command: { name: "status" } });
+    expect(parseArgs(["status"], { SCHULOS_DIR: "/srv/x" })).toEqual({ dir: "/srv/x", command: { name: "status", json: false } });
     expect(parseArgs(["--dir", "/a", "backup", "now"])).toEqual({ dir: "/a", command: { name: "backup-now" } });
     expect(parseArgs(["reset-admin"]).command).toEqual({ name: "reset-admin" });
     expect(parseArgs(["reset-admin", "chef"]).command).toEqual({ name: "reset-admin", username: "chef" });

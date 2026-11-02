@@ -538,6 +538,17 @@ Backupserver vertrauenswürdig ist.
 - Compose-Stack: `caddy` (TLS, Reverse Proxy, SSE mit `flush_interval -1`) · `schulos-app`
   (Next.js standalone, Node 24 LTS, Nicht-Root, Migrationen beim Start, Jobs wie der Löschlauf im
   Prozess) · `postgres:18` · `backup-agent` · optional `clamav`
+- **Betriebsmonitoring (BM-01…BM-04, [BETRIEBSMONITORING.md](BETRIEBSMONITORING.md)):** Verwaltung → System → Karte „Betrieb“ zeigt die Stufe
+  (in Ordnung/Warnung/Störung) und die Befunde: Datenbank, Mail-Warteschlange, Hintergrundjobs, Sicherung samt unveränderlicher Kopie,
+  Speicherplatz, Zertifikatsablauf, Updates/Neustart. Maschinenlesbar: `GET /api/health/details` (JSON; `/api/health` bleibt die schlanke
+  Antwort für Container-Healthcheck und Smoketest). Zugang einstellbar: **nur aus dem Schulnetz** (Vorgabe), **nur mit Token**
+  (`Authorization: Bearer <token>`; Token im Volume `config`, unter Verwaltung → System erneuerbar) oder aus. Von außerhalb des
+  Schulnetzes ist der Pfad gesperrt (nicht in der Allowlist von Caddy und App; im Modus „alles“ nur mit Token) und antwortet ohne
+  Berechtigung immer 404. Antwort 200 (ok/Warnung) bzw. 503 (Störung). Auf dem Server: `schulosctl status --json` (ein JSON-Objekt, Exit-Code
+  0 ok · 1 Warnung · 2 Fehler – für Skripte und Überwachungs-Plugins; ohne `--json` bleibt der Text-Status). Das Zertifikat misst
+  `schulosctl` am HTTPS-Port (`SCHULOS_HTTPS_PORT`, `SCHULOS_DOMAIN`) und meldet es mit dem Abgleich (`system-status.json`, Feld `tls`).
+  Schwellen (Mail-Stau ab 60 Minuten, Sicherung älter als 26 Stunden) unter Verwaltung → System; zusätzliche Alarm-Mails (gleiche
+  Empfänger wie die übrigen Betriebsalarme): **Mail-Stau** und **Zertifikat läuft in weniger als 14 Tagen ab**. Kein Verlauf, nur der aktuelle Stand.
 - **Virenscan (P4-72, optional, Vorgabe aus):** ClamAV (GPL-2.0, eigener Container – SchulOS spricht nur das Netzprotokoll von
   clamd, kein gemeinsamer Code) als Compose-Profil: in `.env` `SCHULOS_CLAMAV=clamav:3310`, dann
   `docker compose --profile clamav up -d`. Beim ersten Start lädt `freshclam` die Signaturen (~300 MB, Internet), danach
@@ -572,7 +583,7 @@ Backupserver vertrauenswürdig ist.
   (`scripts/haertung-pruefen.sh`, CI-Jobs `stack`/`backup`) und statisch (`compose-haertung.test.ts`).
 - **Updates:** Betriebssystem und SchulOS werden getrennt aktualisiert, beides mit Sicherung
   vorher und Rückweg danach – Details in §5a.
-- `schulosctl`: `status` · `update` · `rollback` · `backup now` · `reset-admin` · `schulnetz-zuruecksetzen` · `ssh-netze` ·
+- `schulosctl`: `status [--json]` · `update` · `rollback` · `backup now` · `reset-admin` · `schulnetz-zuruecksetzen` · `ssh-netze` ·
   `demo-reset` · `support-bundle` (Logs **ohne Personendaten**) · `sicherheit-nachruesten` · `tpm-neu-binden` (§2.3)
   - Stand B-31: `apps/ctl`, gebündelt zu einer Datei `schulosctl.mjs` (Node 24 auf dem Host, keine Abhängigkeiten),
     steuert den Stack im Installationsordner (`--dir`, `SCHULOS_DIR`, Vorgabe `/opt/schulos`) über `docker compose`.

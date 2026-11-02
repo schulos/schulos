@@ -15,7 +15,10 @@ import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
-import { AlarmSettingsForm, ChannelForm, RebootForm, ReleaseForm, TestMailForm } from "./forms";
+import { AlarmSettingsForm, ChannelForm, HealthSettingsForm, RebootForm, ReleaseForm, TestMailForm } from "./forms";
+import { collectHealth } from "@/core/system/health";
+import { readHealthSettings } from "@/core/system/health-settings";
+import type { HealthLevel } from "@schulos/server/system";
 import { readAlarmSettings } from "@/core/system/security-alarms";
 import { clamavTarget, clamavVersion } from "@/core/files/virus-scan";
 import { crowdsecConfig, crowdsecStatus } from "@/core/crowdsec";
@@ -73,6 +76,8 @@ const fmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "
 const day = new Intl.DateTimeFormat("de-DE", { dateStyle: "long", timeZone: TZ });
 const HEALTH_TONE: Record<BackupHealth, "success" | "warn" | "danger"> = { ok: "success", overdue: "danger", failed: "danger", none: "warn" };
 const IMMUTABLE_TONE: Record<ImmutableHealth, "success" | "warn" | "danger"> = { ok: "success", veraltet: "danger", fehlt: "danger", aus: "warn" };
+const LEVEL_TONE: Record<HealthLevel, "success" | "warn" | "danger"> = { ok: "success", warn: "warn", error: "danger" };
+const LEVEL_LABEL: Record<HealthLevel, string> = { ok: "in Ordnung", warn: "Warnung", error: "Störung" };
 const KIND_LABEL = { patch: "Fehlerbehebung", minor: "neue Funktionen", major: "größeres Update" } as const;
 const OS_TEXT: Record<OsSupportState, { tone: "success" | "warn" | "danger" | "neutral"; label: string }> = {
   ok: { tone: "success", label: "mit Sicherheitsupdates" },
@@ -90,6 +95,36 @@ export default async function SystemPage() {
   const backup = backupStatus();
   const queryStats = <QueryStatsCard stats={await slowQueries(await getDb())} />;
   const superuser = await appRoleIsSuperuser(await getDb());
+
+  // BM-04: Betriebsstatus (dieselben Kennzahlen wie /api/health/details)
+  const healthSettings = await readHealthSettings(await getDb());
+  const health = await collectHealth(await getDb(), { system: status, backup, settings: healthSettings });
+  const healthCard = (
+    <Card aria-label="Betrieb">
+      <CardHeader title="Betrieb" />
+      <p className="flex flex-wrap items-center gap-2 text-sm">
+        <Badge tone={LEVEL_TONE[health.level]}>{LEVEL_LABEL[health.level]}</Badge>
+        <span className="text-muted">
+          Datenbank {health.database.ok ? `${health.database.latencyMs} ms` : "antwortet nicht"} · Mail-Warteschlange {health.mail.pending} · Jobs {health.jobs.length}
+          {health.tls ? ` · Zertifikat noch ${health.tls.daysLeft} Tage` : ""}
+        </span>
+      </p>
+      {health.problems.length > 0 && (
+        <ul className="mt-2 list-disc pl-5 text-sm" aria-label="Befunde">
+          {health.problems.map((p) => (
+            <li key={p.key} className={p.level === "error" ? "text-danger" : ""}>
+              {p.text}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-sm text-muted">
+        Warnungen gehen als Alarm-Mail an die Empfänger unter „E-Mail“. Maschinenlesbar: <code>/api/health/details</code> (nur Schulnetz bzw. mit Token),
+        auf dem Server <code>schulosctl status --json</code>.
+      </p>
+      <HealthSettingsForm settings={healthSettings} />
+    </Card>
+  );
 
   const backupCard = (
     <Card aria-label="Backup">
@@ -145,7 +180,7 @@ export default async function SystemPage() {
           </p>
           {alarmTo.length ? (
             <p>
-              Alarme (Backup überfällig oder fehlgeschlagen, Update fehlgeschlagen, Speicherplatz knapp, Neustart ausstehend, unveränderliche
+              Alarme (Backup überfällig oder fehlgeschlagen, Update fehlgeschlagen, Speicherplatz knapp, Neustart ausstehend, Mail-Stau, Zertifikat läuft ab, unveränderliche
               Kopie veraltet, Häufung fehlgeschlagener Anmeldungen, neue Admin-/Verwaltungsrechte) gehen an <strong>{alarmTo.join(", ")}</strong> –
               einmal, bei Fortbestehen täglich, und wenn alles wieder in Ordnung ist (neue Rechte nur einmal).
             </p>
@@ -242,6 +277,7 @@ export default async function SystemPage() {
           <strong>Noch kein Systemstatus.</strong> Den schreibt <code>schulosctl system-sync</code> auf dem Server (systemd-Timer
           <code> schulos-sync.timer</code>, alle 5 Minuten). In der Entwicklung ohne Server bleibt diese Seite leer.
         </p>
+        {healthCard}
         {backupCard}
         {mailCard}
         {anmeldungCard}
@@ -407,6 +443,7 @@ export default async function SystemPage() {
         )}
       </Card>
 
+      {healthCard}
       {backupCard}
       {mailCard}
       {anmeldungCard}

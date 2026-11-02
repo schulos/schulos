@@ -67,6 +67,9 @@ describe("Solver-Lauf (Demo-Schule)", () => {
   let h: DbHandle;
   beforeAll(async () => {
     h = await createSeededTestDb();
+    // Die Demo legt Vertretungen relativ zum echten Datum an; die Tests rechnen mit festen Stichtagen
+    // (ab 2026-11-02) und zählen Vertretungen exakt – ohne Löschen wären sie ab diesem Datum rot.
+    await h.db.delete(timetableSubstitutions);
   });
   afterAll(() => h.close());
 

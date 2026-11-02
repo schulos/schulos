@@ -1,3 +1,4 @@
+// BM-04: zusätzlich Mail-Stau und ablaufendes Zertifikat.
 // Alarme des Hauptsystems per E-Mail (B-38): Backup überfällig/fehlgeschlagen/nicht eingerichtet, Update fehlgeschlagen,
 // Speicherplatz knapp, Abgleich mit dem Server läuft nicht; SEC-14: unveränderliche Kopie veraltet/fehlt, Häufung von
 // Fehl-Anmeldungen, neue Admin-/Verwaltungsrechte (security-alarms.ts), Empfänger auch aus Verwaltung → System. Je Ursache einmal, täglich erinnert, „behoben“ beim Verschwinden.
@@ -6,11 +7,13 @@ import { eq } from "drizzle-orm";
 import { alarmMessage, alarmRecipients, DISK_WARN_PERCENT, mailConfig, planAlarms, smtpSender, type Alarm, type AlarmState, type MailConfig, type Sender } from "@schulos/server/mail";
 import { immutableHealth } from "@schulos/server/agent-api";
 import { collectSecurityAlarms, readAlarmSettings } from "./security-alarms";
-import { rebootPendingDays, REBOOT_RED_DAYS, type SystemStatus } from "@schulos/server/system";
+import { daysUntil, rebootPendingDays, REBOOT_RED_DAYS, TLS_WARN_DAYS, type SystemStatus } from "@schulos/server/system";
 import type { Db } from "@/core/db/client";
 import { appSettings } from "@/core/db/schema";
 import type { BackupStatus } from "@/core/backup/status";
 import { backupStatus } from "@/core/backup/status";
+import { outboxStats, type OutboxStats } from "@/core/mail";
+import { MAIL_BACKLOG_DEFAULT, readHealthSettings } from "./health-settings";
 import { readSystemStatus, statusIsStale } from "./status";
 import { TZ } from "@/core/time";
 
@@ -20,7 +23,8 @@ const UPDATE_ALARM_HOURS = 48;
 
 const fmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "short", timeZone: TZ });
 
-export function collectAlarms(input: { backup: BackupStatus; system: SystemStatus | null; now: Date }): Alarm[] {
+/** `mail` + `mailBacklogMinutes` (BM-04): Mail-Stau; ohne Angabe kein Mail-Alarm (alte Aufrufer, Tests). */
+export function collectAlarms(input: { backup: BackupStatus; system: SystemStatus | null; now: Date; mail?: Pick<OutboxStats, "pending" | "oldestPending"> | null; mailBacklogMinutes?: number }): Alarm[] {
   const out: Alarm[] = [];
   const b = input.backup;
   if (!b.paired)
@@ -40,6 +44,16 @@ export function collectAlarms(input: { backup: BackupStatus; system: SystemStatu
       key: "unveraenderlich",
       title: im === "fehlt" ? "Unveränderliche Backup-Kopie fehlt" : "Unveränderliche Backup-Kopie veraltet",
       detail: `${b.immutable?.lastAt ? `Letzte unveränderliche Kopie: ${fmt.format(new Date(b.immutable.lastAt))}. ` : ""}${b.immutable?.error ?? "Schnappschüsse des Offsite-Ziels prüfen"} – sie schützt die Sicherungen, falls Hauptsystem und Backupserver übernommen werden (INSTALLATION.md §4.3a).`,
+    });
+
+  // BM-04: Mails stauen sich (SMTP-Server nicht erreichbar, Zugangsdaten falsch) – sonst fällt es erst auf, wenn niemand Mails bekommt
+  const oldest = input.mail?.oldestPending;
+  const backlogMin = input.mailBacklogMinutes ?? MAIL_BACKLOG_DEFAULT;
+  if (oldest && input.now.getTime() - oldest.getTime() >= backlogMin * 60_000)
+    out.push({
+      key: "mail:stau",
+      title: `Mail-Stau (${input.mail!.pending} Mails warten)`,
+      detail: `Die älteste Mail wartet seit ${fmt.format(oldest)} auf den Versand. SMTP-Zugangsdaten und Erreichbarkeit des Mailservers prüfen (Verwaltung → System → E-Mail, Testmail).`,
     });
 
   const s = input.system;
@@ -72,6 +86,15 @@ export function collectAlarms(input: { backup: BackupStatus; system: SystemStatu
         title: "TPM-Bindung der Platte unvollständig",
         detail: `${s.tpm.problems.join(" ")} Solange nur PCR 7 gilt, entsperrt auch ein fremdes Debian-Startmedium die Platte (INSTALLATION.md §2.3).`,
       });
+    // BM-04: Zertifikat des Reverse-Proxys läuft ab (schulosctl misst beim Abgleich)
+    if (s.tls && daysUntil(s.tls.expiresAt, input.now) < TLS_WARN_DAYS) {
+      const days = daysUntil(s.tls.expiresAt, input.now);
+      out.push({
+        key: "zertifikat",
+        title: days < 0 ? "Zertifikat ist abgelaufen" : `Zertifikat läuft in ${days} Tagen ab`,
+        detail: "Browser und Geräte melden sonst Zertifikatsfehler. Bei Let's-Encrypt-Zertifikaten prüfen, ob die Erneuerung klappt (Caddy-Log); bei der Schul-CA siehe INSTALLATION.md (TLS).",
+      });
+    }
     if (statusIsStale(s, input.now))
       out.push({ key: "abgleich", title: "Abgleich mit dem Server läuft nicht", detail: "Der Timer schulos-sync.timer meldet sich nicht – Updates und Statusanzeige stehen." });
   }
@@ -96,8 +119,15 @@ export async function runAlarms(
   const to = alarmRecipients(cfg.to, settings.recipients);
   if (!to.length) return { sent: false as const, reason: "keine Empfänger" };
   const state = await readState(db);
+  const health = await readHealthSettings(db);
   const active = [
-    ...collectAlarms({ backup: opts.backup ?? backupStatus(), system: opts.system !== undefined ? opts.system : readSystemStatus(), now }),
+    ...collectAlarms({
+      backup: opts.backup ?? backupStatus(),
+      system: opts.system !== undefined ? opts.system : readSystemStatus(),
+      now,
+      mail: await outboxStats(db),
+      mailBacklogMinutes: health.mailBacklogMinutes,
+    }),
     ...(await collectSecurityAlarms(db, { now, loginAlarmActive: Boolean(state["anmeldung:haeufung"]), settings })),
   ];
   const plan = planAlarms(active, state, now);
