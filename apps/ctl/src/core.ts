@@ -1,11 +1,14 @@
 // Reine Logik von schulosctl (B-31): Aufruf zerlegen, Status auswerten, Support-Bundle ohne Personendaten.
 import { backupHealth, HEALTH_LABEL, type AgentState } from "@schulos/server/agent-api";
+import { DISK_WARN_PERCENT } from "@schulos/server/mail";
+import { daysUntil, healthExitCode, hostProblems, overallLevel, type CtlStatusReport, type HealthProblem } from "@schulos/server/system";
 
 export const USAGE = `schulosctl – Betrieb von SchulOS (INSTALLATION.md §5)
 
 Aufruf: schulosctl [--dir <installationsordner>] <befehl>
 
-  status                  Dienste, Version, Instanz, Backup, Speicherplatz
+  status [--json]         Dienste, Version, Instanz, Backup, Speicherplatz, Zertifikat; --json: ein JSON-Objekt, Exit-Code
+                          0 in Ordnung · 1 Warnung · 2 Fehler (für Skripte und Überwachung)
   backup now              jetzt sichern (Backup-Agent, wartet auf das Ergebnis)
   reset-admin [name]      Admin-Zugang wiederherstellen: neues Passwort, zweiter Faktor aus, Sperre weg
   schulnetz-zuruecksetzen Schulnetz-Bereiche der Anmeldung (Verwaltung → System) auf die Vorgabe zurück – wer sich
@@ -55,7 +58,7 @@ Aufruf: schulosctl [--dir <installationsordner>] <befehl>
 Installationsordner: --dir, sonst SCHULOS_DIR, sonst /opt/schulos (dort liegen compose.yaml und .env).`;
 
 export type Command =
-  | { name: "status" }
+  | { name: "status"; json: boolean }
   | { name: "backup-now" }
   | { name: "reset-admin"; username?: string }
   | { name: "schulnetz-zuruecksetzen" }
@@ -103,6 +106,7 @@ export function parseArgs(argv: string[], env: Record<string, string | undefined
     return i >= 0;
   };
   dir = take("--dir") ?? dir;
+  const json = flag("--json");
   const out = take("--out");
   const kanal = take("--kanal");
   const domain = take("--domain");
@@ -126,7 +130,7 @@ export function parseArgs(argv: string[], env: Record<string, string | undefined
       return { dir, command: { name: "help" } };
     case "status":
       extra(1);
-      return { dir, command: { name: "status" } };
+      return { dir, command: { name: "status", json } };
     case "version":
       extra(1);
       return { dir, command: { name: "version" } };
@@ -248,6 +252,8 @@ export interface StatusInput {
   now: Date;
   /** Ergebnis von dockerExposureProblem (GATE-4c) */
   exposure?: string | null;
+  /** BM-04: Ablauf des Zertifikats, das der Reverse-Proxy ausliefert (null = nicht gemessen) */
+  tls?: { expiresAt: string } | null;
 }
 
 /**
@@ -281,46 +287,82 @@ const berlin = (iso: string) =>
   new Date(iso).toLocaleString("de-DE", { timeZone: "Europe/Berlin", dateStyle: "short", timeStyle: "short" });
 
 /** Gesamturteil + Zeilen für `schulosctl status`. Exitcode 0 = alles in Ordnung, 1 = Warnung/Fehler. */
-export function formatStatus(s: StatusInput): { ok: boolean; lines: string[] } {
-  const problems: string[] = [];
+export function formatStatus(s: StatusInput): { ok: boolean; lines: string[]; problems: HealthProblem[] } {
+  const found: HealthProblem[] = [];
+  /** `problems.push(text)` = Fehler; Warnungen (BM-03) über `warn` */
+  const problems = { push: (text: string, key = "status", level: "warn" | "error" = "error") => void found.push({ level, key, text }) };
   const lines: string[] = [];
   if (s.app) {
     const total = Object.values(s.app.accounts).reduce((a, b) => a + b, 0);
     lines.push(`SchulOS ${s.app.version} · Instanz ${s.app.instance} · Datenbank ${s.app.database} (${s.app.migrations} Migrationen) · ${total} Konten`);
   } else {
     lines.push("SchulOS: App antwortet nicht");
-    problems.push("App antwortet nicht");
+    problems.push("App antwortet nicht", "app");
   }
   lines.push("", "Dienste:");
-  if (!s.services.length) problems.push("keine Dienste gefunden (läuft der Stack?)");
+  if (!s.services.length) problems.push("keine Dienste gefunden (läuft der Stack?)", "dienste");
   for (const svc of s.services) {
     const bad = svc.state !== "running" || (svc.health !== "" && svc.health !== "healthy");
-    if (bad) problems.push(`${svc.service}: ${svc.state}${svc.health ? `/${svc.health}` : ""}`);
+    if (bad) problems.push(`${svc.service}: ${svc.state}${svc.health ? `/${svc.health}` : ""}`, `dienst:${svc.service}`);
     lines.push(`  ${bad ? "✗" : "✓"} ${svc.service.padEnd(16)} ${svc.state}${svc.health ? ` (${svc.health})` : ""}`);
   }
   lines.push("", "Backup:");
   if (!s.backup) {
     lines.push("  nicht gekoppelt (Verwaltung → Backup)");
-    problems.push("Backup nicht eingerichtet");
+    problems.push("Backup nicht eingerichtet", "backup:fehlt", "warn");
   } else {
     const h = backupHealth(s.backup.lastOkAt ? new Date(s.backup.lastOkAt) : null, s.backup.lastRun, s.now);
     lines.push(`  ${h === "ok" ? "✓" : "✗"} ${HEALTH_LABEL[h]}${s.backup.lastOkAt ? ` – letzte Sicherung ${berlin(s.backup.lastOkAt)}` : ""}`);
     if (s.backup.runningSince) lines.push(`  läuft seit ${berlin(s.backup.runningSince)}`);
     if (s.backup.lastRun?.status === "failed" && s.backup.lastRun.error) lines.push(`  Fehler: ${s.backup.lastRun.error}`);
     if (s.backup.lastContactError) lines.push(`  Backupserver nicht erreichbar: ${s.backup.lastContactError}`);
-    if (h !== "ok") problems.push(`Backup ${HEALTH_LABEL[h]}`);
+    if (h !== "ok") problems.push(`Backup ${HEALTH_LABEL[h]}`, "backup");
   }
   if (s.disk) {
-    const warn = s.disk.usedPercent >= 90;
+    const warn = s.disk.usedPercent >= DISK_WARN_PERCENT;
     lines.push("", `Speicher: ${warn ? "✗" : "✓"} ${s.disk.usedPercent} % belegt, ${formatBytes(s.disk.freeBytes)} frei`);
-    if (warn) problems.push("Speicherplatz knapp");
+    if (warn) found.push(...hostProblems({ disk: s.disk, diskWarnPercent: DISK_WARN_PERCENT, now: s.now }).map((p) => ({ ...p, text: "Speicherplatz knapp" })));
   }
   if (s.exposure) {
     lines.push("", `Außenzugang: ✗ ${s.exposure}`);
-    problems.push("Außenzugang über IPv6 offen");
+    problems.push("Außenzugang über IPv6 offen", "aussenzugang");
   }
-  lines.unshift(problems.length ? `Zustand: ACHTUNG – ${problems.join("; ")}` : "Zustand: in Ordnung", "");
-  return { ok: problems.length === 0, lines };
+  if (s.tls) {
+    const days = daysUntil(s.tls.expiresAt, s.now);
+    const tlsProblems = hostProblems({ tls: s.tls, diskWarnPercent: 101, now: s.now });
+    lines.push("", `Zertifikat: ${tlsProblems.length ? "✗" : "✓"} gültig bis ${berlin(s.tls.expiresAt)} (${days < 0 ? "abgelaufen" : `noch ${days} Tage`})`);
+    found.push(...tlsProblems);
+  }
+  lines.unshift(found.length ? `Zustand: ACHTUNG – ${found.map((p) => p.text).join("; ")}` : "Zustand: in Ordnung", "");
+  return { ok: found.length === 0, lines, problems: found };
+}
+
+/** BM-03: `schulosctl status --json` – gleiche Befunde wie der Text, dazu Stufe und Exit-Code 0/1/2 (ok/Warnung/Fehler). */
+export function statusReport(s: StatusInput): CtlStatusReport {
+  const { problems } = formatStatus(s);
+  const level = overallLevel(problems);
+  const b = s.backup;
+  return {
+    version: 1,
+    checkedAt: s.now.toISOString(),
+    level,
+    exitCode: healthExitCode(level),
+    problems,
+    app: s.app ? { version: s.app.version, instance: s.app.instance, database: s.app.database, migrations: s.app.migrations, accounts: Object.values(s.app.accounts).reduce((x, y) => x + y, 0) } : null,
+    services: s.services.map((x) => ({ service: x.service, state: x.state, health: x.health })),
+    backup: b
+      ? {
+          paired: true,
+          health: backupHealth(b.lastOkAt ? new Date(b.lastOkAt) : null, b.lastRun, s.now),
+          lastOkAt: b.lastOkAt ?? null,
+          runningSince: b.runningSince ?? null,
+          contactError: b.lastContactError ? redactLog(b.lastContactError) : null,
+        }
+      : null,
+    disk: s.disk,
+    tls: s.tls ? { expiresAt: s.tls.expiresAt, daysLeft: daysUntil(s.tls.expiresAt, s.now) } : null,
+    exposure: s.exposure ?? null,
+  };
 }
 
 /** `df -P -B1 <pfad>` → belegt in %, frei in Bytes. */

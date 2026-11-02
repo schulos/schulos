@@ -6,10 +6,15 @@ test("Lehrkraft trägt eine Stunde ins Klassenbuch ein, inkl. Fehlzeit und Versp
   await login(page, "jana.brandt");
   await page.getByRole("link", { name: "Klassenbuch", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Meine Stunden" })).toBeVisible();
-  const start = page.url();
-  await page.getByRole("link", { name: "Vorheriger Schultag" }).click();
-  await expect(page).not.toHaveURL(start);
+  // zurück bis zu einem Schultag mit offener Stunde: montags ist das der Freitag, an dem die Lehrkraft nur wenige Stunden hat
+  // und andere Specs im selben Lauf schon eintragen – dann wäre dort „alles eingetragen“ (rot ab 2026-11-02)
   const open = page.getByRole("link", { name: /Offen$/ }).first();
+  for (let back = 0; back < 5 && (back === 0 || !(await open.isVisible())); back++) {
+    const before = page.url();
+    await page.getByRole("link", { name: "Vorheriger Schultag" }).click();
+    await expect(page).not.toHaveURL(before);
+    await expect(page.getByRole("heading", { name: "Meine Stunden" })).toBeVisible();
+  }
   await expect(open).toBeVisible();
   // TD-16: genau diese Stunde später wieder öffnen – andere Specs tragen am selben Schultag ebenfalls Stunden ein
   const entryHref = (await open.getAttribute("href"))!;

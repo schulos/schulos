@@ -920,7 +920,8 @@ export default async function VertretungenPage({ searchParams }: { searchParams:
                                   )}
                                 </div>
                                 <details className="text-xs">
-                                  <summary className="cursor-pointer font-medium">Gründe ({c.reasons.length})</summary>
+                                  {/* mind. 24 px hoch (WCAG 2.5.8): je nach Umbruch der Karte meldete axe sonst den Abstand zum Nachbarn */}
+                                  <summary className="flex min-h-6 cursor-pointer items-center font-medium">Gründe ({c.reasons.length})</summary>
                                   <ul aria-label={`Gründe: ${who}`} className="mt-1 flex flex-col gap-0.5 text-muted">
                                     {c.reasons.map((r) => (
                                       <li key={r.label}>

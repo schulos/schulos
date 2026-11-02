@@ -364,6 +364,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "verwaltung.schule.barrierefreiheit": "Erklärung zur Barrierefreiheit geändert",
   "verwaltung.schule.impressum": "Impressum geändert",
   "system.alarme.einstellungen": "Einstellungen der Sicherheitsalarme geändert",
+  "system.health.einstellungen": "Einstellungen der Betriebsüberwachung geändert",
+  "system.health.token_erneuert": "Token für den Betriebsstatus erneuert",
   "abwesenheiten.leave.request": "Beurlaubung beantragt",
   "abwesenheiten.leave.decide": "Beurlaubung entschieden",
   "abwesenheiten.leave.withdraw": "Beurlaubungsantrag zurückgezogen",
