@@ -110,7 +110,8 @@ test("INV-01/02: Inventar anlegen, Etikett drucken, /i/<code> Rechte, Neuerzeuge
   await expect(t.getByRole("heading", { level: 1, name: "E2E Dokumentenkamera Bio" })).toBeVisible();
   await expect(t.getByText(/^Präsentation/)).toBeVisible();
   await expect(t.getByText("Raum NW1")).toBeVisible();
-  await expect(t.getByRole("link", { name: "Mangel melden" })).toHaveAttribute("href", "/gebaeude/melden?raum=NW1");
+  // INV-03: „Mangel melden“ trägt das Gerät mit (Raum, Kategorie, Bezeichnung vorbelegt)
+  await expect(t.getByRole("link", { name: "Mangel melden" })).toHaveAttribute("href", `/gebaeude/melden?asset=${assetUrl.split("/").pop()}`);
   await expect(t.getByText(/Seriennummer|Preis|Finanzierung|Etikett/)).toHaveCount(0);
   expect(await t.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
   await axeClean(t);
@@ -162,4 +163,91 @@ test("INV-01/02: Inventar anlegen, Etikett drucken, /i/<code> Rechte, Neuerzeuge
   await page.goto(`/gebaeude/inventar?q=${encodeURIComponent("E2E Dokumentenkamera")}&alle=1`);
   await expect(page.getByRole("table", { name: "Inventar" })).toContainText("ausgemustert");
   expect(errors).toEqual([]);
+});
+
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==", "base64");
+
+test("INV-03: mobile Asset-Seite – Zustand, Standort, Foto, Historie; Mangel melden mit Gerätebezug", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const mobile = { viewport: { width: 360, height: 800 }, colorScheme: "dark" as const };
+
+  // Hausmeisterei (Gruppenrecht) am Handy: anlegen, dann vor Ort Zustand, Standort und Foto erfassen
+  const hm = await browser.newContext(mobile);
+  const page = await hm.newPage();
+  const errors = collectErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page, "klaus.berger");
+  await page.goto("/gebaeude/inventar");
+  const neu = page.getByRole("form", { name: "Inventar anlegen" });
+  await neu.getByLabel("Bezeichnung").fill("E2E Beamer Aula");
+  await neu.getByLabel("Kategorie").selectOption({ label: "Präsentation/AV (Beamer, Displays, Dokumentenkameras, Ton)" });
+  await neu.getByLabel("Raum").selectOption("106");
+  await neu.getByLabel("Zustand").selectOption("gut");
+  await neu.getByRole("button", { name: "Anlegen" }).click();
+  await expect(page).toHaveURL(/\/gebaeude\/inventar\/[^/?]+\?angelegt=1$/);
+  const assetUrl = new URL(page.url()).pathname;
+  const assetId = assetUrl.split("/").pop()!;
+
+  const zustand = page.getByRole("form", { name: "Zustand setzen" });
+  await expect(zustand.getByRole("button", { name: "gut" })).toHaveAttribute("aria-pressed", "true");
+  await zustand.getByRole("button", { name: "defekt" }).click();
+  await expect(zustand.getByRole("status")).toHaveText("Zustand gespeichert.");
+  await expect(zustand.getByRole("button", { name: "defekt" })).toHaveAttribute("aria-pressed", "true");
+
+  const move = page.getByRole("form", { name: "Standort ändern" });
+  await move.getByLabel("Neuer Raum").selectOption("NW1");
+  await move.getByRole("button", { name: "Umziehen" }).click();
+  await expect(move.getByRole("status")).toHaveText("Standort gespeichert.");
+  await expect(page.getByText("Jetzt: Raum NW1")).toBeVisible();
+
+  const foto = page.getByRole("form", { name: "Foto hinzufügen" });
+  await expect(foto.getByLabel("Foto", { exact: true })).toHaveAttribute("capture", "environment");
+  await foto.getByLabel("Foto", { exact: true }).setInputFiles({ name: "beamer.png", mimeType: "image/png", buffer: PNG });
+  await foto.getByRole("button", { name: "Hochladen" }).click();
+  const gallery = page.getByRole("list", { name: "Fotos des Geräts" });
+  await expect(gallery.getByRole("img")).toHaveCount(1);
+  const photoSrc = (await gallery.getByRole("img").getAttribute("src"))!;
+  expect((await page.request.get(photoSrc)).headers()["content-type"]).toBe("image/jpeg");
+
+  const history = page.getByRole("list", { name: "Historie" });
+  await expect(history).toContainText("Inventar-Standort geändert · Raum 106 → Raum NW1");
+  await expect(history).toContainText("Inventar-Zustand geändert · gut → defekt");
+  await expect(history).toContainText("Inventar-Foto hinzugefügt");
+  await expect(history).toContainText("Klaus Berger");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await axeClean(page);
+
+  // Lehrkraft am Handy: Asset-Seite → „Mangel melden“, Gerät/Raum/Kategorie vorbelegt; Fotos und Historie bleiben verborgen
+  const lk = await browser.newContext(mobile);
+  const t = await lk.newPage();
+  const teacherErrors = collectErrors(t);
+  await login(t, "jana.brandt");
+  await t.goto(assetUrl);
+  await expect(t.getByRole("list", { name: "Historie" })).toHaveCount(0);
+  await expect(t.getByRole("list", { name: "Fotos des Geräts" })).toHaveCount(0);
+  expect((await t.request.get(photoSrc)).status()).toBe(404);
+  await t.getByRole("link", { name: "Mangel melden" }).click();
+  await expect(t).toHaveURL(`/gebaeude/melden?asset=${assetId}`);
+  await expect(t.getByRole("article", { name: "Betroffenes Gerät" })).toContainText("E2E Beamer Aula");
+  const form = t.getByRole("form", { name: "Mangel melden" });
+  await expect(form.getByLabel("Was ist kaputt?")).toHaveValue("E2E Beamer Aula: ");
+  await expect(form.getByLabel("Kategorie")).toHaveValue("it");
+  await expect(form.getByLabel("Raum")).toHaveValue("NW1");
+  expect(await t.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await axeClean(t);
+  await form.getByLabel("Was ist kaputt?").fill("E2E Beamer Aula: Lampe flackert");
+  await form.getByRole("button", { name: "Mangel melden" }).click();
+  await expect(t).toHaveURL(/\/gebaeude\/[^/?]+\?gemeldet=1$/);
+  await expect(t.getByRole("link", { name: "E2E Beamer Aula" })).toHaveAttribute("href", assetUrl);
+  await t.goto(assetUrl);
+  await expect(t.getByRole("list", { name: "Meldungen zu diesem Gerät" })).toContainText("Lampe flackert");
+  await expect(t.getByText("Eine Meldung ist noch offen.")).toBeVisible();
+  expect(teacherErrors).toEqual([]);
+  await lk.close();
+
+  // Hausmeisterei sieht die Meldung am Gerät
+  await page.reload();
+  await expect(page.getByRole("list", { name: "Meldungen zu diesem Gerät" })).toContainText("Lampe flackert");
+  expect(errors).toEqual([]);
+  await hm.close();
 });

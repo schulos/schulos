@@ -1,5 +1,5 @@
 // Gebäude & Technik (P4-11) – nur relative Imports (drizzle-kit).
-import { boolean, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, boolean, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "../../core/db/schema-auth";
 import { buildingFloors, buildings, groups, rooms } from "../../core/db/schema-core";
 import { calendarEvents } from "../kalender/schema";
@@ -41,6 +41,8 @@ export const gebaeudeTickets = pgTable(
     assigneeId: text("assignee_id").references(() => users.id, { onDelete: "set null" }),
     /** Raumsperre aus dem Ticket (P4-14) */
     roomBlockId: text("room_block_id").references(() => timetableRoomBlocks.id, { onDelete: "set null" }),
+    /** INV-03: betroffenes Inventargut (Mangel über das Etikett gemeldet bzw. aus einer Prüfung); Löschen des Guts lässt die Meldung stehen */
+    assetId: text("asset_id").references((): AnyPgColumn => gebaeudeAssets.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     /** gesetzt bei „erledigt“/„abgelehnt“ – Beginn der Löschfrist; offene Meldungen bleiben */
@@ -50,6 +52,7 @@ export const gebaeudeTickets = pgTable(
     uniqueIndex("gebaeude_tickets_number_uq").on(t.year, t.seq),
     index("gebaeude_tickets_status_idx").on(t.status),
     index("gebaeude_tickets_reporter_idx").on(t.reporterId),
+    index("gebaeude_tickets_asset_idx").on(t.assetId),
   ],
 );
 
@@ -183,6 +186,31 @@ export const gebaeudeAssets = pgTable(
   (t) => [index("gebaeude_assets_category_idx").on(t.categoryId), index("gebaeude_assets_room_idx").on(t.roomId)],
 );
 
+/**
+ * INV-03: Fotos je Inventargut (wie `room_photos`): auf 1600 px verkleinert, Vorschau 480 px, ohne Metadaten. Nur Sachen, keine
+ * Personen (Hinweis am Upload); wer hochgeladen hat, steht nur im Audit-Log. Gehen mit dem Inventargut (cascade, Dateien löscht
+ * `deleteAsset`, Reste der Dateispeicher-Lauf).
+ */
+export const gebaeudeAssetPhotos = pgTable(
+  "gebaeude_asset_photos",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => gebaeudeAssets.id, { onDelete: "cascade" }),
+    storageKey: text("storage_key").notNull(),
+    thumbKey: text("thumb_key").notNull(),
+    mime: text("mime").notNull(),
+    size: integer("size").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gebaeude_asset_photos_asset_idx").on(t.assetId)],
+);
+
 /** Prüfart (Vorlage aus pruefarten.ts oder eigene). Quellen sind Hinweise „zu prüfen“ – SchulOS behauptet keine Rechtsverbindlichkeit. */
 export const gebaeudeInspectionTypes = pgTable("gebaeude_inspection_types", {
   id: text("id")
@@ -271,6 +299,7 @@ export const gebaeudeMaintenanceRooms = pgTable(
 );
 
 export type GebaeudeAsset = typeof gebaeudeAssets.$inferSelect;
+export type GebaeudeAssetPhoto = typeof gebaeudeAssetPhotos.$inferSelect;
 export type GebaeudeAssetCategory = typeof gebaeudeAssetCategories.$inferSelect;
 export type GebaeudeInspectionType = typeof gebaeudeInspectionTypes.$inferSelect;
 export type GebaeudeInspection = typeof gebaeudeInspections.$inferSelect;

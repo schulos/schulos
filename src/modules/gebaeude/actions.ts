@@ -13,6 +13,7 @@ import { toBerlinDate } from "@/core/time";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { TICKET_CATEGORIES, TICKET_STATUSES, type TicketCategory, type TicketStatus } from "./labels";
+import { addAssetPhoto, deleteAssetPhoto, moveAsset, setAssetCondition } from "./asset-seite";
 import { renewAssetCode } from "./etiketten";
 import { createCategory, deleteCategory, updateCategory, type CategoryInput } from "./inventar";
 import {
@@ -67,6 +68,7 @@ export async function createTicketAction(_prev: FormState, form: FormData): Prom
         title: str("title"),
         description: str("description"),
         photos: await filesOf(form, "photos"),
+        assetId: str("assetId") || null,
       },
       { mail: { config, server: config ? `SchulOS ${(await readSchoolSettings(db)).name}` : undefined } },
     ));
@@ -262,7 +264,7 @@ export async function setAssetActiveAction(id: string, active: boolean, _prev: F
 
 export async function deleteAssetAction(id: string): Promise<void> {
   const { perms } = await requireUser();
-  await deleteAsset(await getDb(), perms, id);
+  await deleteAsset(await getDb(), perms, id, getStorage());
   revalidatePath("/", "layout");
   redirect("/gebaeude/inventar?geloescht=1");
 }
@@ -272,6 +274,52 @@ export async function renewAssetCodeAction(id: string): Promise<void> {
   const { perms } = await requireUser();
   await renewAssetCode(await getDb(), perms, id);
   revalidatePath("/", "layout");
+}
+
+// ---------------------------------------------------------------- INV-03: Aktionen der Asset-Seite
+
+/** Zustand per Knopf (`condition` am gedrückten Knopf, leer = offen). */
+export async function setAssetConditionAction(id: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await setAssetCondition(await getDb(), perms, id, String(form.get("condition") ?? "") || null);
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath(`/gebaeude/inventar/${id}`);
+  return { ok: true };
+}
+
+/** Standort ändern (Umzug in einen Raum). */
+export async function moveAssetAction(id: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await moveAsset(await getDb(), perms, id, String(form.get("roomId") ?? ""));
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath(`/gebaeude/inventar/${id}`);
+  return { ok: true };
+}
+
+/** Foto hochladen (mobil mit Kamera). */
+export async function addAssetPhotoAction(id: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const file = form.get("photo");
+  const photo = file instanceof File ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array();
+  try {
+    await addAssetPhoto(await getDb(), getStorage(), perms, id, photo);
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath(`/gebaeude/inventar/${id}`);
+  return { ok: true };
+}
+
+export async function deleteAssetPhotoAction(photoId: string): Promise<void> {
+  const { perms } = await requireUser();
+  const assetId = await deleteAssetPhoto(await getDb(), getStorage(), perms, photoId);
+  revalidatePath(`/gebaeude/inventar/${assetId}`);
 }
 
 function categoryInput(form: FormData): CategoryInput {

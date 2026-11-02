@@ -124,6 +124,9 @@ export const EXPORT_FILES: { table: string; key: string; name: string; via: stri
   // RS-04: Raumfotos zeigen Räume, keine Personen, und tragen keinen Personenbezug – nie Teil einer Auskunft
   { table: "room_photos", key: "storage_key", name: "mime", via: [] },
   { table: "room_photos", key: "thumb_key", name: "mime", via: [] },
+  // INV-03: Fotos von Inventar zeigen Sachen und tragen keinen Personenbezug (wer hochgeladen hat, steht nur im Audit-Log)
+  { table: "gebaeude_asset_photos", key: "storage_key", name: "mime", via: [] },
+  { table: "gebaeude_asset_photos", key: "thumb_key", name: "mime", via: [] },
   // HB-05: Handbuch-Anhänge sind Inhalte der Schule, keine persönlichen Dateien: wer hochgeladen hat, steht nur als Handlung
   // (ACTOR_KEEP), die Datei selbst gehört zur Seite und nie zu einer Auskunft
   { table: "hilfe_attachments", key: "storage_key", name: "name", via: [] },

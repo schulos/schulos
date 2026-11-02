@@ -9,6 +9,9 @@ import type { Db } from "@/core/db/client";
 import {
   bookingResources,
   bookings,
+  buildingFloors,
+  buildings as buildingTable,
+  gebaeudeAssets,
   gebaeudeResponsibilities,
   gebaeudeTicketEvents,
   gebaeudeTicketPhotos,
@@ -157,6 +160,8 @@ export interface TicketInput {
   title: string;
   description: string;
   photos: readonly Uint8Array[];
+  /** INV-03: betroffenes Inventargut – ohne Raum/Ort gilt dessen Standort */
+  assetId?: string | null;
 }
 
 /** Alarm-Mail bei „Gefahr“ (B-38-Mechanik): nur mit SMTP-Konfiguration, an die Alarm-Empfänger. */
@@ -209,8 +214,24 @@ export async function createTicket(
   const fe: Record<string, string> = {};
   const title = input.title.trim();
   const description = input.description.trim();
-  const location = input.location?.trim() || null;
-  const roomId = input.roomId?.trim() || null;
+  let location = input.location?.trim() || null;
+  let roomId = input.roomId?.trim() || null;
+  const assetId = input.assetId?.trim() || null;
+  if (assetId) {
+    // Jede:r mit Melderecht darf ein Inventargut nennen (inv-5) – nur existierende, nicht ausgemusterte; ohne Raum/Ort gilt dessen Standort
+    const [a] = await db
+      .select({ active: gebaeudeAssets.active, roomId: gebaeudeAssets.roomId, name: gebaeudeAssets.name, building: buildingTable.name, floor: buildingFloors.name })
+      .from(gebaeudeAssets)
+      .leftJoin(buildingTable, eq(buildingTable.id, gebaeudeAssets.buildingId))
+      .leftJoin(buildingFloors, eq(buildingFloors.id, gebaeudeAssets.floorId))
+      .where(eq(gebaeudeAssets.id, assetId));
+    if (!a) fe.assetId = "Gerät gibt es nicht";
+    else if (!a.active) fe.assetId = "Das Gerät ist ausgemustert";
+    else if (!roomId && !location) {
+      roomId = a.roomId;
+      if (!roomId) location = ([a.building, a.floor].filter(Boolean).join(", ") || a.name).slice(0, 120);
+    }
+  }
   if (!(TICKET_CATEGORIES as readonly string[]).includes(input.category)) fe.category = "Kategorie wählen";
   if (!(TICKET_PRIORITIES as readonly string[]).includes(input.priority)) fe.priority = "Priorität wählen";
   if (title.length < 3) fe.title = "Kurz beschreiben, was los ist (mind. 3 Zeichen)";
@@ -244,6 +265,7 @@ export async function createTicket(
           priority: input.priority as TicketPriority,
           roomId,
           location,
+          assetId,
           title,
           description,
           reporterId: viewer.userId,
@@ -331,6 +353,8 @@ export interface TicketFilter {
   building?: string;
   /** nur eigene Meldungen, auch für „manage“ */
   mine?: boolean;
+  /** INV-03: nur Meldungen zu diesem Inventargut */
+  assetId?: string;
   /** abgeschlossene nur aus den letzten n Tagen */
   closedWithinDays?: number;
   limit?: number;
@@ -347,6 +371,7 @@ export async function listTickets(db: Db, viewer: PermissionSet, f: TicketFilter
   if (f.priority) parts.push(eq(gebaeudeTickets.priority, f.priority));
   if (f.building) parts.push(eq(rooms.building, f.building));
   if (f.mine) parts.push(eq(gebaeudeTickets.reporterId, viewer.userId));
+  if (f.assetId) parts.push(eq(gebaeudeTickets.assetId, f.assetId));
   const rows = await db
     .select(ticketColumns)
     .from(gebaeudeTickets)
@@ -356,6 +381,18 @@ export async function listTickets(db: Db, viewer: PermissionSet, f: TicketFilter
     .orderBy(sql`case ${gebaeudeTickets.priority} when 'gefahr' then 0 when 'hoch' then 1 when 'normal' then 2 else 3 end`, desc(gebaeudeTickets.createdAt))
     .limit(f.limit ?? 500);
   return rows.map((r) => ({ ...withoutStaffNames(viewer, r), number: ticketNumber(r.year, r.seq) }));
+}
+
+/**
+ * INV-03: offene Meldungen zu einem Inventargut zählen – auch für Personen, die die Meldungen selbst nicht sehen dürfen, damit sie
+ * vor dem Melden sehen, dass der Mangel schon bekannt ist. Nur die Anzahl, keine Inhalte oder Namen.
+ */
+export async function openTicketCountForAsset(db: Db, assetId: string): Promise<number> {
+  const [r] = await db
+    .select({ n: count() })
+    .from(gebaeudeTickets)
+    .where(and(eq(gebaeudeTickets.assetId, assetId), isNull(gebaeudeTickets.closedAt)));
+  return r?.n ?? 0;
 }
 
 /** Gebäude der Räume (Filter im Board). */
@@ -370,9 +407,18 @@ export async function buildings(db: Db): Promise<string[]> {
 /** Eine Meldung mit Fotos und Verlauf – null, wenn es sie nicht gibt oder der Betrachter sie nicht sehen darf. */
 export async function getTicket(db: Db, viewer: PermissionSet, id: string) {
   const [t] = await db
-    .select({ ...ticketColumns, description: gebaeudeTickets.description, roomName: rooms.name, floor: rooms.floor })
+    .select({
+      ...ticketColumns,
+      description: gebaeudeTickets.description,
+      roomName: rooms.name,
+      floor: rooms.floor,
+      assetId: gebaeudeTickets.assetId,
+      assetName: gebaeudeAssets.name,
+      assetInventoryNo: gebaeudeAssets.inventoryNo,
+    })
     .from(gebaeudeTickets)
     .leftJoin(rooms, eq(rooms.id, gebaeudeTickets.roomId))
+    .leftJoin(gebaeudeAssets, eq(gebaeudeAssets.id, gebaeudeTickets.assetId))
     .where(and(eq(gebaeudeTickets.id, id), visibleWhere(viewer)));
   if (!t) return null;
   const [photos, events] = await Promise.all([

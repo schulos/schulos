@@ -21,6 +21,9 @@ export const STORAGE_KEY_COLUMNS: readonly { table: string; column: string }[] =
   // RS-04: Raumfotos und ihre Vorschaubilder
   { table: "room_photos", column: "storage_key" },
   { table: "room_photos", column: "thumb_key" },
+  // INV-03: Fotos je Inventargut und ihre Vorschaubilder
+  { table: "gebaeude_asset_photos", column: "storage_key" },
+  { table: "gebaeude_asset_photos", column: "thumb_key" },
   // HB-05: Anhänge der Handbuchseiten
   { table: "hilfe_attachments", column: "storage_key" },
 ];

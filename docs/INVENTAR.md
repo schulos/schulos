@@ -158,5 +158,33 @@ Asset-Seite führen).
   „nur ohne Etikett“, alle gefilterten) → `/druck/inventar-etiketten`; Neuerzeugen auf der Asset-Seite entwertet den alten Code.
 - **Audit:** `gebaeude.asset.create/update/activate/deactivate/delete/import`, `gebaeude.asset.qr.create/renew`,
   `gebaeude.asset_category.create/update/delete` – ohne Code und ohne Personennamen im Text.
-- **Noch offen (INV-03 ff.):** Aktionen auf der mobilen Asset-Seite (Zustand/Standort per Knopf, Prüfung, Historie, Fotos), Tickets mit
-  `asset_id` (heute: „Mangel melden“ mit vorbelegtem Raum), Inventur, Ausleihe, Export im Schulträgerformat, Karte im Raumsteckbrief.
+- **Noch offen (INV-04 ff.):** Inventur, Ausleihe, Export im Schulträgerformat, Karte im Raumsteckbrief.
+
+## Umgesetzt (INV-03, 2026-11-02)
+
+- **Asset-Seite mobil zuerst** (`/gebaeude/inventar/<id>`, Ziel von `/i/<code>`): oben „Mangel melden“ (volle Breite am Handy), für
+  Pflegende die Karte „Vor Ort erfassen“ mit Zustand per Knopf (neu/gut/gebraucht/defekt, `aria-pressed`) und Umzug in einen Raum;
+  darunter Stammdaten, Fotos, Meldungen und Prüfungen zum Gerät, Historie, Etikett, das volle Formular und Ausmustern. Geprüft bei 360 px
+  im dunklen Modus mit axe (inkl. Zielgröße).
+- **Meldungen mit Gerätebezug:** `gebaeude_tickets.asset_id` (Migration `0126_inv_03_asset_seite.sql`, beim Löschen des Guts `set null`).
+  `/gebaeude/melden?asset=<id>` belegt Raum (aus dem Gerät), Meldungskategorie (`ticketCategoryForAsset`: IT/AV → IT/Medien, Haustechnik-
+  Anlagen → Haustechnik, Sicherheitsausstattung → Sicherheit, sonst Gebäude) und den Anfang der Bezeichnung vor und zeigt die Anzahl
+  offener Meldungen zum Gerät. Ohne Raum/Ort übernimmt der Service den Standort des Geräts. Mängel aus Prüfungen tragen den Bezug
+  ebenfalls; die Meldung verlinkt das Gerät.
+- **Fotos** (`gebaeude_asset_photos`) wie Raumfotos: höchstens 6 je Gerät, 1600 px + Vorschau 480 px, ohne Metadaten, Virenscan; Route
+  `/api/gebaeude/inventar-foto/<id>`; Dateien gehen mit dem Gerät (SICHERHEIT S99).
+- **Historie** aus dem Audit (`gebaeude.asset.*` mit Ziel = Inventar-ID): angelegt, geändert, Zustand (vorher → nachher), Standort
+  (Raum → Raum), Fotos, Etikett, aus-/wieder in Betrieb. Neue Audit-Aktionen `gebaeude.asset.condition`, `.move`, `.photo.add`,
+  `.photo.delete` – Raumkürzel und Zustände, keine Namen im Text.
+- **Prüfung vom Gerät aus:** mit `view_all` die Prüfungen des Geräts (offen nach Fälligkeit, dann erledigte); mit `gebaeude.manage` das
+  Ergebnis direkt erfassen (ein Mangel wird zur Meldung mit Gerätebezug).
+- **Entscheidungen bei offenen Punkten (konservativ, INV-03):**
+  - Fotos und Historie nur in der vollen Sicht (`view_all`/Pflegende) – die eingeschränkte Sicht bleibt bei inv-5 (Bezeichnung,
+    Kategorie, Standort, „Mangel melden“); zusätzlich sieht sie dort ihre **eigenen** Meldungen zum Gerät und die **Anzahl** offener
+    Meldungen (gegen Doppelmeldungen, ohne Inhalte und Namen).
+  - Inventarnummer im Meldeformular nur für die volle Sicht, in der Meldung nur für Bearbeitende.
+  - Standort per Knopf nur als Umzug in einen **Raum** (Gebäude/Etage ergeben sich daraus); Orte ohne Raum bleiben im Formular „Angaben ändern“.
+  - Ausgemustertes Inventar: keine Schnellaktionen und keine neuen Meldungen; Fotos bleiben als Nachweis.
+  - Eine Meldung setzt den Zustand **nicht** automatisch auf „defekt“ – das entscheiden die Pflegenden per Knopf.
+  - Ergebnis einer Prüfung erfassen nur mit `gebaeude.manage` (wie auf der Prüfungsseite); verantwortliche Gruppen ohne `view_all`
+    sehen die Prüfungsliste am Gerät nicht.
