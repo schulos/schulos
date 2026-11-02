@@ -9,6 +9,7 @@ import { toBerlinDate } from "@/core/time";
 import { inspectionSummary } from "./pruefungen";
 import { OVERDUE_DAYS, myOpenTickets, openSummary, overdueTickets, placeLabel } from "./service";
 import { todayInHouse } from "./heute";
+import { formatLoanDay, myLoans } from "./leihe";
 import { blockLabel } from "@/modules/stundenplan/raumsperren";
 
 /** Für Melder:innen: eigene offene Meldungen mit Status. */
@@ -156,8 +157,32 @@ async function HeuteImHaus({ current }: { current: CurrentUser }) {
   );
 }
 
+/** INV-05: eigene offene Leihgeräte (bzw. die der Kinder) – nur, wenn etwas ausgeliehen ist; ohne eigenes Recht. */
+async function MeineLeihgeraete({ current }: { current: CurrentUser }) {
+  const today = toBerlinDate(new Date());
+  const data = await myLoans(await getDb(), current.perms, today);
+  const open = [...data.own, ...data.children.flatMap((c) => c.loans.map((l) => ({ ...l, assetName: `${l.assetName} (${c.name})` })))].filter((l) => !l.returnedAt);
+  if (!open.length) return null;
+  return (
+    <Card aria-label="Meine Leihgeräte">
+      <CardHeader title="Meine Leihgeräte" action={{ href: "/gebaeude/leihen/meine", label: "Alle ansehen" }} />
+      <ul className="flex flex-col gap-1 text-sm">
+        {open.slice(0, 5).map((l) => (
+          <li key={l.id} className="flex items-center justify-between gap-3 px-2 py-1.5">
+            <span className="min-w-0 truncate font-medium">{l.assetName}</span>
+            <Badge tone={l.state === "ueberfaellig" ? "danger" : "soft"}>
+              {l.state === "ueberfaellig" ? "überfällig" : "bis"} {formatLoanDay(l.dueOn)}
+            </Badge>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export const gebaeudeWidgets: WidgetDef[] = [
   { id: "gebaeude.heute", moduleId: "gebaeude", order: 11, requires: "gebaeude.manage", Component: HeuteImHaus },
   { id: "gebaeude.offen", moduleId: "gebaeude", order: 12, requires: "gebaeude.manage", Component: Offen },
   { id: "gebaeude.meine", moduleId: "gebaeude", order: 60, requires: "gebaeude.report", Component: MeineMeldungen },
+  { id: "gebaeude.leihen", moduleId: "gebaeude", order: 66, Component: MeineLeihgeraete },
 ];

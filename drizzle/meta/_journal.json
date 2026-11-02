@@ -897,6 +897,13 @@
       "when": 1793652206200,
       "tag": "0127_inv_04_inventur",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1793655397567,
+      "tag": "0128_inv_05_ausleihe",
+      "breakpoints": true
     }
   ]
 }

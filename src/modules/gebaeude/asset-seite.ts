@@ -172,6 +172,10 @@ export const ASSET_HISTORY_ACTIONS = [
   "gebaeude.asset.qr.create",
   "gebaeude.asset.qr.renew",
   "gebaeude.asset.inventur",
+  "gebaeude.asset.loan",
+  "gebaeude.asset.loan.extend",
+  "gebaeude.asset.loan.cancel",
+  "gebaeude.asset.return",
 ] as const;
 
 export interface AssetHistoryEntry {
@@ -184,6 +188,7 @@ export interface AssetHistoryEntry {
 
 const conditionText = (v: unknown) => (typeof v === "string" && v in CONDITION_LABELS ? CONDITION_LABELS[v as AssetCondition] : "offen");
 const inventoryStateText = (v: unknown) => (typeof v === "string" && v in INVENTORY_ITEM_STATE_LABELS ? INVENTORY_ITEM_STATE_LABELS[v as InventoryItemState] : "erfasst");
+const dayText = (ymd: string) => (/^\d{4}-\d{2}-\d{2}$/.test(ymd) ? `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}.${ymd.slice(0, 4)}` : ymd);
 const roomText = (v: unknown) => (typeof v === "string" && v ? `Raum ${v}` : "ohne Raum");
 
 /**
@@ -208,6 +213,10 @@ export async function assetHistory(db: Db, viewer: PermissionSet, assetId: strin
     if (r.action === "gebaeude.asset.condition") detail = `${conditionText(m.from)} → ${conditionText(m.to)}`;
     else if (r.action === "gebaeude.asset.move") detail = `${roomText(m.from)} → ${roomText(m.to)}`;
     else if (r.action === "gebaeude.asset.inventur") detail = `${inventoryStateText(m.state)} · Inventur ${roomText(m.room)}`;
+    // INV-05: ohne Namen der entleihenden Person – die steht nur an der Ausleihe (Löschfrist), nicht im Audit
+    else if (r.action === "gebaeude.asset.loan") detail = typeof m.due === "string" ? `bis ${dayText(m.due)}` : null;
+    else if (r.action === "gebaeude.asset.loan.extend") detail = typeof m.from === "string" && typeof m.to === "string" ? `${dayText(m.from)} → ${dayText(m.to)}` : null;
+    else if (r.action === "gebaeude.asset.return") detail = [m.late === true ? "nach Fristende" : null, m.finding === true ? "mit Befund" : null].filter(Boolean).join(" · ") || null;
     return {
       id: r.id,
       at: r.at,

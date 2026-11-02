@@ -273,6 +273,46 @@ export const gebaeudeInventoryItems = pgTable(
   (t) => [index("gebaeude_inventory_items_inventory_idx").on(t.inventoryId), uniqueIndex("gebaeude_inventory_items_asset_uq").on(t.inventoryId, t.assetId)],
 );
 
+// ---------------------------------------------------------------- Ausleihe (INV-05)
+
+/**
+ * INV-05: Ausleihe eines Inventarguts (Leihgerät) an eine Person mit Konto (Schüler:innen, Beschäftigte). Personenbezug: wer hat
+ * was bis wann – Löschklasse LK-ENDE-1J ab `returned_at` (offene Ausleihen bleiben). Je Gerät höchstens eine offene Ausleihe.
+ * Wer verliehen bzw. zurückgenommen hat, steht nur im Audit-Log. Kontolöschung lässt eine offene Ausleihe ohne Person stehen
+ * (das Gerät bleibt als „verliehen“ sichtbar, bis die Rückgabe gebucht ist). Der Leihvertrag wird nur gedruckt, nicht gespeichert.
+ */
+export const gebaeudeLoans = pgTable(
+  "gebaeude_loans",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => gebaeudeAssets.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    loanedOn: date("loaned_on").notNull(),
+    dueOn: date("due_on").notNull(),
+    /** mitgegebenes Zubehör (Sache, keine Namen), z. B. „Ladekabel, Hülle“ */
+    accessories: text("accessories"),
+    returnedAt: timestamp("returned_at", { withTimezone: true }),
+    /** Befund bei der Rückgabe (Sache, keine Namen) */
+    returnNote: text("return_note"),
+    /** Fälligkeit, an die schon vorab erinnert wurde (Frist ändern → neue Erinnerung) */
+    remindedDueOn: date("reminded_due_on"),
+    /** Erinnerungen nach Fristende 0–3 (Frist ändern setzt zurück) */
+    overdueLevel: integer("overdue_level").notNull().default(0),
+    overdueOn: date("overdue_on"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("gebaeude_loans_open_asset_uq").on(t.assetId).where(sql`returned_at is null`),
+    index("gebaeude_loans_user_idx").on(t.userId),
+    index("gebaeude_loans_asset_idx").on(t.assetId),
+  ],
+);
+
+export type GebaeudeLoan = typeof gebaeudeLoans.$inferSelect;
 export type GebaeudeInventory = typeof gebaeudeInventories.$inferSelect;
 export type GebaeudeInventoryItem = typeof gebaeudeInventoryItems.$inferSelect;
 

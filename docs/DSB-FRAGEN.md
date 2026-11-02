@@ -689,3 +689,28 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
   gedeckt oder braucht es das Einverständnis der Person?
 - **Vorschlag:** Vorgaben übernehmen; Raumverantwortliche nur mit deren Wissen eintragen; bevorzugt Gruppen (Fachschaft) statt
   Einzelpersonen, wenn mehrere Personen einen Fachraum betreuen.
+
+## 23. Leihgeräte: Ausleihe aus dem Inventar
+
+<!-- dsb:leihgeraete -->
+| Punkt | |
+|---|---|
+| Was SchulOS tut | Verleiht Geräte aus dem Inventar (Tablets, Instrumente, Messgeräte) nur an Personen mit Konto (Schüler:innen, Beschäftigte – keine Eltern, keine Externen): gespeichert werden Person, Gerät, Ausgabe- und Rückgabedatum, Zubehör, ein Befund bei der Rückgabe (nur zur Sache) und der Erinnerungsstand. Verleihen und zurücknehmen dürfen nur die Pflegenden der Kategorie; sie sehen Person und Klasse, die Person selbst sieht ihre Leihgeräte (Eltern Minderjähriger lesend), Lesende mit „alles lesen“ nur „verliehen bis …“, alle anderen nichts. Wer verliehen hat, steht nur im Audit-Log, dort ohne die entleihende Person. Vor dem Rückgabedatum kommt eine Erinnerung, danach an Schultagen höchstens drei, ab der zweiten auch an die Eltern Minderjähriger, auf Wunsch per Mail – Benachrichtigungen und Mails nennen kein Gerät. Der Leihvertrag ist nur eine Druckansicht. Die Inventur zeigt verliehene Geräte als „verliehen“ statt „fehlt“; Auskunft und Eigenexport enthalten die eigenen Ausleihen; beim Abgang zeigt die Benutzerverwaltung nur die Zahl offener Leihgeräte. |
+| Vorgabe | Leihfrist 4 Wochen (frei änderbar bis 2 Jahre), Erinnerung 3 Tage vorher, danach höchstens drei Erinnerungen im Abstand von einer Woche, Mail aus. Ausleihen werden 1 Jahr nach der Rückgabe gelöscht (LK-ENDE-1J), offene bleiben; die Kontolöschung lässt eine offene Ausleihe ohne Person stehen, bis die Rückgabe gebucht ist. |
+| Die Schule entscheidet / dokumentiert | Bestätigt die Grundlage (Ausstattung mit Lernmitteln bzw. Arbeitsmitteln – zu prüfen), legt fest, wer verleiht (Recht Inventar bzw. verantwortliche Gruppe der Kategorie), passt die allgemeinen Bedingungen des Leihvertrags (Haftung, Ersatz) mit dem Schulträger an und verwahrt die unterschriebenen Verträge auf Papier; stellt Leihfrist, Erinnerung und Mail ein. |
+| Einstellungen | „Leihfrist für Leihgeräte (Vorgabe)“ (Vorgabe: 4 Wochen); „Leihgeräte: Erinnerung vor Rückgabe“ (Vorgabe: 3 Tage vorher); „Leihgeräte: überfällige auch per Mail“ (Vorgabe: aus) |
+| In SchulOS | Inventar → Leihgeräte und Verwaltung → Rechte & Module → Gebäude & Technik |
+<!-- /dsb -->
+
+**Hintergrund und Fragen** (Herkunft: INV-05, [INVENTAR.md](INVENTAR.md))
+
+- **Kontext:** Das Inventar (Gebäude & Technik) hat keinen Personenbezug; er entsteht erst mit der Ausleihe (wer hat welches Gerät bis
+  wann). Anders als in der Bücherei bleiben zurückgegebene Ausleihen ein Jahr als Verlauf, weil Schäden an Leihgeräten oft erst später
+  auffallen.
+- **Entscheidungen der Projektleitung (2026-11-01, inv-6):** Ausleihe an Lehrkräfte und Schüler:innen mit Rückgabedatum, Erinnerung und
+  Leihvertrag als Druck; Löschklasse LK-ENDE-1J ab Rückgabe. Konservativ ergänzt (INV-05): nur Personen mit Konto, keine Externen; kein
+  Gerät in Benachrichtigungen und Mails; Eltern Minderjähriger ab der zweiten Erinnerung.
+- **Fragen an die DSB:** Reicht ein Jahr nach der Rückgabe für Schadensfälle, oder genügt (wie in der Bücherei) die Rückgabe ohne
+  Befund als Löschanlass? Muss der Leihvertrag einen eigenen Datenschutzhinweis tragen, der über den kurzen Absatz hinausgeht?
+- **Vorschlag:** Vorgaben übernehmen; die Bedingungen des Leihvertrags mit dem Schulträger abstimmen; unterschriebene Verträge nach
+  der Rückgabe nicht länger aufbewahren als die Ausleihe in SchulOS.

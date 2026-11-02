@@ -68,14 +68,29 @@ export default defineModule({
       note: "Vorgabe bis zur übernächsten Prüfung (letzte 2 Protokolle), als Moduleinstellung auch letzte 3 oder 5 – jeweils mindestens 1 Jahr; Termin, Ergebnis und Firma bleiben ohne Personenbezug als Nachweis",
     },
     { table: "gebaeude_maintenance_rooms", purpose: "Räume eines Wartungstermins", categories: ["Raum", "Raumsperre"], follows: "gebaeude_maintenance" },
+    {
+      // INV-05: Ausleihe von Inventar (Leihgeräte) – wer hat was bis wann; offene Ausleihen bleiben, bis die Rückgabe gebucht ist
+      table: "gebaeude_loans",
+      purpose: "Ausleihe von Leihgeräten der Schule (Tablets, Instrumente, Messgeräte) an Schüler:innen und Beschäftigte: Rückgabedatum, Erinnerungen, Leihvertrag",
+      categories: ["Entleihende Person", "Gerät", "ausgeliehen am", "Rückgabe bis", "zurückgegeben am", "Zubehör", "Befund bei Rückgabe (Sache)", "Erinnerungsstand"],
+      class: "LK-ENDE-1J",
+      start: "returned_at",
+      note: "Ende = Rückgabe gebucht; offene Ausleihen bleiben; der Leihvertrag wird nur gedruckt, nicht gespeichert",
+    },
   ],
   processing: {
     title: "Mängel- und Störungsmeldungen (Gebäude & Technik)",
-    purpose: "Mängel und Störungen an Gebäude, Haustechnik und IT melden und beheben",
+    purpose: "Mängel und Störungen an Gebäude, Haustechnik und IT melden und beheben; Leihgeräte aus dem Inventar verleihen und zurücknehmen (INV-05)",
     legalBasis:
       "Art. 6 Abs. 1 lit. e, Abs. 3 DSGVO i. V. m. § 79 SchulG NRW (Schulträger stellt und unterhält das Schulgebäude – zu prüfen) und § 120 SchulG NRW; für Lehrkräfte VO-DV II",
-    subjects: ["Lehrkräfte", "Verwaltungspersonal", "weiteres Personal"],
-    recipients: ["Hausmeisterei/IT (Zuständigkeitsgruppe)", "Schulleitung", "meldende Person (Status der eigenen Meldung)"],
-    note: "Fotos nur von Sachen, Metadaten (EXIF/GPS) werden beim Hochladen entfernt. Keine Auswertung je Person – Statistik nur je Kategorie/Monat. Anlagen und Prüfarten ohne Personenbezug; Prüfnachweise nennen die Firma statt einer Prüfer:in (Erfassung nur im Audit-Log), Protokoll-PDF und Bemerkung können aber Namen enthalten und werden nach der übernächsten Prüfung derselben Art (Vorgabe; als Moduleinstellung nach der dritt- bzw. fünftnächsten), frühestens nach einem Jahr, geleert; CSV-Exporte ohne Namen und Freitext. Wartungstermine nennen die anlegende Person (1 Jahr nach Termin gelöscht).",
+    subjects: ["Lehrkräfte", "Verwaltungspersonal", "weiteres Personal", "Schüler:innen (nur Leihgeräte)", "Eltern minderjähriger Entleihender (nur Erinnerungen)"],
+    recipients: [
+      "Hausmeisterei/IT (Zuständigkeitsgruppe)",
+      "Schulleitung",
+      "meldende Person (Status der eigenen Meldung)",
+      "Pflegende der Inventar-Kategorie (Ausleihe: Person, Gerät, Fristen)",
+      "entleihende Person und bei Minderjährigen die Eltern (eigene Leihgeräte, Erinnerungen)",
+    ],
+    note: "Fotos nur von Sachen, Metadaten (EXIF/GPS) werden beim Hochladen entfernt. Keine Auswertung je Person – Statistik nur je Kategorie/Monat. Anlagen und Prüfarten ohne Personenbezug; Prüfnachweise nennen die Firma statt einer Prüfer:in (Erfassung nur im Audit-Log), Protokoll-PDF und Bemerkung können aber Namen enthalten und werden nach der übernächsten Prüfung derselben Art (Vorgabe; als Moduleinstellung nach der dritt- bzw. fünftnächsten), frühestens nach einem Jahr, geleert; CSV-Exporte ohne Namen und Freitext. Wartungstermine nennen die anlegende Person (1 Jahr nach Termin gelöscht). Leihgeräte (INV-05): nur an Personen mit Konto; Person und Klasse sehen nur die Pflegenden der Kategorie und die Person selbst (Eltern lesend), alle anderen höchstens „verliehen bis …“; Erinnerungen (Benachrichtigung, optional Mail) nennen kein Gerät, nur „Meine Leihgeräte“ nach der Anmeldung; wer verliehen hat, steht nur im Audit-Log; Ausleihen werden 1 Jahr nach der Rückgabe gelöscht, der Leihvertrag ist nur Druck.",
   },
 });

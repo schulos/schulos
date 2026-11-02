@@ -8,9 +8,13 @@ import { roomHref } from "@/core/room-href";
 import { TZ, toBerlinDate } from "@/core/time";
 import {
   addAssetPhotoAction,
+  cancelLoanAction,
   deleteAssetPhotoAction,
+  extendLoanAction,
+  lendAssetAction,
   moveAssetAction,
   recordInspectionAction,
+  returnLoanAction,
   scanAssetAction,
   setAssetActiveAction,
   setAssetConditionAction,
@@ -20,6 +24,7 @@ import { assetHistory, listAssetPhotos } from "@/modules/gebaeude/asset-seite";
 import { assetCode } from "@/modules/gebaeude/etiketten";
 import { canConfigure, listCategories, maintainableCategories } from "@/modules/gebaeude/inventar";
 import { openInventoriesForAsset } from "@/modules/gebaeude/inventur";
+import { assetLoans, defaultLoanDue, formatLoanDay, loanBorrower, searchLoanBorrowers, type AssetLoans } from "@/modules/gebaeude/leihe";
 import {
   ASSET_CONDITIONS,
   ASSET_PHOTOS_MAX,
@@ -28,6 +33,8 @@ import {
   INSPECTION_RESULTS,
   INSPECTION_STATE_LABELS,
   INVENTORY_ITEM_STATE_LABELS,
+  LOAN_STATE_LABELS,
+  LOAN_TEXT_MAX,
   MAX_REPORT_MB,
   RESULT_LABELS,
   formatPrice,
@@ -42,7 +49,7 @@ import { PageHeader } from "@schulos/ui/misc";
 import { SpecForm } from "@/ui/spec-form";
 import { GebaeudeNav, TicketItem } from "../../ui";
 import { assetFields } from "../asset-form";
-import { AssetPhotoForm, ConditionButtons, DeleteAsset, DeleteAssetPhoto, InventoryFoundButton, MoveForm, RenewAssetCode } from "./forms";
+import { AssetPhotoForm, ConditionButtons, DeleteAsset, DeleteAssetPhoto, InventoryFoundButton, LoanPersonSearch, MoveForm, RenewAssetCode } from "./forms";
 
 export const metadata: Metadata = { title: "Inventar" };
 
@@ -57,7 +64,7 @@ const photoSrc = (id: string, small = false) => `/api/gebaeude/inventar-foto/${e
  * darunter Stammdaten, Fotos, Meldungen und Prüfungen zum Gerät, Historie, Etikett und das volle Formular. Pflegende und `view_all`
  * sehen alles; alle anderen Angemeldeten nur Bezeichnung, Kategorie, Standort, „Mangel melden“ und die eigenen Meldungen (inv-5).
  */
-export default async function InventarDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ angelegt?: string }> }) {
+export default async function InventarDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ angelegt?: string; leihe?: string; an?: string; verliehen?: string }> }) {
   const { perms } = await requireUser();
   const { id } = await params;
   const sp = await searchParams;
@@ -107,8 +114,11 @@ export default async function InventarDetailPage({ params, searchParams }: { par
     </Button>
   );
 
+  const today = toBerlinDate(new Date());
   if (!r.full) {
     const a = r.asset;
+    // INV-05: wer das Gerät gerade selbst ausgeliehen hat, sieht das (sonst nichts zur Ausleihe)
+    const ownLoan = (await assetLoans(db, perms, a, today)).current;
     return (
       <main className="flex max-w-2xl flex-col gap-6">
         <PageHeader eyebrow="Inventar" title={a.name} />
@@ -128,6 +138,22 @@ export default async function InventarDetailPage({ params, searchParams }: { par
           </dl>
           {!a.active && <p className="text-sm text-muted">Dieses Gerät ist ausgemustert.</p>}
         </Card>
+        {ownLoan && (
+          <Card aria-labelledby="leihe-eigen">
+            <CardHeader title={<span id="leihe-eigen">Von dir ausgeliehen</span>} />
+            <p className="text-sm">
+              Rückgabe bis <strong>{formatLoanDay(ownLoan.dueOn)}</strong>
+              {ownLoan.state === "ueberfaellig" && (
+                <Badge tone="danger" className="ml-2">
+                  überfällig
+                </Badge>
+              )}
+            </p>
+            <Link href="/gebaeude/leihen/meine" className="text-sm font-medium text-accent-ink hover:underline">
+              Meine Leihgeräte
+            </Link>
+          </Card>
+        )}
         {(tickets.length > 0 || openCount > 0) && ticketsCard}
       </main>
     );
@@ -136,7 +162,7 @@ export default async function InventarDetailPage({ params, searchParams }: { par
   const a = r.asset;
   const configure = canConfigure(perms);
   const manage = canManage(perms);
-  const [categories, rooms, buildings, floors, own, code, photos, history, inspections, inventories] = await Promise.all([
+  const [categories, rooms, buildings, floors, own, code, photos, history, inspections, inventories, loans] = await Promise.all([
     listCategories(db),
     r.maintain ? roomOptions(db) : [],
     r.maintain ? buildingOptions(db) : [],
@@ -147,9 +173,17 @@ export default async function InventarDetailPage({ params, searchParams }: { par
     assetHistory(db, perms, a.id),
     viewAll ? listInspections(db, perms, { state: "alle", assetId: a.id, limit: 20 }, toBerlinDate(new Date())) : [],
     a.active ? openInventoriesForAsset(db, perms, a) : [],
+    assetLoans(db, perms, a, today),
+  ]);
+  // INV-05: Person zum Verleihen suchen bzw. gewählt (nur Pflegende, nur Einzelstücke in Betrieb ohne offene Ausleihe)
+  const lendable = r.maintain && a.active && a.quantity === 1 && !loans.current;
+  const loanQ = lendable ? (sp.leihe?.trim() ?? "") : "";
+  const [hits, chosen, suggestedDue] = await Promise.all([
+    loanQ ? searchLoanBorrowers(db, perms, loanQ) : [],
+    lendable && sp.an ? loanBorrower(db, perms, sp.an) : null,
+    lendable ? defaultLoanDue(db, today) : null,
   ]);
   const formCategories = categories.filter((c) => (c.active || c.id === a.categoryId) && (own === null || own.has(c.id))).map((c) => ({ value: c.id, label: c.name }));
-  const today = toBerlinDate(new Date());
   const openInspections = inspections.filter((i) => !i.doneOn).sort((x, y) => x.dueOn.localeCompare(y.dueOn));
   const doneInspections = inspections.filter((i) => i.doneOn).sort((x, y) => (y.doneOn ?? "").localeCompare(x.doneOn ?? ""));
   const row = (label: string, value: React.ReactNode) =>
@@ -173,6 +207,11 @@ export default async function InventarDetailPage({ params, searchParams }: { par
         {!a.active && <Badge tone="neutral">ausgemustert{a.retiredOn ? ` am ${formatDay(a.retiredOn)}` : ""}</Badge>}
         {a.condition && <Badge tone={a.condition === "defekt" ? "danger" : "soft"}>{CONDITION_LABELS[a.condition]}</Badge>}
         {a.quantity > 1 && <Badge tone="neutral">Sammelposten · {a.quantity} Stück</Badge>}
+        {loans.current && (
+          <Badge tone={loans.current.state === "ueberfaellig" ? "danger" : "warn"}>
+            {loans.current.state === "ueberfaellig" ? "überfällig" : "verliehen"} bis {formatLoanDay(loans.current.dueOn)}
+          </Badge>
+        )}
         <span className="text-sm text-muted">
           {a.categoryName} · {place}
         </span>
@@ -221,6 +260,23 @@ export default async function InventarDetailPage({ params, searchParams }: { par
             </div>
           </div>
         </Card>
+      )}
+
+      {(loans.maintain || loans.current) && (
+        <LoanCard
+          assetId={a.id}
+          assetName={a.name}
+          loans={loans}
+          lendable={lendable}
+          single={a.quantity === 1}
+          active={a.active}
+          q={loanQ}
+          hits={hits}
+          chosen={chosen}
+          suggestedDue={suggestedDue}
+          today={today}
+          justLent={sp.verliehen === "1"}
+        />
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -415,5 +471,164 @@ export default async function InventarDetailPage({ params, searchParams }: { par
         </>
       )}
     </main>
+  );
+}
+
+const personText = (l: { borrower: string | null; className: string | null; userId: string | null }) =>
+  l.borrower ? `${l.borrower}${l.className ? ` (${l.className})` : ""}` : "gelöschtes Konto";
+
+/**
+ * INV-05: Karte „Ausleihe“ der Geräteseite. Pflegende: aktuelle Ausleihe mit Person, Rückgabe buchen, Frist ändern, Leihvertrag
+ * drucken, stornieren; sonst Person suchen und verleihen; frühere Ausleihen (bis zum Löschlauf). `view_all` ohne Pflegerecht sieht nur
+ * „verliehen bis …“ ohne Namen.
+ */
+function LoanCard(p: {
+  assetId: string;
+  assetName: string;
+  loans: AssetLoans;
+  lendable: boolean;
+  single: boolean;
+  active: boolean;
+  q: string;
+  hits: { id: string; name: string; className: string | null }[];
+  chosen: { id: string; name: string; className: string | null } | null;
+  suggestedDue: string | null;
+  today: string;
+  justLent: boolean;
+}) {
+  const { current, past, maintain } = p.loans;
+  const base = `/gebaeude/inventar/${encodeURIComponent(p.assetId)}`;
+  return (
+    <Card aria-labelledby="leihe-h" id="leihe">
+      <CardHeader title={<span id="leihe-h">Ausleihe</span>} />
+      {p.justLent && current && (
+        <p role="status" className="text-sm text-muted">
+          Verliehen. Den Leihvertrag jetzt drucken und unterschreiben lassen.
+        </p>
+      )}
+      {current ? (
+        <div className="flex flex-col gap-3 text-sm">
+          <p>
+            {maintain ? (
+              <>
+                Verliehen an <strong>{personText(current)}</strong> seit {formatLoanDay(current.loanedOn)}
+              </>
+            ) : (
+              "Verliehen"
+            )}
+            , Rückgabe bis <strong>{formatLoanDay(current.dueOn)}</strong>
+            {current.state === "ueberfaellig" && (
+              <Badge tone="danger" className="ml-2">
+                {LOAN_STATE_LABELS.ueberfaellig}
+              </Badge>
+            )}
+          </p>
+          {maintain && current.accessories && <p className="text-muted">Zubehör: {current.accessories}</p>}
+          {maintain && (
+            <div className="flex flex-col gap-2">
+              <Button asChild variant="secondary" className="w-full sm:w-auto sm:self-start">
+                <Link href={`/druck/leihvertrag/${encodeURIComponent(current.id)}`}>Leihvertrag drucken</Link>
+              </Button>
+              <details className="rounded-lg bg-surface-2 px-3 py-2">
+                <summary className="flex min-h-6 cursor-pointer items-center font-medium">Rückgabe buchen</summary>
+                <div className="mt-3">
+                  <SpecForm
+                    action={returnLoanAction.bind(null, current.id)}
+                    label={`Rückgabe buchen: ${p.assetName}`}
+                    submit="Rückgabe buchen"
+                    okText="Zurückgenommen."
+                    columns={1}
+                    fields={[{ name: "note", label: "Befund", type: "text", maxLength: LOAN_TEXT_MAX, placeholder: "z. B. Display gesprungen, Ladekabel fehlt", hint: "optional, nur zur Sache – ohne Namen" }]}
+                  />
+                </div>
+              </details>
+              <details className="rounded-lg bg-surface-2 px-3 py-2">
+                <summary className="flex min-h-6 cursor-pointer items-center font-medium">Rückgabedatum ändern</summary>
+                <div className="mt-3">
+                  <SpecForm
+                    action={extendLoanAction.bind(null, current.id)}
+                    label={`Rückgabedatum ändern: ${p.assetName}`}
+                    submit="Speichern"
+                    okText="Gespeichert – Erinnerungen beginnen neu."
+                    columns={1}
+                    fields={[{ name: "dueOn", label: "Rückgabe bis", type: "date", defaultValue: current.dueOn, required: true }]}
+                  />
+                </div>
+              </details>
+              <details className="rounded-lg bg-surface-2 px-3 py-2">
+                <summary className="flex min-h-6 cursor-pointer items-center font-medium">Versehentlich verliehen?</summary>
+                <div className="mt-3 flex flex-col gap-2">
+                  <p className="text-muted">Stornieren löscht die Ausleihe ganz (z. B. falsche Person gewählt). Eine echte Rückgabe bitte als Rückgabe buchen.</p>
+                  <SpecForm action={cancelLoanAction.bind(null, current.id)} label={`Ausleihe stornieren: ${p.assetName}`} submit="Ausleihe stornieren" okText="Storniert." variant="secondary" columns={1} fields={[]} />
+                </div>
+              </details>
+            </div>
+          )}
+        </div>
+      ) : p.lendable ? (
+        p.chosen ? (
+          <div className="flex flex-col gap-3 text-sm">
+            <p className="flex flex-wrap items-center gap-2">
+              Verleihen an <strong>{p.chosen.name}</strong>
+              {p.chosen.className && <Badge tone="soft">{p.chosen.className}</Badge>}
+              <Link href={`${base}#leihe`} className="ml-auto inline-flex min-h-6 items-center font-medium text-accent-ink hover:underline">
+                Andere Person
+              </Link>
+            </p>
+            <SpecForm
+              action={lendAssetAction.bind(null, p.assetId, p.chosen.id)}
+              label={`${p.assetName} verleihen`}
+              submit="Verleihen"
+              columns={1}
+              fields={[
+                { name: "dueOn", label: "Rückgabe bis", type: "date", defaultValue: p.suggestedDue ?? p.today, required: true, hint: "Vorgabe aus den Moduleinstellungen, frei änderbar" },
+                { name: "accessories", label: "Zubehör", type: "text", maxLength: LOAN_TEXT_MAX, placeholder: "z. B. Ladekabel, Hülle, Stift", hint: "optional, erscheint im Leihvertrag" },
+              ]}
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3 text-sm">
+            <p className="text-muted">Nicht verliehen. An Schüler:innen oder Beschäftigte mit Konto verleihen:</p>
+            <LoanPersonSearch q={p.q} />
+            {p.q &&
+              (p.hits.length === 0 ? (
+                <p className="text-muted">Niemand gefunden.</p>
+              ) : (
+                <ul aria-label="Gefundene Personen" className="flex flex-col gap-1">
+                  {p.hits.map((h) => (
+                    <li key={h.id}>
+                      <Link href={`${base}?an=${encodeURIComponent(h.id)}#leihe`} className="flex min-h-11 items-center gap-2 rounded-xl px-2 py-2 hover:bg-surface-2">
+                        <span className="font-medium">{h.name}</span>
+                        {h.className && <Badge tone="soft">{h.className}</Badge>}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ))}
+          </div>
+        )
+      ) : (
+        <p className="text-sm text-muted">
+          {!p.active ? "Ausgemustert – nicht verleihbar." : !p.single ? "Sammelposten lassen sich nicht verleihen – Leihgeräte bitte einzeln inventarisieren." : "Nicht verliehen."}
+        </p>
+      )}
+      {maintain && past.length > 0 && (
+        <details className="text-sm">
+          <summary className="flex min-h-6 cursor-pointer items-center font-medium">Frühere Ausleihen ({past.length})</summary>
+          <ol aria-label="Frühere Ausleihen" className="mt-2 flex flex-col gap-1.5">
+            {past.map((l) => (
+              <li key={l.id} className="flex flex-col border-b border-border pb-1.5 last:border-0">
+                <span>{personText(l)}</span>
+                <span className="text-xs text-muted">
+                  {formatLoanDay(l.loanedOn)} – {l.returnedAt ? formatLoanDay(toBerlinDate(l.returnedAt)) : "?"} (bis {formatLoanDay(l.dueOn)})
+                  {l.returnNote && ` · Befund: ${l.returnNote}`}
+                </span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-1 text-xs text-muted">Zurückgegebene Ausleihen werden ein Jahr nach der Rückgabe gelöscht.</p>
+        </details>
+      )}
+    </Card>
   );
 }

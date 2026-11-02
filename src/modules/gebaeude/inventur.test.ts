@@ -63,7 +63,7 @@ describe("INV-04 (rein)", () => {
       { expected: true, state: "fehlt" as const, quantity: 1, counted: null, inventoryNo: "IT-0002", name: "Laptop" },
       { expected: false, state: "falscher_raum" as const, quantity: 1, counted: null, inventoryNo: null, name: "Tablet" },
     ];
-    expect(summarizeInventory(items)).toEqual({ expected: 3, done: 2, found: 1, missing: 1, open: 1, wrongRoom: 1, moved: 0, short: 1 });
+    expect(summarizeInventory(items)).toEqual({ expected: 3, done: 2, found: 1, missing: 1, open: 1, wrongRoom: 1, moved: 0, short: 1, lent: 0 });
     expect(sortInventoryItems(items).map((i) => i.name)).toEqual(["Beamer", "Tablet", "Laptop", "Stühle"]);
     expect(roomLabelOf({ id: "112", name: "112", building: "Hauptgebäude" })).toBe("Raum 112 · Hauptgebäude");
     expect(roomLabelOf({ id: "IF1", name: "Informatik 1", building: null })).toBe("IF1 – Informatik 1");

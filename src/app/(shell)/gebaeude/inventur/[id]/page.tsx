@@ -25,6 +25,7 @@ const STATE_TONE: Record<InventoryItemState, "neutral" | "soft" | "warn" | "succ
   fehlt: "danger",
   falscher_raum: "warn",
   umgezogen: "soft",
+  verliehen: "soft",
 };
 
 function ItemActions({ i }: { i: InventoryItemRow }) {
@@ -47,6 +48,15 @@ function ItemActions({ i }: { i: InventoryItemRow }) {
       </div>
     );
   if (i.state === "umgezogen") return null;
+  // INV-05: verliehen – liegt das Gerät doch im Raum, per Knopf als gefunden erfassen
+  if (i.state === "verliehen")
+    return (
+      <form action={setInventoryItemAction.bind(null, i.id, "gefunden")}>
+        <Button type="submit" variant="ghost" aria-label={`Doch hier: ${label}`}>
+          Doch hier
+        </Button>
+      </form>
+    );
   if (i.state !== "offen")
     return (
       <form action={setInventoryItemAction.bind(null, i.id, "offen")}>
@@ -111,6 +121,7 @@ export default async function InventurDetailPage({ params }: { params: Promise<{
           {s.missing > 0 && <Badge tone="danger">{s.missing} fehlen</Badge>}
           {s.wrongRoom > 0 && <Badge tone="warn">{s.wrongRoom} falscher Raum</Badge>}
           {s.moved > 0 && <Badge tone="soft">{s.moved} umgezogen</Badge>}
+          {s.lent > 0 && <Badge tone="soft">{s.lent} verliehen</Badge>}
           {s.short > 0 && <Badge tone="warn">{s.short} Sammelposten mit Fehlmenge</Badge>}
         </div>
         <p className="text-xs text-muted">

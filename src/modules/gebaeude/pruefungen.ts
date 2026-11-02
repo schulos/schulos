@@ -17,6 +17,7 @@ import { ForbiddenError, hasPermission, usersWithPermission, type PermissionSet 
 import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { canMaintainInventory, categoryById, ensureCategories, inventoryNoFormat, maintainableCategories, nextInventoryNo, requireMaintain } from "./inventar";
+import { hasOpenLoan } from "./leihe";
 import { matchCategory } from "./kategorien";
 import {
   ASSET_CONDITIONS,
@@ -368,6 +369,8 @@ export async function setAssetActive(db: Db, viewer: PermissionSet, id: string, 
   const [a] = await db.select({ categoryId: gebaeudeAssets.categoryId }).from(gebaeudeAssets).where(eq(gebaeudeAssets.id, id));
   if (!a) throw new ValidationError({ asset: "Inventar gibt es nicht" });
   await requireMaintain(db, viewer, a.categoryId);
+  // INV-05: ein verliehenes Gerät erst zurücknehmen, dann ausmustern (sonst bliebe die Ausleihe ohne Gerät in Betrieb offen)
+  if (!active && (await hasOpenLoan(db, id))) throw new ValidationError({ asset: "Das Gerät ist verliehen – erst die Rückgabe buchen" });
   const retiredReason = reason?.trim().slice(0, 200) || null;
   await db
     .update(gebaeudeAssets)

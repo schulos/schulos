@@ -158,7 +158,7 @@ Asset-Seite führen).
   „nur ohne Etikett“, alle gefilterten) → `/druck/inventar-etiketten`; Neuerzeugen auf der Asset-Seite entwertet den alten Code.
 - **Audit:** `gebaeude.asset.create/update/activate/deactivate/delete/import`, `gebaeude.asset.qr.create/renew`,
   `gebaeude.asset_category.create/update/delete` – ohne Code und ohne Personennamen im Text.
-- **Noch offen (INV-05 ff.):** Ausleihe, Export im Schulträgerformat, Karte im Raumsteckbrief (Inventur: INV-04, s. u.).
+- **Noch offen (INV-06 ff.):** Export im Schulträgerformat, Karte im Raumsteckbrief (Inventur: INV-04, Ausleihe: INV-05, s. u.).
 
 ## Umgesetzt (INV-03, 2026-11-02)
 
@@ -222,3 +222,45 @@ Asset-Seite führen).
   - Laufende Inventur abbrechen darf, wer durchführt; abgeschlossene Protokolle bleiben als Nachweis und sind nur mit `configure` löschbar.
   - Ausgemustertes Inventar wird nicht erfasst (Hinweis „bitte im Inventar prüfen“).
   - Live-Zähler bei mehreren Scannenden (Konzept „optional“) ist nicht gebaut: eigene Scans aktualisieren die Seite, sonst Neuladen.
+
+## Umgesetzt (INV-05, 2026-11-02)
+
+- **Ausleihe auf der Geräteseite** (Karte „Ausleihe“, Ziel des Etiketts): Person suchen (Name oder Klasse, wie an der Bücherei-Theke),
+  wählen, Rückgabedatum (Vorgabe aus der Moduleinstellung `gebaeude.loan_days`, 1 Woche bis 6 Monate, auf den nächsten Schultag
+  verschoben, frei änderbar bis höchstens zwei Jahre) und Zubehör eintragen, „Verleihen“. Danach: Leihvertrag drucken, Rückgabe buchen
+  (optional mit Befund zur Sache), Rückgabedatum ändern, versehentliche Ausleihe stornieren; frühere Ausleihen klappbar. Kopfzeile der
+  Geräteseite zeigt „verliehen bis …“ bzw. „überfällig“. Tabelle `gebaeude_loans` (Migration `0128_inv_05_ausleihe.sql`), je Gerät
+  höchstens eine offene Ausleihe (Sperre + Teilindex).
+- **Übersicht** `/gebaeude/leihen` (Knopf „Leihgeräte“ in der Inventarliste): offene Ausleihen der eigenen Kategorien, überfällige zuerst,
+  mit Person, Klasse, Rückgabedatum und Erinnerungsstand. **„Meine Leihgeräte“** `/gebaeude/leihen/meine` für alle Angemeldeten (eigene,
+  bei Eltern die der Kinder lesend) plus Widget auf der Startseite, nur wenn etwas ausgeliehen ist.
+- **Erinnerungen** (Job `gebaeude-leihe`, 06:50, Muster der Bücherei-Mahnungen BU-04, `nextDunningLevel` wiederverwendet): vor dem
+  Rückgabedatum ein Gong an die Person (`gebaeude.loan_remind_days`, Vorgabe 3 Tage, abschaltbar, einmal je Rückgabedatum); danach nur an
+  Schultagen bis zu drei Erinnerungen im Abstand von 7 Tagen, ab der zweiten auch an die Eltern Minderjähriger („handelt für“), bei der
+  ersten ein gebündelter Hinweis an die Pflegenden (ohne Namen). Mail optional (`gebaeude.loan_mail`, Vorgabe aus, nur bestätigte
+  Adressen). Gong und Mail nennen kein Gerät, nur „Meine Leihgeräte“. Frist ändern setzt die Erinnerungen zurück.
+- **Leihvertrag** `/druck/leihvertrag/<id>`: Schule, Person, Klasse, Gerät (Hersteller/Modell, Inventar-/Seriennummer), Zubehör,
+  Ausgabe- und Rückgabedatum, allgemeine Bedingungen (Vorlage), Feld „Besondere Vereinbarungen“, Unterschriften (bei Minderjährigen auch
+  Erziehungsberechtigte), Rückgabeabschnitt. Nur Druck, nicht gespeichert.
+- **Inventur:** Geräte mit offener Ausleihe stehen beim Start als „verliehen“ im Soll; beim Abschluss wird Offenes, das inzwischen
+  verliehen ist, ebenfalls „verliehen“ statt „fehlt“ (Zählung, Protokoll, CSV). Wird ein verliehenes Gerät doch im Raum gescannt (oder
+  „Doch hier“), gilt es als gefunden. Neuer Enum-Wert `verliehen`.
+- **Datenschutz:** LK-ENDE-1J ab `returned_at` (offene bleiben), Eintrag im Manifest und im VVT-Eintrag „Gebäude & Technik“
+  (Zweck, Betroffene Schüler:innen/Eltern, Empfänger), Auskunft: Rohdaten über den Kontoverweis plus lesbarer Teil „leihgeraete“,
+  Eigenexport `Leihgeräte.txt`. Kontolöschung leert die Person (`set null`): die offene Ausleihe bleibt als „gelöschtes Konto“ stehen,
+  bis die Rückgabe gebucht ist. Beim Abgang zeigt die Benutzerseite „Ausgeliehen: n Leihgeräte“ (blockiert nichts).
+- **Audit:** `gebaeude.asset.loan`, `.loan.extend`, `.loan.cancel`, `gebaeude.asset.return` (Ziel = Gerät, Rückgabedatum bzw. „nach
+  Fristende“/„mit Befund“, **ohne** Person) – erscheinen in der Historie der Geräteseite.
+- **Entscheidungen bei offenen Punkten (konservativ, INV-05):**
+  - Entleihende nur **Personen mit Konto** in den Bücherei-Rollen (Schüler:innen, Lehrkräfte, Personal, Beratung, Verwaltung) – keine
+    Eltern, keine Admin-Konten, **keine Externen** ohne Konto (kein Freitext-Name, damit Löschfrist, Auskunft und Kontolöschung greifen).
+  - Verleihen darf, wer die **Kategorie pflegt** (`gebaeude.inventory`/`configure` oder verantwortliche Gruppe, inv-4) – kein neues Recht.
+  - Sicht auf die Person nur für diese Pflegenden und die Person selbst (Eltern lesend); `view_all` sieht nur „verliehen bis …“, alle
+    anderen nichts. Wer verliehen hat, steht nur im Audit-Log.
+  - Nur **Einzelstücke** in Betrieb sind verleihbar (keine Sammelposten); ein verliehenes Gerät lässt sich erst nach der Rückgabe ausmustern.
+  - Zurückgegebene Ausleihen bleiben bis zum Löschlauf als Verlauf (Pflegende, Person) – anders als in der Bücherei, weil Schäden an
+    Leihgeräten oft erst später auffallen (Konzept: LK-ENDE-1J ab Rückgabe).
+  - Kein Gerät in Benachrichtigungen und Mails (wie Bücherei); Abstand der Erinnerungen fest 7 Tage, höchstens drei.
+  - Leihvertrag mit allgemeinen Bedingungen und Freifeld; Haftung/Ersatz regelt die Schule bzw. der Schulträger (kein eigener Text in
+    den Einstellungen, keine Ersatzforderung wie in der Bücherei).
+  - Kein Gong beim Verleihen selbst (die Person bekommt den unterschriebenen Vertrag); kein Selbstverlängern durch die Person.

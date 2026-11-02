@@ -352,3 +352,95 @@ test("INV-04: Inventur am Handy – Soll/Ist, Eingabe, Geräteseite (Etikett), f
   await lk.close();
   await hm.close();
 });
+
+test("INV-05: Ausleihe am Handy – verleihen, Leihvertrag, Übersicht, Meine Leihgeräte, Rückgabe, Rechte", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const mobile = { viewport: { width: 360, height: 800 }, colorScheme: "dark" as const };
+  const hm = await browser.newContext(mobile);
+  const page = await hm.newPage();
+  const errors = collectErrors(page);
+  await login(page, "klaus.berger");
+
+  await page.goto("/gebaeude/inventar");
+  const neu = page.getByRole("form", { name: "Inventar anlegen" });
+  await neu.getByLabel("Bezeichnung").fill("E2E Leihgerät Tablet");
+  await neu.getByLabel("Kategorie").selectOption({ index: 1 });
+  await neu.getByLabel("Raum").selectOption("110");
+  await neu.getByRole("button", { name: "Anlegen" }).click();
+  await expect(page).toHaveURL(/\/gebaeude\/inventar\/[^/?]+\?angelegt=1$/);
+  const assetUrl = new URL(page.url()).pathname;
+
+  // Person suchen und wählen, verleihen
+  const card = page.locator("#leihe");
+  await expect(card).toContainText("Nicht verliehen.");
+  const search = page.getByRole("form", { name: "Person zum Verleihen suchen" });
+  await search.getByLabel("Name oder Klasse").fill("Lea 7b");
+  await search.getByRole("button", { name: "Suchen" }).click();
+  await page.getByRole("list", { name: "Gefundene Personen" }).getByRole("link", { name: /^Lea Schäfer/ }).click();
+  const lend = page.getByRole("form", { name: "E2E Leihgerät Tablet verleihen" });
+  await expect(lend.getByLabel("Rückgabe bis")).not.toHaveValue("");
+  await lend.getByLabel("Zubehör").fill("Ladekabel, Hülle");
+  await lend.getByRole("button", { name: "Verleihen" }).click();
+  await expect(page).toHaveURL(/\?verliehen=1/);
+  await expect(card).toContainText("Verliehen an Lea Schäfer (7b)");
+  await expect(card).toContainText("Zubehör: Ladekabel, Hülle");
+  await expect(page.getByText(/^verliehen bis \d\d\.\d\d\.\d{4}$/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await axeClean(page);
+
+  // Leihvertrag (nur Druck)
+  const contractHref = (await card.getByRole("link", { name: "Leihvertrag drucken" }).getAttribute("href"))!;
+  await page.goto(contractHref);
+  await expect(page.getByRole("heading", { name: "Leihvertrag" })).toBeAttached();
+  const vertrag = page.getByRole("main", { name: "Leihvertrag" });
+  await expect(vertrag).toContainText("Lea Schäfer");
+  await expect(vertrag).toContainText("Ladekabel, Hülle");
+  await expect(vertrag).toContainText("Unterschrift Erziehungsberechtigte");
+
+  // Übersicht der Leihgeräte
+  await page.goto("/gebaeude/inventar");
+  await page.getByRole("link", { name: "Leihgeräte" }).click();
+  await expect(page).toHaveURL("/gebaeude/leihen");
+  await expect(page.getByRole("list", { name: "Verliehene Geräte" })).toContainText("E2E Leihgerät Tablet");
+  await expect(page.getByRole("list", { name: "Verliehene Geräte" })).toContainText("Lea Schäfer (7b)");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await axeClean(page);
+
+  // Schülerin: „Meine Leihgeräte“ (ohne Recht), mobil und dunkel
+  const sc = await browser.newContext(mobile);
+  const s = await sc.newPage();
+  await login(s, "lea.schaefer");
+  await s.goto("/gebaeude/leihen/meine");
+  await expect(s.getByRole("list", { name: "Meine Leihgeräte" })).toContainText("E2E Leihgerät Tablet");
+  await expect(s.getByRole("list", { name: "Meine Leihgeräte" })).toContainText("Zubehör: Ladekabel, Hülle");
+  expect(await s.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await axeClean(s);
+  expect((await s.request.get("/gebaeude/leihen")).status()).toBe(404);
+  expect((await s.request.get(contractHref)).status()).toBe(404);
+  await sc.close();
+
+  // Lehrkraft ohne Pflegerecht: keine Übersicht, kein Leihvertrag, keine Person auf der Geräteseite
+  const lk = await browser.newContext(mobile);
+  const t = await lk.newPage();
+  await login(t, "jana.brandt");
+  expect((await t.request.get("/gebaeude/leihen")).status()).toBe(404);
+  expect((await t.request.get(contractHref)).status()).toBe(404);
+  await t.goto(assetUrl);
+  await expect(t.locator("body")).not.toContainText("Lea Schäfer");
+  await lk.close();
+
+  // Rückgabe mit Befund
+  await page.goto(assetUrl);
+  await card.locator("summary", { hasText: "Rückgabe buchen" }).click();
+  const ret = page.getByRole("form", { name: "Rückgabe buchen: E2E Leihgerät Tablet" });
+  await ret.getByLabel("Befund").fill("Hülle eingerissen");
+  await ret.getByRole("button", { name: "Rückgabe buchen" }).click();
+  // die Karte zeichnet sich neu (Formular verschwindet mit der Ausleihe)
+  await expect(card).toContainText("Nicht verliehen.");
+  await card.locator("summary", { hasText: "Frühere Ausleihen" }).click();
+  await expect(page.getByRole("list", { name: "Frühere Ausleihen" })).toContainText("Befund: Hülle eingerissen");
+  await expect(page.getByRole("list", { name: "Historie" })).toContainText("Leihgerät zurückgenommen · mit Befund");
+  await axeClean(page);
+  expect(errors).toEqual([]);
+  await hm.close();
+});

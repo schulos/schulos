@@ -37,4 +37,41 @@ export const LABEL_FORMAT_DEFAULT = defineSetting({
   default: "bogen-3x8",
 });
 
-export const GEBAEUDE_SETTINGS = [REPORT_KEEP, INVENTORY_NO_FORMAT, LABEL_FORMAT_DEFAULT];
+const weeks = (d: number) => (d % 7 === 0 ? (d === 7 ? "1 Woche" : `${d / 7} Wochen`) : `${d} Tage`);
+
+/** INV-05: Vorgabe der Leihfrist beim Ausleihen (im Formular änderbar; fällt sie auf Wochenende/Ferien, gilt der nächste Schultag). */
+export const LOAN_DAYS = defineSetting({
+  key: "gebaeude.loan_days",
+  label: "Leihfrist für Leihgeräte (Vorgabe)",
+  help: "Vorgeschlagenes Rückgabedatum beim Ausleihen; im Formular frei änderbar (z. B. bis Schuljahresende). Fällt es auf ein Wochenende oder in die Ferien, gilt der nächste Schultag.",
+  options: [7, 14, 28, 56, 91, 182].map((d) => ({ value: String(d), label: d === 91 ? "3 Monate" : d === 182 ? "6 Monate" : weeks(d) })),
+  default: "28",
+});
+
+/** INV-05: Erinnerung vor dem Rückgabedatum an die entleihende Person (Benachrichtigung). */
+export const LOAN_REMIND_DAYS = defineSetting({
+  key: "gebaeude.loan_remind_days",
+  label: "Leihgeräte: Erinnerung vor Rückgabe",
+  help: "Benachrichtigung an die entleihende Person, so viele Tage vor dem Rückgabedatum. Nach Fristende erinnert SchulOS an Schultagen bis zu dreimal im Abstand von einer Woche, ab der zweiten Erinnerung auch die Eltern Minderjähriger.",
+  options: [
+    { value: "0", label: "aus" },
+    { value: "1", label: "1 Tag vorher" },
+    { value: "3", label: "3 Tage vorher" },
+    { value: "7", label: "1 Woche vorher" },
+  ],
+  default: "3",
+});
+
+/** INV-05: Erinnerungen nach Fristende zusätzlich per Mail (Vorgabe aus, wie Bücherei-Mahnungen) – nur an bestätigte Adressen. */
+export const LOAN_MAIL = defineSetting({
+  key: "gebaeude.loan_mail",
+  label: "Leihgeräte: überfällige auch per Mail",
+  help: "Zusätzlich zur Benachrichtigung eine Mail an bestätigte Adressen (entleihende Person, ab der zweiten Erinnerung die Eltern Minderjähriger) – ohne Gerät, nur mit Link zur Anmeldung. Braucht eingerichteten Mailversand.",
+  options: [
+    { value: "0", label: "aus" },
+    { value: "1", label: "an" },
+  ],
+  default: "0",
+});
+
+export const GEBAEUDE_SETTINGS = [REPORT_KEEP, INVENTORY_NO_FORMAT, LABEL_FORMAT_DEFAULT, LOAN_DAYS, LOAN_REMIND_DAYS, LOAN_MAIL];

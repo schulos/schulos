@@ -61,6 +61,11 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
             <Link href="/gebaeude/inventur">Inventur</Link>
           </Button>
         )}
+        {maintain && (
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/gebaeude/leihen">Leihgeräte</Link>
+          </Button>
+        )}
         {configure && (
           <Button asChild variant="ghost" size="sm">
             <Link href="/gebaeude/inventar/kategorien">Kategorien</Link>
