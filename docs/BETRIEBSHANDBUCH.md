@@ -132,7 +132,8 @@ stehen im Protokoll; Befehle auf dem Server hält die ausführende Person selbst
 
 - **Alarm-Mails** (SEC-14) an die eingetragenen Empfänger: Häufung fehlgeschlagener Anmeldungen, neue Admin-/Verwaltungsrechte,
   Backup überfällig oder fehlgeschlagen, unveränderliche Kopie veraltet, Speicherplatz knapp. Empfänger prüfen: Verwaltung → System.
-  Die Mails enthalten keine Personendaten.
+  Die Mails enthalten keine Personendaten. Zusätzlich (BM-04): Mail-Stau und ablaufendes Zertifikat.
+- **Betriebsstatus** (Verwaltung → System → „Betrieb“, auf dem Server `schulosctl status --json`): eine Ampel mit den Befunden (Datenbank, Mail-Ausgang, Jobs, Sicherung, Platte, Zertifikat, Updates) – die schnelle Antwort auf „läuft der Betrieb gesund?“. Ohne Personenbezug; INSTALLATION.md §5.
 - **Protokoll** (Verwaltung → Protokoll): Änderungen der Verwaltung und Lesezugriffe auf Klassenbuch, Fehlzeiten und
   Abwesenheiten; ein Jahr, danach pseudonymisiert. Es zeigt nicht alles (z. B. keine Zugriffe außerhalb von SchulOS).
 - **Auskunft** je Person (Verwaltung → Benutzer → Person) hilft bei der Frage, **welche Daten** einer Person betroffen sind.

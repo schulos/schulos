@@ -102,3 +102,25 @@ describe("Alarme des Hauptsystems", () => {
     expect(sent[0]!.text).toContain("Backupserver nicht erreichbar");
   });
 });
+
+describe("BM-04: Mail-Stau und Zertifikat", () => {
+  const stuck = { pending: 4, oldestPending: new Date("2026-10-05T08:00:00Z") };
+
+  it("Mail-Stau ab der Schwelle (Vorgabe 60 Minuten), sonst nichts", () => {
+    expect(collectAlarms({ backup: okBackup, system: system(), now, mail: stuck }).map((a) => a.key)).toEqual(["mail:stau"]);
+    expect(collectAlarms({ backup: okBackup, system: system(), now, mail: stuck, mailBacklogMinutes: 180 })).toEqual([]);
+    expect(collectAlarms({ backup: okBackup, system: system(), now, mail: { pending: 0, oldestPending: null } })).toEqual([]);
+    expect(collectAlarms({ backup: okBackup, system: system(), now })).toEqual([]);
+    const [a] = collectAlarms({ backup: okBackup, system: system(), now, mail: stuck });
+    expect(a!.title).toBe("Mail-Stau (4 Mails warten)");
+    expect(a!.detail).not.toContain("@");
+  });
+
+  it("Zertifikat: ab 14 Tagen vor Ablauf, gleicher Schlüssel auch nach Ablauf", () => {
+    const alarms = (tls: string) => collectAlarms({ backup: okBackup, system: system({ tls: { expiresAt: tls } }), now });
+    expect(alarms("2027-01-01T00:00:00Z")).toEqual([]);
+    expect(alarms("2026-10-12T00:00:00Z")[0]).toMatchObject({ key: "zertifikat", title: "Zertifikat läuft in 6 Tagen ab" });
+    expect(alarms("2026-10-01T00:00:00Z")[0]).toMatchObject({ key: "zertifikat", title: "Zertifikat ist abgelaufen" });
+    expect(collectAlarms({ backup: okBackup, system: system({ tls: null }), now })).toEqual([]);
+  });
+});
