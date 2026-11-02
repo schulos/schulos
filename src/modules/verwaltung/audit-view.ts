@@ -344,6 +344,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "verwaltung.system.kanal": "Update-Kanal geändert",
   "verwaltung.system.testmail": "Testmail gesendet",
   "verwaltung.system.neustart": "Neustart des Servers ausgelöst",
+  "verwaltung.system.zertifikat_bestaetigt": "Neues Schul-Zertifikat bestätigt",
   "system.admin_zurueckgesetzt": "Admin-Zugang auf dem Server zurückgesetzt (schulosctl)",
   // TD-12: ältere Aktionen nachgezogen
   "konto.email.angefordert": "E-Mail-Adresse ändern angefordert",

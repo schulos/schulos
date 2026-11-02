@@ -1,7 +1,8 @@
 // Reine Logik von schulosctl (B-31): Aufruf zerlegen, Status auswerten, Support-Bundle ohne Personendaten.
 import { backupHealth, HEALTH_LABEL, type AgentState } from "@schulos/server/agent-api";
 import { DISK_WARN_PERCENT } from "@schulos/server/mail";
-import { daysUntil, healthExitCode, hostProblems, overallLevel, type CtlStatusReport, type HealthProblem } from "@schulos/server/system";
+import { fingerprintLines } from "@schulos/server/root-ca";
+import { daysUntil, healthExitCode, hostProblems, overallLevel, type CtlStatusReport, type HealthProblem, type RootCaInfo } from "@schulos/server/system";
 
 export const USAGE = `schulosctl – Betrieb von SchulOS (INSTALLATION.md §5)
 
@@ -254,6 +255,8 @@ export interface StatusInput {
   exposure?: string | null;
   /** BM-04: Ablauf des Zertifikats, das der Reverse-Proxy ausliefert (null = nicht gemessen) */
   tls?: { expiresAt: string } | null;
+  /** CA-02: Root der eigenen CA (null = keine eigene CA bzw. nicht lesbar) */
+  rootCa?: RootCaInfo | null;
 }
 
 /**
@@ -333,6 +336,11 @@ export function formatStatus(s: StatusInput): { ok: boolean; lines: string[]; pr
     lines.push("", `Zertifikat: ${tlsProblems.length ? "✗" : "✓"} gültig bis ${berlin(s.tls.expiresAt)} (${days < 0 ? "abgelaufen" : `noch ${days} Tage`})`);
     found.push(...tlsProblems);
   }
+  if (s.rootCa) {
+    // CA-02: zum Abgleich mit dem Download (Verwaltung → System, /ca.crt) – zwei Zeilen, damit es auf jede Konsole passt
+    const [a, b] = fingerprintLines(s.rootCa.fingerprint);
+    lines.push("", `Schul-Zertifikat (eigene CA), gültig bis ${berlin(s.rootCa.notAfter)}, Fingerabdruck SHA-256:`, `  ${a}`, `  ${b}`);
+  }
   lines.unshift(found.length ? `Zustand: ACHTUNG – ${found.map((p) => p.text).join("; ")}` : "Zustand: in Ordnung", "");
   return { ok: found.length === 0, lines, problems: found };
 }
@@ -361,6 +369,7 @@ export function statusReport(s: StatusInput): CtlStatusReport {
       : null,
     disk: s.disk,
     tls: s.tls ? { expiresAt: s.tls.expiresAt, daysLeft: daysUntil(s.tls.expiresAt, s.now) } : null,
+    rootCa: s.rootCa ?? null,
     exposure: s.exposure ?? null,
   };
 }

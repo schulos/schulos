@@ -287,12 +287,12 @@ describe("HB-05/06/07: Handbuch (Demo-Schule)", () => {
 
     const visible = async (id: string) => [...(await visibleSlugs(h.db, await p(id), [...slugs]))].sort();
     expect(await visible(mutter)).toEqual(
-      ["erste-schritte-fuer-eltern", "krankmeldung", "kurswahl", "passwort-vergessen", "zwei-faktor-anmeldung-einrichten"].sort(),
+      ["erste-schritte-fuer-eltern", "krankmeldung", "kurswahl", "passwort-vergessen", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort(),
     );
     expect(await visible("u-lea.schaefer")).toEqual(
-      ["erste-schritte-fuer-schuelerinnen-und-schueler", "krankmeldung", "kurswahl", "passwort-vergessen", "zwei-faktor-anmeldung-einrichten"].sort(),
+      ["erste-schritte-fuer-schuelerinnen-und-schueler", "krankmeldung", "kurswahl", "passwort-vergessen", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort(),
     );
-    expect(await visible("u-jana.brandt")).toEqual(["erste-schritte-fuer-lehrkraefte-und-personal", "passwort-vergessen", "zwei-faktor-anmeldung-einrichten"].sort());
+    expect(await visible("u-jana.brandt")).toEqual(["erste-schritte-fuer-lehrkraefte-und-personal", "passwort-vergessen", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort());
     // eigene Seiten: Vorgabe Personal – im Formular, hier die Konstante
     expect(STAFF_TARGET_ROLES).not.toContain("eltern");
     expect(STAFF_TARGET_ROLES).not.toContain("schueler");

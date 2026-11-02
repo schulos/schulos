@@ -207,6 +207,10 @@ describe("Caddy-Konfiguration (compose.yaml)", () => {
     // BM-02: der Betriebsstatus steht in keiner der beiden Allowlists (von außen gesperrt)
     expect(paths?.some((p) => p.startsWith("/api/health"))).toBe(false);
     expect(CADDY_PUBLIC_PATHS.some((p) => p.startsWith("/api/health"))).toBe(false);
+    // CA-03: das Schul-Zertifikat ohne Anmeldung (/ca.crt) gibt es nur im Schulnetz – in keiner der beiden Listen
+    expect(paths?.some((p) => p.startsWith("/ca") || p === "/*")).toBe(false);
+    expect(CADDY_PUBLIC_PATHS.some((p) => p.startsWith("/ca"))).toBe(false);
+    expect(externalPathAllowed("/ca.crt")).toBe(false);
     for (const line of ["request_header X-SchulOS-Extern 1", "request_header -Cookie", "request_header -Authorization", "handle @oeffentlich {"])
       expect(oeff).toContain(line);
     // Rest von außen: 403 (letzter handle-Block im extern-Zweig)

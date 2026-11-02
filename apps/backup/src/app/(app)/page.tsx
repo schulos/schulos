@@ -12,6 +12,8 @@ import { mailConfig } from "@schulos/server/mail";
 import { TestMailForm } from "./mail-form";
 import { listInstances } from "@/pairing/service";
 import { formatBytes } from "@/lib/format";
+import { fingerprintLines } from "@schulos/server/root-ca";
+import { tlsRootCa } from "@/settings";
 import { HOST_REBOOT_RED_DAYS, hostStatusStale, hostTpmProblems, pendingPassphraseReboot, readHostStatus } from "@schulos/server/host-status";
 
 export const metadata: Metadata = { title: "Übersicht" };
@@ -40,6 +42,9 @@ export default async function Overview() {
   // G4E-O03/O15: TPM2-Bindung vollständig? Host-Status aktuell?
   const tpmProblems = hostTpmProblems(host);
   const hostStale = hostStatusStale(host);
+  // CA-05: Root der eigenen CA dieses Servers (Caddy kopiert sie nach /ca/root.crt; bei Let's Encrypt fehlt sie)
+  const root = tlsRootCa();
+  const rootFp = root ? fingerprintLines(root.info.fingerprint) : null;
   return (
     <>
       <PageHeader eyebrow="Backupserver" title="Übersicht" />
@@ -142,6 +147,37 @@ export default async function Overview() {
           </p>
         )}
       </Card>
+      {root && rootFp && (
+        <Card aria-label="Zertifikat dieses Servers" className="mt-6">
+          <CardHeader title="Zertifikat dieses Servers" />
+          <div className="flex flex-col gap-2 text-sm">
+            <p>
+              Wurzelzertifikat der eigenen Zertifizierungsstelle (gültig bis {fmt.format(new Date(root.info.notAfter))}) – damit Browser diese
+              Oberfläche ohne Warnung öffnen. Das Hauptsystem braucht es nicht, es pinnt die CA bei der Kopplung. Nach einer Neuinstallation
+              gibt es ein neues: neu verteilen, das alte entfernen, neu koppeln.
+            </p>
+            <div>
+              <span className="text-muted">Fingerabdruck (SHA-256) – vor dem Import abgleichen:</span>
+              <code className="mt-1 block font-mono text-xs break-all" aria-label="Fingerabdruck">
+                {rootFp[0]}
+                <br />
+                {rootFp[1]}
+              </code>
+            </div>
+            <p className="flex flex-wrap gap-4">
+              <a href="/api/ca?format=crt" download className="font-medium text-accent-ink hover:underline">
+                Herunterladen (.crt)
+              </a>
+              <a href="/api/ca?format=cer" download className="font-medium text-accent-ink hover:underline">
+                Windows (.cer)
+              </a>
+              <a href="/api/ca?format=mobileconfig" download className="font-medium text-accent-ink hover:underline">
+                iPad/Mac (.mobileconfig)
+              </a>
+            </p>
+          </div>
+        </Card>
+      )}
     </>
   );
 }

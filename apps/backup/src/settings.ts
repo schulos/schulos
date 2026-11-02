@@ -1,6 +1,7 @@
 // Betriebsangaben des Backupservers aus der Umgebung bzw. backup.env (INSTALLATION.md §8.1).
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { parseRootCa } from "@schulos/server/root-ca";
 
 export type Env = Record<string, string | undefined>;
 
@@ -25,6 +26,16 @@ export function tlsCaPem(env: Env = process.env): string | null {
   const pem = readFileSync(file, "utf8");
   if (!pem.includes("BEGIN CERTIFICATE")) throw new Error(`SCHULOS_TLS_CA_FILE (${file}) enthält kein Zertifikat`);
   return pem;
+}
+
+/** CA-05: Root der eigenen CA als PEM + Fingerabdruck für den Download (null = keine eigene CA bzw. unlesbar) */
+export function tlsRootCa(env: Env = process.env): ReturnType<typeof parseRootCa> {
+  try {
+    const pem = tlsCaPem(env);
+    return pem ? parseRootCa(pem) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function serverName(env: Env = process.env): string {

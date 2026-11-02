@@ -12,6 +12,7 @@ import { audit } from "@/core/audit";
 import { ackDisclaimer } from "@/core/disclaimer";
 import { readSchoolSettings } from "@/core/settings";
 import { HEALTH_MODE_LABEL, HealthSettingsError, rotateHealthToken, saveHealthSettings } from "@/core/system/health-settings";
+import { confirmRootCa, RootCaError } from "@/core/system/root-ca";
 
 export interface SystemOrderState {
   ok?: string;
@@ -131,4 +132,17 @@ export async function healthTokenAction(): Promise<SystemOrderState> {
   const token = await rotateHealthToken(await getDb(), user.id);
   revalidatePath("/verwaltung/system");
   return { ok: `Neues Token (jetzt notieren, es wird nicht noch einmal angezeigt): ${token}` };
+}
+
+/** CA-03 (ca-6): neues Schul-Zertifikat bestätigen – beendet den Alarm „Schul-Zertifikat gewechselt“, steht im Protokoll */
+export async function confirmRootCaAction(_prev: SystemOrderState, form: FormData): Promise<SystemOrderState> {
+  const { user } = await requirePermission("verwaltung.system");
+  try {
+    await confirmRootCa(await getDb(), user.id, String(form.get("fingerabdruck") ?? ""));
+  } catch (err) {
+    if (err instanceof RootCaError) return { error: err.message };
+    throw err;
+  }
+  revalidatePath("/verwaltung/system");
+  return { ok: "Neues Schul-Zertifikat bestätigt." };
 }

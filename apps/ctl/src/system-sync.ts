@@ -44,6 +44,7 @@ export function buildStatus(input: {
   reboot?: RebootPending | null;
   tpm?: SystemStatus["tpm"];
   tls?: SystemStatus["tls"];
+  rootCa?: SystemStatus["rootCa"];
   error?: string;
 }): SystemStatus {
   const p = input.plan;
@@ -67,6 +68,7 @@ export function buildStatus(input: {
     reboot: input.reboot ? { since: input.reboot.since, reason: "passphrase" } : null,
     tpm: input.tpm ? { problems: input.tpm.problems.map((p) => p.slice(0, 500)).slice(0, 10) } : null,
     tls: input.tls ?? null,
+    rootCa: input.rootCa ?? null,
     ...(input.error ? { error: input.error } : {}),
   };
 }

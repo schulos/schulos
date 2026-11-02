@@ -8,6 +8,14 @@ import type { Channel, ReleaseChange, UpdateKind } from "./release";
 
 export const SYSTEM_STATUS_FILE = "system-status.json";
 export const SYSTEM_ORDER_FILE = "system-auftrag.json";
+/** CA-02: Wurzelzertifikat der eigenen CA (nur Zertifikat), von schulosctl bei `SCHULOS_TLS=internal` abgelegt, sonst entfernt */
+export const ROOT_CA_FILE = "root-ca.crt";
+
+/** CA-02: Root der eigenen CA – SHA-256-Fingerabdruck („AB:CD:…“, wie Browser und `openssl -fingerprint -sha256` ihn zeigen) und Ablauf */
+export interface RootCaInfo {
+  fingerprint: string;
+  notAfter: string;
+}
 
 /** Eintrag im Update-Protokoll (updates/protokoll.jsonl auf dem Host, die letzten in system-status.json). */
 export interface ProtocolEntry {
@@ -90,6 +98,11 @@ export interface SystemStatus {
   tpm?: { problems: string[] } | null;
   /** BM-04: Ablauf des Zertifikats, das der Reverse-Proxy ausliefert (schulosctl prüft den Handshake; null/fehlend = unbekannt) */
   tls?: { expiresAt: string } | null;
+  /**
+   * CA-02: Root der eigenen CA (nur bei `SCHULOS_TLS=internal`; null/fehlend = keine eigene CA bzw. nicht lesbar). Eigenes Feld
+   * statt `tls.rootFingerprint` (Konzept): `tls` misst das ausgelieferte Serverzertifikat (BM-04), die Root ist davon unabhängig.
+   */
+  rootCa?: RootCaInfo | null;
   error?: string;
 }
 
@@ -260,5 +273,7 @@ export interface CtlStatusReport {
   backup: { paired: boolean; health: string; lastOkAt: string | null; runningSince: string | null; contactError: string | null } | null;
   disk: { usedPercent: number; freeBytes: number } | null;
   tls: { expiresAt: string; daysLeft: number } | null;
+  /** CA-02: Root der eigenen CA (null = keine eigene CA bzw. nicht lesbar) */
+  rootCa: RootCaInfo | null;
   exposure: string | null;
 }

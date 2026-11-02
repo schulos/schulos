@@ -210,6 +210,9 @@ ${
   plan.role === "main"
     ? `  last=$(docker compose --project-directory "$STACK" exec -T backup-agent cat /srv/schulos/config/backup-agent-state.json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const t=j.lastOkAt;console.log(t?new Date(t).toLocaleString("de-DE"):"–")}catch{console.log("–")}})' 2>/dev/null)
   echo "  Letztes Backup: \${last:-–}"
+  # CA-02: Fingerabdruck der eigenen Root (legt schulosctl system-sync nur bei TLS-Modus internal ab) – zum Abgleich mit dem Download
+  fp=$(docker compose --project-directory "$STACK" exec -T app cat /srv/schulos/config/root-ca.crt 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const c=new (require("crypto").X509Certificate)(s);if(!c.ca)return;const p=c.fingerprint256.split(":");console.log("    "+p.slice(0,16).join(":"));console.log("    "+p.slice(16).join(":"))}catch{}})' 2>/dev/null)
+  [ -n "$fp" ] && echo "  Schul-Zertifikat, Fingerabdruck SHA-256 (Abgleich beim Import auf Geräten):" && echo "$fp"
 `
     : `  # eingerichtetes Abbild (B-46): Kopplungscode bis zum nächsten Neustart zeigen – die Installation von der ISO zeigt ihn am Ende
   [ -s ${PAIRING_CODE_FILE} ] && echo "  Kopplungscode für das Hauptsystem (24 h gültig): $(cat ${PAIRING_CODE_FILE})"
