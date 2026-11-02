@@ -16,8 +16,16 @@ async function axeClean(page: Page) {
   expect(res.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
 }
 
+/** Kein waagerechtes Scrollen bei 360 px; bei einem Fund die überstehenden Elemente (außerhalb von Scrollbereichen) nennen. */
 async function noOverflow(page: Page) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  const r = await page.evaluate(() => ({
+    width: document.documentElement.scrollWidth,
+    wide: [...document.querySelectorAll("main *")]
+      .filter((e) => e.getBoundingClientRect().right > 361 && !e.closest(".overflow-x-auto, .overflow-auto, nav"))
+      .slice(-5)
+      .map((e) => `${e.tagName}.${String(e.className).slice(0, 60)} → ${Math.round(e.getBoundingClientRect().right)}: ${(e.textContent ?? "").slice(0, 50)}`),
+  }));
+  expect(r.width, r.wide.join(" | ")).toBeLessThanOrEqual(360);
 }
 
 /** TT.MM.JJJJ in `days` Tagen (Berliner Datum). */
