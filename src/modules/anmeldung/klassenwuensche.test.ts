@@ -75,7 +75,7 @@ describe("Klassenwünsche (KB-03)", () => {
     await expect(addKlassenwunsch(h.db, sabine, ids.Anna!, { partnerId: ids.Ben!, art: "Freundin" })).rejects.toMatchObject({ fieldErrors: { art: expect.any(String) } });
     await addKlassenwunsch(h.db, sabine, ids.Anna!, { partnerId: ids.Ben!, art: "zusammen" }, now);
     await expect(addKlassenwunsch(h.db, sabine, ids.Anna!, { partnerId: ids.Ben!, art: "nicht_zusammen" })).rejects.toMatchObject({ fieldErrors: { partnerId: /schon/ } });
-    await addKlassenwunsch(h.db, sabine, ids.Anna!, { partnerId: ids.Cem!, art: "nicht_zusammen" }, now);
+    await addKlassenwunsch(h.db, sabine, ids.Anna!, { partnerId: ids.Cem!, art: "nicht_zusammen" }, new Date(now.getTime() + 1000));
     await expect(addKlassenwunsch(h.db, sabine, ids.Anna!, { partnerId: ids.Dana!, art: "zusammen" })).rejects.toMatchObject({ fieldErrors: { partnerId: /Höchstens 2/ } });
     // gegenseitig
     await addKlassenwunsch(h.db, sabine, ids.Ben!, { partnerId: ids.Anna!, art: "zusammen" }, now);
