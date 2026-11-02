@@ -57,11 +57,32 @@ Freigegeben von der Projektleitung am 2026-11-01 (Fragebogen Runde 12). Aufgaben
   mit Hinweis). Sprengt Festpinnen eine harte Regel, gewinnt das Festpinnen und der Schritt zeigt einen Hinweis. Weiche Ziele mit festen
   Gewichten: Wünsche, „getrennt“, kein Kind allein aus seiner Grundschule, Gruppen von 2–3 zusammen, Gruppen ab 4 gleichmäßig.
   Verfahren: mehrere gierige Startzuordnungen + lokale Suche (verschieben/tauschen), die beste gewinnt; deterministisch über einen Seed.
-  Wünsche und „getrennt“ nimmt die Funktion schon an – erfasst werden sie erst mit KB-03.
+  Wünsche und „getrennt“ nimmt die Funktion an; erfasst werden sie mit KB-03 (unten).
 - Schritt „Neuaufnahmen“: Begründung je Kind unter der Klassenauswahl, Kennzahlentabelle je Jahrgang (Kinder, festgepinnt,
   Grundschulen, „allein aus ihrer Grundschule“, ab KB-03 erfüllte Wünsche), Knopf „Neu vorschlagen“ (nächster Seed), Häkchen
   „festpinnen“ je Kind; eine von Hand gewählte Klasse wird automatisch festgepinnt. Einstellung `anmeldung.klassengroesse` (24–30,
   Vorgabe 27) unter Verwaltung → Rechte & Module.
+
+## Stand der Umsetzung (KB-03)
+
+- Tabelle `anmeldung_klassenwuensche` (Migration `0123_kb_03_klassenwuensche`): Antrag, Partner-Antrag (beide cascade), Art
+  `zusammen|nicht_zusammen`, `created_by`/`created_at`; je Paar (Antrag → Partner) nur ein Wunsch, egal welcher Art (ein Paar mit
+  beiden Arten wäre widersprüchlich), kein Selbstwunsch (Check). Häkchen „getrennt“ als Spalte `anmeldung_antraege.family_separate`
+  (Vorgabe aus = Familie zusammen); setzen schaltet alle Anträge der Familie im Verfahren gleich (gleiche E-Mail von Elternteil 1,
+  ohne Groß/Klein).
+- Logik `src/modules/anmeldung/klassenwuensche.ts`: erfassen/entfernen/„getrennt“ nur mit `anmeldung.manage`, Ansicht mit
+  `anmeldung.view`. Partner nur aus demselben Verfahren und nur gültige Anmeldungen (eingegangen, Termin, vollständig, aufgenommen,
+  Warteliste); dieselben Stände braucht der eigene Antrag zum Bearbeiten – also auch nach dem Verfahrensabschluss bis zur Übernahme.
+  Höchstens 2 Wünsche je Kind (Server prüft). Audit-Log: `anmeldung.antrag.wunsch`, `…wunsch.entfernt`, `…getrennt` – ohne Partner.
+  Nicht im Verlauf (der geht in die Auskunft).
+- Antragsansicht im Sekretariat: Karte „Klassenwünsche“ (eigene Wünsche, Nennungen in anderen Anträgen, Formular Art + Kind ohne
+  Freitext, Hinweis „keine Gründe eintragen“, Häkchen „getrennt“ nur, wenn die Familie mehrere Anträge im Verfahren hat). Eltern sehen
+  nichts davon (öffentlicher Vorgang und Elternkonto unverändert).
+- Schritt „Neuaufnahmen“: Server gibt Wünsche nur als Antrags-IDs + Art zwischen den aufgenommenen Kindern weiter (beide Seiten
+  müssen Kandidaten sein) und „getrennte“ Familien nur als neutralen Schlüssel; Vorschlag, Begründung und Spalte „Wünsche erfüllt“
+  rechnen damit im Browser.
+- Auskunft (`auskunft.ts`): `antrag.klassenbildung` mit eigenen Wünschen (nur „Wunsch (nicht) zusammen mit einem anderen Kind“ und
+  Zeitpunkt) und `familieGetrennt`; Wünsche anderer Anträge, die das Kind nennen, gehören zu deren Antrag.
 
 ## Datenschutz
 

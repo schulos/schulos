@@ -3,12 +3,13 @@ import { boolean, check, date, index, integer, jsonb, pgEnum, pgTable, text, tim
 import { sql } from "drizzle-orm";
 import { users } from "../../core/db/schema-auth";
 import { rooms, schoolYears } from "../../core/db/schema-core";
-import { ANTRAG_STATUSES, EREIGNIS_KINDS, VERFAHREN_KINDS, VERFAHREN_STATUSES } from "./labels";
+import { ANTRAG_STATUSES, EREIGNIS_KINDS, KLASSENWUNSCH_ARTEN, VERFAHREN_KINDS, VERFAHREN_STATUSES } from "./labels";
 
 export const anmeldungKindEnum = pgEnum("anmeldung_kind", VERFAHREN_KINDS);
 export const anmeldungVerfahrenStatusEnum = pgEnum("anmeldung_verfahren_status", VERFAHREN_STATUSES);
 export const anmeldungAntragStatusEnum = pgEnum("anmeldung_antrag_status", ANTRAG_STATUSES);
 export const anmeldungEreignisKindEnum = pgEnum("anmeldung_ereignis_kind", EREIGNIS_KINDS);
+export const anmeldungKlassenwunschArtEnum = pgEnum("anmeldung_klassenwunsch_art", KLASSENWUNSCH_ARTEN);
 
 /** Anmeldeverfahren, z. B. „Anmeldung Klasse 5 – Schuljahr 2027/28“. */
 export const anmeldungVerfahren = pgTable(
@@ -124,6 +125,11 @@ export const anmeldungAntraege = pgTable(
     transferredAt: timestamp("transferred_at", { withTimezone: true }),
     /** Familien mit Konto (P4-34b, Q-32 Weg 1): Antrag hängt am Elternkonto statt an Bestätigungs- und Vorgangslink */
     parentUserId: text("parent_user_id").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * KB-03 (kb-4): Familie (gleiche E-Mail von Elternteil 1, z. B. Mehrlinge) soll auf verschiedene Klassen – setzt das Sekretariat
+     * für alle Anträge der Familie im Verfahren gleich; Vorgabe: zusammen.
+     */
+    familySeparate: boolean("family_separate").notNull().default(false),
     /** Beginn der 90-Tage-Löschfrist (LK-90), gesetzt von der Statusmaschine; offene Anträge: NULL */
     retentionFrom: timestamp("retention_from", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -156,4 +162,32 @@ export const anmeldungEreignisse = pgTable(
     text: text("text").notNull().default(""),
   },
   (t) => [index("anmeldung_ereignisse_antrag_idx").on(t.antragId, t.at)],
+);
+
+/**
+ * KB-03 (docs/KLASSENBILDUNG.md, kb-1/kb-2): interne Klassenwünsche zwischen zwei Anträgen desselben Verfahrens, vom Sekretariat
+ * erfasst (Aufnahmegespräch, Grundschulbogen). Höchstens 2 je Antrag, je Paar nur eine Art, **ohne Begründung** (keine Konflikt-
+ * oder Gesundheitsdaten). Folgt der Löschklasse des Antrags (LK-90); fällt mit jedem der beiden Anträge weg.
+ */
+export const anmeldungKlassenwuensche = pgTable(
+  "anmeldung_klassenwuensche",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    antragId: text("antrag_id")
+      .notNull()
+      .references(() => anmeldungAntraege.id, { onDelete: "cascade" }),
+    partnerAntragId: text("partner_antrag_id")
+      .notNull()
+      .references(() => anmeldungAntraege.id, { onDelete: "cascade" }),
+    art: anmeldungKlassenwunschArtEnum("art").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("anmeldung_klassenwuensche_paar_uq").on(t.antragId, t.partnerAntragId),
+    index("anmeldung_klassenwuensche_partner_idx").on(t.partnerAntragId),
+    check("anmeldung_klassenwuensche_selbst", sql`${t.antragId} <> ${t.partnerAntragId}`),
+  ],
 );

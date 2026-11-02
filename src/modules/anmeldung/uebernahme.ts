@@ -51,6 +51,8 @@ export interface AdmissionCandidate {
   parent1Name: string;
   /** normalisierte Adresse (Kleinbuchstaben) */
   parent1Email: string;
+  /** KB-03: Familie als „getrennt“ markiert (kb-4) */
+  familySeparate: boolean;
   /** vorhandenes Elternkonto: Antrag über das Konto (P4-34b) oder gleiche, bestätigte E-Mail an einem Elternkonto */
   existingParent: { id: string; name: string; username: string | null; via: "konto" | "email" | "vorschlag" } | null;
   /**
@@ -123,6 +125,7 @@ export async function pendingAdmissions(db: Db, toYearId: string): Promise<Admis
       siblingNote: a.siblingNote,
       parent1Name: a.parent1Name,
       parent1Email: email,
+      familySeparate: a.familySeparate,
       existingParent: p ? { id: p.id, name: p.name, username: p.username, via: byAccount ? "konto" : "email" } : null,
       suggestedParent: suggested ? { id: suggested.id, name: suggested.name, username: suggested.username } : null,
       parent2:

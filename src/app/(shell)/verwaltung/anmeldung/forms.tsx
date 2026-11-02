@@ -1,8 +1,20 @@
 "use client";
 
 import { useActionState, useTransition, useState } from "react";
-import { addSlotsAction, checklistAction, decideAction, deleteSlotAction, moveSlotAction, noteAction, spamAction, verfahrenStepAction } from "@/modules/anmeldung/actions";
-import { ANTRAG_STATUS_LABELS, OPTIONAL_FIELDS, OPTIONAL_FIELD_LABELS, VERFAHREN_KINDS, VERFAHREN_KIND_LABELS, type AntragStatus, type VerfahrenFields } from "@/modules/anmeldung/labels";
+import {
+  addSlotsAction,
+  addWishAction,
+  checklistAction,
+  decideAction,
+  deleteSlotAction,
+  moveSlotAction,
+  noteAction,
+  removeWishAction,
+  separateAction,
+  spamAction,
+  verfahrenStepAction,
+} from "@/modules/anmeldung/actions";
+import { ANTRAG_STATUS_LABELS, KLASSENWUNSCH_ARTEN, KLASSENWUNSCH_LABELS, OPTIONAL_FIELDS, OPTIONAL_FIELD_LABELS, VERFAHREN_KINDS, VERFAHREN_KIND_LABELS, type AntragStatus, type VerfahrenFields } from "@/modules/anmeldung/labels";
 import type { SpamOp } from "@/modules/anmeldung/entscheidung";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { Badge } from "@schulos/ui/badge";
@@ -671,6 +683,89 @@ export function AntragTable({ verfahrenId, rows, canSpam, canMark }: { verfahren
           ))}
         </tbody>
       </Table>
+    </form>
+  );
+}
+
+/** KB-03: Klassenwunsch erfassen – Kind aus dem Verfahren + Art, bewusst ohne Begründungsfeld. */
+export function WishForm({ verfahrenId, antragId, candidates }: { verfahrenId: string; antragId: string; candidates: { id: string; number: string; name: string }[] }) {
+  const [state, formAction, pending] = useActionState(addWishAction.bind(null, verfahrenId, antragId), {});
+  return (
+    <form key={state.ok ? "ok" : JSON.stringify(state.values ?? null)} action={formAction} aria-label="Klassenwunsch erfassen" className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Wunsch" error={state.fieldErrors?.art}>
+          <Select name="art" defaultValue={state.values?.art ?? "zusammen"} className="w-44">
+            {KLASSENWUNSCH_ARTEN.map((k) => (
+              <option key={k} value={k}>
+                {KLASSENWUNSCH_LABELS[k]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Kind" error={state.fieldErrors?.partnerId}>
+          <Select name="partnerId" required defaultValue={state.values?.partnerId ?? ""} className="w-64">
+            <option value="" disabled>
+              – bitte wählen –
+            </option>
+            {candidates.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.number})
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Button type="submit" size="sm" disabled={pending}>
+          Wunsch speichern
+        </Button>
+      </div>
+      <Message state={state} okText="Wunsch gespeichert." />
+    </form>
+  );
+}
+
+/** KB-03: Klassenwunsch entfernen. */
+export function WishRemove({ verfahrenId, antragId, wishId, label }: { verfahrenId: string; antragId: string; wishId: string; label: string }) {
+  const [state, setState] = useState<FormState>({});
+  const [pending, start] = useTransition();
+  return (
+    <span className="inline-flex items-center gap-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        aria-label={`Wunsch ${label} entfernen`}
+        disabled={pending}
+        onClick={() => start(async () => setState(await removeWishAction(verfahrenId, antragId, wishId)))}
+      >
+        Entfernen
+      </Button>
+      {state.error && (
+        <span role="alert" className="text-xs text-danger">
+          {state.error}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** KB-03 (kb-4): Häkchen „getrennt“ je Familie – Vorgabe: Mehrlinge/Geschwister zusammen in eine Klasse. */
+export function SeparateForm({ verfahrenId, antragId, separate, names }: { verfahrenId: string; antragId: string; separate: boolean; names: string[] }) {
+  const [state, formAction, pending] = useActionState(separateAction.bind(null, verfahrenId, antragId), {});
+  return (
+    <form key={String(separate)} action={formAction} aria-label="Familie getrennt" className="flex flex-col gap-2">
+      <label className="flex min-h-6 items-start gap-2 text-sm">
+        <input type="checkbox" name="separate" defaultChecked={separate} className="size-6 shrink-0 accent-[var(--accent)]" />
+        <span>
+          Getrennt: auf verschiedene Klassen verteilen
+          <span className="block text-xs text-muted">Gilt für die ganze Familie ({names.join(", ")}); ohne Haken bleiben die Kinder zusammen.</span>
+        </span>
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="submit" size="sm" disabled={pending}>
+          Speichern
+        </Button>
+        <Message state={state} okText="Gespeichert." />
+      </div>
     </form>
   );
 }

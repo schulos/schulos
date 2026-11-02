@@ -862,6 +862,13 @@
       "when": 1793244719031,
       "tag": "0122_rs_10_gebaeude_qr",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1793634355031,
+      "tag": "0123_kb_03_klassenwuensche",
+      "breakpoints": true
     }
   ]
 }

@@ -48,6 +48,11 @@ export const ANTRAG_STATUS_LABELS: Record<AntragStatus, string> = {
 export const EREIGNIS_KINDS = ["eingegangen", "bestaetigt", "termin", "status", "notiz", "mail"] as const;
 export type EreignisKind = (typeof EREIGNIS_KINDS)[number];
 
+/** KB-03: Arten eines Klassenwunschs (kb-1/kb-2) */
+export const KLASSENWUNSCH_ARTEN = ["zusammen", "nicht_zusammen"] as const;
+export type KlassenwunschArt = (typeof KLASSENWUNSCH_ARTEN)[number];
+export const KLASSENWUNSCH_LABELS: Record<KlassenwunschArt, string> = { zusammen: "zusammen mit", nicht_zusammen: "nicht zusammen mit" };
+
 /** Optionale Formularfelder je Verfahren (an/aus). Grundschulempfehlung bewusst nicht (Q-31: nein in V1, DS-11). */
 export const OPTIONAL_FIELDS = ["geschwister", "zweitwunsch", "elternteil2", "hinweise"] as const;
 export type OptionalField = (typeof OPTIONAL_FIELDS)[number];

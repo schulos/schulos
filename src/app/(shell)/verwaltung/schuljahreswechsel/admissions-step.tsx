@@ -2,7 +2,7 @@
 
 import { Download, Pin, Printer, Shuffle } from "lucide-react";
 import { startTransition, useActionState, useMemo, useState } from "react";
-import { explain, proposeClasses, type KbChild, type KbExplanation } from "@/modules/anmeldung/klassenbildung";
+import { explain, proposeClasses, type KbChild, type KbExplanation, type KbWish } from "@/modules/anmeldung/klassenbildung";
 import type { AdmissionCredential } from "@/modules/anmeldung/uebernahme";
 import { admissionsAction, regeneratePasswordsAction, type AdmissionsState, type RegeneratePasswordsState } from "@/modules/verwaltung/schuljahreswechsel-actions";
 import { Button } from "@schulos/ui/button";
@@ -68,8 +68,17 @@ const split = (s: string) => [...new Set(s.split(/[\s,;]+/).map((x) => x.trim())
 
 const toChild = (r: AdmissionRow): KbChild => ({ id: r.antragId, label: r.child, school: r.school || null, family: r.family });
 
+const NO_WISHES: KbWish[] = [];
+const NO_FAMILIES: string[] = [];
+
+/** KB-03: Wünsche und „getrennte“ Familien (nur Antrags-IDs bzw. neutrale Familienschlüssel) */
+interface KbExtras {
+  wishes: readonly KbWish[];
+  separateFamilies: readonly string[];
+}
+
 /**
- * KB-02: Vorschlag je Jahrgang aus `klassenbildung.ts`. Festgepinnte Kinder bleiben stehen; wer festgepinnt „nicht übernehmen“
+ * KB-02: Vorschlag je Jahrgang aus `klassenbildung.ts` (KB-03: mit Wünschen und „getrennten“ Familien). Festgepinnte Kinder bleiben stehen; wer festgepinnt „nicht übernehmen“
  * hat, nimmt nicht teil. Rechnet im Browser – der Entwurf wird nicht gespeichert (kb-8).
  */
 function propose(
@@ -79,13 +88,14 @@ function propose(
   assign: Record<string, string>,
   pinned: ReadonlySet<string>,
   seed: number,
+  extras: KbExtras,
 ): Record<string, string> {
   const out = { ...assign };
   for (const l of levels) {
     const classNames = options[l.level] ?? [];
     const mine = rows.filter((r) => r.gradeLevel === l.level && !(pinned.has(r.antragId) && assign[r.antragId] === SKIP));
     const pins = Object.fromEntries(mine.filter((r) => pinned.has(r.antragId) && classNames.includes(assign[r.antragId] ?? "")).map((r) => [r.antragId, assign[r.antragId]!]));
-    const res = proposeClasses({ children: mine.map(toChild), classNames, pinned: pins, seed });
+    const res = proposeClasses({ children: mine.map(toChild), classNames, pinned: pins, seed, wishes: extras.wishes, separateFamilies: extras.separateFamilies });
     for (const r of mine) out[r.antragId] = res.assignment[r.antragId] ?? "";
   }
   return out;
@@ -102,6 +112,8 @@ export function AdmissionsStep({
   levels,
   rows,
   sizeHint,
+  wishes = NO_WISHES,
+  separateFamilies = NO_FAMILIES,
 }: {
   transitionId: string;
   /** Recht „Benutzer verwalten“ (Konten anlegen); ohne geht nur „Niemanden übernehmen“ */
@@ -110,20 +122,25 @@ export function AdmissionsStep({
   rows: AdmissionRow[];
   /** Richtwert Klassengröße (Einstellung `anmeldung.klassengroesse`) – nur für die Anzeige */
   sizeHint: number;
+  /** KB-03: Klassenwünsche zwischen den Anträgen (Antrags-IDs + Art, keine Namen) */
+  wishes?: KbWish[];
+  /** KB-03: Familienschlüssel, die das Sekretariat als „getrennt“ markiert hat */
+  separateFamilies?: string[];
 }) {
+  const extras = useMemo<KbExtras>(() => ({ wishes, separateFamilies }), [wishes, separateFamilies]);
   const [state, formAction, pending] = useActionState<AdmissionsState, FormData>(admissionsAction, {});
   const [classText, setClassText] = useState<Record<number, string>>(Object.fromEntries(levels.map((l) => [l.level, l.classes.join(", ")])));
   const options = useMemo(() => Object.fromEntries(levels.map((l) => [l.level, split(classText[l.level] ?? "")])), [levels, classText]);
   const [pinned, setPinned] = useState<ReadonlySet<string>>(() => new Set());
   const [seed, setSeed] = useState(0);
-  const [assign, setAssign] = useState<Record<string, string>>(() => propose(levels, rows, options, {}, new Set(), 0));
+  const [assign, setAssign] = useState<Record<string, string>>(() => propose(levels, rows, options, {}, new Set(), 0, extras));
   const [skipAll, setSkipAll] = useState(false);
   const explained = useMemo(() => {
     const out: Record<number, KbExplanation> = {};
     const pins = Object.fromEntries([...pinned].map((id) => [id, assign[id] ?? ""]));
-    for (const l of levels) out[l.level] = explain({ children: rows.filter((r) => r.gradeLevel === l.level).map(toChild), classNames: options[l.level] ?? [], pinned: pins }, assign);
+    for (const l of levels) out[l.level] = explain({ children: rows.filter((r) => r.gradeLevel === l.level).map(toChild), classNames: options[l.level] ?? [], pinned: pins, ...extras }, assign);
     return out;
-  }, [levels, rows, options, assign, pinned]);
+  }, [levels, rows, options, assign, pinned, extras]);
   const togglePin = (id: string, on: boolean) =>
     setPinned((p) => {
       const next = new Set(p);
@@ -134,7 +151,7 @@ export function AdmissionsStep({
   const reshuffle = () => {
     const next = seed + 1;
     setSeed(next);
-    setAssign(propose(levels, rows, options, assign, pinned, next));
+    setAssign(propose(levels, rows, options, assign, pinned, next, extras));
   };
 
   if (state.ok && state.result) {
@@ -167,7 +184,7 @@ export function AdmissionsStep({
         und Elternteil erzeugen – auch für den zweiten Elternteil, wenn im Antrag seine E-Mail-Adresse steht (vorhandene Elternkonten werden
         verknüpft; Konten mit gleicher, aber unbestätigter E-Mail nur, wenn der Vorschlag angekreuzt ist). Beim zweiten Elternteil ist die Adresse
         nie bestätigt: verknüpft wird dort nur mit Haken, sonst entsteht ein neues Konto ohne die Adresse. Die Zuordnung ist nur ein Vorschlag
-        (Größen höchstens 1 Kind Unterschied, Familien zusammen, Grundschulen gemischt – kein Geschlecht, keine weiteren Merkmale) und wird
+        (Größen höchstens 1 Kind Unterschied, Familien zusammen außer „getrennt“, Grundschulen gemischt, Klassenwünsche aus dem Vorgang – kein Geschlecht, keine weiteren Merkmale) und wird
         nicht gespeichert, bis die Neuaufnahmen übernommen sind. Übernommen werden nur Name, Klasse und die E-Mail der Eltern; alles Weitere bleibt in der
         Schulverwaltungssoftware.
       </p>

@@ -11,6 +11,7 @@ import { readSchoolSettings } from "@/core/settings";
 import { findAntraegeForAuskunft, type AuskunftTreffer } from "./auskunft";
 import { decide, DECISIONS, markSpamSuspect, rejectAsSpam, unmarkSpamSuspect, type Decision, type SpamOp } from "./entscheidung";
 import { anmeldungKatalog } from "./katalog";
+import { addKlassenwunsch, removeKlassenwunsch, setFamilySeparate } from "./klassenwuensche";
 import { OPTIONAL_FIELDS } from "./labels";
 import { addNote, moveSlot } from "./sekretariat";
 import {
@@ -160,6 +161,42 @@ export async function noteAction(verfahrenId: string, antragId: string, _prev: F
     await addNote(await getDb(), perms, antragId, String(form.get("note") ?? ""));
   } catch (err) {
     return fail(err, form);
+  }
+  revalidatePath(antragPath(verfahrenId, antragId));
+  return { ok: true };
+}
+
+/** KB-03: Klassenwunsch erfassen (zusammen/nicht zusammen, ohne Begründung). */
+export async function addWishAction(verfahrenId: string, antragId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await addKlassenwunsch(await getDb(), perms, antragId, { partnerId: String(form.get("partnerId") ?? ""), art: String(form.get("art") ?? "") });
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath(antragPath(verfahrenId, antragId));
+  return { ok: true };
+}
+
+/** KB-03: Klassenwunsch entfernen. */
+export async function removeWishAction(verfahrenId: string, antragId: string, wishId: string): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await removeKlassenwunsch(await getDb(), perms, antragId, wishId);
+  } catch (err) {
+    return fail(err);
+  }
+  revalidatePath(antragPath(verfahrenId, antragId));
+  return { ok: true };
+}
+
+/** KB-03: Häkchen „getrennt“ für die ganze Familie im Verfahren. */
+export async function separateAction(verfahrenId: string, antragId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await setFamilySeparate(await getDb(), perms, antragId, form.get("separate") === "on");
+  } catch (err) {
+    return fail(err);
   }
   revalidatePath(antragPath(verfahrenId, antragId));
   return { ok: true };
