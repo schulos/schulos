@@ -13,16 +13,31 @@ export function ReportForm({
   action,
   rooms,
   initialRoom,
+  asset,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   rooms: Option[];
   initialRoom: string;
+  /** INV-03: Meldung zu einem Inventargut – Bezeichnung und Kategorie vorbelegt, Bezug als verstecktes Feld */
+  asset?: { id: string; title: string; category: string };
 }) {
   const [state, formAction, pending] = useActionState(action, {});
   const fe = state.fieldErrors ?? {};
-  const v: Record<string, string> = { category: "gebaeude", priority: "normal", roomId: initialRoom, ...state.values };
+  const v: Record<string, string> = {
+    category: asset?.category ?? "gebaeude",
+    priority: "normal",
+    roomId: initialRoom,
+    ...(asset ? { title: `${asset.title}: ` } : {}),
+    ...state.values,
+  };
   return (
     <form key={JSON.stringify(state.values ?? null)} action={formAction} aria-label="Mangel melden" className="grid gap-4 sm:grid-cols-2">
+      {asset && <input type="hidden" name="assetId" value={asset.id} />}
+      {fe.assetId && (
+        <p role="alert" className="text-sm text-danger sm:col-span-2">
+          {fe.assetId}
+        </p>
+      )}
       <Field label="Was ist kaputt?" error={fe.title} className="sm:col-span-2">
         <Input name="title" defaultValue={v.title} maxLength={120} required placeholder="z. B. Beamer flackert, Fenster klemmt" />
       </Field>

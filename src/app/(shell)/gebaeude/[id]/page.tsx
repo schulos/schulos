@@ -80,6 +80,17 @@ export default async function TicketPage({ params, searchParams }: { params: Pro
                 {(t.building || t.floor) && <span className="block text-xs font-normal text-muted">{[t.building, t.floor].filter(Boolean).join(", ")}</span>}
               </dd>
             </div>
+            {t.assetId && t.assetName && (
+              <div>
+                <dt className="text-muted">Gerät</dt>
+                <dd className="font-medium">
+                  <Link href={`/gebaeude/inventar/${encodeURIComponent(t.assetId)}`} className="hover:underline">
+                    {t.assetName}
+                  </Link>
+                  {manage && t.assetInventoryNo && <span className="font-normal text-muted"> · {t.assetInventoryNo}</span>}
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="text-muted">Gemeldet</dt>
               <dd>

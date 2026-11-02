@@ -883,6 +883,13 @@
       "when": 1793638890158,
       "tag": "0125_inv_01_enum_entfernen",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1793649048316,
+      "tag": "0126_inv_03_asset_seite",
+      "breakpoints": true
     }
   ]
 }

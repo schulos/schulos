@@ -9,7 +9,7 @@ import { audit } from "@/core/audit";
 import { toCsv, detectSeparator, splitCsvLine } from "@/core/csv";
 import type { Db } from "@/core/db/client";
 import { rowsOf } from "@/core/db/rows";
-import { buildingFloors, buildings, gebaeudeAssetCategories, gebaeudeAssets, gebaeudeInspectionTypes, gebaeudeInspections, gebaeudeTickets, labelCodes, rooms } from "@/core/db/schema";
+import { buildingFloors, buildings, gebaeudeAssetCategories, gebaeudeAssetPhotos, gebaeudeAssets, gebaeudeInspectionTypes, gebaeudeInspections, gebaeudeTickets, labelCodes, rooms } from "@/core/db/schema";
 import { alias } from "drizzle-orm/pg-core";
 import { newStorageKey, type FileStorage } from "@/core/files/storage";
 import { notify } from "@/core/notifications";
@@ -31,6 +31,7 @@ import {
   STATUS_LABELS,
   TICKET_CATEGORIES,
   ticketNumber,
+  ticketCategoryForAsset,
   parsePriceCents,
   type AssetCondition,
   type InspectionResponsible,
@@ -377,14 +378,19 @@ export async function setAssetActive(db: Db, viewer: PermissionSet, id: string, 
   if (active) await planDue(db, today);
 }
 
-/** Ausgemustertes Inventar endgültig löschen (Recht `gebaeude.configure`; Etikett-Code und Prüfungen gehen mit). */
-export async function deleteAsset(db: Db, viewer: PermissionSet, id: string): Promise<void> {
+/**
+ * Ausgemustertes Inventar endgültig löschen (Recht `gebaeude.configure`; Etikett-Code, Prüfungen und Fotos gehen mit, Meldungen
+ * bleiben ohne Bezug). Fotodateien löscht `storage` direkt; ohne bzw. bei Fehlern räumt der Dateispeicher-Lauf sie weg.
+ */
+export async function deleteAsset(db: Db, viewer: PermissionSet, id: string, storage?: FileStorage): Promise<void> {
   requireConfigure(viewer);
   const [a] = await db.select({ name: gebaeudeAssets.name, active: gebaeudeAssets.active }).from(gebaeudeAssets).where(eq(gebaeudeAssets.id, id));
   if (!a) throw new ValidationError({ asset: "Inventar gibt es nicht" });
   if (a.active) throw new ValidationError({ asset: "Nur ausgemustertes Inventar lässt sich löschen" });
+  const files = await db.select({ key: gebaeudeAssetPhotos.storageKey, thumb: gebaeudeAssetPhotos.thumbKey }).from(gebaeudeAssetPhotos).where(eq(gebaeudeAssetPhotos.assetId, id));
   await db.delete(gebaeudeAssets).where(eq(gebaeudeAssets.id, id));
   await audit(db, viewer.userId, "gebaeude.asset.delete", id, { name: a.name });
+  if (storage) for (const f of files) for (const k of [f.key, f.thumb]) await storage.delete(k).catch(() => {});
 }
 
 /** Gebäude/Etage des Inventars: direkt gesetzt oder über den Raum. */
@@ -879,6 +885,8 @@ export interface InspectionFilter {
   state?: "offen" | "ueberfaellig" | "faellig" | "erledigt" | "alle";
   typeId?: string;
   building?: string;
+  /** INV-03: nur Prüfungen dieses Inventarguts (Asset-Seite) */
+  assetId?: string;
   limit?: number;
 }
 
@@ -892,6 +900,7 @@ export async function listInspections(db: Db, viewer: PermissionSet, f: Inspecti
     state === "erledigt" ? undefined : sql`(${gebaeudeInspections.doneOn} is not null or ${RESTING_EXCLUDED})`,
     f.typeId ? eq(gebaeudeInspections.typeId, f.typeId) : undefined,
     f.building ? sql`${buildingOfInspection} = ${f.building}` : undefined,
+    f.assetId ? eq(gebaeudeInspections.assetId, f.assetId) : undefined,
   ];
   // Stand als SQL-Bedingung vor dem Limit (sonst fehlen bei großen Beständen Einträge, Code-Review Gate 4a N9)
   if (state === "ueberfaellig") parts.push(OVERDUE(today));
@@ -948,14 +957,7 @@ export interface RecordInput {
 
 /** Rein: welche Meldung entsteht bei einem Mangel? Meldungskategorie nach Inventar-Kategorie, Priorität nach Ergebnis. */
 export function defectTicket(i: { typeName: string; target: string; categoryKey: string | null }, result: InspectionResult): { category: TicketCategory; priority: "normal" | "hoch"; title: string } {
-  const category: TicketCategory =
-    i.categoryKey === "it" || i.categoryKey === "praesentation"
-      ? "it"
-      : i.categoryKey === "elektro_ortsveraenderlich" || i.categoryKey === "aufzug" || i.categoryKey === "lueftung" || i.categoryKey === "tor_tuer"
-      ? "technik"
-      : i.categoryKey === "feuerloescher" || i.categoryKey === "erste_hilfe" || i.categoryKey === "sicherheit"
-        ? "sicherheit"
-        : "gebaeude";
+  const category = ticketCategoryForAsset(i.categoryKey);
   const what = result === "ausser_betrieb" ? "außer Betrieb" : "Mangel";
   return { category, priority: result === "ausser_betrieb" ? "hoch" : "normal", title: `Prüfung ${i.typeName}: ${what} – ${i.target}`.slice(0, 120) };
 }
@@ -1015,6 +1017,7 @@ export async function recordInspection(
       {
         ...t,
         roomId: row.roomId,
+        assetId: claimed.assetId,
         location: row.roomId ? null : (row.building ?? targetLabel(row)).slice(0, 120),
         description: [`Bei der Prüfung am ${input.doneOn} festgestellt${company ? ` (${company})` : ""}.`, note].filter(Boolean).join("\n\n"),
         photos: [],

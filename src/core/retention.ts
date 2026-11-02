@@ -276,6 +276,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   anmeldung_slots: "Gesprächstermine eines Anmeldeverfahrens (Zeit, Raum, Plätze) – keine Personen; Buchungen stehen am Antrag",
   gebaeude_responsibilities: "Zuständige Gruppe je Meldungskategorie (Gruppe, keine Personen)",
   gebaeude_assets: "Inventar (Anlagen und Geräte, INV-01): Sachangaben, Lieferant ist eine Firma – keine Personen",
+  gebaeude_asset_photos: "Fotos je Inventargut (INV-03): Sachen, keine Personen (Hinweis am Upload), Metadaten entfernt; wer hochgeladen hat, steht nur im Audit-Log",
   gebaeude_asset_categories: "Kategorien des Inventars (INV-01: Name, Präfix, Prüfpflicht, verantwortliche Gruppe) – keine Personen",
   gebaeude_inventory_counters: "Zähler für automatische Inventarnummern je Präfix (INV-01) – nur Zahlen",
   gebaeude_inspection_types: "Prüfarten (Name, Intervall, Quelle) – keine Personen",

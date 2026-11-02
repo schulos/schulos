@@ -78,6 +78,33 @@ export const ASSET_CONDITIONS = ["neu", "gut", "gebraucht", "defekt"] as const;
 export type AssetCondition = (typeof ASSET_CONDITIONS)[number];
 export const CONDITION_LABELS: Record<AssetCondition, string> = { neu: "neu", gut: "gut", gebraucht: "gebraucht", defekt: "defekt" };
 
+/**
+ * Rein: Meldungskategorie zu einer Inventar-Kategorie (INV-03 „Mangel melden“ vom Etikett, Mängel aus Prüfungen) – IT/AV → IT/Medien,
+ * Haustechnik-Anlagen → Haustechnik, Sicherheitsausstattung → Sicherheit, sonst Gebäude.
+ */
+export function ticketCategoryForAsset(categoryKey: string | null): TicketCategory {
+  switch (categoryKey) {
+    case "it":
+    case "praesentation":
+      return "it";
+    case "elektro_ortsveraenderlich":
+    case "aufzug":
+    case "lueftung":
+    case "tor_tuer":
+      return "technik";
+    case "feuerloescher":
+    case "erste_hilfe":
+    case "sicherheit":
+      return "sicherheit";
+    default:
+      return "gebaeude";
+  }
+}
+
+/** Fotos je Inventargut (INV-03, wie Raumfotos): höchstens 6, je 20 MB vor dem Verkleinern auf 1600 px. */
+export const ASSET_PHOTOS_MAX = 6;
+export const ASSET_PHOTO_MAX_MB = 20;
+
 /** Inventarnummern: Präfix der Kategorie + laufende Nummer (Moduleinstellung `gebaeude.inventory_no_format`). */
 export const INVENTORY_NO_FORMATS = ["prefix-4", "prefix-year-4", "prefix-6"] as const;
 export type InventoryNoFormat = (typeof INVENTORY_NO_FORMATS)[number];
