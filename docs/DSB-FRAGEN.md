@@ -331,7 +331,7 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
 | Was SchulOS tut | Leert Protokoll-PDF und Bemerkung älterer Prüfungen; Termin, Ergebnis und Firma bleiben als Nachweis. |
 | Vorgabe | Letzte 2 Protokolle, frühestens ein Jahr nach der Prüfung. |
 | Die Schule entscheidet / dokumentiert | Klärt mit dem Schulträger die Nachweispflicht und wählt 2, 3 oder 5 Protokolle. |
-| Einstellungen | „Prüfprotokolle aufbewahren“ (Vorgabe: letzte 2 Protokolle (bis zur übernächsten Prüfung)) |
+| Einstellungen | „Prüfprotokolle aufbewahren“ (Vorgabe: letzte 2 Protokolle (bis zur übernächsten Prüfung)); „Inventarnummern“ (Vorgabe: Präfix-0001 (vierstellig, fortlaufend)); „Etikettenformat (Vorgabe)“ (Vorgabe: A4-Bogen 3×8 (70 × 36 mm)) |
 | In SchulOS | Verwaltung → Rechte & Module → Gebäude & Technik |
 <!-- /dsb -->
 

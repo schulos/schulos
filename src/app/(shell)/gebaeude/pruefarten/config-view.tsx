@@ -3,8 +3,6 @@ import { getDb } from "@/core/db/client";
 import { groups } from "@/core/db/schema";
 import { saveInspectionTypeAction, setResponsibilityAction } from "@/modules/gebaeude/actions";
 import {
-  ASSET_KIND_LABELS,
-  ASSET_KINDS,
   CATEGORY_LABELS,
   INSPECTION_RESPONSIBLES,
   INSPECTION_TARGET_LABELS,
@@ -12,6 +10,7 @@ import {
   RESPONSIBLE_LABELS,
   TICKET_CATEGORIES,
 } from "@/modules/gebaeude/labels";
+import { listCategories } from "@/modules/gebaeude/inventar";
 import { listInspectionTypes } from "@/modules/gebaeude/pruefungen";
 import { listResponsibilities } from "@/modules/gebaeude/service";
 import { Badge } from "@schulos/ui/badge";
@@ -19,17 +18,18 @@ import { Card, CardHeader } from "@schulos/ui/card";
 import { SpecForm, type FieldSpec } from "@/ui/spec-form";
 
 type TypeRow = Awaited<ReturnType<typeof listInspectionTypes>>[number];
+type CategoryOption = { value: string; label: string };
 
-function typeFields(t?: TypeRow): FieldSpec[] {
+function typeFields(categories: CategoryOption[], t?: TypeRow): FieldSpec[] {
   return [
     { name: "name", label: "Name", type: "text", required: true, maxLength: 120, wide: true, defaultValue: t?.name },
     { name: "appliesTo", label: "gilt für", type: "select", defaultValue: t?.appliesTo ?? "anlage", options: INSPECTION_TARGETS.map((x) => ({ value: x, label: INSPECTION_TARGET_LABELS[x] })) },
     {
-      name: "assetKind",
-      label: "Anlagen-Art (automatisch planen)",
+      name: "categoryId",
+      label: "Inventar-Kategorie (automatisch planen)",
       type: "select",
-      defaultValue: t?.assetKind ?? "",
-      options: [{ value: "", label: "–" }, ...ASSET_KINDS.map((k) => ({ value: k, label: ASSET_KIND_LABELS[k] }))],
+      defaultValue: t?.categoryId ?? "",
+      options: [{ value: "", label: "–" }, ...categories],
     },
     // Q5-29: offene Prüfungen behalten ihren Termin (planDue legt nur neue an) – das soll beim Ändern nicht überraschen
     {
@@ -62,7 +62,8 @@ function typeFields(t?: TypeRow): FieldSpec[] {
  */
 export async function GebaeudeConfig() {
   const db = await getDb();
-  const [types, resp] = await Promise.all([listInspectionTypes(db), listResponsibilities(db)]);
+  const [types, resp, cats] = await Promise.all([listInspectionTypes(db), listResponsibilities(db), listCategories(db)]);
+  const categories = cats.filter((c) => c.active).map((c) => ({ value: c.id, label: c.name }));
   const assigned = resp.map((r) => r.groupId);
   const groupRows = await db
     .select({ id: groups.id, name: groups.name, archivedAt: groups.archivedAt })
@@ -82,8 +83,8 @@ export async function GebaeudeConfig() {
         </h2>
         <p className="text-sm text-muted">
           Vorlage mit zwölf typischen Prüfungen an Schulen. Intervalle sind Annahmen, Quellen Hinweise – <strong>alles zu prüfen</strong>: SchulOS behauptet keine
-          Rechtsverbindlichkeit, maßgeblich sind Schulträger und Fachkraft für Arbeitssicherheit. Eingeschaltete Prüfarten mit Anlagen-Art werden für alle passenden
-          Anlagen automatisch geplant.
+          Rechtsverbindlichkeit, maßgeblich sind Schulträger und Fachkraft für Arbeitssicherheit. Eingeschaltete Prüfarten mit Inventar-Kategorie werden für alle passenden
+          Anlagen automatisch geplant; die Kategorien pflegen Sie unter Inventar → Kategorien.
         </p>
         <ul aria-label="Prüfarten" className="flex flex-col gap-2">
           {types.map((t) => (
@@ -94,11 +95,11 @@ export async function GebaeudeConfig() {
                   <Badge tone={t.active ? "success" : "neutral"}>{t.active ? "an" : "aus"}</Badge>
                   <span className="text-xs text-muted">
                     alle {t.intervalMonths} Monate · {INSPECTION_TARGET_LABELS[t.appliesTo]}
-                    {t.assetKind ? ` (${ASSET_KIND_LABELS[t.assetKind]})` : ""} · {RESPONSIBLE_LABELS[t.responsible]}
+                    {t.categoryName ? ` (${t.categoryName})` : ""} · {RESPONSIBLE_LABELS[t.responsible]}
                   </span>
                 </summary>
                 <div className="mt-3">
-                  <SpecForm action={saveInspectionTypeAction.bind(null, t.id)} label={`Prüfart ${t.name}`} submit="Speichern" okText="Gespeichert." columns={3} fields={typeFields(t)} />
+                  <SpecForm action={saveInspectionTypeAction.bind(null, t.id)} label={`Prüfart ${t.name}`} submit="Speichern" okText="Gespeichert." columns={3} fields={typeFields(categories, t)} />
                 </div>
               </details>
             </li>
@@ -106,7 +107,7 @@ export async function GebaeudeConfig() {
         </ul>
         <Card aria-labelledby="eigene">
           <CardHeader title={<span id="eigene">Eigene Prüfart anlegen</span>} />
-          <SpecForm action={saveInspectionTypeAction.bind(null, null)} label="Eigene Prüfart anlegen" submit="Anlegen" okText="Angelegt." columns={3} fields={typeFields()} />
+          <SpecForm action={saveInspectionTypeAction.bind(null, null)} label="Eigene Prüfart anlegen" submit="Anlegen" okText="Angelegt." columns={3} fields={typeFields(categories)} />
         </Card>
       </section>
 

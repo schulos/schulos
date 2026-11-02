@@ -23,12 +23,13 @@ export function normalizeLabelCode(input: string): string | null {
   return CODE_RE.test(c) ? c : null;
 }
 
-/** Arten von Etiketten mit Kurz-URL. Neue Art (z. B. „inventar“): hier ergänzen, Spalte + Prüfungen in `label_codes`. */
-export const LABEL_KINDS = ["raum"] as const;
+/** Arten von Etiketten mit Kurz-URL. Neue Art: hier ergänzen, Spalte + Prüfungen in `label_codes` (`schema.ts`), `TARGET` im Service. */
+export const LABEL_KINDS = ["raum", "inventar"] as const;
 export type LabelKind = (typeof LABEL_KINDS)[number];
 
 export const LABEL_KIND_INFO: Record<LabelKind, { label: string; /** Präfix der Kurz-URL */ path: string }> = {
   raum: { label: "Raum", path: "/r/" },
+  inventar: { label: "Inventar", path: "/i/" },
 };
 
 /** Rein: Pfad der Kurz-URL, z. B. `/r/7K3M9QXZ2HPA4T6W`. */
@@ -48,6 +49,25 @@ export type SignFormat = keyof typeof SIGN_FORMATS;
 export function signFormat(v: string | undefined): SignFormat {
   return v === "a4" ? "a4" : "a5";
 }
+
+/**
+ * INV-02: Formate für Inventar-Etiketten (inv-7): A4-Etikettenbögen in zwei gängigen Rastern und eine Endlosrolle 62 mm
+ * (ein Etikett je „Seite“, der Drucker schneidet). Maße in mm; Bögen anderer Hersteller über die Ränder anpassen.
+ */
+export const LABEL_FORMATS = {
+  "bogen-3x8": { label: "A4-Bogen 3×8 (70 × 36 mm)", kind: "bogen", cols: 3, rows: 8, widthMm: 70, heightMm: 36, topMm: 4.5, leftMm: 0, gapXMm: 0, gapYMm: 0 },
+  "bogen-4x13": { label: "A4-Bogen 4×13 (48 × 21 mm)", kind: "bogen", cols: 4, rows: 13, widthMm: 48.5, heightMm: 21.2, topMm: 10.7, leftMm: 8, gapXMm: 0, gapYMm: 0 },
+  "rolle-62": { label: "Endlosrolle 62 mm (62 × 29 mm)", kind: "rolle", cols: 1, rows: 1, widthMm: 62, heightMm: 29, topMm: 0, leftMm: 0, gapXMm: 0, gapYMm: 0 },
+} as const;
+export type LabelFormat = keyof typeof LABEL_FORMATS;
+export const DEFAULT_LABEL_FORMAT: LabelFormat = "bogen-3x8";
+
+export function labelFormat(v: string | undefined, fallback: LabelFormat = DEFAULT_LABEL_FORMAT): LabelFormat {
+  return v && v in LABEL_FORMATS ? (v as LabelFormat) : fallback;
+}
+
+/** Etiketten je Blatt eines Formats (Rolle: eins je Abschnitt). */
+export const labelsPerPage = (f: LabelFormat) => LABEL_FORMATS[f].cols * LABEL_FORMATS[f].rows;
 
 /** Rein: Schilder auf Seiten verteilen. */
 export function paginate<T>(items: readonly T[], perPage: number): T[][] {

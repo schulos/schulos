@@ -869,6 +869,20 @@
       "when": 1793634355031,
       "tag": "0123_kb_03_klassenwuensche",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1793638791433,
+      "tag": "0124_inv_01_inventar",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1793638890158,
+      "tag": "0125_inv_01_enum_entfernen",
+      "breakpoints": true
     }
   ]
 }

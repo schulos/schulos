@@ -9,15 +9,17 @@ import { audit } from "@/core/audit";
 import { toCsv, detectSeparator, splitCsvLine } from "@/core/csv";
 import type { Db } from "@/core/db/client";
 import { rowsOf } from "@/core/db/rows";
-import { gebaeudeAssets, gebaeudeInspectionTypes, gebaeudeInspections, gebaeudeTickets, rooms } from "@/core/db/schema";
+import { buildingFloors, buildings, gebaeudeAssetCategories, gebaeudeAssets, gebaeudeInspectionTypes, gebaeudeInspections, gebaeudeTickets, labelCodes, rooms } from "@/core/db/schema";
+import { alias } from "drizzle-orm/pg-core";
 import { newStorageKey, type FileStorage } from "@/core/files/storage";
 import { notify } from "@/core/notifications";
 import { ForbiddenError, hasPermission, usersWithPermission, type PermissionSet } from "@/core/permissions";
 import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { canMaintainInventory, categoryById, ensureCategories, inventoryNoFormat, maintainableCategories, nextInventoryNo, requireMaintain } from "./inventar";
+import { matchCategory } from "./kategorien";
 import {
-  ASSET_KIND_LABELS,
-  ASSET_KINDS,
+  ASSET_CONDITIONS,
   CATEGORY_LABELS,
   INSPECTION_RESPONSIBLES,
   INSPECTION_RESULTS,
@@ -29,7 +31,8 @@ import {
   STATUS_LABELS,
   TICKET_CATEGORIES,
   ticketNumber,
-  type AssetKind,
+  parsePriceCents,
+  type AssetCondition,
   type InspectionResponsible,
   type InspectionResult,
   type InspectionState,
@@ -47,8 +50,8 @@ export const canConfigure = (p: PermissionSet) => hasPermission(p, "gebaeude.con
 function requireViewAll(p: PermissionSet) {
   if (!canViewAll(p)) throw new ForbiddenError("gebaeude.view_all");
 }
-/** Anlagen lesen: wer alles lesen oder Anlagen einrichten darf (Code-Review Gate 4a N5). */
-export const canSeeAssets = (p: PermissionSet) => canViewAll(p) || canConfigure(p);
+/** Inventar lesen: wer alles lesen oder das Inventar pflegen darf (Code-Review Gate 4a N5; verantwortliche Gruppen prüft `listAssets`). */
+export const canSeeAssets = (p: PermissionSet) => canViewAll(p) || canMaintainInventory(p);
 function requireManage(p: PermissionSet) {
   if (!canManage(p)) throw new ForbiddenError("gebaeude.manage");
 }
@@ -99,8 +102,13 @@ export function isPdf(bytes: Uint8Array): boolean {
 
 // ---------------------------------------------------------------- Prüfarten
 
-/** Vorlage einspielen (fehlende Einträge, ausgeschaltet). Bestehende – auch angepasste – bleiben unverändert. */
+/**
+ * Vorlage einspielen (fehlende Einträge, ausgeschaltet). Bestehende – auch angepasste – bleiben unverändert. Die Kategorie der
+ * Vorlage (INV-01: `categoryKey`) wird über die Kategorien-Tabelle aufgelöst (Vorlage dort zuerst sicherstellen).
+ */
 export async function ensureTemplate(db: Db): Promise<void> {
+  await ensureCategories(db);
+  const cats = new Map((await db.select({ id: gebaeudeAssetCategories.id, key: gebaeudeAssetCategories.key }).from(gebaeudeAssetCategories)).map((c) => [c.key, c.id]));
   await db
     .insert(gebaeudeInspectionTypes)
     .values(
@@ -108,7 +116,7 @@ export async function ensureTemplate(db: Db): Promise<void> {
         templateKey: t.key,
         name: t.name,
         appliesTo: t.appliesTo,
-        assetKind: t.assetKind,
+        categoryId: t.categoryKey ? (cats.get(t.categoryKey) ?? null) : null,
         intervalMonths: t.intervalMonths,
         warnDays: t.warnDays,
         source: t.source,
@@ -122,17 +130,34 @@ export async function ensureTemplate(db: Db): Promise<void> {
 
 export async function listInspectionTypes(db: Db, opts: { activeOnly?: boolean } = {}) {
   await ensureTemplate(db);
-  return db
-    .select()
+  const rows = await db
+    .select({
+      id: gebaeudeInspectionTypes.id,
+      templateKey: gebaeudeInspectionTypes.templateKey,
+      name: gebaeudeInspectionTypes.name,
+      appliesTo: gebaeudeInspectionTypes.appliesTo,
+      categoryId: gebaeudeInspectionTypes.categoryId,
+      categoryName: gebaeudeAssetCategories.name,
+      intervalMonths: gebaeudeInspectionTypes.intervalMonths,
+      warnDays: gebaeudeInspectionTypes.warnDays,
+      source: gebaeudeInspectionTypes.source,
+      responsible: gebaeudeInspectionTypes.responsible,
+      note: gebaeudeInspectionTypes.note,
+      active: gebaeudeInspectionTypes.active,
+      createdAt: gebaeudeInspectionTypes.createdAt,
+    })
     .from(gebaeudeInspectionTypes)
+    .leftJoin(gebaeudeAssetCategories, eq(gebaeudeAssetCategories.id, gebaeudeInspectionTypes.categoryId))
     .where(opts.activeOnly ? eq(gebaeudeInspectionTypes.active, true) : undefined)
     .orderBy(desc(gebaeudeInspectionTypes.active), asc(gebaeudeInspectionTypes.createdAt), asc(gebaeudeInspectionTypes.name));
+  return rows;
 }
 
 export interface InspectionTypeInput {
   name: string;
   appliesTo: string;
-  assetKind: string | null;
+  /** Kategorie, deren aktive Anlagen automatisch geplant werden (nur bei Bezug „anlage“) */
+  categoryId: string | null;
   intervalMonths: number;
   warnDays: number;
   source: string;
@@ -141,13 +166,13 @@ export interface InspectionTypeInput {
   active: boolean;
 }
 
-function validateType(input: InspectionTypeInput) {
+async function validateType(db: Db, input: InspectionTypeInput) {
   const fe: Record<string, string> = {};
   const name = input.name.trim();
   if (name.length < 3 || name.length > 120) fe.name = "Name mit 3 bis 120 Zeichen";
   if (!(INSPECTION_TARGETS as readonly string[]).includes(input.appliesTo)) fe.appliesTo = "Bezug wählen";
-  const assetKind = input.appliesTo === "anlage" && input.assetKind ? input.assetKind : null;
-  if (assetKind && !(ASSET_KINDS as readonly string[]).includes(assetKind)) fe.assetKind = "Art wählen";
+  const categoryId = input.appliesTo === "anlage" && input.categoryId?.trim() ? input.categoryId.trim() : null;
+  if (categoryId && !(await categoryById(db, categoryId))) fe.categoryId = "Kategorie wählen";
   if (!Number.isInteger(input.intervalMonths) || input.intervalMonths < 1 || input.intervalMonths > 120) fe.intervalMonths = "Intervall 1 bis 120 Monate";
   if (!Number.isInteger(input.warnDays) || input.warnDays < 0 || input.warnDays > 365) fe.warnDays = "Vorwarnzeit 0 bis 365 Tage";
   if (input.source.trim().length > 300) fe.source = "höchstens 300 Zeichen";
@@ -158,7 +183,7 @@ function validateType(input: InspectionTypeInput) {
   return {
     name,
     appliesTo: input.appliesTo as InspectionTarget,
-    assetKind: assetKind as AssetKind | null,
+    categoryId,
     intervalMonths: input.intervalMonths,
     warnDays: input.warnDays,
     source: input.source.trim(),
@@ -171,7 +196,7 @@ function validateType(input: InspectionTypeInput) {
 /** Prüfart anpassen bzw. ein-/ausschalten (Recht `gebaeude.configure`). Eingeschaltet → Prüfungen für passende Anlagen planen. */
 export async function updateInspectionType(db: Db, viewer: PermissionSet, id: string, input: InspectionTypeInput, today: string): Promise<void> {
   requireConfigure(viewer);
-  const row = validateType(input);
+  const row = await validateType(db, input);
   const [old] = await db.select().from(gebaeudeInspectionTypes).where(eq(gebaeudeInspectionTypes.id, id));
   if (!old) throw new ValidationError({ name: "Prüfart gibt es nicht" });
   // Bezug ändert sich nicht, sobald es Prüfungen gibt (sonst passen Ziele nicht mehr)
@@ -187,23 +212,36 @@ export async function updateInspectionType(db: Db, viewer: PermissionSet, id: st
 /** Eigene Prüfart anlegen (Recht `gebaeude.configure`), gleich eingeschaltet. */
 export async function createInspectionType(db: Db, viewer: PermissionSet, input: InspectionTypeInput, today: string): Promise<string> {
   requireConfigure(viewer);
-  const row = validateType(input);
+  const row = await validateType(db, input);
   const [r] = await db.insert(gebaeudeInspectionTypes).values(row).returning({ id: gebaeudeInspectionTypes.id });
   await audit(db, viewer.userId, "gebaeude.inspection_type.create", r!.id, { name: row.name });
   await planDue(db, today);
   return r!.id;
 }
 
-// ---------------------------------------------------------------- Anlagen
+// ---------------------------------------------------------------- Inventar (INV-01)
 
 export interface AssetInput {
   name: string;
-  kind: string;
+  categoryId: string;
   roomId: string | null;
-  building: string | null;
+  /** Standort ohne Raum (oder abweichend): Gebäude/Etage aus den Stammdaten */
+  buildingId?: string | null;
+  floorId?: string | null;
+  /** leer = automatisch aus dem Zähler der Kategorie */
   inventoryNo: string | null;
   manufacturer?: string | null;
+  model?: string | null;
   serial?: string | null;
+  condition?: string | null;
+  /** Sammelposten: Menge > 1 (Tische, Stühle je Raum) */
+  quantity?: string | number | null;
+  /** Preis als Text („1.234,56“) */
+  price?: string | null;
+  supplier?: string | null;
+  financing?: string | null;
+  boundUntil?: string | null;
+  warrantyUntil?: string | null;
   acquiredOn?: string | null;
   note?: string | null;
 }
@@ -213,22 +251,46 @@ async function validateAsset(db: Db, input: AssetInput, selfId?: string) {
   const t = (s: string | null | undefined) => s?.trim() || null;
   const name = input.name.trim();
   const roomId = t(input.roomId);
+  const buildingId = t(input.buildingId);
+  const floorId = t(input.floorId);
   const inventoryNo = t(input.inventoryNo);
-  const acquiredOn = t(input.acquiredOn);
+  const condition = t(input.condition);
+  const quantity = input.quantity === null || input.quantity === undefined || String(input.quantity).trim() === "" ? 1 : Number(String(input.quantity).trim());
+  const priceCents = parsePriceCents(input.price);
   if (name.length < 2 || name.length > 120) fe.name = "Bezeichnung mit 2 bis 120 Zeichen";
-  if (!(ASSET_KINDS as readonly string[]).includes(input.kind)) fe.kind = "Art wählen";
+  const category = await categoryById(db, input.categoryId);
+  if (!category) fe.categoryId = "Kategorie wählen";
   for (const [k, v, n] of [
-    ["building", t(input.building), 60],
     ["inventoryNo", inventoryNo, 40],
     ["manufacturer", t(input.manufacturer), 80],
+    ["model", t(input.model), 80],
     ["serial", t(input.serial), 80],
+    ["supplier", t(input.supplier), 120],
+    ["financing", t(input.financing), 120],
     ["note", t(input.note), 500],
   ] as const)
     if (v && v.length > n) fe[k] = `höchstens ${n} Zeichen`;
-  if (acquiredOn && !YMD.test(acquiredOn)) fe.acquiredOn = "Datum angeben";
+  if (condition && !(ASSET_CONDITIONS as readonly string[]).includes(condition)) fe.condition = "Zustand wählen";
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 9999) fe.quantity = "Menge 1 bis 9999";
+  if (Number.isNaN(priceCents)) fe.price = "Preis in Euro, z. B. 1.234,56";
+  else if (priceCents !== null && priceCents > 99_999_999_00) fe.price = "Preis zu hoch";
+  for (const [k, v] of [
+    ["acquiredOn", t(input.acquiredOn)],
+    ["boundUntil", t(input.boundUntil)],
+    ["warrantyUntil", t(input.warrantyUntil)],
+  ] as const)
+    if (v && !YMD.test(v)) fe[k] = "Datum angeben";
   if (roomId) {
     const [r] = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, roomId));
     if (!r) fe.roomId = "Raum gibt es nicht";
+  }
+  if (buildingId) {
+    const [b] = await db.select({ id: buildings.id }).from(buildings).where(eq(buildings.id, buildingId));
+    if (!b) fe.buildingId = "Gebäude gibt es nicht";
+  }
+  if (floorId) {
+    const [f] = await db.select({ buildingId: buildingFloors.buildingId }).from(buildingFloors).where(eq(buildingFloors.id, floorId));
+    if (!f || (buildingId && f.buildingId !== buildingId)) fe.floorId = "Etage passt nicht zum Gebäude";
   }
   if (inventoryNo) {
     const [dup] = await db.select({ id: gebaeudeAssets.id }).from(gebaeudeAssets).where(eq(gebaeudeAssets.inventoryNo, inventoryNo));
@@ -237,93 +299,240 @@ async function validateAsset(db: Db, input: AssetInput, selfId?: string) {
   if (Object.keys(fe).length) throw new ValidationError(fe);
   return {
     name,
-    kind: input.kind as AssetKind,
+    categoryId: category!.id,
     roomId,
-    building: t(input.building),
+    buildingId: floorId && !buildingId ? null : buildingId,
+    floorId,
     inventoryNo,
     manufacturer: t(input.manufacturer),
+    model: t(input.model),
     serial: t(input.serial),
-    acquiredOn,
+    condition: condition as AssetCondition | null,
+    quantity,
+    priceCents,
+    supplier: t(input.supplier),
+    financing: t(input.financing),
+    boundUntil: t(input.boundUntil),
+    warrantyUntil: t(input.warrantyUntil),
+    acquiredOn: t(input.acquiredOn),
     note: t(input.note),
+    category: category!,
   };
 }
 
+/** Anlegen (Recht `gebaeude.inventory`/`configure` oder verantwortliche Gruppe der Kategorie); ohne Nummer vergibt der Zähler eine. */
 export async function createAsset(db: Db, viewer: PermissionSet, input: AssetInput, today: string): Promise<string> {
-  requireConfigure(viewer);
-  const row = await validateAsset(db, input);
-  const [r] = await db.insert(gebaeudeAssets).values(row).returning({ id: gebaeudeAssets.id });
-  await audit(db, viewer.userId, "gebaeude.asset.create", r!.id, { name: row.name, kind: row.kind });
+  const { category, ...row } = await validateAsset(db, input);
+  await requireMaintain(db, viewer, category.id);
+  const format = await inventoryNoFormat(db);
+  const id = await db.transaction(async (raw) => {
+    const tx = raw as unknown as Db;
+    const inventoryNo = row.inventoryNo ?? (await nextInventoryNo(tx, category.prefix, format, today));
+    const [r] = await tx.insert(gebaeudeAssets).values({ ...row, inventoryNo }).returning({ id: gebaeudeAssets.id });
+    return r!.id;
+  });
+  await audit(db, viewer.userId, "gebaeude.asset.create", id, { name: row.name, category: category.key });
   await planDue(db, today);
-  return r!.id;
+  return id;
 }
 
-/** Anlage außer Betrieb nehmen (offene Prüfungen entfallen) bzw. wieder in Betrieb (Prüfungen werden neu geplant). */
-export async function setAssetActive(db: Db, viewer: PermissionSet, id: string, active: boolean, today: string): Promise<void> {
-  requireConfigure(viewer);
-  const [a] = await db.update(gebaeudeAssets).set({ active }).where(eq(gebaeudeAssets.id, id)).returning({ id: gebaeudeAssets.id });
-  if (!a) throw new ValidationError({ asset: "Anlage gibt es nicht" });
+/** Ändern (gleiche Rechte wie Anlegen, für alte und neue Kategorie). Wechselt die Kategorie, entfallen offene Prüfungen fremder Prüfarten. */
+export async function updateAsset(db: Db, viewer: PermissionSet, id: string, input: AssetInput, today: string): Promise<void> {
+  const [old] = await db.select({ categoryId: gebaeudeAssets.categoryId, inventoryNo: gebaeudeAssets.inventoryNo }).from(gebaeudeAssets).where(eq(gebaeudeAssets.id, id));
+  if (!old) throw new ValidationError({ name: "Inventar gibt es nicht" });
+  await requireMaintain(db, viewer, old.categoryId);
+  const { category, ...row } = await validateAsset(db, input, id);
+  if (category.id !== old.categoryId) await requireMaintain(db, viewer, category.id);
+  // leere Nummer im Formular: bisherige bleibt; gab es nie eine, vergibt der Zähler jetzt eine
+  const inventoryNo = row.inventoryNo ?? old.inventoryNo ?? (await nextInventoryNo(db, category.prefix, await inventoryNoFormat(db), today));
+  await db.update(gebaeudeAssets).set({ ...row, inventoryNo }).where(eq(gebaeudeAssets.id, id));
+  if (category.id !== old.categoryId) {
+    await db.delete(gebaeudeInspections).where(
+      and(
+        eq(gebaeudeInspections.assetId, id),
+        isNull(gebaeudeInspections.doneOn),
+        sql`${gebaeudeInspections.typeId} in (select t.id from gebaeude_inspection_types t where t.category_id is not null and t.category_id <> ${category.id})`,
+      ),
+    );
+  }
+  await audit(db, viewer.userId, "gebaeude.asset.update", id, { name: row.name, category: category.key });
+  await planDue(db, today);
+}
+
+/**
+ * Ausmustern (offene Prüfungen entfallen, bleibt als Nachweis, in der Liste ausgeblendet – inv-8) bzw. wieder in Betrieb nehmen
+ * (Prüfungen werden neu geplant). Rechte wie beim Anlegen.
+ */
+export async function setAssetActive(db: Db, viewer: PermissionSet, id: string, active: boolean, today: string, reason: string | null = null): Promise<void> {
+  const [a] = await db.select({ categoryId: gebaeudeAssets.categoryId }).from(gebaeudeAssets).where(eq(gebaeudeAssets.id, id));
+  if (!a) throw new ValidationError({ asset: "Inventar gibt es nicht" });
+  await requireMaintain(db, viewer, a.categoryId);
+  const retiredReason = reason?.trim().slice(0, 200) || null;
+  await db
+    .update(gebaeudeAssets)
+    .set(active ? { active: true, retiredOn: null, retiredReason: null } : { active: false, retiredOn: today, retiredReason })
+    .where(eq(gebaeudeAssets.id, id));
   if (!active) await db.delete(gebaeudeInspections).where(and(eq(gebaeudeInspections.assetId, id), isNull(gebaeudeInspections.doneOn)));
   await audit(db, viewer.userId, active ? "gebaeude.asset.activate" : "gebaeude.asset.deactivate", id);
   if (active) await planDue(db, today);
 }
 
-const assetBuilding = sql<string | null>`coalesce(${gebaeudeAssets.building}, ${rooms.building})`;
-
-export async function listAssets(db: Db, viewer: PermissionSet, f: { kind?: AssetKind; building?: string; inactive?: boolean } = {}) {
-  if (!canSeeAssets(viewer)) throw new ForbiddenError("gebaeude.view_all");
-  const rows = await db
-    .select({
-      id: gebaeudeAssets.id,
-      name: gebaeudeAssets.name,
-      kind: gebaeudeAssets.kind,
-      roomId: gebaeudeAssets.roomId,
-      building: assetBuilding,
-      inventoryNo: gebaeudeAssets.inventoryNo,
-      manufacturer: gebaeudeAssets.manufacturer,
-      acquiredOn: gebaeudeAssets.acquiredOn,
-      active: gebaeudeAssets.active,
-      nextDue: sql<string | null>`(select min(i.due_on)::text from gebaeude_inspections i where i.asset_id = ${gebaeudeAssets.id} and i.done_on is null)`,
-    })
-    .from(gebaeudeAssets)
-    .leftJoin(rooms, eq(rooms.id, gebaeudeAssets.roomId))
-    .where(and(f.inactive ? undefined : eq(gebaeudeAssets.active, true), f.kind ? eq(gebaeudeAssets.kind, f.kind) : undefined, f.building ? sql`${assetBuilding} = ${f.building}` : undefined))
-    .orderBy(asc(gebaeudeAssets.kind), asc(gebaeudeAssets.name));
-  return rows.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, "de", { numeric: true }));
+/** Ausgemustertes Inventar endgültig löschen (Recht `gebaeude.configure`; Etikett-Code und Prüfungen gehen mit). */
+export async function deleteAsset(db: Db, viewer: PermissionSet, id: string): Promise<void> {
+  requireConfigure(viewer);
+  const [a] = await db.select({ name: gebaeudeAssets.name, active: gebaeudeAssets.active }).from(gebaeudeAssets).where(eq(gebaeudeAssets.id, id));
+  if (!a) throw new ValidationError({ asset: "Inventar gibt es nicht" });
+  if (a.active) throw new ValidationError({ asset: "Nur ausgemustertes Inventar lässt sich löschen" });
+  await db.delete(gebaeudeAssets).where(eq(gebaeudeAssets.id, id));
+  await audit(db, viewer.userId, "gebaeude.asset.delete", id, { name: a.name });
 }
 
-// ---------------------------------------------------------------- CSV-Import (Name;Art;Raum;Inventarnummer[;letzte Prüfung])
+/** Gebäude/Etage des Inventars: direkt gesetzt oder über den Raum. */
+const assetBuildings = alias(buildings, "asset_buildings");
+const assetFloors = alias(buildingFloors, "asset_floors");
+const assetBuildingId = sql<string | null>`coalesce(${gebaeudeAssets.buildingId}, ${rooms.buildingId})`;
+const assetBuilding = sql<string | null>`coalesce(${assetBuildings.name}, ${rooms.building})`;
+const assetFloor = sql<string | null>`coalesce(${assetFloors.name}, ${rooms.floor})`;
+
+export interface AssetFilter {
+  categoryId?: string;
+  buildingId?: string;
+  roomId?: string;
+  condition?: string;
+  /** auch ausgemusterte */
+  inactive?: boolean;
+  /** nur ohne Etikett-Code */
+  withoutLabel?: boolean;
+  /** Suche in Bezeichnung, Inventarnummer, Seriennummer, Hersteller, Modell */
+  q?: string;
+}
+
+const assetColumns = {
+  id: gebaeudeAssets.id,
+  name: gebaeudeAssets.name,
+  categoryId: gebaeudeAssets.categoryId,
+  categoryKey: gebaeudeAssetCategories.key,
+  categoryName: gebaeudeAssetCategories.name,
+  categorySort: gebaeudeAssetCategories.sortOrder,
+  roomId: gebaeudeAssets.roomId,
+  roomName: rooms.name,
+  buildingId: assetBuildingId,
+  building: assetBuilding,
+  floor: assetFloor,
+  inventoryNo: gebaeudeAssets.inventoryNo,
+  manufacturer: gebaeudeAssets.manufacturer,
+  model: gebaeudeAssets.model,
+  serial: gebaeudeAssets.serial,
+  condition: gebaeudeAssets.condition,
+  quantity: gebaeudeAssets.quantity,
+  priceCents: gebaeudeAssets.priceCents,
+  supplier: gebaeudeAssets.supplier,
+  financing: gebaeudeAssets.financing,
+  boundUntil: gebaeudeAssets.boundUntil,
+  warrantyUntil: gebaeudeAssets.warrantyUntil,
+  acquiredOn: gebaeudeAssets.acquiredOn,
+  active: gebaeudeAssets.active,
+  retiredOn: gebaeudeAssets.retiredOn,
+  retiredReason: gebaeudeAssets.retiredReason,
+  note: gebaeudeAssets.note,
+  labelCode: labelCodes.code,
+  nextDue: sql<string | null>`(select min(i.due_on)::text from gebaeude_inspections i where i.asset_id = ${gebaeudeAssets.id} and i.done_on is null)`,
+};
+
+function assetQuery(db: Db) {
+  return db
+    .select(assetColumns)
+    .from(gebaeudeAssets)
+    .innerJoin(gebaeudeAssetCategories, eq(gebaeudeAssetCategories.id, gebaeudeAssets.categoryId))
+    .leftJoin(rooms, eq(rooms.id, gebaeudeAssets.roomId))
+    .leftJoin(assetBuildings, eq(assetBuildings.id, gebaeudeAssets.buildingId))
+    .leftJoin(assetFloors, eq(assetFloors.id, gebaeudeAssets.floorId))
+    .leftJoin(labelCodes, and(eq(labelCodes.kind, "inventar"), eq(labelCodes.assetId, gebaeudeAssets.id)));
+}
+
+export type AssetRow = Awaited<ReturnType<typeof listAssets>>[number];
+
+/** Rein: Standort als Text („Raum 112 · Hauptgebäude · 1. OG“). */
+export function assetPlace(a: { roomId: string | null; building: string | null; floor: string | null }): string {
+  return [a.roomId ? `Raum ${a.roomId}` : null, a.building, a.floor].filter(Boolean).join(" · ") || "ohne Standort";
+}
+
+/**
+ * Inventarliste: alle lesen mit `view_all`/`inventory`/`configure`; verantwortliche Gruppen sehen die Anlagen ihrer Kategorien.
+ * Ausgemusterte nur mit `inactive`.
+ */
+export async function listAssets(db: Db, viewer: PermissionSet, f: AssetFilter = {}) {
+  const own = canViewAll(viewer) ? null : await maintainableCategories(db, viewer);
+  if (own && own.size === 0) throw new ForbiddenError("gebaeude.view_all");
+  const q = f.q?.trim().toLowerCase();
+  const rows = await assetQuery(db)
+    .where(
+      and(
+        f.inactive ? undefined : eq(gebaeudeAssets.active, true),
+        own ? inArray(gebaeudeAssets.categoryId, [...own]) : undefined,
+        f.categoryId ? eq(gebaeudeAssets.categoryId, f.categoryId) : undefined,
+        f.roomId ? eq(gebaeudeAssets.roomId, f.roomId) : undefined,
+        f.buildingId ? sql`${assetBuildingId} = ${f.buildingId}` : undefined,
+        f.condition && (ASSET_CONDITIONS as readonly string[]).includes(f.condition) ? eq(gebaeudeAssets.condition, f.condition as AssetCondition) : undefined,
+        f.withoutLabel ? isNull(labelCodes.code) : undefined,
+        q
+          ? sql`(lower(${gebaeudeAssets.name}) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.inventoryNo}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.serial}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.manufacturer}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.model}, '')) like ${`%${q}%`})`
+          : undefined,
+      ),
+    )
+    .orderBy(asc(gebaeudeAssetCategories.sortOrder), asc(gebaeudeAssets.name))
+    .limit(2000);
+  return rows.sort((a, b) => a.categorySort - b.categorySort || a.categoryName.localeCompare(b.categoryName, "de") || a.name.localeCompare(b.name, "de", { numeric: true }));
+}
+
+/**
+ * Ein Inventargut für die Asset-Seite (`/gebaeude/inventar/<id>`, Ziel von `/i/<code>`): Pflegende und `view_all` sehen alles,
+ * alle anderen Angemeldeten nur Bezeichnung, Kategorie und Standort (inv-5) – `full` sagt, was gilt. `null` = unbekannt.
+ */
+export async function getAsset(db: Db, viewer: PermissionSet, id: string) {
+  const [a] = await assetQuery(db).where(eq(gebaeudeAssets.id, id));
+  if (!a) return null;
+  const own = canViewAll(viewer) ? null : await maintainableCategories(db, viewer);
+  const full = own === null || own.has(a.categoryId);
+  const maintain = canMaintainInventory(viewer) || (own !== null && own.has(a.categoryId));
+  if (full) return { asset: a, full: true as const, maintain };
+  return {
+    asset: { id: a.id, name: a.name, categoryId: a.categoryId, categoryKey: a.categoryKey, categoryName: a.categoryName, roomId: a.roomId, roomName: a.roomName, building: a.building, floor: a.floor, quantity: a.quantity, active: a.active },
+    full: false as const,
+    maintain: false,
+  };
+}
+
+/** Gebäude aus den Stammdaten für Filter und Formulare (Reihenfolge wie in der Verwaltung). */
+export async function buildingOptions(db: Db) {
+  const rows = await db.select({ id: buildings.id, name: buildings.name, sortOrder: buildings.sortOrder }).from(buildings).orderBy(asc(buildings.sortOrder), asc(buildings.name));
+  return rows.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "de")).map((b) => ({ value: b.id, label: b.name }));
+}
+
+/** Etagen (Gebäude · Etage) für das Formular. */
+export async function floorOptions(db: Db) {
+  const rows = await db
+    .select({ id: buildingFloors.id, name: buildingFloors.name, buildingId: buildingFloors.buildingId, building: buildings.name, bs: buildings.sortOrder, fs: buildingFloors.sortOrder })
+    .from(buildingFloors)
+    .innerJoin(buildings, eq(buildings.id, buildingFloors.buildingId));
+  return rows
+    .sort((a, b) => a.bs - b.bs || a.building.localeCompare(b.building, "de") || a.fs - b.fs || a.name.localeCompare(b.name, "de"))
+    .map((f) => ({ value: f.id, label: `${f.building} · ${f.name}`, buildingId: f.buildingId }));
+}
+
+// ---------------------------------------------------------------- CSV-Import (Name;Kategorie;Raum;Inventarnummer[;letzte Prüfung;Menge;Hersteller;Modell;Seriennummer])
 
 export interface AssetCsvRow {
   line: number;
   name: string;
-  kind: AssetKind;
+  categoryId: string;
   roomId: string | null;
   inventoryNo: string | null;
   lastInspected: string | null;
-}
-
-const KIND_ALIASES: Record<string, AssetKind> = {
-  elektro: "elektro_ortsveraenderlich",
-  elektrogerät: "elektro_ortsveraenderlich",
-  "elektrogerät (ortsveränderlich)": "elektro_ortsveraenderlich",
-  feuerlöscher: "feuerloescher",
-  spielgerät: "spielgeraet",
-  sportgerät: "sportgeraet",
-  tor: "tor_tuer",
-  tür: "tor_tuer",
-  leiter: "leiter",
-  tritt: "leiter",
-  "erste hilfe": "erste_hilfe",
-  "erste-hilfe": "erste_hilfe",
-  verbandkasten: "erste_hilfe",
-};
-
-/** Rein: Art aus Schlüssel, Beschriftung oder Kurzform („Feuerlöscher“, „elektro“). */
-export function parseAssetKind(raw: string): AssetKind | null {
-  const v = raw.trim().toLowerCase();
-  if (!v) return null;
-  const direct = ASSET_KINDS.find((k) => k === v || ASSET_KIND_LABELS[k].toLowerCase() === v);
-  return direct ?? KIND_ALIASES[v] ?? null;
+  quantity: number | null;
+  manufacturer: string | null;
+  model: string | null;
+  serial: string | null;
 }
 
 /** Rein: „2025-03-01“ oder „01.03.2025“ → „2025-03-01“; sonst null. */
@@ -338,67 +547,99 @@ export function parseDay(raw: string): string | null {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo! - 1 && dt.getUTCDate() === d ? ymd : null;
 }
 
-const CSV_HEADERS: Record<string, keyof Omit<AssetCsvRow, "line">> = {
+type CsvField = "name" | "category" | "roomId" | "inventoryNo" | "lastInspected" | "quantity" | "manufacturer" | "model" | "serial";
+
+const CSV_HEADERS: Record<string, CsvField> = {
   name: "name",
   bezeichnung: "name",
-  art: "kind",
+  art: "category",
+  kategorie: "category",
   raum: "roomId",
   inventarnummer: "inventoryNo",
   "inventar-nr": "inventoryNo",
   "inventar-nr.": "inventoryNo",
   "letzte prüfung": "lastInspected",
   "letzte pruefung": "lastInspected",
+  menge: "quantity",
+  anzahl: "quantity",
+  hersteller: "manufacturer",
+  modell: "model",
+  seriennummer: "serial",
+  "serien-nr.": "serial",
 };
 
 export const MAX_ASSET_CSV_BYTES = 512 * 1024;
 export const MAX_ASSET_CSV_ROWS = 2000;
 
-/** Rein: Inventarliste des Schulträgers lesen – mit oder ohne Kopfzeile, „;“ oder „,“, UTF-8 mit/ohne BOM. */
-export function parseAssetCsv(text: string): { rows: AssetCsvRow[]; errors: { line: number; message: string }[] } {
+/**
+ * Rein: Inventarliste des Schulträgers lesen – mit oder ohne Kopfzeile, „;“ oder „,“, UTF-8 mit/ohne BOM. Die Kategorie wird
+ * gegen die übergebene Liste aufgelöst (Schlüssel, Name, Präfix, Kurzform – `matchCategory`).
+ */
+export function parseAssetCsv(text: string, categories: readonly { id: string; key: string; name: string; prefix: string }[]): { rows: AssetCsvRow[]; errors: { line: number; message: string }[] } {
   const clean = text.replace(/^﻿/, "");
   const sep = detectSeparator(clean);
-  let columns: (keyof Omit<AssetCsvRow, "line"> | null)[] = ["name", "kind", "roomId", "inventoryNo", "lastInspected"];
+  let columns: (CsvField | null)[] = ["name", "category", "roomId", "inventoryNo", "lastInspected", "quantity", "manufacturer", "model", "serial"];
   const rows: AssetCsvRow[] = [];
   const errors: { line: number; message: string }[] = [];
   let first = true;
+  const cut = (s: string | undefined, n: number) => s?.trim().slice(0, n) || null;
   clean.split(/\r?\n/).forEach((raw, idx) => {
     const line = idx + 1;
     if (!raw.trim()) return;
     const cells = splitCsvLine(raw, sep);
     if (first) {
       first = false;
-      const mapped = cells.map((c) => CSV_HEADERS[c.toLowerCase()] ?? null);
+      const mapped = cells.map((c) => CSV_HEADERS[c.trim().toLowerCase()] ?? null);
       if (mapped.filter(Boolean).length >= 2) {
         columns = mapped;
         return;
       }
     }
-    const rec: Record<string, string> = {};
+    const rec: Partial<Record<CsvField, string>> = {};
     columns.forEach((c, i) => {
       if (c) rec[c] = cells[i] ?? "";
     });
-    const kind = parseAssetKind(rec.kind ?? "");
-    const lastInspected = rec.lastInspected ? parseDay(rec.lastInspected) : null;
-    if (!rec.name || rec.name.length < 2) errors.push({ line, message: "Name fehlt" });
-    else if (rec.name.length > 120) errors.push({ line, message: "Name zu lang (höchstens 120 Zeichen)" });
-    else if (!kind) errors.push({ line, message: `Art „${rec.kind ?? ""}“ unbekannt` });
-    else if (rec.lastInspected && !lastInspected) errors.push({ line, message: `Datum „${rec.lastInspected}“ nicht lesbar (TT.MM.JJJJ)` });
-    else if ((rec.inventoryNo ?? "").length > 40) errors.push({ line, message: "Inventarnummer zu lang (höchstens 40 Zeichen)" });
-    else rows.push({ line, name: rec.name, kind, roomId: rec.roomId?.trim() || null, inventoryNo: rec.inventoryNo?.trim() || null, lastInspected });
+    const category = matchCategory(rec.category ?? "", categories);
+    const lastInspected = rec.lastInspected?.trim() ? parseDay(rec.lastInspected) : null;
+    const quantity = rec.quantity?.trim() ? Number(rec.quantity.trim()) : null;
+    const name = rec.name?.trim() ?? "";
+    if (name.length < 2) errors.push({ line, message: "Name fehlt" });
+    else if (name.length > 120) errors.push({ line, message: "Name zu lang (höchstens 120 Zeichen)" });
+    else if (!category) errors.push({ line, message: `Kategorie „${rec.category ?? ""}“ unbekannt` });
+    else if (rec.lastInspected?.trim() && !lastInspected) errors.push({ line, message: `Datum „${rec.lastInspected}“ nicht lesbar (TT.MM.JJJJ)` });
+    else if ((rec.inventoryNo?.trim() ?? "").length > 40) errors.push({ line, message: "Inventarnummer zu lang (höchstens 40 Zeichen)" });
+    else if (quantity !== null && (!Number.isInteger(quantity) || quantity < 1 || quantity > 9999)) errors.push({ line, message: `Menge „${rec.quantity}“ nicht lesbar (1 bis 9999)` });
+    else
+      rows.push({
+        line,
+        name,
+        categoryId: category.id,
+        roomId: rec.roomId?.trim() || null,
+        inventoryNo: rec.inventoryNo?.trim() || null,
+        lastInspected,
+        quantity,
+        manufacturer: cut(rec.manufacturer, 80),
+        model: cut(rec.model, 80),
+        serial: cut(rec.serial, 80),
+      });
   });
   if (rows.length > MAX_ASSET_CSV_ROWS) errors.push({ line: 0, message: `Höchstens ${MAX_ASSET_CSV_ROWS} Zeilen je Import` });
   return { rows, errors };
 }
 
 /**
- * Inventarliste importieren (Recht `gebaeude.configure`): alles oder nichts. Gleiche Inventarnummer → Anlage wird
- * aktualisiert. „letzte Prüfung“ wird als übernommener Nachweis (ohne Ergebnis) eingetragen; die nächste Prüfung
- * rechnet SchulOS daraus – ohne Angabe ist sie sofort fällig.
+ * Inventarliste importieren (Rechte wie beim Anlegen, für jede vorkommende Kategorie): alles oder nichts. Gleiche
+ * Inventarnummer → Anlage wird aktualisiert; ohne Nummer vergibt der Zähler eine. „letzte Prüfung“ wird als übernommener
+ * Nachweis (ohne Ergebnis) eingetragen; die nächste Prüfung rechnet SchulOS daraus – ohne Angabe ist sie sofort fällig.
  */
 export async function importAssets(db: Db, viewer: PermissionSet, text: string, today: string): Promise<{ created: number; updated: number }> {
-  requireConfigure(viewer);
   if (text.length > MAX_ASSET_CSV_BYTES) throw new ValidationError({ file: "Datei zu groß (höchstens 512 KB)" });
-  const { rows, errors } = parseAssetCsv(text);
+  await ensureCategories(db);
+  const categories = await db.select().from(gebaeudeAssetCategories).where(eq(gebaeudeAssetCategories.active, true));
+  const { rows, errors } = parseAssetCsv(text, categories);
+  const own = await maintainableCategories(db, viewer);
+  if (own && own.size === 0) throw new ForbiddenError("gebaeude.inventory");
+  for (const c of new Set(rows.map((r) => r.categoryId))) if (own && !own.has(c)) throw new ForbiddenError("gebaeude.inventory");
   const known = new Set((await db.select({ id: rooms.id }).from(rooms)).map((r) => r.id));
   for (const r of rows) if (r.roomId && !known.has(r.roomId)) errors.push({ line: r.line, message: `Raum „${r.roomId}“ gibt es nicht` });
   const seen = new Set<string>();
@@ -413,6 +654,8 @@ export async function importAssets(db: Db, viewer: PermissionSet, text: string, 
   }
   if (!rows.length) throw new ValidationError({ file: "Keine Anlagen in der Datei" });
   const types = await listInspectionTypes(db, { activeOnly: true });
+  const format = await inventoryNoFormat(db);
+  const prefixOf = new Map(categories.map((c) => [c.id, c.prefix]));
   // alles oder nichts – auch beim Schreiben (Code-Review Gate 4a M1)
   return db.transaction(async (raw) => {
     const tx = raw as unknown as Db;
@@ -426,15 +669,22 @@ export async function importAssets(db: Db, viewer: PermissionSet, text: string, 
     let updated = 0;
     for (const r of rows) {
       let id = r.inventoryNo ? byNumber.get(r.inventoryNo) : undefined;
+      const extra = {
+        ...(r.quantity !== null ? { quantity: r.quantity } : {}),
+        ...(r.manufacturer ? { manufacturer: r.manufacturer } : {}),
+        ...(r.model ? { model: r.model } : {}),
+        ...(r.serial ? { serial: r.serial } : {}),
+      };
       if (id) {
-        await tx.update(gebaeudeAssets).set({ name: r.name, kind: r.kind, roomId: r.roomId }).where(eq(gebaeudeAssets.id, id));
+        await tx.update(gebaeudeAssets).set({ name: r.name, categoryId: r.categoryId, roomId: r.roomId, ...extra }).where(eq(gebaeudeAssets.id, id));
         updated++;
       } else {
-        const [ins] = await tx.insert(gebaeudeAssets).values({ name: r.name, kind: r.kind, roomId: r.roomId, inventoryNo: r.inventoryNo }).returning({ id: gebaeudeAssets.id });
+        const inventoryNo = r.inventoryNo ?? (await nextInventoryNo(tx, prefixOf.get(r.categoryId) ?? "INV", format, today));
+        const [ins] = await tx.insert(gebaeudeAssets).values({ name: r.name, categoryId: r.categoryId, roomId: r.roomId, inventoryNo, ...extra }).returning({ id: gebaeudeAssets.id });
         id = ins!.id;
         created++;
       }
-      if (r.lastInspected) for (const t of types.filter((x) => x.assetKind === r.kind)) await takeOverInspection(tx, t, id, r.lastInspected);
+      if (r.lastInspected) for (const t of types.filter((x) => x.categoryId === r.categoryId)) await takeOverInspection(tx, t, id, r.lastInspected);
     }
     await audit(tx, viewer.userId, "gebaeude.asset.import", null, { created, updated });
     await planDue(tx, today);
@@ -471,14 +721,14 @@ async function takeOverInspection(db: Db, t: { id: string; intervalMonths: numbe
  * fällig = letzte Prüfung + Intervall, sonst Anschaffung + Intervall, sonst sofort (heute).
  */
 export async function planDue(db: Db, today: string): Promise<number> {
-  const types = (await db.select().from(gebaeudeInspectionTypes).where(and(eq(gebaeudeInspectionTypes.active, true), isNotNull(gebaeudeInspectionTypes.assetKind)))).filter(
+  const types = (await db.select().from(gebaeudeInspectionTypes).where(and(eq(gebaeudeInspectionTypes.active, true), isNotNull(gebaeudeInspectionTypes.categoryId)))).filter(
     (t) => t.appliesTo === "anlage",
   );
   if (!types.length) return 0;
   const assets = await db
-    .select({ id: gebaeudeAssets.id, kind: gebaeudeAssets.kind, acquiredOn: gebaeudeAssets.acquiredOn })
+    .select({ id: gebaeudeAssets.id, categoryId: gebaeudeAssets.categoryId, acquiredOn: gebaeudeAssets.acquiredOn })
     .from(gebaeudeAssets)
-    .where(and(eq(gebaeudeAssets.active, true), inArray(gebaeudeAssets.kind, [...new Set(types.map((t) => t.assetKind!))])));
+    .where(and(eq(gebaeudeAssets.active, true), inArray(gebaeudeAssets.categoryId, [...new Set(types.map((t) => t.categoryId!))])));
   if (!assets.length) return 0;
   const existing = await db
     .select({ typeId: gebaeudeInspections.typeId, assetId: gebaeudeInspections.assetId, doneOn: gebaeudeInspections.doneOn })
@@ -493,7 +743,7 @@ export async function planDue(db: Db, today: string): Promise<number> {
   }
   const values: (typeof gebaeudeInspections.$inferInsert)[] = [];
   for (const t of types) {
-    for (const a of assets.filter((x) => x.kind === t.assetKind)) {
+    for (const a of assets.filter((x) => x.categoryId === t.categoryId)) {
       const k = `${t.id}:${a.id}`;
       if (open.has(k)) continue;
       const base = lastDone.get(k) ?? a.acquiredOn;
@@ -527,9 +777,9 @@ export async function planInspection(db: Db, viewer: PermissionSet, input: PlanI
   if (type?.appliesTo === "anlage") {
     if (!assetId) fe.assetId = "Anlage wählen";
     else {
-      const [a] = await db.select({ kind: gebaeudeAssets.kind, active: gebaeudeAssets.active }).from(gebaeudeAssets).where(eq(gebaeudeAssets.id, assetId));
+      const [a] = await db.select({ categoryId: gebaeudeAssets.categoryId, categoryName: gebaeudeAssetCategories.name, active: gebaeudeAssets.active }).from(gebaeudeAssets).innerJoin(gebaeudeAssetCategories, eq(gebaeudeAssetCategories.id, gebaeudeAssets.categoryId)).where(eq(gebaeudeAssets.id, assetId));
       if (!a || !a.active) fe.assetId = "Anlage gibt es nicht (oder außer Betrieb)";
-      else if (type.assetKind && a.kind !== type.assetKind) fe.assetId = `Prüfart gilt für ${ASSET_KIND_LABELS[type.assetKind]}`;
+      else if (type.categoryId && a.categoryId !== type.categoryId) fe.assetId = `Prüfart gilt für ${(await categoryById(db, type.categoryId))?.name ?? "eine andere Kategorie"}`;
     }
     target.assetId = assetId;
   } else if (type?.appliesTo === "raum") {
@@ -575,7 +825,7 @@ export async function cancelInspection(db: Db, viewer: PermissionSet, id: string
 // ---------------------------------------------------------------- Lesen
 
 const roomOfInspection = sql`coalesce(${gebaeudeAssets.roomId}, ${gebaeudeInspections.roomId})`;
-const buildingOfInspection = sql<string | null>`coalesce(${gebaeudeInspections.building}, ${gebaeudeAssets.building}, ${rooms.building})`;
+const buildingOfInspection = sql<string | null>`coalesce(${gebaeudeInspections.building}, ${assetBuildings.name}, ${rooms.building})`;
 
 /** offene Prüfungen ausgeschalteter Prüfarten bzw. außer Betrieb genommener Anlagen ruhen */
 const RESTING_EXCLUDED = sql`(${gebaeudeInspectionTypes.active} and coalesce(${gebaeudeAssets.active}, true))`;
@@ -590,7 +840,7 @@ const inspectionColumns = {
   responsible: gebaeudeInspectionTypes.responsible,
   assetId: gebaeudeInspections.assetId,
   assetName: gebaeudeAssets.name,
-  assetKind: gebaeudeAssets.kind,
+  categoryKey: gebaeudeAssetCategories.key,
   inventoryNo: gebaeudeAssets.inventoryNo,
   roomId: sql<string | null>`${roomOfInspection}`,
   building: buildingOfInspection,
@@ -610,6 +860,8 @@ function inspectionQuery(db: Db) {
     .from(gebaeudeInspections)
     .innerJoin(gebaeudeInspectionTypes, eq(gebaeudeInspectionTypes.id, gebaeudeInspections.typeId))
     .leftJoin(gebaeudeAssets, eq(gebaeudeAssets.id, gebaeudeInspections.assetId))
+    .leftJoin(gebaeudeAssetCategories, eq(gebaeudeAssetCategories.id, gebaeudeAssets.categoryId))
+    .leftJoin(assetBuildings, eq(assetBuildings.id, gebaeudeAssets.buildingId))
     .leftJoin(rooms, sql`${rooms.id} = ${roomOfInspection}`);
 }
 
@@ -675,7 +927,7 @@ export async function inspectionSummary(db: Db, viewer: PermissionSet, today: st
 /** Gebäude aus Räumen, Anlagen und Prüfungen (Filter). */
 export async function inspectionBuildings(db: Db): Promise<string[]> {
   const res = await db.execute(
-    sql`select building as b from rooms where building is not null union select building from gebaeude_assets where building is not null union select building from gebaeude_inspections where building is not null`,
+    sql`select building as b from rooms where building is not null union select b.name from gebaeude_assets a join buildings b on b.id = a.building_id union select building from gebaeude_inspections where building is not null`,
   );
   return rowsOf<{ b: string }>(res)
     .map((r) => r.b)
@@ -694,12 +946,14 @@ export interface RecordInput {
   report?: Uint8Array | null;
 }
 
-/** Rein: welche Meldung entsteht bei einem Mangel? Kategorie nach Art der Anlage, Priorität nach Ergebnis. */
-export function defectTicket(i: { typeName: string; target: string; assetKind: AssetKind | null }, result: InspectionResult): { category: TicketCategory; priority: "normal" | "hoch"; title: string } {
+/** Rein: welche Meldung entsteht bei einem Mangel? Meldungskategorie nach Inventar-Kategorie, Priorität nach Ergebnis. */
+export function defectTicket(i: { typeName: string; target: string; categoryKey: string | null }, result: InspectionResult): { category: TicketCategory; priority: "normal" | "hoch"; title: string } {
   const category: TicketCategory =
-    i.assetKind === "elektro_ortsveraenderlich" || i.assetKind === "aufzug" || i.assetKind === "lueftung" || i.assetKind === "tor_tuer"
+    i.categoryKey === "it" || i.categoryKey === "praesentation"
+      ? "it"
+      : i.categoryKey === "elektro_ortsveraenderlich" || i.categoryKey === "aufzug" || i.categoryKey === "lueftung" || i.categoryKey === "tor_tuer"
       ? "technik"
-      : i.assetKind === "feuerloescher" || i.assetKind === "erste_hilfe"
+      : i.categoryKey === "feuerloescher" || i.categoryKey === "erste_hilfe" || i.categoryKey === "sicherheit"
         ? "sicherheit"
         : "gebaeude";
   const what = result === "ausser_betrieb" ? "außer Betrieb" : "Mangel";
@@ -753,7 +1007,7 @@ export async function recordInspection(
 
   let ticketId: string | null = null;
   if (result !== "ok") {
-    const t = defectTicket({ typeName: row.typeName, target: targetLabel(row), assetKind: row.assetKind }, result);
+    const t = defectTicket({ typeName: row.typeName, target: targetLabel(row), categoryKey: row.categoryKey }, result);
     const created = await createTicket(
       db,
       storage,

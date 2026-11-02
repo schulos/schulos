@@ -56,8 +56,8 @@ export default async function GebaeudePage({ searchParams }: { searchParams: Pro
             <Link href="/gebaeude/pruefarten" className="font-medium text-accent-ink hover:underline">
               Prüfarten und Zuständigkeiten
             </Link>
-            <Link href="/gebaeude/anlagen" className="font-medium text-accent-ink hover:underline">
-              Anlagen und Geräte
+            <Link href="/gebaeude/inventar" className="font-medium text-accent-ink hover:underline">
+              Inventar
             </Link>
           </p>
         )}

@@ -1,14 +1,15 @@
-// RS-11: Kurz-URL-Codes je Ziel (gemeinsamer Unterbau Tür-QR/Inventar). Ohne Rechteprüfung – die prüft die Fachseite (Raum:
-// `src/modules/verwaltung/tuer-qr.ts`). Je Ziel genau ein gültiger Code; Neuerzeugen ersetzt ihn (alter Code sofort ungültig).
+// RS-11/INV-02: Kurz-URL-Codes je Ziel (gemeinsamer Unterbau Tür-QR/Inventar). Ohne Rechteprüfung – die prüft die Fachseite (Raum:
+// `src/modules/verwaltung/tuer-qr.ts`, Inventar: `src/modules/gebaeude/inventar.ts`). Je Ziel genau ein gültiger Code; Neuerzeugen
+// ersetzt ihn (alter Code sofort ungültig).
 import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { labelCodes } from "@/core/db/schema";
 import { newLabelCode, normalizeLabelCode, type LabelKind } from "./codes";
 
 /** Zielspalte je Art – eine neue Art bekommt eine eigene Spalte in `label_codes`. */
-const TARGET = { raum: labelCodes.roomId } as const satisfies Record<LabelKind, unknown>;
+const TARGET = { raum: labelCodes.roomId, inventar: labelCodes.assetId } as const satisfies Record<LabelKind, unknown>;
 
-const targetValues = (kind: LabelKind, targetId: string) => ({ kind, ...(kind === "raum" ? { roomId: targetId } : {}) });
+const targetValues = (kind: LabelKind, targetId: string) => ({ kind, ...(kind === "raum" ? { roomId: targetId } : { assetId: targetId }) });
 
 /** Vorhandene Codes je Ziel (Ziel-ID → Code). */
 export async function labelCodesFor(db: Db, kind: LabelKind, targetIds: readonly string[]): Promise<Map<string, string>> {

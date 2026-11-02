@@ -28,3 +28,4 @@ export * from "../../modules/kurse/schema";
 export * from "../../modules/buecherei/schema";
 export * from "../../modules/hilfe/schema";
 export * from "../../modules/ganztag/schema";
+export * from "../etiketten/schema";

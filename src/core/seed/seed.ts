@@ -350,6 +350,8 @@ export async function seedDemoSchool(
     { permission: "elternbriefe.send_all", groupId: "g-schulleitung" },
     { permission: "klausurplan.manage", groupId: "g-schulleitung" },
     { permission: "gebaeude.manage", groupId: "g-hausmeisterei" },
+    // INV-01: Inventar pflegen über die Gruppe, nicht über die Rolle (inv-4)
+    { permission: "gebaeude.inventory", groupId: "g-hausmeisterei" },
     // RS-06: Raumdaten aller Räume (Fotos, Ausstattung, Infofelder) – keine Stammdaten
     { permission: "verwaltung.rooms_info", groupId: "g-hausmeisterei" },
     { permission: "buecherei.desk", groupId: "g-buecherei" },
