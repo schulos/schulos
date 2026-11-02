@@ -88,9 +88,10 @@ Die Nummern bleiben stabil (Verweise wie „DSB-FRAGEN §8“ im Code und in der
 <!-- dsb:anmeldung -->
 | Punkt | |
 |---|---|
-| Was SchulOS tut | Öffentliches Formular mit E-Mail-Bestätigung; erhebt nur, was Termin und Gespräch brauchen; Auskunft ohne Konto per Vorgangsnummer. |
+| Was SchulOS tut | Öffentliches Formular mit E-Mail-Bestätigung; erhebt nur, was Termin und Gespräch brauchen; Auskunft ohne Konto per Vorgangsnummer. Klassenbildung im Schuljahreswechsel nur als Vorschlag aus Grundschule und Familie, im Browser, nicht gespeichert; kein Geschlecht. |
 | Vorgabe | Unbestätigte Anträge 48 h, abgelehnte/Warteliste Verfahrensabschluss + 60 Tage (je Verfahren 31–365), zurückgezogene/übernommene 90 Tage. |
 | Die Schule entscheidet / dokumentiert | Entscheidet über Felder (Empfehlung, Anschrift), Fristen je Verfahren, Information von Elternteil 2, Identitätsprüfung bei Auskunft und Impressum. |
+| Einstellungen | „Klassenbildung: Richtwert Klassengröße“ (Vorgabe: 27 Kinder (Vorgabe)) |
 | In SchulOS | Verwaltung → Schulanmeldung |
 <!-- /dsb -->
 

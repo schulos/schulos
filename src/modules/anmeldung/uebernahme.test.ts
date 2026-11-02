@@ -12,7 +12,6 @@ import {
   admissionCredentialsCsv,
   admitStudents,
   pendingAdmissions,
-  proposeAssignment,
   proposeClassNames,
   regenerateAdmissionPasswords,
   SKIP,
@@ -20,15 +19,11 @@ import {
 } from "./uebernahme";
 
 describe("Übernahme Neuaufnahmen (rein)", () => {
-  it("Klassennamen nach Richtwert, Familien bleiben zusammen, sonst gleichmäßig", () => {
+  it("Klassennamen nach Richtwert (Verteilung: klassenbildung.test.ts)", () => {
     expect(proposeClassNames("5", 1)).toEqual(["5a"]);
     expect(proposeClassNames("5", 70)).toEqual(["5a", "5b", "5c"]);
-    const c = (id: string, mail: string) => ({ antragId: id, parent1Email: mail });
-    const r = proposeAssignment([c("1", "a@x"), c("2", "a@x"), c("3", "b@x"), c("4", "c@x"), c("5", "d@x")], ["5a", "5b"]);
-    expect(r["1"]).toBe(r["2"]);
-    expect(Object.values(r).filter((x) => x === "5a")).toHaveLength(3);
-    expect(Object.values(r).filter((x) => x === "5b")).toHaveLength(2);
-    expect(proposeAssignment([c("1", "a@x")], [])).toEqual({});
+    expect(proposeClassNames("5", 90, 30)).toEqual(["5a", "5b", "5c"]);
+    expect(proposeClassNames("5", 91, 30)).toEqual(["5a", "5b", "5c", "5d"]);
   });
 
   it("Name des Elternteils teilen", () => {

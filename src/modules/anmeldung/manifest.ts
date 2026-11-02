@@ -1,4 +1,5 @@
 import { defineModule } from "@/core/modules/types";
+import { ANMELDUNG_SETTINGS } from "./settings";
 
 export default defineModule({
   id: "anmeldung",
@@ -22,6 +23,8 @@ export default defineModule({
   },
   // Familien mit Konto melden ein weiteres Kind im geschützten Bereich an (P4-34b, Q-32 Weg 1)
   nav: [{ href: "/schulanmeldung", label: "Schulanmeldung", roles: ["eltern"] }],
+  // KB-02: Richtwert Klassengröße für den Klassenbildungs-Vorschlag im Schuljahreswechsel
+  settings: ANMELDUNG_SETTINGS,
   retention: [
     {
       table: "anmeldung_verfahren",
@@ -62,6 +65,6 @@ export default defineModule({
       "Art. 6 Abs. 1 lit. e, Abs. 3 DSGVO i. V. m. § 120 Abs. 1, 5 SchulG NRW und VO-DV I (Aufnahmedaten); Aufnahme nach § 46 SchulG NRW durch die Schulleitung (zu prüfen)",
     subjects: ["Kinder, die angemeldet werden (noch keine Schüler:innen)", "Eltern bzw. Sorgeberechtigte"],
     recipients: ["Sekretariat", "Schulleitung (Entscheidung)", "Eltern (eigener Vorgang über den Bearbeitungslink)"],
-    note: "Online nur, was Terminvergabe und Gespräch brauchen – keine Religionszugehörigkeit, kein Förderbedarf, keine Gesundheitsdaten, keine Noten, keine Uploads (Unterlagen werden im Original vorgelegt). Die rechtlich maßgebliche Aufnahme läuft weiter über Papier bzw. die Schulverwaltungssoftware. Keine automatische Auswahl. Mails gehen nur an Elternteil 1; die Adresse des zweiten Elternteils (optional, Q5-23) wird erst bei der Übernahme für dessen Elternkonto genutzt.",
+    note: "Online nur, was Terminvergabe und Gespräch brauchen – keine Religionszugehörigkeit, kein Förderbedarf, keine Gesundheitsdaten, keine Noten, keine Uploads (Unterlagen werden im Original vorgelegt). Die rechtlich maßgebliche Aufnahme läuft weiter über Papier bzw. die Schulverwaltungssoftware. Keine automatische Auswahl. Klassenbildung (KB-01): der Schritt „Neuaufnahmen“ schlägt aus Grundschule und Familie (gleiche E-Mail) eine Verteilung auf die neuen Klassen vor – nur ein Vorschlag im Browser, nicht gespeichert; kein Geschlecht, keine weiteren Merkmale. Mails gehen nur an Elternteil 1; die Adresse des zweiten Elternteils (optional, Q5-23) wird erst bei der Übernahme für dessen Elternkonto genutzt.",
   },
 });

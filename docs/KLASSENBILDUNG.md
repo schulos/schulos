@@ -42,10 +42,26 @@ Freigegeben von der Projektleitung am 2026-11-01 (Fragebogen Runde 12). Aufgaben
   Kein neues Recht.
 - **Einstellungen:** Klassengröße-Richtwert (heute Konstante `CLASS_SIZE_HINT` = 27) als Moduleinstellung `anmeldung.klassengroesse`
   (24–30); Gewichtung bleibt fest im Code.
-- **Live/Mail/Job:** keiner; Berechnung läuft in der Server Action. **Entwurf nur im Browser**, nicht gespeichert; die Schulleitung
+- **Live/Mail/Job:** keiner. Die Berechnung läuft als reine Funktion **im Browser** des Schritts (umgesetzt mit KB-02 statt in einer
+  Server Action: die Seite hat die Daten ohnehin, so entsteht keine neue Aktion mit eigener Rechteprüfung). An den Browser geht je Kind
+  nur ein neutraler Familienschlüssel, nicht die E-Mail-Adresse. **Entwurf nur im Browser**, nicht gespeichert; die Schulleitung
   prüft die Klassenlisten vor dem Übernehmen.
 - **Tests:** Eigenschaften (Größenabweichung ≤ 1, Familien zusammen, Wunsch erfüllt wo möglich), Determinismus, Gegenprobe ohne
   Rechteprüfung; E2E erweitert den vorhandenen Schuljahreswechsel-Test.
+
+## Stand der Umsetzung (KB-01, KB-02)
+
+- `src/modules/anmeldung/klassenbildung.ts`: `proposeClasses()` (Vorschlag) und `explain()` (Begründung je Kind, Kennzahlen je Klasse,
+  Hinweise – auch für von Hand geänderte Zuordnungen). Harte Regeln: Klassengrößen höchstens 1 Kind Unterschied (⌊n/k⌋…⌈n/k⌉, Anzahl
+  Klassen = ⌈n/Richtwert⌉), Familien als Block (außer „getrennt“), Festgepinntes bleibt, höchstens 2 Wünsche je Kind (weitere ignoriert,
+  mit Hinweis). Sprengt Festpinnen eine harte Regel, gewinnt das Festpinnen und der Schritt zeigt einen Hinweis. Weiche Ziele mit festen
+  Gewichten: Wünsche, „getrennt“, kein Kind allein aus seiner Grundschule, Gruppen von 2–3 zusammen, Gruppen ab 4 gleichmäßig.
+  Verfahren: mehrere gierige Startzuordnungen + lokale Suche (verschieben/tauschen), die beste gewinnt; deterministisch über einen Seed.
+  Wünsche und „getrennt“ nimmt die Funktion schon an – erfasst werden sie erst mit KB-03.
+- Schritt „Neuaufnahmen“: Begründung je Kind unter der Klassenauswahl, Kennzahlentabelle je Jahrgang (Kinder, festgepinnt,
+  Grundschulen, „allein aus ihrer Grundschule“, ab KB-03 erfüllte Wünsche), Knopf „Neu vorschlagen“ (nächster Seed), Häkchen
+  „festpinnen“ je Kind; eine von Hand gewählte Klasse wird automatisch festgepinnt. Einstellung `anmeldung.klassengroesse` (24–30,
+  Vorgabe 27) unter Verwaltung → Rechte & Module.
 
 ## Datenschutz
 

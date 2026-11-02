@@ -1,5 +1,5 @@
 // Übernahme aufgenommener Kinder im Schuljahreswechsel (P4-39, Schritt „Neuaufnahmen“): neue Klassen des Zieljahrgangs
-// im neuen Schuljahr anlegen, Kinder zuordnen (Grundschule und Geschwister nur als Sortierhilfe), Konten für Kind und
+// im neuen Schuljahr anlegen, Kinder zuordnen (Vorschlag: `klassenbildung.ts`, KB-01), Konten für Kind und
 // Elternteil 1 (und Elternteil 2, falls mit E-Mail angegeben – Q5-23) erzeugen wie beim CSV-Import (Benutzername `vorname.nachname`, Startpasswort, Passwortwechsel-Pflicht) bzw. ein
 // vorhandenes Elternkonto verknüpfen, Antrag → „übernommen“ (Fristbeginn LK-90). Zugangsdaten gibt es einmalig als Liste
 // (CSV/Druck) – **nicht** per Mail (Startpasswort auf Papier, wie beim Import). Übernommen werden nur die Minimaldaten
@@ -30,11 +30,10 @@ import { endLiveStreams } from "@/core/notifications/bus";
 import { toUsername } from "@/core/seed/rng";
 import { slugify } from "@/modules/verwaltung/groups";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { CLASS_SIZE_DEFAULT } from "./klassenbildung";
 import { ANTRAG_STATUS_LABELS } from "./labels";
 import { antragNumber, retentionFromFor } from "./service";
 
-/** Richtwert für Vorschläge: so viele Kinder je neuer Klasse (Klassenfrequenzrichtwert NRW Sek I: 27, Bandbreite 25–29). */
-export const CLASS_SIZE_HINT = 27;
 /** Wert für „nicht übernehmen“ in der Zuordnung. */
 export const SKIP = "nicht";
 
@@ -142,29 +141,13 @@ export async function pendingAdmissions(db: Db, toYearId: string): Promise<Admis
   });
 }
 
-/** Rein: Vorschlag Klassennamen eines Jahrgangs, z. B. „5a, 5b, 5c“ für 70 Kinder (Richtwert 27). */
-export function proposeClassNames(code: string, count: number, size = CLASS_SIZE_HINT): string[] {
+/**
+ * Rein: Vorschlag Klassennamen eines Jahrgangs, z. B. „5a, 5b, 5c“ für 70 Kinder (Richtwert 27, Einstellung
+ * `anmeldung.klassengroesse`). Die Verteilung der Kinder macht `klassenbildung.ts` (KB-01).
+ */
+export function proposeClassNames(code: string, count: number, size = CLASS_SIZE_DEFAULT): string[] {
   const n = Math.max(1, Math.ceil(count / size));
   return Array.from({ length: Math.min(n, 26) }, (_, i) => `${code}${String.fromCharCode(97 + i)}`);
-}
-
-/**
- * Rein: Vorschlag der Zuordnung – Kinder derselben Familie (gleiche E-Mail, z. B. Zwillinge) bleiben zusammen, sonst
- * reihum in die gerade kleinste Klasse in der Reihenfolge Grundschule/Name (mischt Grundschulen gleichmäßig). Nur ein
- * Vorschlag; die Verwaltung ändert ihn vor dem Übernehmen.
- */
-export function proposeAssignment(candidates: readonly Pick<AdmissionCandidate, "antragId" | "parent1Email">[], classNames: readonly string[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!classNames.length) return out;
-  const families = new Map<string, string[]>();
-  for (const c of candidates) families.set(c.parent1Email, [...(families.get(c.parent1Email) ?? []), c.antragId]);
-  const size = new Map(classNames.map((n) => [n, 0]));
-  for (const ids of families.values()) {
-    const target = classNames.reduce((best, n) => (size.get(n)! < size.get(best)! ? n : best), classNames[0]!);
-    for (const id of ids) out[id] = target;
-    size.set(target, size.get(target)! + ids.length);
-  }
-  return out;
 }
 
 export interface AdmissionInput {
