@@ -12,6 +12,7 @@ import { HISTORY_LIMIT, responsiblesFor, roomHistory } from "@/modules/verwaltun
 import { listRoomLayouts } from "@/modules/verwaltung/raumlayout";
 import { renewRoomCodeAction } from "@/modules/verwaltung/gebaeude-actions";
 import { roomCode } from "@/modules/verwaltung/tuer-qr";
+import { roomInventory } from "@/modules/gebaeude/raum-inventar";
 import { labelUrl } from "@/core/etiketten/qr";
 import { RenewQrButton } from "./tuer-qr-renew";
 import { capacityHint } from "@/core/raumlayout-raster";
@@ -56,7 +57,7 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
   const canEditInfo = await canEditRoomInfo(db, perms, room.id);
   const canManageResponsibles = canMaintainAllRooms(perms);
   // RS-06: Verantwortliche sehen nur Beschäftigte, die Historie nur Pflegende (Recht oder Verantwortung für diesen Raum)
-  const [responsibles, history, adressbuch, layouts, qrCode] = await Promise.all([
+  const [responsibles, history, adressbuch, layouts, qrCode, inventory] = await Promise.all([
     responsiblesFor(db, perms, room.id),
     canEditInfo ? roomHistory(db, perms, room.id) : Promise.resolve(null),
     moduleOn("adressbuch"),
@@ -64,6 +65,8 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
     listRoomLayouts(db, perms, room.id),
     // RS-11: Tür-QR nur für Pflegende (sonst null)
     canEditInfo ? roomCode(db, perms, room.id) : Promise.resolve(null),
+    // INV-06: Inventar je Kategorie nur für alle mit Sicht aufs Inventar (sonst null)
+    gebaeude ? roomInventory(db, perms, room.id) : Promise.resolve(null),
   ]);
   const mainLayout = layouts?.[0] ?? null;
   const weekHref = (m: string) => `/raeume/${enc}?woche=${m}#belegung`;
@@ -210,6 +213,37 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
                 </li>
               ))}
             </ul>
+          </Card>
+        )}
+        {inventory && (
+          <Card aria-labelledby="inventar">
+            <CardHeader title={<span id="inventar">Inventar</span>} action={{ href: `/gebaeude/inventar?raum=${enc}`, label: "Inventar des Raums" }} />
+            {inventory.entries === 0 ? (
+              <p className="text-sm text-muted">Kein Inventar in diesem Raum erfasst.</p>
+            ) : (
+              <div className="flex flex-col gap-2 text-sm">
+                <p className="text-muted">
+                  {inventory.entries === 1 ? "1 Eintrag" : `${inventory.entries} Einträge`}
+                  {inventory.pieces !== inventory.entries && ` · ${inventory.pieces} Stück`}
+                </p>
+                <ul className="flex flex-col">
+                  {inventory.categories.map((c) => (
+                    <li key={c.id}>
+                      <Link
+                        href={`/gebaeude/inventar?raum=${enc}&kategorie=${encodeURIComponent(c.id)}`}
+                        className="flex min-h-11 items-center justify-between gap-3 rounded-lg px-2 hover:bg-surface-2"
+                      >
+                        <span className="font-medium text-accent-ink">{c.name}</span>
+                        <span className="tabular-nums text-muted">
+                          {c.entries}
+                          {c.pieces !== c.entries && ` (${c.pieces} Stück)`}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </Card>
         )}
         {profile.photos && (

@@ -8,6 +8,8 @@ export const CONTEXT_PAGES: Readonly<Record<string, string>> = {
   abwesenheiten: "krankmeldung",
   kurswahl: "kurswahl",
   konto: "zwei-faktor-anmeldung-einrichten",
+  // INV-07: Gebäude & Technik (Mängel, Inventar, Etiketten, Inventur, Ausleihe) – nur für das Personal sichtbar
+  gebaeude: "gebaeude-und-technik-inventar",
 };
 
 /** „Erste Schritte“ je Rolle – Ziel auf der Startseite und in den Alltagsmodulen. */

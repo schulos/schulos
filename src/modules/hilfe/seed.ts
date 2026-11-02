@@ -43,11 +43,14 @@ export async function seedHilfe(db: Db, now = new Date()) {
   ]);
   await db.insert(hilfeTargets).values(STAFF_TARGET_ROLES.map((role) => ({ pageId: "hilfe-kopierer", role })));
   // Starter-Seiten (HB-07): wie nach „Starter-Seiten anlegen“, veröffentlicht für ihre Zielgruppen
-  await db.insert(hilfeSections).values({ id: "hilfe-erste-schritte", title: STARTER_SECTION, position: 1 });
+  // INV-07: weitere Bereiche der Starter-Seiten (z. B. „Gebäude & Technik“) hinter „Erste Schritte“
+  const sectionTitles = [STARTER_SECTION, ...new Set(STARTER_PAGES.map((p) => p.section).filter((t): t is string => !!t && t !== STARTER_SECTION))];
+  const sectionId = (title: string) => (title === STARTER_SECTION ? "hilfe-erste-schritte" : `hilfe-starter-bereich-${sectionTitles.indexOf(title)}`);
+  await db.insert(hilfeSections).values(sectionTitles.map((title, i) => ({ id: sectionId(title), title, position: i + 1 })));
   await db.insert(hilfePages).values(
     STARTER_PAGES.map((p, i) => ({
       id: `hilfe-starter-${p.slug}`,
-      sectionId: "hilfe-erste-schritte",
+      sectionId: sectionId(p.section ?? STARTER_SECTION),
       slug: p.slug,
       title: p.title,
       body: p.body,

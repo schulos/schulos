@@ -16,7 +16,8 @@ import { assetCode, canPrintLabels, inventoryLabels, printableAssets, renewAsset
 import { canSeeInventory, createCategory, deleteCategory, ensureCategories, listCategories, maintainableCategories, nextInventoryNo, updateCategory } from "./inventar";
 import { ASSET_CATEGORY_TEMPLATE, categoryKeyFromName, matchCategory } from "./kategorien";
 import { formatInventoryNo, inventoryCounterKey, parsePriceCents } from "./labels";
-import { createAsset, deleteAsset, getAsset, importAssets, listAssets, listInspectionTypes, setAssetActive, updateAsset, updateInspectionType } from "./pruefungen";
+import { createAsset, deleteAsset, getAsset, listAssets, listInspectionTypes, setAssetActive, updateAsset, updateInspectionType } from "./pruefungen";
+import { importAssets } from "./inventar-csv";
 import { INVENTORY_NO_FORMAT } from "./settings";
 
 const SABINE = "u-sabine.kowalski"; // Verwaltung: configure

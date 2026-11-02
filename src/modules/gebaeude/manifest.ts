@@ -11,9 +11,9 @@ export default defineModule({
   permissions: {
     "gebaeude.report": "Mängel und Störungen melden, eigene Meldungen verfolgen",
     "gebaeude.manage": "Meldungen bearbeiten (annehmen, zuweisen, Status, Raum sperren), Prüfungen erfassen, Wartungstermine",
-    "gebaeude.inventory": "Inventar pflegen (anlegen, ändern, ausmustern, CSV-Import), Etiketten drucken, Inventur durchführen – alle Kategorien",
+    "gebaeude.inventory": "Inventar pflegen (anlegen, ändern, ausmustern, CSV-Import und -Export), Etiketten drucken, Inventur durchführen – alle Kategorien",
     "gebaeude.configure": "Prüfarten, Inventar-Kategorien (Präfix, Prüfpflicht, verantwortliche Gruppe) und Zuständigkeiten je Meldungskategorie festlegen; schließt das Inventar-Recht ein",
-    "gebaeude.view_all": "Alle Meldungen, Prüfungen und Wartungstermine lesen",
+    "gebaeude.view_all": "Alle Meldungen, Prüfungen, Wartungstermine und das Inventar lesen (auch als CSV)",
   },
   // Schüler:innen melden per Vorgabe nicht (Q-21) – die Schule kann es z. B. der SV-Gruppe geben.
   // Die Hausmeisterei bekommt „manage“ und „inventory“ über ihre Gruppe (Rechte über Gruppen), nicht über die Rolle; eine
