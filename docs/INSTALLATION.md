@@ -574,6 +574,12 @@ Backupserver vertrauenswürdig ist.
   `schulosctl` am HTTPS-Port (`SCHULOS_HTTPS_PORT`, `SCHULOS_DOMAIN`) und meldet es mit dem Abgleich (`system-status.json`, Feld `tls`).
   Schwellen (Mail-Stau ab 60 Minuten, Sicherung älter als 26 Stunden) unter Verwaltung → System; zusätzliche Alarm-Mails (gleiche
   Empfänger wie die übrigen Betriebsalarme): **Mail-Stau** und **Zertifikat läuft in weniger als 14 Tagen ab**. Kein Verlauf, nur der aktuelle Stand.
+  **Zugriffe (BM-05):** Caddy schreibt immer ein zweites, **IP-freies** Protokoll (`caddy_betrieb`, `/var/log/caddy-betrieb/betrieb.log`):
+  der Filter entfernt vor dem Schreiben die ganze Anfrage (Adresse, Port, Host, Pfad, Header), Antwort-Header und Konto – übrig bleiben
+  Zeit, Status, Dauer, Größe. Gedreht alle 24 h, höchstens 48 h alt, nicht gesichert. Die App liest das Volume nur und zeigt Zähler
+  (Anfragen je Statusklasse, 5xx-Anteil, Antwortzeit-Median/95 %, letzte Stunde und 24 h) in der Karte und im Feld `traffic`;
+  Befund `zugriffe:5xx` ab 5 % Serverfehlern bei mindestens 20 Anfragen in der letzten Stunde (keine eigene Alarm-Mail). Das
+  IP-haltige Protokoll für CrowdSec (SEC-15) bleibt davon getrennt (eigenes Volume, die App sieht es nicht).
 - **Virenscan (P4-72, optional, Vorgabe aus):** ClamAV (GPL-2.0, eigener Container – SchulOS spricht nur das Netzprotokoll von
   clamd, kein gemeinsamer Code) als Compose-Profil: in `.env` `SCHULOS_CLAMAV=clamav:3310`, dann
   `docker compose --profile clamav up -d`. Beim ersten Start lädt `freshclam` die Signaturen (~300 MB, Internet), danach

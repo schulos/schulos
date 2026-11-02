@@ -120,6 +120,16 @@ export default async function SystemPage() {
           ))}
         </ul>
       )}
+      {health.traffic && (
+        <div role="group" aria-label="Zugriffe" className="mt-2 text-sm">
+          <p>
+            Zugriffe letzte Stunde {health.traffic.lastHour.requests} · Serverfehler {health.traffic.lastHour.errorRate ?? 0} %
+            {health.traffic.lastHour.latencyMs ? ` · Antwortzeit Median ${health.traffic.lastHour.latencyMs.p50} ms, 95 % unter ${health.traffic.lastHour.latencyMs.p95} ms` : ""}
+            {` · letzte 24 h ${health.traffic.lastDay.requests}`}
+          </p>
+          <p className="text-muted">aus dem Protokoll des Proxys ohne IP-Adressen und Pfade, höchstens 48 Stunden, nur Zähler</p>
+        </div>
+      )}
       <p className="mt-2 text-sm text-muted">
         Warnungen gehen als Alarm-Mail an die Empfänger unter „E-Mail“. Maschinenlesbar: <code>/api/health/details</code> (nur Schulnetz bzw. mit Token),
         auf dem Server <code>schulosctl status --json</code>.

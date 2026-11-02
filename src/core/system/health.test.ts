@@ -137,7 +137,7 @@ describe("collectHealth (BM-01)", () => {
 
   it("Bericht enthält nur die vorgesehenen Felder (Struktur eingefroren)", async () => {
     const r = await collectHealth(h.db, { system: system(), backup: okBackup, now, outbox: noMail });
-    expect(Object.keys(r).sort()).toEqual(["app", "backup", "checkedAt", "database", "disk", "host", "jobs", "level", "mail", "problems", "tls", "version"]);
+    expect(Object.keys(r).sort()).toEqual(["app", "backup", "checkedAt", "database", "disk", "host", "jobs", "level", "mail", "problems", "tls", "traffic", "version"]);
   });
 
   describe("Einstellungen und Zugang (BM-02)", () => {

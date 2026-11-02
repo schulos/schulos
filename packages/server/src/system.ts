@@ -259,6 +259,26 @@ export interface HealthReport {
   tls: { expiresAt: string; daysLeft: number } | null;
   /** null = Host meldet nichts (Entwicklung, Timer läuft nicht) */
   host: { checkedAt: string; stale: boolean; update: string | null; rebootPending: boolean; rebootDays: number | null } | null;
+  /** BM-05: Zähler aus dem IP-freien Betriebsprotokoll des Reverse-Proxys; null = kein Protokoll (Entwicklung) */
+  traffic: TrafficStats | null;
+}
+
+/** BM-05: aggregierte Zugriffe eines Zeitfensters (ohne IP, Pfad, Konto) */
+export interface TrafficWindow {
+  requests: number;
+  /** Anfragen je Statusklasse */
+  byClass: { "2xx": number; "3xx": number; "4xx": number; "5xx": number };
+  /** Anteil 5xx in Prozent (eine Nachkommastelle); null ohne Anfragen */
+  errorRate: number | null;
+  /** Antwortzeit in ms; null ohne Anfragen */
+  latencyMs: { p50: number; p95: number; p99: number } | null;
+}
+
+export interface TrafficStats {
+  lastHour: TrafficWindow;
+  lastDay: TrafficWindow;
+  /** ältester ausgewerteter Eintrag (höchstens 48 h alt) */
+  since: string | null;
 }
 
 /** Ausgabe von `schulosctl status --json` (Stack-Sicht des Hosts). */

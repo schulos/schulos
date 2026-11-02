@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { login } from "./helpers";
@@ -62,4 +62,35 @@ test("Karte „Betrieb“ in Verwaltung → System zeigt Stufe und Befunde", asy
   // ohne gekoppelte Sicherung: Warnung
   await expect(card.getByRole("list", { name: "Befunde" })).toContainText("Keine Sicherung eingerichtet");
   await expect(card.locator("code", { hasText: "/api/health/details" })).toBeVisible();
+});
+
+// BM-05/BM-06: Zähler aus dem IP-freien Protokoll des Proxys (im E2E legt die Spec die Datei selbst ab, playwright.config.ts)
+// und der VVT-Eintrag „Betriebsüberwachung“
+test("Zugriffe: Zähler aus dem Betriebsprotokoll, Befund bei vielen Serverfehlern; VVT-Eintrag Betriebsüberwachung", async ({ page, request }) => {
+  const dir = path.join(process.cwd(), ".data", "e2e-betrieb");
+  mkdirSync(dir, { recursive: true });
+  const ts = Date.now() / 1000 - 60;
+  const row = (status: number) => JSON.stringify({ level: "info", ts, logger: "http.log.access.betrieb", msg: "handled request", duration: 0.02, size: 100, status });
+  writeFileSync(path.join(dir, "betrieb.log"), [...Array.from({ length: 18 }, () => row(200)), row(502), row(502)].join("\n") + "\n");
+  try {
+    const report = await (await request.get("/api/health/details")).json();
+    expect(report.traffic.lastHour).toMatchObject({ requests: 20, byClass: { "2xx": 18, "5xx": 2 }, errorRate: 10 });
+    expect(report.problems.map((p: { key: string }) => p.key)).toContain("zugriffe:5xx");
+    // nichts im Bericht deutet auf IP, Pfad oder Konto
+    expect(JSON.stringify(report.traffic)).not.toMatch(/ip|uri|host|user/i);
+
+    await login(page, "admin");
+    await page.goto("/verwaltung/system");
+    const card = page.getByRole("article", { name: "Betrieb" });
+    await expect(card.getByRole("group", { name: "Zugriffe" })).toContainText("Zugriffe letzte Stunde 20 · Serverfehler 10 %");
+    await expect(card.getByRole("list", { name: "Befunde" })).toContainText("10 % Serverfehler in der letzten Stunde (2 von 20 Anfragen)");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // ohne Protokoll: kein Abschnitt, kein Befund
+  expect((await (await request.get("/api/health/details")).json()).traffic).toBeNull();
+
+  await page.goto("/druck/vvt");
+  await expect(page.getByRole("heading", { name: /Betriebsüberwachung/ })).toBeVisible();
+  await expect(page.getByText(/höchstens 48 Stunden/).first()).toBeVisible();
 });

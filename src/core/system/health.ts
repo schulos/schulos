@@ -4,13 +4,14 @@
 import { sql } from "drizzle-orm";
 import { immutableHealth } from "@schulos/server/agent-api";
 import { DISK_WARN_PERCENT } from "@schulos/server/mail";
-import { daysUntil, hostProblems, overallLevel, rebootPendingDays, REBOOT_RED_DAYS, type HealthProblem, type HealthReport, type SystemStatus } from "@schulos/server/system";
+import { daysUntil, hostProblems, overallLevel, rebootPendingDays, REBOOT_RED_DAYS, type HealthProblem, type HealthReport, type SystemStatus, type TrafficStats } from "@schulos/server/system";
 import type { BackupStatus } from "@/core/backup/status";
 import type { Db } from "@/core/db/client";
 import { systemJobs } from "@/core/db/schema";
 import { mailAvailable, outboxStats, scrubError, type OutboxStats } from "@/core/mail";
 import { DEFAULT_HEALTH_SETTINGS, type HealthSettings } from "./health-settings";
 import { statusIsStale } from "./status";
+import { readTraffic, trafficProblem } from "./zugriffe";
 
 export interface HealthInput {
   system: SystemStatus | null;
@@ -21,6 +22,8 @@ export interface HealthInput {
   mailConfigured?: boolean;
   /** für Tests: Mail-Kennzahlen vorgeben statt aus der Datenbank */
   outbox?: OutboxStats;
+  /** für Tests: Zugriffs-Zähler vorgeben (null = kein Protokoll), statt das Betriebsprotokoll zu lesen (BM-05) */
+  traffic?: TrafficStats | null;
 }
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
@@ -86,6 +89,10 @@ export async function collectHealth(db: Db, input: HealthInput): Promise<HealthR
     host = { checkedAt: s.checkedAt, stale, update: s.update?.status ?? null, rebootPending: Boolean(s.reboot), rebootDays: days };
   }
 
+  const traffic = input.traffic !== undefined ? input.traffic : readTraffic(now);
+  const tp = trafficProblem(traffic);
+  if (tp) problems.push(tp);
+
   return {
     version: 1,
     checkedAt: now.toISOString(),
@@ -99,5 +106,6 @@ export async function collectHealth(db: Db, input: HealthInput): Promise<HealthR
     disk: s?.disk ?? null,
     tls,
     host,
+    traffic,
   };
 }
