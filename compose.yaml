@@ -345,6 +345,29 @@ configs:
           trusted_proxies static {$$SCHULOS_TRUSTED_PROXIES:127.0.0.1/32}
           trusted_proxies_strict
         }
+        # BM-05 (Entscheidung bm-5): IP-freies Betriebsprotokoll, immer an – hängt am Zugriffs-Logger „zugriff“ der Site (Snippet
+        # crowdsec-0/-1), denn Caddy kennt je Site nur einen Logger (ein zweites „log“ ersetzt das erste). Der Filter entfernt die
+        # ganze Anfrage (IP, Port, Host, Pfad, Header) sowie Antwort-Header und Konto vor dem Schreiben – übrig bleiben Zeit,
+        # Status, Dauer und Größe. Gedreht wie SEC-15 (alle 24 h, eine gedrehte Datei, 24 h): nichts ist älter als 48 h. Lesbar
+        # (0644) für die App, die nur Zähler bildet.
+        log betrieb {
+          output file /var/log/caddy-betrieb/betrieb.log {
+            mode 0644
+            roll_interval 24h
+            roll_size 20MiB
+            roll_keep 1
+            roll_keep_for 24h
+          }
+          format filter {
+            wrap json
+            fields {
+              request delete
+              resp_headers delete
+              user_id delete
+            }
+          }
+          include http.log.access.zugriff
+        }
       }
       # B-56: Kompression im Proxy statt im Node-Prozess der App (next.config.ts: compress: false) – Caddy verteilt sie auf
       # alle Kerne, die App hat nur einen. Live-Verbindungen (text/event-stream) bleiben unkomprimiert (encode puffert sonst).
@@ -449,10 +472,15 @@ configs:
       # G4E-O11: zeitbasiert drehen (alle 24 h; roll_keep_for zählt in ganzen Tagen und gilt nur für gedrehte Dateien) – so ist
       # nichts älter als 48 h, auch an kleinen Schulen, wo 20 MiB Wochen dauern. Tokens in Pfaden und Parametern (Kalender-Abo,
       # Monitor, Passwort-Reset: lange Zeichenketten) werden vor dem Schreiben maskiert; Cookies/Authorization lässt Caddy ohnehin weg.
+      # BM-05: der Logger „zugriff“ gibt es immer (ohne CrowdSec schreibt er nichts) – das Betriebsprotokoll hängt sich global
+      # daran (siehe oben). Ein zweites „log“ im selben Site-Block ginge nicht: Caddy nimmt je Site nur einen Logger.
       (crowdsec-0) {
+        log zugriff {
+          output discard
+        }
       }
       (crowdsec-1) {
-        log {
+        log zugriff {
           output file /var/log/caddy/access.log {
             roll_interval 24h
             roll_size 20MiB
@@ -463,28 +491,6 @@ configs:
             wrap json
             fields {
               request>uri regexp `[A-Za-z0-9_-]{20,}` ***
-            }
-          }
-        }
-      }
-      # BM-05 (Entscheidung bm-5): IP-freies Betriebsprotokoll, immer an. Der Filter entfernt die ganze Anfrage (IP, Port, Host,
-      # Pfad, Header) sowie Antwort-Header und Konto vor dem Schreiben – übrig bleiben Zeit, Status, Dauer und Größe. Gedreht wie
-      # SEC-15 (alle 24 h, eine gedrehte Datei, 24 h): nichts ist älter als 48 h. Lesbar (0644) für die App, die nur Zähler bildet.
-      (betriebslog) {
-        log betrieb {
-          output file /var/log/caddy-betrieb/betrieb.log {
-            mode 0644
-            roll_interval 24h
-            roll_size 20MiB
-            roll_keep 1
-            roll_keep_for 24h
-          }
-          format filter {
-            wrap json
-            fields {
-              request delete
-              resp_headers delete
-              user_id delete
             }
           }
         }
@@ -504,7 +510,6 @@ configs:
         }
         import kompression
         import crowdsec-{$$SCHULOS_CROWDSEC:0}
-        import betriebslog
         # Sicherheits-Header setzt die App (CSP mit Nonce)
         header -Server
         # P4-73: Service Worker nie zwischenspeichern – sonst bliebe ein alter Worker nach einem Update hängen

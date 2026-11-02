@@ -10,7 +10,7 @@ const now = new Date("2026-11-02T10:00:00Z");
 const sec = (d: Date) => d.getTime() / 1000;
 /** so schreibt Caddy eine Zeile, nachdem der Filter `request`, `resp_headers` und `user_id` entfernt hat */
 const line = (minutesAgo: number, status: number, durationS = 0.01) =>
-  JSON.stringify({ level: "info", ts: sec(now) - minutesAgo * 60, logger: "http.log.access.betrieb", msg: "handled request", bytes_read: 0, duration: durationS, size: 512, status });
+  JSON.stringify({ level: "info", ts: sec(now) - minutesAgo * 60, logger: "http.log.access.zugriff", msg: "handled request", bytes_read: 0, duration: durationS, size: 512, status });
 
 describe("Betriebsprotokoll auswerten (BM-05)", () => {
   it("liest nur Zeit, Status und Dauer; Unsinn ergibt null", () => {

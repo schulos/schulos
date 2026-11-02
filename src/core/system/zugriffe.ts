@@ -1,5 +1,5 @@
 // BM-05: Auswerter für das IP-freie Betriebsprotokoll des Reverse-Proxys (docs/BETRIEBSMONITORING.md, Entscheidung bm-5).
-// Caddy schreibt es immer (Snippet „betriebslog“ im Caddyfile, compose.yaml): JSON je Anfrage, die Anfrage selbst (IP, Port,
+// Caddy schreibt es immer (globaler Logger „betrieb“ im Caddyfile, compose.yaml, am Zugriffs-Logger „zugriff“): JSON je Anfrage, die Anfrage selbst (IP, Port,
 // Header, Pfad) entfernt Caddy schon vor dem Schreiben – übrig bleiben Zeit, Status, Dauer und Größe. Zeitbasiert gedreht,
 // nichts ist älter als 48 h. Die App liest das Volume nur (`caddy_betrieb:ro`) und rechnet daraus Zähler; gespeichert wird nichts.
 import { closeSync, fstatSync, openSync, readdirSync, readSync } from "node:fs";

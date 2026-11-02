@@ -211,7 +211,9 @@ describe("SEC-15: CrowdSec-Sperren", () => {
     expect(block).toContain("profiles: [crowdsec]");
     expect(block).toContain('DISABLE_ONLINE_API: "true"');
     expect(compose).toContain("import crowdsec-{$$SCHULOS_CROWDSEC:0}");
-    expect(compose).toMatch(/\(crowdsec-0\) \{\s*\}/);
+    // ohne CrowdSec kein Zugriffsprotokoll mit IPs: der Logger „zugriff“ schreibt nichts (BM-05: das Betriebsprotokoll hängt an ihm)
+    expect(compose).toMatch(/\(crowdsec-0\) \{\s*log zugriff \{\s*output discard\s*\}\s*\}/);
+    expect(compose).toContain("include http.log.access.zugriff");
     // G4E-O11: zeitbasiert drehen (24 h) + gedrehte Dateien 1 Tag → nichts älter als 48 h; Tokens im Pfad maskiert
     expect(compose).toContain("roll_interval 24h");
     // CI-Befund GATE-4e: CrowdSec muss den Ordner beobachten, auch wenn access.log beim Start noch fehlt
