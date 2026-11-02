@@ -66,10 +66,11 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     id: "anmeldung",
     nr: 3,
     title: "Schulanmeldung",
-    schulos: "Öffentliches Formular mit E-Mail-Bestätigung; erhebt nur, was Termin und Gespräch brauchen; Auskunft ohne Konto per Vorgangsnummer.",
+    schulos: "Öffentliches Formular mit E-Mail-Bestätigung; erhebt nur, was Termin und Gespräch brauchen; Auskunft ohne Konto per Vorgangsnummer. Klassenbildung im Schuljahreswechsel nur als Vorschlag aus Grundschule und Familie, im Browser, nicht gespeichert; kein Geschlecht.",
     vorgabe: "Unbestätigte Anträge 48 h, abgelehnte/Warteliste Verfahrensabschluss + 60 Tage (je Verfahren 31–365), zurückgezogene/übernommene 90 Tage.",
     schule: "Entscheidet über Felder (Empfehlung, Anschrift), Fristen je Verfahren, Information von Elternteil 2, Identitätsprüfung bei Auskunft und Impressum.",
     where: { label: "Verwaltung → Schulanmeldung", href: "/verwaltung/anmeldung" },
+    settings: ["anmeldung.klassengroesse"],
   },
   {
     id: "schultraeger",
@@ -140,7 +141,7 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     schulos: "Leert Protokoll-PDF und Bemerkung älterer Prüfungen; Termin, Ergebnis und Firma bleiben als Nachweis.",
     vorgabe: "Letzte 2 Protokolle, frühestens ein Jahr nach der Prüfung.",
     schule: "Klärt mit dem Schulträger die Nachweispflicht und wählt 2, 3 oder 5 Protokolle.",
-    settings: ["gebaeude.report_keep"],
+    settings: ["gebaeude.report_keep", "gebaeude.inventory_no_format", "gebaeude.label_format"],
     where: { label: "Verwaltung → Rechte & Module → Gebäude & Technik", href: "/verwaltung/rechte" },
   },
   {

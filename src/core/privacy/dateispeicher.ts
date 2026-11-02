@@ -35,6 +35,8 @@ export const NOT_STORAGE_KEY_COLUMNS: Record<string, string> = {
   "gebaeude_inspection_types.template_key": "Schlüssel des Vorlage-Eintrags einer Prüfart (pruefarten.ts)",
   "buecherei_titles.keywords": "Schlagwörter eines Bücherei-Titels (Freitext), keine Datei",
   "app_settings.key": "Name einer Einstellung – Dateischlüssel in Werten (Schullogo) meldet src/core/school/logo.ts per registerStorageKeySource",
+  "gebaeude_asset_categories.key": "Schlüssel einer Inventar-Kategorie (INV-01, z. B. „it“)",
+  "gebaeude_inventory_counters.key": "Präfix bzw. Präfix:Jahr des Nummernzählers (INV-01)",
 };
 
 /**

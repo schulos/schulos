@@ -123,6 +123,8 @@ Menüpfade gelten für Konten mit den passenden Verwaltungsrechten; Rechte und M
 | Verdacht auf Eindringen in den **Server** | Zugänge prüfen: `sudo schulosctl status`; SSH-Netze ansehen mit `sudo schulosctl ssh-netze` (ohne Argument zeigt es die Netze; nur das Schulnetz bzw. das VPN-Netz darf drin stehen); Admin-Ebene nie im Internet. Danach Kapitel 6, wenn Daten verschlüsselt oder gelöscht wurden. | INSTALLATION.md §5, §5b (SEC-12) |
 | Daten verloren oder verfälscht | **Wiederherstellung** aus der Sicherung: Auftrag im Backupserver, **Bestätigungscode auf dem Hauptsystem** unter Verwaltung → Backup; je nach Fall einzelne Dateien, ganzes Hauptsystem oder aus der Offsite-Kopie. | INSTALLATION.md §4.4 |
 | Sicherung selbst gefährdet (Backupserver übernommen, Datenträger verloren) | **Offsite-Kopie prüfen**: Verwaltung → System zeigt „Unveränderliche Kopie: vorhanden / veraltet / fehlt / nicht eingerichtet“ mit Datum; Alarm-Mails beachten. Verlorener Datenträger mit Sicherung: ohne Schlüssel nicht lesbar – Verlust trotzdem dokumentieren (Verschlüsselung in der Einschätzung vermerken). Ein verlorener **Wiederherstellungsschlüssel** ist neu zu erzeugen (Plattenschlüssel: `sudo schulosctl wiederherstellungsschluessel`). | INSTALLATION.md §4.3a, §2.3 |
+| Alarm-Mail „Schul-Zertifikat gewechselt“ bzw. Zertifikatsfehler auf allen Geräten | Ursache klären: nach einer **Neuinstallation** ist die neue Root normal – Verwaltung → System → „Schul-Zertifikat“ herunterladen, Fingerabdruck mit der Konsole des Servers (`sudo schulosctl status`) vergleichen, an alle Geräte verteilen, die alte Root entfernen, dann „Neues Zertifikat bestätigen“. Ohne Neuinstallation ist ein Wechsel **verdächtig**: nicht bestätigen, Server prüfen (Zeile „Verdacht auf Eindringen in den Server“). Nach einer Wiederherstellung aus dem Backup bleibt die Root gleich. | INSTALLATION.md §5d, ZERTIFIKATE.md |
+| Einzelnes Gerät: Zertifikatswarnung bzw. Sperre unter der Domain, oder SchulOS wird per IP aufgerufen | Im Schulnetz `http://<IP des Servers>` öffnen (ohne „s“): Die Hinweisseite nennt die richtige Adresse und bietet das Schul-Zertifikat an – Fingerabdruck vor dem Installieren abgleichen, alte Root nach einer Neuinstallation vorher entfernen. Über `https://<IP>` warnt der Browser immer (Zertifikat lautet auf die Domain); die Anmeldeseite nennt dann die richtige Adresse. „Server nicht gefunden“ unter der Domain → DNS-Eintrag im Schulnetz fehlt. | INSTALLATION.md §5d |
 | Fehlerhaftes Update | `sudo schulosctl rollback` (Rückweg nach dem Update; Updates laufen mit Sicherung und Probelauf). | INSTALLATION.md §5a |
 
 **Nach jeder Sofortmaßnahme:** Uhrzeit und Person notieren (für die Dokumentation, Kapitel 2.3 Schritt 7). Maßnahmen in der Verwaltung
@@ -132,7 +134,8 @@ stehen im Protokoll; Befehle auf dem Server hält die ausführende Person selbst
 
 - **Alarm-Mails** (SEC-14) an die eingetragenen Empfänger: Häufung fehlgeschlagener Anmeldungen, neue Admin-/Verwaltungsrechte,
   Backup überfällig oder fehlgeschlagen, unveränderliche Kopie veraltet, Speicherplatz knapp. Empfänger prüfen: Verwaltung → System.
-  Die Mails enthalten keine Personendaten.
+  Die Mails enthalten keine Personendaten. Zusätzlich (BM-04): Mail-Stau und ablaufendes Zertifikat.
+- **Betriebsstatus** (Verwaltung → System → „Betrieb“, auf dem Server `schulosctl status --json`): eine Ampel mit den Befunden (Datenbank, Mail-Ausgang, Jobs, Sicherung, Platte, Zertifikat, Updates) – die schnelle Antwort auf „läuft der Betrieb gesund?“. Dazu Zähler der Zugriffe (Anfragen, Serverfehler, Antwortzeit) aus dem IP-freien Protokoll des Proxys (BM-05, höchstens 48 h). Ohne Personenbezug; INSTALLATION.md §5. Im VVT als „Betriebsüberwachung“ (BM-06).
 - **Protokoll** (Verwaltung → Protokoll): Änderungen der Verwaltung und Lesezugriffe auf Klassenbuch, Fehlzeiten und
   Abwesenheiten; ein Jahr, danach pseudonymisiert. Es zeigt nicht alles (z. B. keine Zugriffe außerhalb von SchulOS).
 - **Auskunft** je Person (Verwaltung → Benutzer → Person) hilft bei der Frage, **welche Daten** einer Person betroffen sind.
@@ -166,6 +169,10 @@ Diese Seite ausdrucken und beim Notfallordner ablegen.
    „aus Backup wiederherstellen“ bzw. „aus Offsite-Kopie wiederherstellen“ (mit Wiederherstellungsschlüssel); der Bestätigungscode
    wird auf dem Hauptsystem eingegeben. Den alten, befallenen Server nicht weiterverwenden, bevor er untersucht und neu aufgesetzt ist.
    Ein neues Hauptsystem koppelt über den **Ersatz-Kopplungscode** an dieselbe Sicherung (INSTALLATION.md §4.4, „Neue Hardware“).
+   **Zertifikate (CA-01):** Eine Wiederherstellung bringt die **gleiche Wurzel** der eigenen CA (Caddy) und der Schul-CA für
+   Gerätezertifikate zurück – Geräte, die SchulOS vertrauen, brauchen nichts Neues. Eine **Neuinstallation ohne Wiederherstellung**
+   erzeugt dagegen **neue Wurzeln**: dann das neue Wurzelzertifikat an alle Geräte verteilen und Gerätezertifikate neu ausstellen.
+   Für die Schul-CA müssen in der neuen `.env` dieselben CA-Passwörter stehen wie vorher (Notfallordner).
    Danach alle Passwörter der Verwaltungskonten ändern, den Wartungs-Zugang und die SMTP-/Offsite-Zugangsdaten erneuern.
 7. **Betroffenheit einschätzen.** Wurden Daten nur verschlüsselt (Verfügbarkeit), oder liegt Abfluss vor (Erpresser drohen mit
    Veröffentlichung)? Datenträger sind per Plattenverschlüsselung geschützt, solange der Server **aus** war; ein laufender, übernommener

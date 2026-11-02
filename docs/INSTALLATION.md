@@ -336,7 +336,7 @@ auf UTF-8 und laden die passende Größe (`konsole.sh` vor jedem Neuzeichnen); o
 |---|---|---|
 | Speicher | eine Platte oder **zwei als Spiegel** (RAID 1, mdadm) | Spiegel, wenn zwei Platten vorhanden sind |
 | Web-UI-Konto | Name, Benutzername, Passwort; 2FA beim ersten Login | – |
-| Adresse & TLS | wie beim Hauptsystem | nur Schulnetz. Die Web-UI ist auch über die IP-Adresse oder einen anderen Namen (z. B. `rechnername.local`) erreichbar – ohne DNS-Eintrag für die Domain (Caddy `default_sni`/`fallback_sni` + Site-Adresse `https://`, INST-10; gilt ebenso fürs Hauptsystem): der Browser zeigt dann das Zertifikat der Domain und warnt wegen des Namens, die Verbindung bleibt verschlüsselt. Anmelden mit Passkey geht nur unter der Domain. |
+| Adresse & TLS | wie beim Hauptsystem | nur Schulnetz. Die Web-UI ist auch über die IP-Adresse oder einen anderen Namen (z. B. `rechnername.local`) erreichbar – ohne DNS-Eintrag für die Domain (Caddy `default_sni`/`fallback_sni` + Site-Adresse `https://`, INST-10; gilt ebenso fürs Hauptsystem): der Browser zeigt dann das Zertifikat der Domain und warnt wegen des Namens, die Verbindung bleibt verschlüsselt. Anmelden mit Passkey geht nur unter der Domain. Beim Hauptsystem zeigt `http://<IP>` stattdessen eine Hinweisseite mit Link auf die Domain und das Schul-Zertifikat (§5d). |
 | Aufbewahrung | täglich / wöchentlich / monatlich | 14 / 4 / 3 (älteste Sicherung ≈ 3 Monate; mehr nur mit Begründung, siehe DATENSCHUTZ.md §3.3/§3.5) |
 | Offsite-Kopie | aus / SFTP (z. B. Hetzner Storage Box) / S3 | aus, später in der Web-UI |
 | E-Mail-Alarm | SMTP + Empfänger für „Backup überfällig“ | optional |
@@ -394,6 +394,17 @@ Live geprüft: Snapshot enthält Dump + Dateien + Konfiguration, der Wiederherst
 Agent-Zugang scheitert (append-only), der Dump lässt sich mit `pg_restore` lesen. Der rest-server liest seine `.htpasswd` nur etwa
 alle 30 s neu und bemerkt eine per `rename` ersetzte Datei gar nicht – die Backup-App schreibt sie deshalb in place, der Agent wartet
 beim ersten Zugriff ein 401 bis zu einer Minute ab.
+
+**CA-Schlüssel im Backup (CA-01, Projektleitung 2026-11-01):** Jeder Snapshot enthält zusätzlich die Wurzel der eigenen CA von Caddy
+(`caddy_data` → `caddy/pki/authorities/local/root.crt` + `root.key`, nicht Zwischen- und Serverzertifikate – die stellt Caddy neu aus)
+und, sobald eingerichtet, die ganze Schul-CA für Gerätezertifikate (Volume `step_ca`, §5c). Ohne sie erzeugt Caddy nach einer
+Wiederherstellung eine **neue Wurzel** – alle Geräte, die der alten vertrauen, zeigen dann Zertifikatsfehler. Der Agent hängt beide
+Volumes **nur lesend** ein; Caddy (Startskript `caddy-start`, `group_add: 1000`) gibt ihm Leserecht nur auf `root.crt`/`root.key`
+(0640, Besitzer root, Gruppe 1000) – auf einem frischen System, sobald Caddy die Wurzel angelegt hat. Fehlt etwas (Let's Encrypt,
+step-ca nicht eingerichtet) oder ist es nicht lesbar, sichert der Agent ohne diesen Teil weiter und schreibt einen Hinweis ins
+Protokoll. Die Schlüssel stehen nur im verschlüsselten restic-Repository – nie in Meldungen an den Backupserver, Protokollen oder im
+Diagnosepaket (`schulosctl support-bundle` enthält keine Volumes und schwärzt PEM-Blöcke). Die Schlüssel der Schul-CA sind zusätzlich
+mit `SCHULOS_DEVICE_CA_PASSWORD` verschlüsselt; dieses Passwort steht nur in der `.env` und gehört in den Notfallordner.
 
 ### 4.2 Web-UI
 | Bereich | Inhalt |
@@ -532,12 +543,43 @@ Backupserver vertrauenswürdig ist.
   zurück, lokal Geändertes bleibt), neue Hardware (leere DB/Volumes → alles zurück, alter Agent-Token 401). Auch hier wartet der Agent beim
   ersten Zugriff ein 401 ab (rest-server liest die .htpasswd nur alle ~30 s).
 - Für die Stacks (B-28): Agent braucht `files` **schreibend**, App `restart: unless-stopped`, Backupserver einen Test-Postgres-Sidecar.
+- *CA-Schlüssel zurück (CA-01)*: Bei „komplett“, neuer Hardware und Offsite legt der Agent Wurzel + Schlüssel aus dem Stand in den
+  Übergabeordner des jeweiligen Dienstes (Volumes `ca_rueckspiel_caddy`, `ca_rueckspiel_step`) – nur wenn der Stand sie enthält und
+  sie sich vom laufenden System unterscheiden (sonst „unverändert“). **Caddy** übernimmt die Wurzel beim nächsten Start (Rechte 600,
+  Besitzer root, danach 0640 für den Agenten), verwirft Zwischen- und Serverzertifikate der alten Kette und stellt sie neu aus;
+  **step-ca** ersetzt beim nächsten Start seinen Ordner durch den Stand (Besitzer step, Schlüssel 600). Auf neuer Hardware starten
+  beide ohnehin erst nach der Wiederherstellung – **dieselbe Wurzel wie vorher, keine Zertifikatsfehler**. Bei „komplett“ auf einem
+  laufenden System mit anderer Wurzel (selten: Neuinstallation ohne Wiederherstellung, dann ein alter Stand) nennt das Ergebnis
+  „bereitgelegt“ – dann `docker compose restart caddy` (bzw. `docker compose --profile geraete restart step-ca`). Das Ergebnis
+  (`caddyCa`, `geraeteCa`) steht im Bericht der Wiederherstellung; ein Fehler dabei bricht sie nicht ab. Für die Schul-CA braucht die
+  neue `.env` dieselben `SCHULOS_DEVICE_CA_PASSWORD`/`SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD` wie vorher (Notfallordner).
+- *Neuinstallation ohne Wiederherstellung* (Demo/Produktiv statt „aus Backup“): Caddy und step-ca legen **neue Wurzeln** an – die
+  Geräte brauchen die neuen Wurzelzertifikate (§5b, §5c). Stände von vor CA-01 enthalten die Schlüssel noch nicht („nicht im Stand“).
+- *Backupserver* (`compose.backup.yaml`): seine eigene Caddy-CA wird nicht gesichert. Nach einer Neuinstallation des Backupservers
+  gibt es eine neue Wurzel; Hauptsysteme pinnen die CA bei der Kopplung und müssen daher neu koppeln.
 
 ## 5. Hauptsystem im Betrieb
 
 - Compose-Stack: `caddy` (TLS, Reverse Proxy, SSE mit `flush_interval -1`) · `schulos-app`
   (Next.js standalone, Node 24 LTS, Nicht-Root, Migrationen beim Start, Jobs wie der Löschlauf im
   Prozess) · `postgres:18` · `backup-agent` · optional `clamav`
+- **Betriebsmonitoring (BM-01…BM-04, [BETRIEBSMONITORING.md](BETRIEBSMONITORING.md)):** Verwaltung → System → Karte „Betrieb“ zeigt die Stufe
+  (in Ordnung/Warnung/Störung) und die Befunde: Datenbank, Mail-Warteschlange, Hintergrundjobs, Sicherung samt unveränderlicher Kopie,
+  Speicherplatz, Zertifikatsablauf, Updates/Neustart. Maschinenlesbar: `GET /api/health/details` (JSON; `/api/health` bleibt die schlanke
+  Antwort für Container-Healthcheck und Smoketest). Zugang einstellbar: **nur aus dem Schulnetz** (Vorgabe), **nur mit Token**
+  (`Authorization: Bearer <token>`; Token im Volume `config`, unter Verwaltung → System erneuerbar) oder aus. Von außerhalb des
+  Schulnetzes ist der Pfad gesperrt (nicht in der Allowlist von Caddy und App; im Modus „alles“ nur mit Token) und antwortet ohne
+  Berechtigung immer 404. Antwort 200 (ok/Warnung) bzw. 503 (Störung). Auf dem Server: `schulosctl status --json` (ein JSON-Objekt, Exit-Code
+  0 ok · 1 Warnung · 2 Fehler – für Skripte und Überwachungs-Plugins; ohne `--json` bleibt der Text-Status). Das Zertifikat misst
+  `schulosctl` am HTTPS-Port (`SCHULOS_HTTPS_PORT`, `SCHULOS_DOMAIN`) und meldet es mit dem Abgleich (`system-status.json`, Feld `tls`).
+  Schwellen (Mail-Stau ab 60 Minuten, Sicherung älter als 26 Stunden) unter Verwaltung → System; zusätzliche Alarm-Mails (gleiche
+  Empfänger wie die übrigen Betriebsalarme): **Mail-Stau** und **Zertifikat läuft in weniger als 14 Tagen ab**. Kein Verlauf, nur der aktuelle Stand.
+  **Zugriffe (BM-05):** Caddy schreibt immer ein zweites, **IP-freies** Protokoll (`caddy_betrieb`, `/var/log/caddy-betrieb/betrieb.log`):
+  der Filter entfernt vor dem Schreiben die ganze Anfrage (Adresse, Port, Host, Pfad, Header), Antwort-Header und Konto – übrig bleiben
+  Zeit, Status, Dauer, Größe. Gedreht alle 24 h, höchstens 48 h alt, nicht gesichert. Die App liest das Volume nur und zeigt Zähler
+  (Anfragen je Statusklasse, 5xx-Anteil, Antwortzeit-Median/95 %, letzte Stunde und 24 h) in der Karte und im Feld `traffic`;
+  Befund `zugriffe:5xx` ab 5 % Serverfehlern bei mindestens 20 Anfragen in der letzten Stunde (keine eigene Alarm-Mail). Das
+  IP-haltige Protokoll für CrowdSec (SEC-15) bleibt davon getrennt (eigenes Volume, die App sieht es nicht).
 - **Virenscan (P4-72, optional, Vorgabe aus):** ClamAV (GPL-2.0, eigener Container – SchulOS spricht nur das Netzprotokoll von
   clamd, kein gemeinsamer Code) als Compose-Profil: in `.env` `SCHULOS_CLAMAV=clamav:3310`, dann
   `docker compose --profile clamav up -d`. Beim ersten Start lädt `freshclam` die Signaturen (~300 MB, Internet), danach
@@ -572,7 +614,7 @@ Backupserver vertrauenswürdig ist.
   (`scripts/haertung-pruefen.sh`, CI-Jobs `stack`/`backup`) und statisch (`compose-haertung.test.ts`).
 - **Updates:** Betriebssystem und SchulOS werden getrennt aktualisiert, beides mit Sicherung
   vorher und Rückweg danach – Details in §5a.
-- `schulosctl`: `status` · `update` · `rollback` · `backup now` · `reset-admin` · `schulnetz-zuruecksetzen` · `ssh-netze` ·
+- `schulosctl`: `status [--json]` · `update` · `rollback` · `backup now` · `reset-admin` · `schulnetz-zuruecksetzen` · `ssh-netze` ·
   `demo-reset` · `support-bundle` (Logs **ohne Personendaten**) · `sicherheit-nachruesten` · `tpm-neu-binden` (§2.3)
   - Stand B-31: `apps/ctl`, gebündelt zu einer Datei `schulosctl.mjs` (Node 24 auf dem Host, keine Abhängigkeiten),
     steuert den Stack im Installationsordner (`--dir`, `SCHULOS_DIR`, Vorgabe `/opt/schulos`) über `docker compose`.
@@ -821,7 +863,7 @@ und zählt für die Anmeldesperre. Eine im Schulnetz begonnene Sitzung gilt von 
    lässt sich die CA nicht mehr starten. Optional `SCHULOS_DEVICE_CA_NAME` (Name der CA, Vorgabe „SchulOS Geraete-CA“).
 2. `docker compose --profile geraete up -d` – startet step-ca (Compose-Profil `geraete`). Beim ersten Start entstehen Wurzel,
    Zwischen-CA und der Provisioner `schulos` (Laufzeiten bis 731 Tage); die öffentlichen Zertifikate liegen danach im
-   Volume `geraete_ca`, die Schlüssel nur im Volume `step_ca` (gehört ins Backup – siehe Frage P4-40b). step-ca ist nur im
+   Volume `geraete_ca`, die Schlüssel nur im Volume `step_ca` (seit CA-01 im Backup, §4.1 – das Passwort aus Schritt 1 nicht, also Notfallordner). step-ca ist nur im
    internen Netz `ca` erreichbar, nicht von außen und nicht aus dem Schulnetz.
 3. In der `.env` `SCHULOS_DEVICE_CERTS=an` setzen, dann `docker compose up -d`. Caddy fragt jetzt nach einem Client-Zertifikat
    (`client_auth`, Modus `verify_if_given`: ohne Zertifikat geht es normal weiter). **Reihenfolge einhalten:** ohne die
@@ -856,6 +898,50 @@ TLS-Client-Authentifizierung), `src/core/external-access.test.ts` (Kennzeichen, 
 `e2e/geraetezertifikate.spec.ts`; im CI-Job `stack` `scripts/geraetezertifikat-test.sh` (Test-CA: gültig, gesperrt,
 unbekannt, abgelaufen, fremde CA, gefälschte Kennzeichen – je Modus `keiner`/`alles`) und die echte step-ca
 (`node cli.mjs geraete-ca-pruefen`).
+
+### 5d. TLS: Schul-Zertifikat verteilen (CA-02…CA-05)
+
+Im TLS-Modus „nur Schulnetz“ (`SCHULOS_TLS=internal`) stellt Caddy die Zertifikate mit einer **eigenen CA** aus. Damit Browser
+und Apps ohne Warnung verbinden (und Passkeys, Kamera usw. funktionieren), muss jedes Gerät dem **Wurzelzertifikat** dieser CA
+(„Schul-Zertifikat“, Root) vertrauen. Konzept und Entscheidungen: [ZERTIFIKATE.md](ZERTIFIKATE.md).
+
+- **Bereitstellen (CA-02):** `schulosctl system-sync` (Timer, alle 5 Minuten) liest bei `SCHULOS_TLS=internal` nur
+  `root.crt` aus dem Caddy-Container und legt es als `root-ca.crt` in den Konfigurationsordner der App; bei Let's Encrypt
+  entfernt es die Datei (Download dann 404). Der Schlüssel bleibt in `caddy_data`, die App sieht das Volume nicht.
+- **Fingerabdruck (SHA-256)** zum Abgleich vor jedem Import: Verwaltung → System → „Schul-Zertifikat“, `schulosctl status`
+  (und `--json`, Feld `rootCa`), Bildschirm des Servers (tty1) sowie `system-status.json` (Feld `rootCa`).
+- **Herunterladen (CA-03/CA-04):** Verwaltung → System → „Schul-Zertifikat“ als `.crt` (PEM), `.cer` (DER, Windows) und
+  `.mobileconfig` (Apple-Profil); ohne Anmeldung unter `https://<adresse>/ca.crt` – **nur aus dem Schulnetz** (nicht in der
+  Außen-Allowlist von Caddy und App; von außen 403 bzw. 404, auch im Modus „alles“). Anleitung für alle: Handbuch-Seite
+  „Schul-Zertifikat installieren“ (Starter-Seite, im Handbuch über „Starter-Seiten anlegen“).
+- **Backupserver (CA-05):** gleicher Download (angemeldet) auf seiner Übersicht, Karte „Zertifikat dieses Servers“ (Quelle
+  `/ca/root.crt`). Das Hauptsystem braucht ihn nicht – es pinnt die CA bei der Kopplung (§4). Kein `/ca.crt` ohne Anmeldung:
+  der Backupserver unterscheidet nicht zwischen Schulnetz und außen, und nur die IT braucht seine Root.
+- **Aufruf per IP oder fremdem Namen:** Über `http://<IP>` (bzw. einen anderen Namen als die Domain) zeigt Caddy im Schulnetz
+  eine **Hinweisseite** statt der Weiterleitung auf `https://<IP>`: „Bitte über die Schuladresse aufrufen“ mit Link auf die
+  Domain und – bei eigener CA – auf `/ca.crt` samt Hinweis zum Fingerabdruck. So kommt ein neues Gerät ohne Zertifikatswarnung an
+  die Root, auch wenn die Domain wegen fehlenden Vertrauens (oder einer HSTS-Sperre nach einer Neuinstallation) gar nicht öffnet.
+  Die Domain selbst und Aufrufe von außen leitet Caddy weiter auf https. Über `https://<IP>` ist die **Zertifikatswarnung
+  unvermeidbar** (das Zertifikat lautet auf die Domain, INST-10); nach dem Bestätigen nennt die Anmeldeseite die richtige
+  Adresse (Abgleich mit `BETTER_AUTH_URL`). Geprüft im CI-Job `stack` (`scripts/ci/per-ip.sh`).
+
+**Verteilwege**
+
+| Geräte | Weg |
+|---|---|
+| Windows-PCs der Schule (Domäne) | Gruppenrichtlinie: Richtlinien für öffentliche Schlüssel → Vertrauenswürdige Stammzertifizierungsstellen |
+| Windows ohne Domäne | Konfigurationsprofil der Geräteverwaltung („Vertrauenswürdiges Zertifikat“) |
+| Windows einzeln | `certutil -addstore -f Root schul-zertifikat.crt` (als Administrator, Computerspeicher) |
+| iPads/Macs | `.mobileconfig` über die Geräteverwaltung; von Hand zusätzlich Zertifikatsvertrauenseinstellungen → volles Vertrauen |
+| Android/Chromebooks | Geräteverwaltung bzw. Admin-Konsole des Geräteanbieters |
+| Firefox | System-Roots über `security.enterprise_roots.enabled` bzw. Richtlinie `Certificates.ImportEnterpriseRoots` |
+| Private Geräte (Eltern, eigene Geräte) | praktisch nicht verwaltbar – Warnung bleibt; dafür öffentliches Zertifikat (Teil B) |
+
+**Neue Root:** Jede **Neuinstallation** erzeugt eine neue Root – neu verteilen und die alte von den Geräten entfernen (sonst
+HSTS-Sperre ohne Weiterklicken). Eine **Wiederherstellung** aus dem Backup bringt dieselbe Root zurück (CA-01, §4.4). Wechselt
+die Root, meldet SchulOS das an die Alarm-Empfänger (täglich) und zeigt in Verwaltung → System einen Hinweis, bis ein Admin den
+neuen Fingerabdruck bestätigt (Protokoll: „Neues Schul-Zertifikat bestätigt“). Die erste Root einer Installation gilt ohne
+Rückfrage als bestätigt.
 
 ---
 

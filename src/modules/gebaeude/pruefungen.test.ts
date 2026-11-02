@@ -5,7 +5,7 @@ import path from "node:path";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { MailMessage } from "@schulos/server/mail";
 import type { DbHandle } from "@/core/db/client";
-import { auditLog, calendarEvents, gebaeudeAssets, gebaeudeInspections, gebaeudeInspectionTypes, gebaeudeTickets, notifications, timetableRoomBlocks } from "@/core/db/schema";
+import { auditLog, buildings, calendarEvents, gebaeudeAssetCategories, gebaeudeAssets, gebaeudeInspections, gebaeudeInspectionTypes, gebaeudeTickets, notifications, timetableRoomBlocks } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { setModuleEnabled } from "@/core/modules/registry";
 import { SCHEDULED_JOBS } from "@/core/scheduler";
@@ -18,6 +18,7 @@ import { referencedStorageKeys } from "@/core/privacy/dateispeicher";
 import { addDays, toBerlinDate } from "@/core/time";
 import { listSlots } from "@/modules/stundenplan/service";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { ASSET_CATEGORY_TEMPLATE } from "./kategorien";
 import { INSPECTION_TEMPLATE } from "./pruefarten";
 import {
   addMonths,
@@ -105,30 +106,35 @@ describe("Prüffristen (rein)", () => {
     expect(isPdf(new TextEncoder().encode("%PDF"))).toBe(false);
   });
 
-  it("CSV der Inventarliste: mit/ohne Kopfzeile, „;“ oder „,“, Arten als Beschriftung oder Kurzform, Datumsformate", () => {
-    const a = parseAssetCsv("﻿Name;Art;Raum;Inventarnummer;letzte Prüfung\nFeuerlöscher A;Feuerlöscher;106;FL-9;01.03.2025\nLeiter;leiter;;LE-9;\n");
+  it("CSV der Inventarliste: mit/ohne Kopfzeile, „;“ oder „,“, Kategorien als Name, Schlüssel oder Kurzform, neue Spalten, Datumsformate", () => {
+    const cats = ASSET_CATEGORY_TEMPLATE.map((t) => ({ id: t.key, key: t.key, name: t.name, prefix: t.prefix }));
+    const a = parseAssetCsv("﻿Name;Art;Raum;Inventarnummer;letzte Prüfung;Menge;Hersteller\nFeuerlöscher A;Feuerlöscher;106;FL-9;01.03.2025;;\nLeiter;leiter;;LE-9;;2;Musterwerk\n", cats);
     expect(a.errors).toEqual([]);
     expect(a.rows).toEqual([
-      { line: 2, name: "Feuerlöscher A", kind: "feuerloescher", roomId: "106", inventoryNo: "FL-9", lastInspected: "2025-03-01" },
-      { line: 3, name: "Leiter", kind: "leiter", roomId: null, inventoryNo: "LE-9", lastInspected: null },
+      { line: 2, name: "Feuerlöscher A", categoryId: "feuerloescher", roomId: "106", inventoryNo: "FL-9", lastInspected: "2025-03-01", quantity: null, manufacturer: null, model: null, serial: null },
+      { line: 3, name: "Leiter", categoryId: "leiter", roomId: null, inventoryNo: "LE-9", lastInspected: null, quantity: 2, manufacturer: "Musterwerk", model: null, serial: null },
     ]);
-    const b = parseAssetCsv('Beamer 106,Elektro,106,"EL,1"\nX,Rakete,,\n,leiter,,\nWaage,sonstiges,,,32.13.2025');
-    expect(b.rows.map((r) => [r.name, r.kind, r.inventoryNo])).toEqual([["Beamer 106", "elektro_ortsveraenderlich", "EL,1"]]);
-    expect(b.errors.map((e) => e.line)).toEqual([2, 3, 4]);
+    const b = parseAssetCsv('Beamer 106,Elektro,106,"EL,1"\nX,Rakete,,\n,leiter,,\nWaage,sonstiges,,,32.13.2025\nTablet,IT,IF1,,,0\nStühle,MO,205,,,24', cats);
+    expect(b.rows.map((r) => [r.name, r.categoryId, r.inventoryNo, r.quantity])).toEqual([
+      ["Beamer 106", "elektro_ortsveraenderlich", "EL,1", null],
+      ["Stühle", "moebel", null, 24],
+    ]);
+    expect(b.errors.map((e) => e.line)).toEqual([2, 3, 4, 5]);
     expect(parseDay("2025-03-01")).toBe("2025-03-01");
     expect(parseDay("1.3.2025")).toBe("2025-03-01");
     expect(parseDay("30.02.2025")).toBeNull();
     expect(parseDay("2025-13-01")).toBeNull();
   });
 
-  it("Mangel → Meldung: Kategorie nach Anlagen-Art, „außer Betrieb“ mit hoher Priorität", () => {
-    expect(defectTicket({ typeName: "Feuerlöscher", target: "FL-1", assetKind: "feuerloescher" }, "mangel")).toEqual({
+  it("Mangel → Meldung: Meldungskategorie nach Inventar-Kategorie, „außer Betrieb“ mit hoher Priorität", () => {
+    expect(defectTicket({ typeName: "Feuerlöscher", target: "FL-1", categoryKey: "feuerloescher" }, "mangel")).toEqual({
       category: "sicherheit",
       priority: "normal",
       title: "Prüfung Feuerlöscher: Mangel – FL-1",
     });
-    expect(defectTicket({ typeName: "Aufzüge", target: "Aufzug", assetKind: "aufzug" }, "ausser_betrieb")).toMatchObject({ category: "technik", priority: "hoch" });
-    expect(defectTicket({ typeName: "Trinkwasser", target: "Hauptgebäude", assetKind: null }, "mangel").category).toBe("gebaeude");
+    expect(defectTicket({ typeName: "Aufzüge", target: "Aufzug", categoryKey: "aufzug" }, "ausser_betrieb")).toMatchObject({ category: "technik", priority: "hoch" });
+    expect(defectTicket({ typeName: "Trinkwasser", target: "Hauptgebäude", categoryKey: null }, "mangel").category).toBe("gebaeude");
+    expect(defectTicket({ typeName: "Sichtprüfung", target: "Tablet", categoryKey: "it" }, "mangel").category).toBe("it");
   });
 
   it("Vorlage: zwölf Prüfarten, jede Quelle „zu prüfen“; Alarm-Mail ohne Personen; Monate für die Statistik", () => {
@@ -137,7 +143,8 @@ describe("Prüffristen (rein)", () => {
     for (const t of INSPECTION_TEMPLATE) {
       expect(t.source).toMatch(/zu prüfen$/);
       expect(t.intervalMonths).toBeGreaterThan(0);
-      expect(t.assetKind === null || t.appliesTo === "anlage").toBe(true);
+      expect(t.categoryKey === null || t.appliesTo === "anlage").toBe(true);
+      if (t.categoryKey) expect(ASSET_CATEGORY_TEMPLATE.some((c) => c.key === t.categoryKey)).toBe(true);
     }
     const m = overdueMessage("SchulOS Test", ["alarm@example.org"], [{ typeName: "Leitern", target: "Stehleiter (LE-1)", building: "Sporthalle", dueOn: "2026-09-20" }]);
     expect(m.subject).toBe("[SchulOS Test] 1 Prüfung überfällig");
@@ -153,10 +160,15 @@ describe("Anlagen, Prüfungen, Wartung – Service", () => {
   let storage: FileStorage;
   const today = toBerlinDate(new Date());
   const p = (id: string) => loadPermissions(h.db, id);
+  const cats = new Map<string, string>();
+  const houses = new Map<string, string>();
+  const cat = (key: string) => cats.get(key)!;
   const gongs = async (userId: string) => (await h.db.select().from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.moduleId, "gebaeude")))).map((n) => n.title);
 
   beforeAll(async () => {
     h = await createSeededTestDb();
+    for (const c of await h.db.select({ id: gebaeudeAssetCategories.id, key: gebaeudeAssetCategories.key }).from(gebaeudeAssetCategories)) cats.set(c.key, c.id);
+    for (const b of await h.db.select({ id: buildings.id, name: buildings.name }).from(buildings)) houses.set(b.name, b.id);
     dir = await mkdtemp(path.join(os.tmpdir(), "schulos-pruefungen-"));
     storage = localStorage(dir);
   }, 60_000);
@@ -165,13 +177,15 @@ describe("Anlagen, Prüfungen, Wartung – Service", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("Rechte: Lehrkräfte sehen weder Anlagen noch Prüfungen; Hausmeisterei erfasst, konfiguriert aber nicht; Verwaltung konfiguriert", async () => {
+  it("Rechte: Lehrkräfte sehen weder Inventar noch Prüfungen; Hausmeisterei erfasst und pflegt Inventar (Gruppe), konfiguriert aber nicht; Verwaltung konfiguriert", async () => {
     const [jana, klaus, sabine] = await Promise.all([p(JANA), p(KLAUS), p(SABINE)]);
     await expect(listInspections(h.db, jana, {}, today)).rejects.toThrow(ForbiddenError);
     await expect(listAssets(h.db, jana)).rejects.toThrow(ForbiddenError);
     await expect(ticketsCsv(h.db, jana)).rejects.toThrow(ForbiddenError);
     expect(await listInspections(h.db, klaus, {}, today)).not.toHaveLength(0);
-    await expect(createAsset(h.db, klaus, { name: "Leiter", kind: "leiter", roomId: null, building: null, inventoryNo: null }, today)).rejects.toThrow(ForbiddenError);
+    await expect(createAsset(h.db, jana, { name: "Leiter", categoryId: cat("leiter"), roomId: null, inventoryNo: null }, today)).rejects.toThrow(ForbiddenError);
+    // INV-01: die Hausmeisterei pflegt Inventar über das Gruppenrecht `gebaeude.inventory`
+    await createAsset(h.db, klaus, { name: "Leiter Hausmeisterei", categoryId: cat("leiter"), roomId: null, inventoryNo: "LE-HM" }, today);
     const [t] = await listInspectionTypes(h.db);
     await expect(updateInspectionType(h.db, klaus, t!.id, { ...t!, active: false }, today)).rejects.toThrow(ForbiddenError);
     await expect(planInspection(h.db, jana, { typeId: t!.id, dueOn: today })).rejects.toThrow(ForbiddenError);
@@ -195,13 +209,13 @@ describe("Anlagen, Prüfungen, Wartung – Service", () => {
 
   it("Anlage anlegen plant passende Prüfungen: Anschaffung + Intervall, ohne Datum sofort; außer Betrieb streicht offene", async () => {
     const sabine = await p(SABINE);
-    const id = await createAsset(h.db, sabine, { name: "Feuerlöscher Mensa", kind: "feuerloescher", roomId: null, building: "Pavillon", inventoryNo: "FL-100", acquiredOn: "2026-01-31" }, today);
-    const id2 = await createAsset(h.db, sabine, { name: "Leiter Lager", kind: "leiter", roomId: "106", building: null, inventoryNo: "LE-100" }, today);
+    const id = await createAsset(h.db, sabine, { name: "Feuerlöscher Mensa", categoryId: cat("feuerloescher"), roomId: null, buildingId: houses.get("Pavillon"), inventoryNo: "FL-100", acquiredOn: "2026-01-31" }, today);
+    const id2 = await createAsset(h.db, sabine, { name: "Leiter Lager", categoryId: cat("leiter"), roomId: "106", inventoryNo: "LE-100" }, today);
     const due = async (assetId: string) =>
       (await h.db.select().from(gebaeudeInspections).where(and(eq(gebaeudeInspections.assetId, assetId), isNull(gebaeudeInspections.doneOn)))).map((i) => i.dueOn);
     expect(await due(id)).toEqual(["2028-01-31"]);
     expect(await due(id2)).toEqual([today]);
-    expect(await fieldErrors(createAsset(h.db, sabine, { name: "Doppelt", kind: "leiter", roomId: "gibtsnicht", building: null, inventoryNo: "FL-100" }, today))).toMatchObject({
+    expect(await fieldErrors(createAsset(h.db, sabine, { name: "Doppelt", categoryId: cat("leiter"), roomId: "gibtsnicht", inventoryNo: "FL-100" }, today))).toMatchObject({
       roomId: expect.any(String),
       inventoryNo: "Inventarnummer ist schon vergeben",
     });
@@ -215,7 +229,7 @@ describe("Anlagen, Prüfungen, Wartung – Service", () => {
     const sabine = await p(SABINE);
     const types = await listInspectionTypes(h.db);
     const lift = types.find((t) => t.templateKey === "aufzuege")!;
-    await h.db.insert(gebaeudeAssets).values({ name: "Aufzug Hauptgebäude", kind: "aufzug", building: "Hauptgebäude", inventoryNo: "AZ-1" });
+    await h.db.insert(gebaeudeAssets).values({ name: "Aufzug Hauptgebäude", categoryId: cat("aufzug"), buildingId: houses.get("Hauptgebäude"), inventoryNo: "AZ-1" });
     expect((await listInspections(h.db, sabine, { typeId: lift.id }, today)).length).toBe(0);
     await updateInspectionType(h.db, sabine, lift.id, { ...lift, active: true, intervalMonths: 24 }, today);
     expect(await listInspections(h.db, sabine, { typeId: lift.id }, today)).toMatchObject([{ dueOn: today, state: "faellig" }]);
@@ -321,8 +335,8 @@ describe("Anlagen, Prüfungen, Wartung – Service", () => {
   });
 
   it("CSV-Import: alles oder nichts, gleiche Inventarnummer aktualisiert, „letzte Prüfung“ als übernommener Nachweis", async () => {
-    const [sabine, klaus] = await Promise.all([p(SABINE), p(KLAUS)]);
-    await expect(importAssets(h.db, klaus, "a;leiter;;", today)).rejects.toThrow(ForbiddenError);
+    const [sabine, jana] = await Promise.all([p(SABINE), p(JANA)]);
+    await expect(importAssets(h.db, jana, "a;leiter;;", today)).rejects.toThrow(ForbiddenError);
     expect(await fieldErrors(importAssets(h.db, sabine, "Name;Art;Raum;Inventarnummer\nLeiter A;leiter;999;LE-200\nLeiter B;leiter;;LE-200\n", today))).toEqual({
       file: "Zeile 2: Raum „999“ gibt es nicht · Zeile 3: Inventarnummer „LE-200“ doppelt",
     });
@@ -383,7 +397,7 @@ describe("Anlagen, Prüfungen, Wartung – Service", () => {
 
   it("Gestrichene Prüfung einer Anlage plant der Fristen-Job neu; Mail-Fehler bricht die Erinnerung nicht ab (N3, N4)", async () => {
     const [klaus, sabine] = await Promise.all([p(KLAUS), p(SABINE)]);
-    const id = await createAsset(h.db, sabine, { name: "Leiter Keller", kind: "leiter", roomId: null, building: "Keller", inventoryNo: "LE-400" }, today);
+    const id = await createAsset(h.db, sabine, { name: "Leiter Keller", categoryId: cat("leiter"), roomId: null, inventoryNo: "LE-400" }, today);
     const open = async () => (await h.db.select().from(gebaeudeInspections).where(and(eq(gebaeudeInspections.assetId, id), isNull(gebaeudeInspections.doneOn)))).length;
     const [i] = await h.db.select().from(gebaeudeInspections).where(and(eq(gebaeudeInspections.assetId, id), isNull(gebaeudeInspections.doneOn)));
     await cancelInspection(h.db, klaus, i!.id);

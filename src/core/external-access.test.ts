@@ -39,6 +39,7 @@ describe("externalPathAllowed – Allowlist", () => {
       "/api/auth/get-session",
       "/api/auth/sign-in/username",
       "/api/health",
+      "/api/health/details",
       "/api/gong/stream",
       "/api/dateien/x.png",
       "/api/schule/logo/x",
@@ -99,7 +100,7 @@ const session = { cookie: "better-auth.session_token=abc.def" };
 
 describe("src/proxy.ts mit X-SchulOS-Extern", () => {
   it("von außen: gesperrte Pfade → 403, auch mit Sitzung und egal welcher Header-Wert", async () => {
-    for (const p of ["/login", "/", "/verwaltung", "/api/verwaltung/anmeldung-export", "/api/auth/get-session", "/api/health"]) {
+    for (const p of ["/login", "/", "/verwaltung", "/api/verwaltung/anmeldung-export", "/api/auth/get-session", "/api/health", "/api/health/details"]) {
       for (const value of ["1", "0", "", "nein"]) {
         const res = proxy(req(p, { [EXTERN_HEADER]: value, ...session }));
         expect(res.status, `${p} (${value})`).toBe(403);
@@ -203,6 +204,13 @@ describe("Caddy-Konfiguration (compose.yaml)", () => {
     const oeff = snippet(file, "zugang-oeffentliche-seiten");
     const paths = /@oeffentlich path (.+)/.exec(oeff)?.[1]?.trim().split(/\s+/);
     expect(paths?.sort()).toEqual([...CADDY_PUBLIC_PATHS].sort());
+    // BM-02: der Betriebsstatus steht in keiner der beiden Allowlists (von außen gesperrt)
+    expect(paths?.some((p) => p.startsWith("/api/health"))).toBe(false);
+    expect(CADDY_PUBLIC_PATHS.some((p) => p.startsWith("/api/health"))).toBe(false);
+    // CA-03: das Schul-Zertifikat ohne Anmeldung (/ca.crt) gibt es nur im Schulnetz – in keiner der beiden Listen
+    expect(paths?.some((p) => p.startsWith("/ca") || p === "/*")).toBe(false);
+    expect(CADDY_PUBLIC_PATHS.some((p) => p.startsWith("/ca"))).toBe(false);
+    expect(externalPathAllowed("/ca.crt")).toBe(false);
     for (const line of ["request_header X-SchulOS-Extern 1", "request_header -Cookie", "request_header -Authorization", "handle @oeffentlich {"])
       expect(oeff).toContain(line);
     // Rest von außen: 403 (letzter handle-Block im extern-Zweig)
@@ -311,7 +319,7 @@ describe("src/proxy.ts mit Gerätezertifikat bzw. Modus „alles“ (P4-40b)", (
   });
 
   it("mit Zertifikat: Seiten ohne Anmeldung außerhalb der Allowlist (Monitore, Health, Dev) bleiben zu", () => {
-    for (const p of ["/monitor/demo-foyer-lindenhof-2026", "/api/monitor/x", "/api/health", "/api/auth/list-sessions"]) expect(proxy(req(p, geraet)).status, p).toBe(403);
+    for (const p of ["/monitor/demo-foyer-lindenhof-2026", "/api/monitor/x", "/api/health", "/api/health/details", "/api/auth/list-sessions"]) expect(proxy(req(p, geraet)).status, p).toBe(403);
     expect(proxy(req("/anmeldung", geraet)).status).toBe(200);
   });
 

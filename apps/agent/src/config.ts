@@ -10,6 +10,16 @@ export const VERSION = typeof AGENT_VERSION === "string" ? AGENT_VERSION : "dev"
 export interface AgentConfig {
   configDir: string;
   filesDir: string;
+  /**
+   * CA-01: Datenordner von Caddy (Volume caddy_data, nur lesbar). Gesichert werden nur Wurzelzertifikat und -schlüssel der
+   * eigenen CA (caddy/pki/authorities/local) – ohne sie erzeugt Caddy nach einer Wiederherstellung eine neue Wurzel.
+   */
+  caddyDataDir: string;
+  /** CA-01: Schul-CA für Gerätezertifikate (Volume step_ca, nur lesbar) – gesichert, sobald sie eingerichtet ist */
+  stepCaDir: string;
+  /** CA-01: Übergabe an Caddy bzw. step-ca bei einer Wiederherstellung (die Dienste übernehmen sie beim nächsten Start) */
+  caddyCaRestoreDir: string;
+  stepCaRestoreDir: string;
   /** postgres://… der App-Datenbank – Pflicht, PGlite-Instanzen (Demo) sichert der Agent nicht */
   databaseUrl: string | null;
   /**
@@ -32,6 +42,10 @@ export function agentConfig(env: Env = process.env): AgentConfig {
   return {
     configDir: env.SCHULOS_CONFIG_DIR ?? "/srv/schulos/config",
     filesDir: env.FILES_DIR ?? "/srv/schulos/files",
+    caddyDataDir: env.SCHULOS_CADDY_DATA_DIR ?? "/srv/schulos/caddy-data",
+    stepCaDir: env.SCHULOS_STEP_CA_DIR ?? "/srv/schulos/step-ca",
+    caddyCaRestoreDir: env.SCHULOS_CADDY_CA_RUECKSPIEL ?? "/srv/schulos/rueckspiel-caddy",
+    stepCaRestoreDir: env.SCHULOS_STEP_CA_RUECKSPIEL ?? "/srv/schulos/rueckspiel-step-ca",
     databaseUrl: env.DATABASE_URL?.startsWith("postgres") ? env.DATABASE_URL : null,
     probeDatabaseUrl: env.SCHULOS_PROBE_DATABASE_URL?.startsWith("postgres") ? env.SCHULOS_PROBE_DATABASE_URL : null,
     workDir: env.AGENT_WORK_DIR ?? path.join("/tmp", "schulos-agent"),

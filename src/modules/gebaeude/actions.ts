@@ -13,18 +13,23 @@ import { toBerlinDate } from "@/core/time";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { TICKET_CATEGORIES, TICKET_STATUSES, type TicketCategory, type TicketStatus } from "./labels";
+import { renewAssetCode } from "./etiketten";
+import { createCategory, deleteCategory, updateCategory, type CategoryInput } from "./inventar";
 import {
   MAX_ASSET_CSV_BYTES,
   canConfigure,
   cancelInspection,
   createAsset,
   createInspectionType,
+  deleteAsset,
   importAssets,
   planInspection,
   recordInspection,
   runInspectionReminders,
   setAssetActive,
+  updateAsset,
   updateInspectionType,
+  type AssetInput,
   type InspectionTypeInput,
 } from "./pruefungen";
 import { addComment, addPhotos, assignTicket, blockRoomFromTicket, changeStatus, createTicket, endTicketBlock, setResponsibility } from "./service";
@@ -156,7 +161,7 @@ function typeInput(form: FormData): InspectionTypeInput {
   return {
     name: str("name"),
     appliesTo: str("appliesTo"),
-    assetKind: str("assetKind") || null,
+    categoryId: str("categoryId") || null,
     intervalMonths: Number(str("intervalMonths")),
     warnDays: Number(str("warnDays")),
     source: str("source"),
@@ -194,28 +199,48 @@ export async function setResponsibilityAction(_prev: FormState, form: FormData):
   return { ok: true };
 }
 
-// ---------------------------------------------------------------- Anlagen (P4-15)
+// ---------------------------------------------------------------- Inventar (P4-15, INV-01/INV-02)
+
+function assetInput(form: FormData): AssetInput {
+  const str = (k: string) => String(form.get(k) ?? "");
+  return {
+    name: str("name"),
+    categoryId: str("categoryId"),
+    roomId: str("roomId") || null,
+    buildingId: str("buildingId") || null,
+    floorId: str("floorId") || null,
+    inventoryNo: str("inventoryNo") || null,
+    manufacturer: str("manufacturer") || null,
+    model: str("model") || null,
+    serial: str("serial") || null,
+    condition: str("condition") || null,
+    quantity: str("quantity") || null,
+    price: str("price") || null,
+    supplier: str("supplier") || null,
+    financing: str("financing") || null,
+    boundUntil: str("boundUntil") || null,
+    warrantyUntil: str("warrantyUntil") || null,
+    acquiredOn: str("acquiredOn") || null,
+    note: str("note") || null,
+  };
+}
 
 export async function createAssetAction(_prev: FormState, form: FormData): Promise<FormState> {
   const { perms } = await requireUser();
-  const str = (k: string) => String(form.get(k) ?? "");
+  let id: string;
   try {
-    await createAsset(
-      await getDb(),
-      perms,
-      {
-        name: str("name"),
-        kind: str("kind"),
-        roomId: str("roomId") || null,
-        building: str("building") || null,
-        inventoryNo: str("inventoryNo") || null,
-        manufacturer: str("manufacturer") || null,
-        serial: str("serial") || null,
-        acquiredOn: str("acquiredOn") || null,
-        note: str("note") || null,
-      },
-      today(),
-    );
+    id = await createAsset(await getDb(), perms, assetInput(form), today());
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/", "layout");
+  redirect(`/gebaeude/inventar/${id}?angelegt=1`);
+}
+
+export async function updateAssetAction(id: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await updateAsset(await getDb(), perms, id, assetInput(form), today());
   } catch (err) {
     return fail(err, form);
   }
@@ -223,10 +248,66 @@ export async function createAssetAction(_prev: FormState, form: FormData): Promi
   return { ok: true };
 }
 
-export async function setAssetActiveAction(id: string, active: boolean): Promise<void> {
+/** Ausmustern (mit Grund) bzw. wieder in Betrieb nehmen. */
+export async function setAssetActiveAction(id: string, active: boolean, _prev: FormState, form: FormData): Promise<FormState> {
   const { perms } = await requireUser();
-  await setAssetActive(await getDb(), perms, id, active, today());
+  try {
+    await setAssetActive(await getDb(), perms, id, active, today(), String(form.get("reason") ?? "") || null);
+  } catch (err) {
+    return fail(err, form);
+  }
   revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function deleteAssetAction(id: string): Promise<void> {
+  const { perms } = await requireUser();
+  await deleteAsset(await getDb(), perms, id);
+  revalidatePath("/", "layout");
+  redirect("/gebaeude/inventar?geloescht=1");
+}
+
+/** INV-02: neuen Etikett-Code erzeugen – der alte führt danach nirgends mehr hin. */
+export async function renewAssetCodeAction(id: string): Promise<void> {
+  const { perms } = await requireUser();
+  await renewAssetCode(await getDb(), perms, id);
+  revalidatePath("/", "layout");
+}
+
+function categoryInput(form: FormData): CategoryInput {
+  const str = (k: string) => String(form.get(k) ?? "");
+  return {
+    name: str("name"),
+    prefix: str("prefix"),
+    inspectionRequired: form.get("inspectionRequired") === "on",
+    responsibleGroupId: str("responsibleGroupId") || null,
+    sortOrder: Number(str("sortOrder") || "0"),
+    active: form.get("active") === "on",
+  };
+}
+
+/** Kategorie speichern (id) bzw. eigene anlegen (null) – Recht `gebaeude.configure`. */
+export async function saveCategoryAction(id: string | null, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    if (id) await updateCategory(await getDb(), perms, id, categoryInput(form));
+    else await createCategory(await getDb(), perms, categoryInput(form));
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function deleteCategoryAction(id: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await deleteCategory(await getDb(), perms, id);
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 export async function importAssetsAction(_prev: FormState, form: FormData): Promise<FormState> {

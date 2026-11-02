@@ -15,6 +15,8 @@ import { bundleImages, bundleInfo, checkImageArchive, loadedDigests } from "./bu
 import { formatProtocolLine, lockFromBeforeBoot, readEnvValue, runUpdate, setEnvValues, type ProtocolEntry, type UpdateOutcome } from "./update";
 import { buildStatus, nextRebootState, orderEffect, protocolTail, windowDecision, type Approval, type RebootPending } from "./system-sync";
 import { prepareConsole } from "./konsole";
+import { probeTlsExpiry, tlsTargetFromEnv } from "./tls-probe";
+import { readCaddyRoot } from "./root-ca";
 import { checkAfterBoot, nextCodename, runOsUpgrade } from "./os-upgrade";
 import { MARKER as OS_MARKER, osDeps, rebootRequired } from "./os";
 import {
@@ -29,10 +31,12 @@ import {
   VORSCHAU_SITE,
   vorschauSite,
 } from "./vorschau";
-import { parseOrder, parseOsRelease, SYSTEM_ORDER_FILE, SYSTEM_STATUS_FILE, type SystemOrder } from "@schulos/server/system";
+import { parseOrder, parseOsRelease, ROOT_CA_FILE, SYSTEM_ORDER_FILE, SYSTEM_STATUS_FILE, type SystemOrder } from "@schulos/server/system";
 import {
   dockerExposureProblem,
   formatStatus,
+  statusReport as statusReportJson,
+  type StatusInput,
   parseArgs,
   parseComposePs,
   parseDf,
@@ -125,13 +129,22 @@ async function backupState(c: Compose): Promise<AgentState | null> {
   }
 }
 
-async function statusReport(c: Compose, dir: string): Promise<{ ok: boolean; text: string }> {
+async function statusInput(c: Compose, dir: string): Promise<StatusInput> {
   const ps = await c.capture(["ps", "--all", "--format", "json"]);
   if (ps.code !== 0) throw new Error(`docker compose ps fehlgeschlagen: ${ps.stderr.trim() || ps.code}`);
   const [app, backup, df] = await Promise.all([appInfo(c), backupState(c), exec("df", ["-P", "-B1", dir])]);
   const read = (f: string) => (existsSync(f) ? readFileSync(f, "utf8") : null);
   const exposure = dockerExposureProblem(read("/etc/docker/daemon.json"), readEnvValue(read(path.join(dir, ".env")) ?? "", "SCHULOS_PUBLIC_ACCESS"));
-  const r = formatStatus({ services: parseComposePs(ps.stdout), app, backup, disk: df.code === 0 ? parseDf(df.stdout) : null, now: new Date(), exposure });
+  const envText = read(path.join(dir, ".env")) ?? "";
+  // BM-04: Ablauf des Zertifikats am HTTPS-Port des Stacks
+  const tls = await probeTlsExpiry(tlsTargetFromEnv({ SCHULOS_DOMAIN: readEnvValue(envText, "SCHULOS_DOMAIN"), SCHULOS_HTTPS_PORT: readEnvValue(envText, "SCHULOS_HTTPS_PORT") }));
+  // CA-02: Fingerabdruck der eigenen Root (nur TLS-Modus internal)
+  const root = await readCaddyRoot(readEnvValue(envText, "SCHULOS_TLS"), (a) => c.capture(a));
+  return { services: parseComposePs(ps.stdout), app, backup, disk: df.code === 0 ? parseDf(df.stdout) : null, now: new Date(), exposure, tls, rootCa: root?.info ?? null };
+}
+
+async function statusReport(c: Compose, dir: string): Promise<{ ok: boolean; text: string }> {
+  const r = formatStatus(await statusInput(c, dir));
   return { ok: r.ok, text: r.lines.join("\n") };
 }
 
@@ -221,6 +234,13 @@ async function run(inv: Invocation): Promise<number> {
   const c = new Compose(dir);
   switch (cmd.name) {
     case "status":
+      // BM-03: --json = ein JSON-Objekt auf stdout, Exit-Code 0 ok · 1 Warnung · 2 Fehler
+      if (cmd.json)
+        return statusInput(c, dir).then((input) => {
+          const r = statusReportJson(input);
+          console.log(JSON.stringify(r, null, 2));
+          return r.exitCode;
+        });
       return statusReport(c, dir).then((r) => {
         console.log(r.text);
         return r.ok ? 0 : 1;
@@ -826,6 +846,14 @@ async function systemSync(dir: string): Promise<number> {
     }
   }
 
+  // CA-02: Root der eigenen CA für den Download in der App ablegen (nur Zertifikat; ohne eigene CA entfernen → Download 404)
+  const root = await readCaddyRoot(readEnvValue(s.env(), "SCHULOS_TLS"), (a) => s.compose(a));
+  const rootFile = `${APP_CONFIG}/${ROOT_CA_FILE}`;
+  const rw = root
+    ? await s.composeInput(["exec", "-T", "app", "sh", "-c", `cat > ${rootFile}.tmp && mv -f ${rootFile}.tmp ${rootFile}`], root.pem)
+    : await s.compose(["exec", "-T", "app", "rm", "-f", rootFile]);
+  if (rw.code !== 0) console.error(`Wurzelzertifikat nicht abgelegt: ${rw.stderr.trim()}`);
+
   const approved = existsSync(approvalFile) ? (JSON.parse(readFileSync(approvalFile, "utf8")) as Approval) : null;
   const os = existsSync("/etc/os-release") ? parseOsRelease(readFileSync("/etc/os-release", "utf8")) : null;
   const df = await exec("df", ["-P", "-B1", dir]);
@@ -840,6 +868,9 @@ async function systemSync(dir: string): Promise<number> {
     disk: df.code === 0 ? parseDf(df.stdout) : null,
     reboot,
     tpm: tpm.mode === "tpm2" ? { problems: tpmBindingProblems(tpm) } : null,
+    // BM-04: Ablauf des Zertifikats am HTTPS-Port (null = nicht messbar)
+    tls: await probeTlsExpiry(tlsTargetFromEnv({ SCHULOS_DOMAIN: readEnvValue(s.env(), "SCHULOS_DOMAIN"), SCHULOS_HTTPS_PORT: readEnvValue(s.env(), "SCHULOS_HTTPS_PORT") })),
+    rootCa: root?.info ?? null,
     error,
   });
   const file = `${APP_CONFIG}/${SYSTEM_STATUS_FILE}`;

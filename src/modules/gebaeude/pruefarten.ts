@@ -1,14 +1,14 @@
 // Vorlage der Prüfarten (P4-15, Q-23): zwölf typische wiederkehrende Prüfungen an Schulen – als Daten, nicht als Code.
 // Intervalle sind Annahmen, Quellen Hinweise. Alles ist „zu prüfen“: SchulOS behauptet keine Rechtsverbindlichkeit,
 // die Schule bzw. der Schulträger legt die Fristen fest (Fachkraft für Arbeitssicherheit, Gefährdungsbeurteilung).
-import type { AssetKind, InspectionResponsible, InspectionTarget } from "./labels";
+import type { InspectionResponsible, InspectionTarget } from "./labels";
 
 export interface InspectionTemplate {
   key: string;
   name: string;
   appliesTo: InspectionTarget;
-  /** Prüfungen für alle Anlagen dieser Art automatisch planen */
-  assetKind: AssetKind | null;
+  /** Prüfungen für alle Anlagen dieser Kategorie automatisch planen (Schlüssel aus `kategorien.ts`, INV-01) */
+  categoryKey: string | null;
   intervalMonths: number;
   warnDays: number;
   source: string;
@@ -26,7 +26,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "elektro-ortsveraenderlich",
     name: "Ortsveränderliche elektrische Betriebsmittel",
     appliesTo: "anlage",
-    assetKind: "elektro_ortsveraenderlich",
+    categoryKey: "elektro_ortsveraenderlich",
     intervalMonths: 24,
     warnDays: 30,
     source: src("DGUV Vorschrift 3, DGUV Information 203-071, TRBS 1201"),
@@ -37,7 +37,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "elektro-ortsfest",
     name: "Ortsfeste elektrische Anlagen",
     appliesTo: "gebaeude",
-    assetKind: null,
+    categoryKey: null,
     intervalMonths: 48,
     warnDays: 60,
     source: src("DGUV Vorschrift 3"),
@@ -48,7 +48,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "feuerloescher",
     name: "Feuerlöscher",
     appliesTo: "anlage",
-    assetKind: "feuerloescher",
+    categoryKey: "feuerloescher",
     intervalMonths: 24,
     warnDays: 30,
     source: src("DIN 14406-4, ASR A2.2"),
@@ -59,7 +59,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "brandschutz-technik",
     name: "Brandmeldeanlage, Rauchwarnmelder, Sicherheitsbeleuchtung",
     appliesTo: "gebaeude",
-    assetKind: null,
+    categoryKey: null,
     intervalMonths: 12,
     warnDays: 30,
     source: src("DIN 14675, DIN VDE 0833, ASR A3.4/7"),
@@ -70,7 +70,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "spielgeraete",
     name: "Spielplatz- und Außenspielgeräte (Hauptinspektion)",
     appliesTo: "anlage",
-    assetKind: "spielgeraet",
+    categoryKey: "spielgeraet",
     intervalMonths: 12,
     warnDays: 30,
     source: src("DIN EN 1176-7, DGUV Information 202-022"),
@@ -81,7 +81,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "sportgeraete",
     name: "Sportgeräte und Sporthallen",
     appliesTo: "anlage",
-    assetKind: "sportgeraet",
+    categoryKey: "sportgeraet",
     intervalMonths: 12,
     warnDays: 30,
     source: src("DGUV Information 202-048 („Sichere Schule – Sporthalle“)"),
@@ -92,7 +92,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "tore-tueren",
     name: "Kraftbetätigte Tore und Türen",
     appliesTo: "anlage",
-    assetKind: "tor_tuer",
+    categoryKey: "tor_tuer",
     intervalMonths: 12,
     warnDays: 30,
     source: src("ASR A1.7"),
@@ -103,7 +103,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "leitern",
     name: "Leitern und Tritte",
     appliesTo: "anlage",
-    assetKind: "leiter",
+    categoryKey: "leiter",
     intervalMonths: 12,
     warnDays: 30,
     source: src("DGUV Information 208-016"),
@@ -114,7 +114,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "erste-hilfe",
     name: "Erste-Hilfe-Material",
     appliesTo: "anlage",
-    assetKind: "erste_hilfe",
+    categoryKey: "erste_hilfe",
     intervalMonths: 12,
     warnDays: 30,
     source: src("DGUV Vorschrift 1, DIN 13157/13169"),
@@ -125,7 +125,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "trinkwasser",
     name: "Trinkwasser (Legionellen)",
     appliesTo: "gebaeude",
-    assetKind: null,
+    categoryKey: null,
     intervalMonths: 36,
     warnDays: 60,
     source: src("§ 31 TrinkwV"),
@@ -136,7 +136,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "aufzuege",
     name: "Aufzüge",
     appliesTo: "anlage",
-    assetKind: "aufzug",
+    categoryKey: "aufzug",
     intervalMonths: 12,
     warnDays: 30,
     source: src("BetrSichV"),
@@ -147,7 +147,7 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     key: "begehung-arbeitsschutz",
     name: "Begehung Arbeitsschutz / Gefährdungsbeurteilung",
     appliesTo: "gebaeude",
-    assetKind: null,
+    categoryKey: null,
     intervalMonths: 12,
     warnDays: 30,
     source: src("ArbSchG § 5, DGUV Vorschrift 1"),

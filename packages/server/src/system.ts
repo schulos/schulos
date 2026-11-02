@@ -8,6 +8,14 @@ import type { Channel, ReleaseChange, UpdateKind } from "./release";
 
 export const SYSTEM_STATUS_FILE = "system-status.json";
 export const SYSTEM_ORDER_FILE = "system-auftrag.json";
+/** CA-02: Wurzelzertifikat der eigenen CA (nur Zertifikat), von schulosctl bei `SCHULOS_TLS=internal` abgelegt, sonst entfernt */
+export const ROOT_CA_FILE = "root-ca.crt";
+
+/** CA-02: Root der eigenen CA – SHA-256-Fingerabdruck („AB:CD:…“, wie Browser und `openssl -fingerprint -sha256` ihn zeigen) und Ablauf */
+export interface RootCaInfo {
+  fingerprint: string;
+  notAfter: string;
+}
 
 /** Eintrag im Update-Protokoll (updates/protokoll.jsonl auf dem Host, die letzten in system-status.json). */
 export interface ProtocolEntry {
@@ -88,6 +96,13 @@ export interface SystemStatus {
    * kein TPM2 ohne PIN (Passphrase, PIN, unverschlüsselt) bzw. älteres schulosctl.
    */
   tpm?: { problems: string[] } | null;
+  /** BM-04: Ablauf des Zertifikats, das der Reverse-Proxy ausliefert (schulosctl prüft den Handshake; null/fehlend = unbekannt) */
+  tls?: { expiresAt: string } | null;
+  /**
+   * CA-02: Root der eigenen CA (nur bei `SCHULOS_TLS=internal`; null/fehlend = keine eigene CA bzw. nicht lesbar). Eigenes Feld
+   * statt `tls.rootFingerprint` (Konzept): `tls` misst das ausgelieferte Serverzertifikat (BM-04), die Root ist davon unabhängig.
+   */
+  rootCa?: RootCaInfo | null;
   error?: string;
 }
 
@@ -165,4 +180,120 @@ export function osSupportState(os: OsInfo, now = new Date()): OsSupportState {
   const warn = new Date(`${os.securityUntil}T00:00:00Z`);
   warn.setUTCMonth(warn.getUTCMonth() - OS_WARN_MONTHS);
   return day >= warn.toISOString().slice(0, 10) ? "wechsel-empfohlen" : "ok";
+}
+
+// ---------------------------------------------------------------- BM-01/BM-03: Betriebsstatus (Health-Details, schulosctl status --json)
+// Kennzahlen ohne Personenbezug: keine Namen, Konten, Mailadressen, Pfad-Tokens (docs/BETRIEBSMONITORING.md). App und
+// schulosctl nutzen dieselben Stufen und Exit-Codes.
+
+/** ok = in Ordnung · warn = Aufmerksamkeit nötig · error = Betrieb gestört */
+export type HealthLevel = "ok" | "warn" | "error";
+
+export interface HealthProblem {
+  level: "warn" | "error";
+  /** stabiler Schlüssel (z. B. "backup", "mail:stau") – für Überwachungs-Skripte */
+  key: string;
+  text: string;
+}
+
+/** Schwerster Befund: error vor warn vor ok. */
+export function overallLevel(problems: readonly { level: "warn" | "error" }[]): HealthLevel {
+  return problems.some((p) => p.level === "error") ? "error" : problems.length ? "warn" : "ok";
+}
+
+/** Exit-Code für Skripte und Überwachungs-Plugins: 0 ok · 1 Warnung · 2 Fehler. */
+export function healthExitCode(level: HealthLevel): 0 | 1 | 2 {
+  return level === "ok" ? 0 : level === "warn" ? 1 : 2;
+}
+
+/** Zertifikat läuft in so vielen Tagen ab → Warnung bzw. Fehler. */
+export const TLS_WARN_DAYS = 14;
+export const TLS_ERROR_DAYS = 3;
+/** Speicherplatz belegt ab … % → Fehler (Warnung ab DISK_WARN_PERCENT aus mail.ts, 90 %) */
+export const DISK_ERROR_PERCENT = 97;
+
+/** Ganze Tage bis zum Ablauf (negativ = abgelaufen). */
+export function daysUntil(iso: string, now = new Date()): number {
+  return Math.floor((Date.parse(iso) - now.getTime()) / 86_400_000);
+}
+
+/** Befunde zum Zertifikat und zum Speicherplatz – für App und schulosctl gleich. */
+export function hostProblems(input: { disk?: { usedPercent: number } | null; tls?: { expiresAt: string } | null; diskWarnPercent: number; now: Date }): HealthProblem[] {
+  const out: HealthProblem[] = [];
+  const d = input.disk;
+  if (d && d.usedPercent >= input.diskWarnPercent)
+    out.push({ level: d.usedPercent >= DISK_ERROR_PERCENT ? "error" : "warn", key: "platz", text: `Speicherplatz knapp (${d.usedPercent} % belegt)` });
+  if (input.tls) {
+    const days = daysUntil(input.tls.expiresAt, input.now);
+    if (days < TLS_WARN_DAYS)
+      out.push({
+        level: days < TLS_ERROR_DAYS ? "error" : "warn",
+        key: "zertifikat",
+        text: days < 0 ? "Zertifikat ist abgelaufen" : `Zertifikat läuft in ${days} Tagen ab`,
+      });
+  }
+  return out;
+}
+
+/** Kennzahlen des Hauptsystems (`/api/health/details`). */
+export interface HealthReport {
+  version: 1;
+  checkedAt: string;
+  level: HealthLevel;
+  problems: HealthProblem[];
+  app: { version: string; channel: Channel | null };
+  database: { ok: boolean; latencyMs: number | null };
+  mail: { configured: boolean; pending: number; failed: number; oldestPendingMinutes: number | null };
+  /** letzter Lauf je Hintergrundjob (Name, Zeiten, Ergebnis; Fehlertext bereinigt) */
+  jobs: { name: string; lastStartedAt: string | null; lastFinishedAt: string | null; status: "ok" | "failed" | null; error: string | null }[];
+  backup: {
+    paired: boolean;
+    health: string;
+    lastOkAt: string | null;
+    ageHours: number | null;
+    /** unveränderliche Offsite-Kopie: ok | veraltet | fehlt | aus */
+    offsite: string;
+    offsiteLastAt: string | null;
+  };
+  disk: { usedPercent: number; freeBytes: number } | null;
+  tls: { expiresAt: string; daysLeft: number } | null;
+  /** null = Host meldet nichts (Entwicklung, Timer läuft nicht) */
+  host: { checkedAt: string; stale: boolean; update: string | null; rebootPending: boolean; rebootDays: number | null } | null;
+  /** BM-05: Zähler aus dem IP-freien Betriebsprotokoll des Reverse-Proxys; null = kein Protokoll (Entwicklung) */
+  traffic: TrafficStats | null;
+}
+
+/** BM-05: aggregierte Zugriffe eines Zeitfensters (ohne IP, Pfad, Konto) */
+export interface TrafficWindow {
+  requests: number;
+  /** Anfragen je Statusklasse */
+  byClass: { "2xx": number; "3xx": number; "4xx": number; "5xx": number };
+  /** Anteil 5xx in Prozent (eine Nachkommastelle); null ohne Anfragen */
+  errorRate: number | null;
+  /** Antwortzeit in ms; null ohne Anfragen */
+  latencyMs: { p50: number; p95: number; p99: number } | null;
+}
+
+export interface TrafficStats {
+  lastHour: TrafficWindow;
+  lastDay: TrafficWindow;
+  /** ältester ausgewerteter Eintrag (höchstens 48 h alt) */
+  since: string | null;
+}
+
+/** Ausgabe von `schulosctl status --json` (Stack-Sicht des Hosts). */
+export interface CtlStatusReport {
+  version: 1;
+  checkedAt: string;
+  level: HealthLevel;
+  exitCode: 0 | 1 | 2;
+  problems: HealthProblem[];
+  app: { version: string; instance: string; database: string; migrations: number; accounts: number } | null;
+  services: { service: string; state: string; health: string }[];
+  backup: { paired: boolean; health: string; lastOkAt: string | null; runningSince: string | null; contactError: string | null } | null;
+  disk: { usedPercent: number; freeBytes: number } | null;
+  tls: { expiresAt: string; daysLeft: number } | null;
+  /** CA-02: Root der eigenen CA (null = keine eigene CA bzw. nicht lesbar) */
+  rootCa: RootCaInfo | null;
+  exposure: string | null;
 }

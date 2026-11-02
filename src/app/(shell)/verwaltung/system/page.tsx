@@ -15,7 +15,16 @@ import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
-import { AlarmSettingsForm, ChannelForm, RebootForm, ReleaseForm, TestMailForm } from "./forms";
+import { AlarmSettingsForm, ChannelForm, HealthSettingsForm, RebootForm, ReleaseForm, RootCaConfirmForm, TestMailForm } from "./forms";
+import { fingerprintLines } from "@schulos/server/root-ca";
+import { readRootCa, rootCaState } from "@/core/system/root-ca";
+import { isEnabled, loadModuleStates } from "@/core/modules/registry";
+import { MODULES } from "@/modules";
+import { visibleSlugs } from "@/modules/hilfe/service";
+import { ROOT_CA_HELP_SLUG } from "@/modules/hilfe/starter";
+import { collectHealth } from "@/core/system/health";
+import { readHealthSettings } from "@/core/system/health-settings";
+import type { HealthLevel } from "@schulos/server/system";
 import { readAlarmSettings } from "@/core/system/security-alarms";
 import { clamavTarget, clamavVersion } from "@/core/files/virus-scan";
 import { crowdsecConfig, crowdsecStatus } from "@/core/crowdsec";
@@ -73,6 +82,8 @@ const fmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "
 const day = new Intl.DateTimeFormat("de-DE", { dateStyle: "long", timeZone: TZ });
 const HEALTH_TONE: Record<BackupHealth, "success" | "warn" | "danger"> = { ok: "success", overdue: "danger", failed: "danger", none: "warn" };
 const IMMUTABLE_TONE: Record<ImmutableHealth, "success" | "warn" | "danger"> = { ok: "success", veraltet: "danger", fehlt: "danger", aus: "warn" };
+const LEVEL_TONE: Record<HealthLevel, "success" | "warn" | "danger"> = { ok: "success", warn: "warn", error: "danger" };
+const LEVEL_LABEL: Record<HealthLevel, string> = { ok: "in Ordnung", warn: "Warnung", error: "Störung" };
 const KIND_LABEL = { patch: "Fehlerbehebung", minor: "neue Funktionen", major: "größeres Update" } as const;
 const OS_TEXT: Record<OsSupportState, { tone: "success" | "warn" | "danger" | "neutral"; label: string }> = {
   ok: { tone: "success", label: "mit Sicherheitsupdates" },
@@ -90,6 +101,46 @@ export default async function SystemPage() {
   const backup = backupStatus();
   const queryStats = <QueryStatsCard stats={await slowQueries(await getDb())} />;
   const superuser = await appRoleIsSuperuser(await getDb());
+
+  // BM-04: Betriebsstatus (dieselben Kennzahlen wie /api/health/details)
+  const healthSettings = await readHealthSettings(await getDb());
+  const health = await collectHealth(await getDb(), { system: status, backup, settings: healthSettings });
+  const healthCard = (
+    <Card aria-label="Betrieb">
+      <CardHeader title="Betrieb" />
+      <p className="flex flex-wrap items-center gap-2 text-sm">
+        <Badge tone={LEVEL_TONE[health.level]}>{LEVEL_LABEL[health.level]}</Badge>
+        <span className="text-muted">
+          Datenbank {health.database.ok ? `${health.database.latencyMs} ms` : "antwortet nicht"} · Mail-Warteschlange {health.mail.pending} · Jobs {health.jobs.length}
+          {health.tls ? ` · Zertifikat noch ${health.tls.daysLeft} Tage` : ""}
+        </span>
+      </p>
+      {health.problems.length > 0 && (
+        <ul className="mt-2 list-disc pl-5 text-sm" aria-label="Befunde">
+          {health.problems.map((p) => (
+            <li key={p.key} className={p.level === "error" ? "text-danger" : ""}>
+              {p.text}
+            </li>
+          ))}
+        </ul>
+      )}
+      {health.traffic && (
+        <div role="group" aria-label="Zugriffe" className="mt-2 text-sm">
+          <p>
+            Zugriffe letzte Stunde {health.traffic.lastHour.requests} · Serverfehler {health.traffic.lastHour.errorRate ?? 0} %
+            {health.traffic.lastHour.latencyMs ? ` · Antwortzeit Median ${health.traffic.lastHour.latencyMs.p50} ms, 95 % unter ${health.traffic.lastHour.latencyMs.p95} ms` : ""}
+            {` · letzte 24 h ${health.traffic.lastDay.requests}`}
+          </p>
+          <p className="text-muted">aus dem Protokoll des Proxys ohne IP-Adressen und Pfade, höchstens 48 Stunden, nur Zähler</p>
+        </div>
+      )}
+      <p className="mt-2 text-sm text-muted">
+        Warnungen gehen als Alarm-Mail an die Empfänger unter „E-Mail“. Maschinenlesbar: <code>/api/health/details</code> (nur Schulnetz bzw. mit Token),
+        auf dem Server <code>schulosctl status --json</code>.
+      </p>
+      <HealthSettingsForm settings={healthSettings} />
+    </Card>
+  );
 
   const backupCard = (
     <Card aria-label="Backup">
@@ -145,7 +196,7 @@ export default async function SystemPage() {
           </p>
           {alarmTo.length ? (
             <p>
-              Alarme (Backup überfällig oder fehlgeschlagen, Update fehlgeschlagen, Speicherplatz knapp, Neustart ausstehend, unveränderliche
+              Alarme (Backup überfällig oder fehlgeschlagen, Update fehlgeschlagen, Speicherplatz knapp, Neustart ausstehend, Mail-Stau, Zertifikat läuft ab, unveränderliche
               Kopie veraltet, Häufung fehlgeschlagener Anmeldungen, neue Admin-/Verwaltungsrechte) gehen an <strong>{alarmTo.join(", ")}</strong> –
               einmal, bei Fortbestehen täglich, und wenn alles wieder in Ordnung ist (neue Rechte nur einmal).
             </p>
@@ -178,6 +229,80 @@ export default async function SystemPage() {
       <p className="text-sm text-muted">Schulnetz-Bereiche, Stichtag der Zwei-Faktor-Pflicht und Abmeldung nach Inaktivität.</p>
     </Card>
   );
+  // CA-03: Root der eigenen CA (legt schulosctl ab) – Download, Fingerabdruck, Bestätigung nach einem Wechsel
+  const root = readRootCa();
+  const rootState = await rootCaState(await getDb(), root?.info ?? null);
+  const rootFp = root ? fingerprintLines(root.info.fingerprint) : null;
+  // Handbuch-Link nur, wenn es die Starter-Seite gibt (sonst 404) – ohne sie auf „Starter-Seiten anlegen“ im Handbuch verweisen
+  const hilfe = MODULES.find((m) => m.id === "hilfe");
+  const helpOn = !!root && !!hilfe && isEnabled(hilfe, await loadModuleStates(await getDb()));
+  const helpPage = helpOn && (await visibleSlugs(await getDb(), perms, [ROOT_CA_HELP_SLUG])).has(ROOT_CA_HELP_SLUG);
+  const rootCard = (
+    <Card aria-label="Schul-Zertifikat">
+      <CardHeader title="Schul-Zertifikat" />
+      {root && rootFp ? (
+        <div className="flex flex-col gap-3 text-sm">
+          {rootState.changed && (
+            <p role="alert" className="rounded-xl border border-warn-border bg-warn-soft px-3 py-2 text-warn">
+              <strong>Neues Schul-Zertifikat.</strong> Der Server nutzt ein anderes Wurzelzertifikat als bisher bestätigt (z. B. nach einer
+              Neuinstallation). Bis es auf allen Geräten verteilt und das alte entfernt ist, melden Browser Zertifikatsfehler. Nach dem
+              Verteilen hier bestätigen – bis dahin kommt täglich eine Alarm-Mail.
+            </p>
+          )}
+          <p>
+            Wurzelzertifikat der eigenen Zertifizierungsstelle, gültig bis {day.format(new Date(root.info.notAfter))}. Geräte der Schule
+            müssen ihm vertrauen, sonst warnen Browser bei jedem Aufruf. Nur das Zertifikat – der Schlüssel verlässt den Server nie.
+          </p>
+          <div>
+            <span className="text-muted">Fingerabdruck (SHA-256) – vor dem Import abgleichen:</span>
+            <code className="mt-1 block font-mono text-xs break-all" aria-label="Fingerabdruck">
+              {rootFp[0]}
+              <br />
+              {rootFp[1]}
+            </code>
+          </div>
+          <p className="flex flex-wrap gap-4">
+            <a href="/api/system/ca?format=crt" download className="font-medium text-accent-ink hover:underline">
+              Herunterladen (.crt)
+            </a>
+            <a href="/api/system/ca?format=cer" download className="font-medium text-accent-ink hover:underline">
+              Windows (.cer)
+            </a>
+            <a href="/api/system/ca?format=mobileconfig" download className="font-medium text-accent-ink hover:underline">
+              iPad/Mac (.mobileconfig)
+            </a>
+          </p>
+          <p className="text-muted">
+            Ohne Anmeldung im Schulnetz unter <code>/ca.crt</code>; den Fingerabdruck zeigen auch die Konsole des Servers und{" "}
+            <code>schulosctl status</code>. Verteilwege:{" "}
+            {helpPage ? (
+              <Link href={`/hilfe/${ROOT_CA_HELP_SLUG}`} className="text-accent-ink underline underline-offset-2">
+                Handbuch „Schul-Zertifikat installieren“
+              </Link>
+            ) : helpOn ? (
+              <>
+                Starter-Seite „Schul-Zertifikat installieren“ im{" "}
+                <Link href="/hilfe" className="text-accent-ink underline underline-offset-2">
+                  Handbuch
+                </Link>{" "}
+                über „Starter-Seiten anlegen“
+              </>
+            ) : (
+              "Installationsanleitung §5d (das Handbuch ist ausgeschaltet)"
+            )}
+            .
+          </p>
+          {rootState.changed && <RootCaConfirmForm fingerprint={root.info.fingerprint} />}
+        </div>
+      ) : (
+        <p className="text-sm text-muted">
+          Keine eigene Zertifizierungsstelle gemeldet. Mit einem öffentlichen Zertifikat ist nichts zu verteilen; sonst legt der Abgleich mit
+          dem Server (<code>schulosctl system-sync</code>) das Zertifikat hier ab.
+        </p>
+      )}
+    </Card>
+  );
+
   const geraeteCard = (
     <Card aria-label="Gerätezertifikate">
       <CardHeader title="Gerätezertifikate" action={{ href: "/verwaltung/system/geraete", label: "Verwalten" }} />
@@ -242,9 +367,11 @@ export default async function SystemPage() {
           <strong>Noch kein Systemstatus.</strong> Den schreibt <code>schulosctl system-sync</code> auf dem Server (systemd-Timer
           <code> schulos-sync.timer</code>, alle 5 Minuten). In der Entwicklung ohne Server bleibt diese Seite leer.
         </p>
+        {healthCard}
         {backupCard}
         {mailCard}
         {anmeldungCard}
+        {rootCard}
         {geraeteCard}
         {scanCard}
         {crowdsecCard}
@@ -407,9 +534,11 @@ export default async function SystemPage() {
         )}
       </Card>
 
+      {healthCard}
       {backupCard}
       {mailCard}
       {anmeldungCard}
+      {rootCard}
       {geraeteCard}
       {scanCard}
       {crowdsecCard}

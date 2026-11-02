@@ -88,9 +88,10 @@ Die Nummern bleiben stabil (Verweise wie „DSB-FRAGEN §8“ im Code und in der
 <!-- dsb:anmeldung -->
 | Punkt | |
 |---|---|
-| Was SchulOS tut | Öffentliches Formular mit E-Mail-Bestätigung; erhebt nur, was Termin und Gespräch brauchen; Auskunft ohne Konto per Vorgangsnummer. |
+| Was SchulOS tut | Öffentliches Formular mit E-Mail-Bestätigung; erhebt nur, was Termin und Gespräch brauchen; Auskunft ohne Konto per Vorgangsnummer. Klassenbildung im Schuljahreswechsel nur als Vorschlag aus Grundschule und Familie, im Browser, nicht gespeichert; kein Geschlecht. |
 | Vorgabe | Unbestätigte Anträge 48 h, abgelehnte/Warteliste Verfahrensabschluss + 60 Tage (je Verfahren 31–365), zurückgezogene/übernommene 90 Tage. |
 | Die Schule entscheidet / dokumentiert | Entscheidet über Felder (Empfehlung, Anschrift), Fristen je Verfahren, Information von Elternteil 2, Identitätsprüfung bei Auskunft und Impressum. |
+| Einstellungen | „Klassenbildung: Richtwert Klassengröße“ (Vorgabe: 27 Kinder (Vorgabe)) |
 | In SchulOS | Verwaltung → Schulanmeldung |
 <!-- /dsb -->
 
@@ -330,7 +331,7 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
 | Was SchulOS tut | Leert Protokoll-PDF und Bemerkung älterer Prüfungen; Termin, Ergebnis und Firma bleiben als Nachweis. |
 | Vorgabe | Letzte 2 Protokolle, frühestens ein Jahr nach der Prüfung. |
 | Die Schule entscheidet / dokumentiert | Klärt mit dem Schulträger die Nachweispflicht und wählt 2, 3 oder 5 Protokolle. |
-| Einstellungen | „Prüfprotokolle aufbewahren“ (Vorgabe: letzte 2 Protokolle (bis zur übernächsten Prüfung)) |
+| Einstellungen | „Prüfprotokolle aufbewahren“ (Vorgabe: letzte 2 Protokolle (bis zur übernächsten Prüfung)); „Inventarnummern“ (Vorgabe: Präfix-0001 (vierstellig, fortlaufend)); „Etikettenformat (Vorgabe)“ (Vorgabe: A4-Bogen 3×8 (70 × 36 mm)) |
 | In SchulOS | Verwaltung → Rechte & Module → Gebäude & Technik |
 <!-- /dsb -->
 

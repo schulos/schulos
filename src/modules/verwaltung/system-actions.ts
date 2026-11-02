@@ -11,6 +11,8 @@ import { testMail } from "@/core/mail-templates";
 import { audit } from "@/core/audit";
 import { ackDisclaimer } from "@/core/disclaimer";
 import { readSchoolSettings } from "@/core/settings";
+import { HEALTH_MODE_LABEL, HealthSettingsError, rotateHealthToken, saveHealthSettings } from "@/core/system/health-settings";
+import { confirmRootCa, RootCaError } from "@/core/system/root-ca";
 
 export interface SystemOrderState {
   ok?: string;
@@ -105,4 +107,42 @@ export async function alarmSettingsAction(_prev: SystemOrderState, form: FormDat
     if (err instanceof AlarmSettingsError) return { error: err.message };
     throw err;
   }
+}
+
+/** BM-02/BM-04: Betrieb – Zugang zu /api/health/details und Schwellen für Mail-Stau und Sicherungsalter */
+export async function healthSettingsAction(_prev: SystemOrderState, form: FormData): Promise<SystemOrderState> {
+  const { user } = await requirePermission("verwaltung.system");
+  try {
+    const s = await saveHealthSettings(await getDb(), user.id, {
+      mode: String(form.get("modus") ?? ""),
+      mailBacklogMinutes: String(form.get("mailstau") ?? ""),
+      backupMaxHours: String(form.get("sicherung") ?? ""),
+    });
+    revalidatePath("/verwaltung/system");
+    return { ok: `Gespeichert: Betriebsstatus ${HEALTH_MODE_LABEL[s.mode]}, Mail-Stau ab ${s.mailBacklogMinutes} Minuten, Sicherung älter als ${s.backupMaxHours} Stunden.` };
+  } catch (err) {
+    if (err instanceof HealthSettingsError) return { error: err.message };
+    throw err;
+  }
+}
+
+/** BM-02: neues Token für /api/health/details – wird nur hier einmal angezeigt, das alte gilt sofort nicht mehr */
+export async function healthTokenAction(): Promise<SystemOrderState> {
+  const { user } = await requirePermission("verwaltung.system");
+  const token = await rotateHealthToken(await getDb(), user.id);
+  revalidatePath("/verwaltung/system");
+  return { ok: `Neues Token (jetzt notieren, es wird nicht noch einmal angezeigt): ${token}` };
+}
+
+/** CA-03 (ca-6): neues Schul-Zertifikat bestätigen – beendet den Alarm „Schul-Zertifikat gewechselt“, steht im Protokoll */
+export async function confirmRootCaAction(_prev: SystemOrderState, form: FormData): Promise<SystemOrderState> {
+  const { user } = await requirePermission("verwaltung.system");
+  try {
+    await confirmRootCa(await getDb(), user.id, String(form.get("fingerabdruck") ?? ""));
+  } catch (err) {
+    if (err instanceof RootCaError) return { error: err.message };
+    throw err;
+  }
+  revalidatePath("/verwaltung/system");
+  return { ok: "Neues Schul-Zertifikat bestätigt." };
 }

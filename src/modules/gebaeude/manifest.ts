@@ -4,27 +4,29 @@ import { GEBAEUDE_SETTINGS } from "./settings";
 export default defineModule({
   id: "gebaeude",
   name: "Gebäude & Technik",
-  description: "Mängel und Störungen melden und abarbeiten, Anlagen, Prüffristen und Wartung (Raum, Gerät, IT)",
+  description: "Mängel und Störungen melden und abarbeiten, Inventar mit QR-Etiketten, Prüffristen und Wartung (Raum, Gerät, IT)",
   icon: "Wrench",
   section: "organisation",
   order: 45,
   permissions: {
     "gebaeude.report": "Mängel und Störungen melden, eigene Meldungen verfolgen",
     "gebaeude.manage": "Meldungen bearbeiten (annehmen, zuweisen, Status, Raum sperren), Prüfungen erfassen, Wartungstermine",
-    "gebaeude.configure": "Prüfarten, Anlagen/Geräte (auch CSV-Import) und Zuständigkeiten je Kategorie festlegen",
+    "gebaeude.inventory": "Inventar pflegen (anlegen, ändern, ausmustern, CSV-Import), Etiketten drucken, Inventur durchführen – alle Kategorien",
+    "gebaeude.configure": "Prüfarten, Inventar-Kategorien (Präfix, Prüfpflicht, verantwortliche Gruppe) und Zuständigkeiten je Meldungskategorie festlegen; schließt das Inventar-Recht ein",
     "gebaeude.view_all": "Alle Meldungen, Prüfungen und Wartungstermine lesen",
   },
   // Schüler:innen melden per Vorgabe nicht (Q-21) – die Schule kann es z. B. der SV-Gruppe geben.
-  // Die Hausmeisterei bekommt „manage“ über ihre Gruppe (Rechte über Gruppen), nicht über die Rolle.
+  // Die Hausmeisterei bekommt „manage“ und „inventory“ über ihre Gruppe (Rechte über Gruppen), nicht über die Rolle; eine
+  // verantwortliche Gruppe je Inventar-Kategorie pflegt ohne „inventory“ nur ihre Kategorie (INV-01, inv-4).
   defaultGrants: {
     lehrkraft: ["gebaeude.report"],
     personal: ["gebaeude.report"],
-    verwaltung: ["gebaeude.report", "gebaeude.manage", "gebaeude.configure", "gebaeude.view_all"],
+    verwaltung: ["gebaeude.report", "gebaeude.manage", "gebaeude.inventory", "gebaeude.configure", "gebaeude.view_all"],
   },
   // Q5-26: Aufbewahrung der Prüfprotokolle wählbar (Vorgabe bis zur übernächsten Prüfung)
   settings: GEBAEUDE_SETTINGS,
   // Navigation für alle, die melden, lesen oder einrichten dürfen (Lehrkräfte, Personal, Verwaltung, freigeschaltete Gruppen)
-  nav: [{ href: "/gebaeude", label: "Gebäude & Technik", requires: ["gebaeude.report", "gebaeude.view_all", "gebaeude.configure"] }],
+  nav: [{ href: "/gebaeude", label: "Gebäude & Technik", requires: ["gebaeude.report", "gebaeude.view_all", "gebaeude.configure", "gebaeude.inventory"] }],
   retention: [
     {
       table: "gebaeude_tickets",

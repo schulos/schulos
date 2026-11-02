@@ -1,11 +1,11 @@
 // Gebäude & Technik (P4-11) – nur relative Imports (drizzle-kit).
 import { boolean, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "../../core/db/schema-auth";
-import { groups, rooms } from "../../core/db/schema-core";
+import { buildingFloors, buildings, groups, rooms } from "../../core/db/schema-core";
 import { calendarEvents } from "../kalender/schema";
 import { timetableRoomBlocks } from "../stundenplan/schema";
 import {
-  ASSET_KINDS,
+  ASSET_CONDITIONS,
   INSPECTION_RESPONSIBLES,
   INSPECTION_RESULTS,
   INSPECTION_TARGETS,
@@ -106,28 +106,82 @@ export type GebaeudeTicket = typeof gebaeudeTickets.$inferSelect;
 
 // ---------------------------------------------------------------- Anlagen und Prüfungen (P4-15/P4-16)
 
-export const gebaeudeAssetKindEnum = pgEnum("gebaeude_asset_kind", ASSET_KINDS);
+export const gebaeudeAssetConditionEnum = pgEnum("gebaeude_asset_condition", ASSET_CONDITIONS);
 export const gebaeudeInspectionTargetEnum = pgEnum("gebaeude_inspection_target", INSPECTION_TARGETS);
 export const gebaeudeResponsibleEnum = pgEnum("gebaeude_responsible", INSPECTION_RESPONSIBLES);
 export const gebaeudeInspectionResultEnum = pgEnum("gebaeude_inspection_result", INSPECTION_RESULTS);
 
-/** Anlage/Gerät (Inventar, kein Personenbezug). Inventarnummer eindeutig – der CSV-Import aktualisiert darüber. */
-export const gebaeudeAssets = pgTable("gebaeude_assets", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  kind: gebaeudeAssetKindEnum("kind").notNull(),
-  roomId: text("room_id").references(() => rooms.id, { onDelete: "set null", onUpdate: "cascade" }),
-  building: text("building"),
-  inventoryNo: text("inventory_no").unique(),
-  manufacturer: text("manufacturer"),
-  serial: text("serial"),
-  acquiredOn: date("acquired_on"),
-  active: boolean("active").notNull().default(true),
-  note: text("note"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+/**
+ * INV-01: Kategorie des Inventars (statt Enum `gebaeude_asset_kind`; Vorlage `kategorien.ts`, eigene mit `template_key` null).
+ * Prüfpflicht ist Eigenschaft der Kategorie; die verantwortliche Gruppe pflegt die Anlagen ihrer Kategorie. Keine Personen.
+ */
+export const gebaeudeAssetCategories = pgTable(
+  "gebaeude_asset_categories",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    /** Schlüssel (Vorlage oder aus dem Namen), eindeutig */
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    /** Präfix der automatischen Inventarnummer, z. B. „IT“ */
+    prefix: text("prefix").notNull(),
+    inspectionRequired: boolean("inspection_required").notNull().default(false),
+    responsibleGroupId: text("responsible_group_id").references(() => groups.id, { onDelete: "set null" }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("gebaeude_asset_categories_key_uq").on(t.key)],
+);
+
+/** INV-01: nächste laufende Nummer je Präfix (bzw. Präfix:Jahr) – lückenlos ohne Kollision, Format als Moduleinstellung. */
+export const gebaeudeInventoryCounters = pgTable("gebaeude_inventory_counters", {
+  key: text("key").primaryKey(),
+  next: integer("next").notNull().default(1),
 });
+
+/**
+ * Anlage/Gerät (Inventar, kein Personenbezug; INV-01). Inventarnummer eindeutig – der CSV-Import aktualisiert darüber, fehlt sie,
+ * vergibt SchulOS sie aus dem Zähler der Kategorie. Standort über den Raum (Gebäude/Etage daraus) oder direkt Gebäude/Etage.
+ * `quantity` > 1 = Sammelposten (Tische, Stühle je Raum). Ausgemusterte bleiben als Nachweis (`retired_on`, inv-8).
+ */
+export const gebaeudeAssets = pgTable(
+  "gebaeude_assets",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text("name").notNull(),
+    categoryId: text("category_id")
+      .notNull()
+      .references(() => gebaeudeAssetCategories.id),
+    roomId: text("room_id").references(() => rooms.id, { onDelete: "set null", onUpdate: "cascade" }),
+    buildingId: text("building_id").references(() => buildings.id, { onDelete: "set null" }),
+    floorId: text("floor_id").references(() => buildingFloors.id, { onDelete: "set null" }),
+    inventoryNo: text("inventory_no").unique(),
+    manufacturer: text("manufacturer"),
+    model: text("model"),
+    serial: text("serial"),
+    condition: gebaeudeAssetConditionEnum("condition"),
+    quantity: integer("quantity").notNull().default(1),
+    priceCents: integer("price_cents"),
+    /** Lieferant (Firma, keine Person) */
+    supplier: text("supplier"),
+    /** Finanzierung/Förderprogramm (Text) */
+    financing: text("financing"),
+    /** Zweckbindung bis */
+    boundUntil: date("bound_until"),
+    warrantyUntil: date("warranty_until"),
+    acquiredOn: date("acquired_on"),
+    active: boolean("active").notNull().default(true),
+    retiredOn: date("retired_on"),
+    retiredReason: text("retired_reason"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gebaeude_assets_category_idx").on(t.categoryId), index("gebaeude_assets_room_idx").on(t.roomId)],
+);
 
 /** Prüfart (Vorlage aus pruefarten.ts oder eigene). Quellen sind Hinweise „zu prüfen“ – SchulOS behauptet keine Rechtsverbindlichkeit. */
 export const gebaeudeInspectionTypes = pgTable("gebaeude_inspection_types", {
@@ -138,8 +192,8 @@ export const gebaeudeInspectionTypes = pgTable("gebaeude_inspection_types", {
   templateKey: text("template_key").unique(),
   name: text("name").notNull(),
   appliesTo: gebaeudeInspectionTargetEnum("applies_to").notNull(),
-  /** Prüfungen werden für alle aktiven Anlagen dieser Art automatisch geplant */
-  assetKind: gebaeudeAssetKindEnum("asset_kind"),
+  /** Prüfungen werden für alle aktiven Anlagen dieser Kategorie automatisch geplant (INV-01: Kategorie statt Art) */
+  categoryId: text("category_id").references(() => gebaeudeAssetCategories.id, { onDelete: "set null" }),
   intervalMonths: integer("interval_months").notNull(),
   warnDays: integer("warn_days").notNull().default(30),
   source: text("source").notNull().default(""),
@@ -217,5 +271,6 @@ export const gebaeudeMaintenanceRooms = pgTable(
 );
 
 export type GebaeudeAsset = typeof gebaeudeAssets.$inferSelect;
+export type GebaeudeAssetCategory = typeof gebaeudeAssetCategories.$inferSelect;
 export type GebaeudeInspectionType = typeof gebaeudeInspectionTypes.$inferSelect;
 export type GebaeudeInspection = typeof gebaeudeInspections.$inferSelect;

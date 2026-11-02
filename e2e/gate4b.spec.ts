@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { collectErrors, login, logoutForSwitch } from "./helpers";
 
 // Gate 4b (P4-19): Meldung mit Foto bis zum Abschluss mit Gong auf beiden Seiten; Prüfungen mit Fristen, Erinnerung,
-// Mangel → Meldung, Protokoll-PDF; Verwaltung, Anlagen-Import, Wartung, Prüfliste und CSV ohne Namen.
+// Mangel → Meldung, Protokoll-PDF; Verwaltung, Inventar-Import, Wartung, Prüfliste und CSV ohne Namen.
 const SHOTS = ".data/shots/e2e";
 const PHOTO = { name: "steckdose.png", mimeType: "image/png", buffer: readFileSync("public/icon.png") };
 const PDF = { name: "protokoll.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n") };
@@ -50,7 +50,7 @@ test.describe("Gate 4b – Gebäude & Technik", () => {
     await expect(page.getByText("Deine Meldung: Erledigt").first()).toBeVisible();
     expect(errors).toEqual([]);
     // Lehrkräfte sehen keine Prüfungen, Anlagen, Wartung, Statistik, Prüfliste, Exporte
-    for (const p of ["/gebaeude/pruefungen", "/gebaeude/anlagen", "/gebaeude/wartung", "/gebaeude/statistik", "/druck/pruefliste"]) expect((await page.goto(p))?.status()).toBe(404);
+    for (const p of ["/gebaeude/pruefungen", "/gebaeude/inventar", "/gebaeude/wartung", "/gebaeude/statistik", "/druck/pruefliste"]) expect((await page.goto(p))?.status()).toBe(404);
     expect((await page.request.get("/api/gebaeude/export/meldungen")).status()).toBe(404);
   });
 
@@ -116,7 +116,7 @@ test.describe("Gate 4b – Gebäude & Technik", () => {
     expect(errors).toEqual([]);
   });
 
-  test("Verwaltung, Anlagen-Import, Wartung, Prüfliste und CSV ohne Namen", async ({ page }) => {
+  test("Verwaltung, Inventar-Import, Wartung, Prüfliste und CSV ohne Namen", async ({ page }) => {
     test.setTimeout(120_000);
     const errors = collectErrors(page);
     await login(page, "sabine.kowalski");
@@ -138,7 +138,7 @@ test.describe("Gate 4b – Gebäude & Technik", () => {
     await expect(page.getByText("gilt ab der nächsten erfassten Prüfung").first()).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Gebäude & Technik" }).getByRole("link", { name: "Prüfarten" })).toHaveAttribute("aria-current", "page");
 
-    await page.goto("/gebaeude/anlagen");
+    await page.goto("/gebaeude/inventar");
     const imp = page.getByRole("form", { name: "Inventarliste importieren" });
     await imp.getByLabel("CSV-Datei").setInputFiles({
       name: "inventar.csv",
@@ -147,7 +147,7 @@ test.describe("Gate 4b – Gebäude & Technik", () => {
     });
     await imp.getByRole("button", { name: "Importieren" }).click();
     await expect(imp.getByRole("status")).toContainText("2 angelegt, 0 aktualisiert");
-    await expect(page.getByRole("table", { name: "Anlagen und Geräte" })).toContainText("Aufzug Pavillon");
+    await expect(page.getByRole("table", { name: "Inventar" })).toContainText("Aufzug Pavillon");
 
     await page.goto("/druck/pruefliste");
     await expect(page.getByRole("heading", { level: 1, name: "Prüfliste" })).toBeVisible();

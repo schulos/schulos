@@ -24,6 +24,7 @@
     "./pinned-request": "./src/pinned-request.ts",
     "./recovery-key": "./src/recovery-key.ts",
     "./release": "./src/release.ts",
+    "./root-ca": "./src/root-ca.ts",
     "./safe-next": "./src/safe-next.ts",
     "./security-headers": "./src/security-headers.ts",
     "./ssh-netz": "./src/ssh-netz.ts",
@@ -34,7 +35,7 @@
     "./two-factor": "./src/two-factor.ts"
   },
   "dependencies": {
-    "nodemailer": "^10.2.1"
+    "nodemailer": "^10.3.1"
   },
   "devDependencies": {
     "@types/nodemailer": "^8.0.2"

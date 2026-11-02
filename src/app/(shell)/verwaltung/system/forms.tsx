@@ -1,7 +1,8 @@
 "use client";
 
 import { startTransition, useActionState } from "react";
-import { alarmSettingsAction, channelAction, rebootAction, releaseUpdateAction, testMailAction, type SystemOrderState } from "@/modules/verwaltung/system-actions";
+import { alarmSettingsAction, channelAction, confirmRootCaAction, healthSettingsAction, healthTokenAction, rebootAction, releaseUpdateAction, testMailAction, type SystemOrderState } from "@/modules/verwaltung/system-actions";
+import { BACKUP_HOURS_MAX, BACKUP_HOURS_MIN, HEALTH_MODE_LABEL, HEALTH_MODES, MAIL_BACKLOG_MAX, MAIL_BACKLOG_MIN, type HealthSettings } from "@/core/system/health-config";
 import { Button } from "@schulos/ui/button";
 import { Input, Select } from "@schulos/ui/field";
 
@@ -116,6 +117,67 @@ export function AlarmSettingsForm({ recipients, threshold }: { recipients: strin
       <div>
         <Button type="submit" variant="secondary" size="sm" disabled={pending}>
           Speichern
+        </Button>
+      </div>
+      <Message state={state} />
+    </form>
+  );
+}
+
+/** BM-02/BM-04: Zugang zum Betriebsstatus (/api/health/details) und Schwellen der Warnungen */
+export function HealthSettingsForm({ settings }: { settings: HealthSettings }) {
+  const [state, action, pending] = useActionState<SystemOrderState, FormData>(healthSettingsAction, {});
+  const [tokenState, tokenAction, tokenPending] = useActionState<SystemOrderState, FormData>(healthTokenAction, {});
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      <form action={action} aria-label="Betriebsstatus einstellen" className="flex flex-col gap-3">
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Betriebsstatus für Überwachung (/api/health/details)</span>
+          <Select name="modus" defaultValue={settings.mode} className="w-auto">
+            {HEALTH_MODES.map((m) => (
+              <option key={m} value={m}>
+                {HEALTH_MODE_LABEL[m]}
+              </option>
+            ))}
+          </Select>
+          <span className="text-xs text-muted">Von außerhalb des Schulnetzes bleibt der Pfad gesperrt. „Nur mit Token“: Kopfzeile Authorization: Bearer …</span>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Mail-Stau melden, wenn die älteste Mail so viele Minuten wartet</span>
+          <Input name="mailstau" type="number" min={MAIL_BACKLOG_MIN} max={MAIL_BACKLOG_MAX} defaultValue={settings.mailBacklogMinutes} className="w-32" />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Sicherung melden, wenn die letzte gute Sicherung älter ist als so viele Stunden</span>
+          <Input name="sicherung" type="number" min={BACKUP_HOURS_MIN} max={BACKUP_HOURS_MAX} defaultValue={settings.backupMaxHours} className="w-32" />
+        </label>
+        <div>
+          <Button type="submit" variant="secondary" size="sm" disabled={pending}>
+            Speichern
+          </Button>
+        </div>
+        <Message state={state} />
+      </form>
+      <form action={tokenAction} aria-label="Token erneuern" className="flex flex-col gap-2">
+        <div>
+          <Button type="submit" variant="secondary" size="sm" disabled={tokenPending}>
+            Neues Token erzeugen
+          </Button>
+        </div>
+        <Message state={tokenState} />
+      </form>
+    </div>
+  );
+}
+
+/** CA-03: neuen Fingerabdruck der Root bestätigen (erst nach dem Verteilen an die Geräte) */
+export function RootCaConfirmForm({ fingerprint }: { fingerprint: string }) {
+  const [state, action, pending] = useActionState<SystemOrderState, FormData>(confirmRootCaAction, {});
+  return (
+    <form action={action} aria-label="Neues Schul-Zertifikat bestätigen" className="flex flex-col gap-2">
+      <input type="hidden" name="fingerabdruck" value={fingerprint} />
+      <div>
+        <Button type="submit" variant="primary" size="sm" disabled={pending}>
+          Neues Zertifikat bestätigen
         </Button>
       </div>
       <Message state={state} />

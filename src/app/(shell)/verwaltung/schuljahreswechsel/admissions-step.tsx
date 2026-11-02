@@ -1,7 +1,8 @@
 "use client";
 
-import { Download, Printer } from "lucide-react";
+import { Download, Pin, Printer, Shuffle } from "lucide-react";
 import { startTransition, useActionState, useMemo, useState } from "react";
+import { explain, proposeClasses, type KbChild, type KbExplanation, type KbWish } from "@/modules/anmeldung/klassenbildung";
 import type { AdmissionCredential } from "@/modules/anmeldung/uebernahme";
 import { admissionsAction, regeneratePasswordsAction, type AdmissionsState, type RegeneratePasswordsState } from "@/modules/verwaltung/schuljahreswechsel-actions";
 import { Button } from "@schulos/ui/button";
@@ -11,6 +12,8 @@ import { Table } from "@schulos/ui/table";
 export interface AdmissionRow {
   antragId: string;
   number: string;
+  /** neutraler Familienschlüssel (gleiche E-Mail von Elternteil 1) für die Klassenbildung – nie die Adresse selbst */
+  family: string;
   child: string;
   birth: string;
   school: string;
@@ -63,30 +66,93 @@ function ParentCell({
 const SKIP = "nicht";
 const split = (s: string) => [...new Set(s.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean))];
 
+const toChild = (r: AdmissionRow): KbChild => ({ id: r.antragId, label: r.child, school: r.school || null, family: r.family });
+
+const NO_WISHES: KbWish[] = [];
+const NO_FAMILIES: string[] = [];
+
+/** KB-03: Wünsche und „getrennte“ Familien (nur Antrags-IDs bzw. neutrale Familienschlüssel) */
+interface KbExtras {
+  wishes: readonly KbWish[];
+  separateFamilies: readonly string[];
+}
+
 /**
- * Schritt „Neuaufnahmen“ (P4-39): je Jahrgang die neuen Klassen (Kurznamen), je Kind die Klasse (Vorschlag vorbelegt;
- * Grundschule und Geschwister nur als Sortierhilfe) oder „nicht übernehmen“. Danach einmalig die Zugangsdaten als Liste,
- * CSV und Druck – nicht per Mail.
+ * KB-02: Vorschlag je Jahrgang aus `klassenbildung.ts` (KB-03: mit Wünschen und „getrennten“ Familien). Festgepinnte Kinder bleiben stehen; wer festgepinnt „nicht übernehmen“
+ * hat, nimmt nicht teil. Rechnet im Browser – der Entwurf wird nicht gespeichert (kb-8).
+ */
+function propose(
+  levels: readonly { level: number }[],
+  rows: readonly AdmissionRow[],
+  options: Record<number, string[]>,
+  assign: Record<string, string>,
+  pinned: ReadonlySet<string>,
+  seed: number,
+  extras: KbExtras,
+): Record<string, string> {
+  const out = { ...assign };
+  for (const l of levels) {
+    const classNames = options[l.level] ?? [];
+    const mine = rows.filter((r) => r.gradeLevel === l.level && !(pinned.has(r.antragId) && assign[r.antragId] === SKIP));
+    const pins = Object.fromEntries(mine.filter((r) => pinned.has(r.antragId) && classNames.includes(assign[r.antragId] ?? "")).map((r) => [r.antragId, assign[r.antragId]!]));
+    const res = proposeClasses({ children: mine.map(toChild), classNames, pinned: pins, seed, wishes: extras.wishes, separateFamilies: extras.separateFamilies });
+    for (const r of mine) out[r.antragId] = res.assignment[r.antragId] ?? "";
+  }
+  return out;
+}
+
+/**
+ * Schritt „Neuaufnahmen“ (P4-39): je Jahrgang die neuen Klassen (Kurznamen), je Kind die Klasse (Vorschlag der Klassenbildung
+ * KB-01/02 vorbelegt, mit Begründung je Kind, Kennzahlen je Klasse, „Neu vorschlagen“ und Festpinnen) oder „nicht übernehmen“.
+ * Danach einmalig die Zugangsdaten als Liste, CSV und Druck – nicht per Mail.
  */
 export function AdmissionsStep({
   transitionId,
   canCreate,
   levels,
   rows,
-  proposal,
+  sizeHint,
+  wishes = NO_WISHES,
+  separateFamilies = NO_FAMILIES,
 }: {
   transitionId: string;
   /** Recht „Benutzer verwalten“ (Konten anlegen); ohne geht nur „Niemanden übernehmen“ */
   canCreate: boolean;
   levels: { level: number; name: string; classes: string[] }[];
   rows: AdmissionRow[];
-  proposal: Record<string, string>;
+  /** Richtwert Klassengröße (Einstellung `anmeldung.klassengroesse`) – nur für die Anzeige */
+  sizeHint: number;
+  /** KB-03: Klassenwünsche zwischen den Anträgen (Antrags-IDs + Art, keine Namen) */
+  wishes?: KbWish[];
+  /** KB-03: Familienschlüssel, die das Sekretariat als „getrennt“ markiert hat */
+  separateFamilies?: string[];
 }) {
+  const extras = useMemo<KbExtras>(() => ({ wishes, separateFamilies }), [wishes, separateFamilies]);
   const [state, formAction, pending] = useActionState<AdmissionsState, FormData>(admissionsAction, {});
   const [classText, setClassText] = useState<Record<number, string>>(Object.fromEntries(levels.map((l) => [l.level, l.classes.join(", ")])));
   const options = useMemo(() => Object.fromEntries(levels.map((l) => [l.level, split(classText[l.level] ?? "")])), [levels, classText]);
-  const [assign, setAssign] = useState<Record<string, string>>(proposal);
+  const [pinned, setPinned] = useState<ReadonlySet<string>>(() => new Set());
+  const [seed, setSeed] = useState(0);
+  const [assign, setAssign] = useState<Record<string, string>>(() => propose(levels, rows, options, {}, new Set(), 0, extras));
   const [skipAll, setSkipAll] = useState(false);
+  const explained = useMemo(() => {
+    const out: Record<number, KbExplanation> = {};
+    const pins = Object.fromEntries([...pinned].map((id) => [id, assign[id] ?? ""]));
+    for (const l of levels) out[l.level] = explain({ children: rows.filter((r) => r.gradeLevel === l.level).map(toChild), classNames: options[l.level] ?? [], pinned: pins, ...extras }, assign);
+    return out;
+  }, [levels, rows, options, assign, pinned, extras]);
+  const togglePin = (id: string, on: boolean) =>
+    setPinned((p) => {
+      const next = new Set(p);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const reshuffle = () => {
+    const next = seed + 1;
+    setSeed(next);
+    setAssign(propose(levels, rows, options, assign, pinned, next, extras));
+  };
 
   if (state.ok && state.result) {
     const r = state.result;
@@ -118,7 +184,8 @@ export function AdmissionsStep({
         und Elternteil erzeugen – auch für den zweiten Elternteil, wenn im Antrag seine E-Mail-Adresse steht (vorhandene Elternkonten werden
         verknüpft; Konten mit gleicher, aber unbestätigter E-Mail nur, wenn der Vorschlag angekreuzt ist). Beim zweiten Elternteil ist die Adresse
         nie bestätigt: verknüpft wird dort nur mit Haken, sonst entsteht ein neues Konto ohne die Adresse. Die Zuordnung ist nur ein Vorschlag
-        (Familien zusammen, sonst gleichmäßig). Übernommen werden nur Name, Klasse und die E-Mail der Eltern; alles Weitere bleibt in der
+        (Größen höchstens 1 Kind Unterschied, Familien zusammen außer „getrennt“, Grundschulen gemischt, Klassenwünsche aus dem Vorgang – kein Geschlecht, keine weiteren Merkmale) und wird
+        nicht gespeichert, bis die Neuaufnahmen übernommen sind. Übernommen werden nur Name, Klasse und die E-Mail der Eltern; alles Weitere bleibt in der
         Schulverwaltungssoftware.
       </p>
       {levels.map((l) => (
@@ -126,14 +193,71 @@ export function AdmissionsStep({
           <Input name={`classes:${l.level}`} value={classText[l.level] ?? ""} onChange={(e) => setClassText((s) => ({ ...s, [l.level]: e.target.value }))} className="max-w-md" />
         </Field>
       ))}
-      <Table aria-label="Zuordnung">
+      <section aria-label="Kennzahlen je Klasse" className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="button" onClick={reshuffle}>
+            <Shuffle aria-hidden /> Neu vorschlagen
+          </Button>
+          <span className="text-sm text-muted" aria-live="polite" data-testid="vorschlag-info">
+            Vorschlag {seed + 1} · Richtwert {sizeHint} Kinder je Klasse · {pinned.size} festgepinnt (bleiben beim Neu vorschlagen stehen; eine
+            von Hand gewählte Klasse wird automatisch festgepinnt)
+          </span>
+        </div>
+        {levels.map((l) => {
+          const ex = explained[l.level];
+          if (!ex?.stats.length) return null;
+          const withWishes = ex.stats.some((x) => x.wishesTotal > 0);
+          return (
+            <div key={l.level} className="flex flex-col gap-1">
+              <Table>
+                <caption className="sr-only">Kennzahlen {l.name}</caption>
+                <thead>
+                  <tr>
+                    <th>Klasse</th>
+                    <th className="text-right">Kinder</th>
+                    <th className="text-right">festgepinnt</th>
+                    <th>Grundschulen</th>
+                    <th className="text-right">allein aus ihrer Grundschule</th>
+                    {withWishes && <th className="text-right">Wünsche erfüllt</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ex.stats.map((x) => (
+                    <tr key={x.name}>
+                      <td className="font-medium">{x.name}</td>
+                      <td className="text-right tabular-nums">{x.size}</td>
+                      <td className="text-right tabular-nums">{x.pinned}</td>
+                      <td className="text-sm">{x.schools.map((sc) => `${sc.school} ${sc.count}`).join(" · ") || "–"}</td>
+                      <td className="text-right tabular-nums">{x.alone}</td>
+                      {withWishes && (
+                        <td className="text-right tabular-nums">
+                          {x.wishesMet} / {x.wishesTotal}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+              {ex.warnings.length > 0 && (
+                <ul className="text-sm text-danger" aria-label={`Hinweise ${l.name}`}>
+                  {ex.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+      </section>
+      <Table>
+        <caption className="sr-only">Zuordnung</caption>
         <thead>
           <tr>
             <th>Kind</th>
             <th>Grundschule</th>
             <th>Geschwister</th>
             <th>Elternkonto</th>
-            <th>Klasse</th>
+            <th>Klasse und Begründung</th>
           </tr>
         </thead>
         <tbody>
@@ -157,21 +281,44 @@ export function AdmissionsStep({
                 )}
               </td>
               <td>
-                <Select
-                  name={`a:${r.antragId}`}
-                  value={assign[r.antragId] ?? ""}
-                  onChange={(e) => setAssign((s) => ({ ...s, [r.antragId]: e.target.value }))}
-                  aria-label={`Klasse für ${r.child}`}
-                  className="h-9 w-40 text-sm"
-                >
-                  <option value="">– wählen –</option>
-                  {(options[r.gradeLevel] ?? []).map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                  <option value={SKIP}>nicht übernehmen</option>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Select
+                    name={`a:${r.antragId}`}
+                    value={assign[r.antragId] ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setAssign((s) => ({ ...s, [r.antragId]: v }));
+                      togglePin(r.antragId, v !== "");
+                    }}
+                    aria-label={`Klasse für ${r.child}`}
+                    className="h-9 w-40 text-sm"
+                  >
+                    <option value="">– wählen –</option>
+                    {(options[r.gradeLevel] ?? []).map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                    <option value={SKIP}>nicht übernehmen</option>
+                  </Select>
+                  <label className="flex min-h-6 items-center gap-1 text-xs text-muted" title="Festpinnen: bleibt beim Neu vorschlagen stehen">
+                    <input
+                      type="checkbox"
+                      checked={pinned.has(r.antragId)}
+                      onChange={(e) => togglePin(r.antragId, e.target.checked)}
+                      aria-label={`Festpinnen: ${r.child}`}
+                      className="size-6 accent-[var(--accent)]"
+                    />
+                    <Pin aria-hidden className="size-3.5" />
+                  </label>
+                </div>
+                {(explained[r.gradeLevel]?.reasons[r.antragId]?.length ?? 0) > 0 && (
+                  <ul className="mt-1 max-w-xs text-xs text-muted" aria-label={`Begründung für ${r.child}`} data-testid="begruendung">
+                    {explained[r.gradeLevel]!.reasons[r.antragId]!.map((t) => (
+                      <li key={t}>{t}</li>
+                    ))}
+                  </ul>
+                )}
                 {state.fieldErrors?.[`assign-${r.antragId}`] && <span className="block text-xs text-danger">{state.fieldErrors[`assign-${r.antragId}`]}</span>}
               </td>
             </tr>

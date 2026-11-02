@@ -189,7 +189,7 @@ jobs:
       # INST-10: Aufruf über die IP bzw. einen fremden Namen landet bei der App (Weiterleitung zur Anmeldung), nicht auf
       # Caddys leerer 200-Antwort
       - name: Aufruf per IP (INST-10)
-        run: bash scripts/ci/per-ip.sh 8443
+        run: bash scripts/ci/per-ip.sh 8443 8080 localhost
       # SEC-13: non-root, read_only, cap_drop ALL, no-new-privileges, kein docker.sock – am laufenden Stack
       - name: Container-Härtung (SEC-13)
         run: bash scripts/haertung-pruefen.sh schulos --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres --rw step-ca --rw crowdsec --rw clamav --ohne-nnp step-ca --cap step-ca=NET_BIND_SERVICE
@@ -214,6 +214,9 @@ jobs:
           # bei --wait-Fehlern die Protokolle der betroffenen Dienste ausgeben (sonst sieht man im CI-Log nur „unhealthy“)
           docker compose --profile geraete up -d --no-deps --wait --wait-timeout 180 step-ca ||
             { docker compose --profile geraete logs --no-color geraete-ca-init step-ca; exit 1; }
+          # CA-01: der Backup-Agent (hat step_ca zuerst eingehängt) liest die Schul-CA samt Schlüssel – sie kommt ins Backup
+          docker compose exec -T backup-agent sh -c 'test -r /srv/schulos/step-ca/config/ca.json && test -r /srv/schulos/step-ca/secrets/root_ca_key' ||
+            { echo "CA-01: Backup-Agent kann die Schul-CA nicht lesen"; exit 1; }
           bash scripts/haertung-pruefen.sh schulos --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres --rw step-ca --rw crowdsec --rw clamav --ohne-nnp step-ca --cap step-ca=NET_BIND_SERVICE
           SCHULOS_DEVICE_CERTS=an docker compose up -d --wait --wait-timeout 180 app
           docker compose exec -T app node cli.mjs geraete-ca-pruefen
@@ -276,6 +279,13 @@ jobs:
           sleep 2
           docker compose exec -T caddy grep -q '/monitor/\*\*\*' /var/log/caddy/access.log
           if docker compose exec -T caddy grep -q abcdefghijklmnopqrstuvwxyz0123 /var/log/caddy/access.log; then echo "Token im Zugriffsprotokoll"; exit 1; fi
+          # BM-05: das Betriebsprotokoll (immer an) hat Status und Dauer, aber weder Adresse noch Pfad noch Header; die App liest es
+          docker compose exec -T caddy grep -q '"status":' /var/log/caddy-betrieb/betrieb.log
+          if docker compose exec -T caddy grep -qE '10\.99\.0\.8|remote_ip|client_ip|"uri"|/monitor/|headers' /var/log/caddy-betrieb/betrieb.log; then
+            echo "BM-05: Betriebsprotokoll enthält Adresse, Pfad oder Header"; docker compose exec -T caddy tail -n 2 /var/log/caddy-betrieb/betrieb.log; exit 1
+          fi
+          docker compose exec -T app test -r /var/log/caddy-betrieb/betrieb.log ||
+            { echo "BM-05: App kann das Betriebsprotokoll nicht lesen"; exit 1; }
           # G4E-O13: CrowdSec wertet die Client-Adresse aus (client_ip), nicht den Proxy davor (der Docker-Gateway wäre als privates
           # Netz ausgenommen) – Abtasten von außen (203.0.113.9, Caddy antwortet 403) muss zu einer Sperre genau dieser Adresse führen
           # Szenario crowdsecurity/http-probing: > 10 verschiedene Pfade mit 403/404 innerhalb von ~10 s je Quelle (leaky bucket) –

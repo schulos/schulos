@@ -51,7 +51,7 @@ export function TicketItem({ t, showStatus = true, showReporter = false }: { t: 
 const SECTIONS = [
   { key: "meldungen", href: "/gebaeude", label: "Meldungen" },
   { key: "pruefungen", href: "/gebaeude/pruefungen", label: "Prüfungen" },
-  { key: "anlagen", href: "/gebaeude/anlagen", label: "Anlagen" },
+  { key: "inventar", href: "/gebaeude/inventar", label: "Inventar" },
   { key: "wartung", href: "/gebaeude/wartung", label: "Wartung" },
   { key: "statistik", href: "/gebaeude/statistik", label: "Statistik" },
   { key: "pruefarten", href: "/gebaeude/pruefarten", label: "Prüfarten" },

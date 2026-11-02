@@ -86,10 +86,37 @@ function record(id: string, p: ProcessingDecl, retention: readonly RetentionDecl
   };
 }
 
+/**
+ * BM-06: Betriebsüberwachung (Grundsystem, immer an). Kennzahlen ohne Personenbezug; das Zugriffsprotokoll des Proxys wird
+ * vor dem Schreiben um IP, Pfad und Header gekürzt (BM-05). Eintrag dennoch im VVT, weil Zugriffe von Personen gezählt werden.
+ */
+export const OPERATIONS_RECORD: ProcessingRecord = {
+  id: "betrieb",
+  title: "Betriebsüberwachung",
+  purpose: "Verfügbarkeit und Sicherheit der Plattform überwachen: Störungen, Mail-Stau, Sicherung, Speicherplatz und Zertifikat früh erkennen",
+  legalBasis: "Art. 6 Abs. 1 lit. c und e, Art. 32 Abs. 1 lit. b und c DSGVO (Sicherheit und Verfügbarkeit der Verarbeitung)",
+  subjects: ["alle Nutzenden (nur gezählt, ohne Zuordnung zu Personen)"],
+  recipients: ["Administration (Verwaltung → System, Alarm-Mails)", "Überwachung der Schule bzw. des Schulträgers nur aus dem Schulnetz oder mit Token"],
+  dataTypes: [
+    {
+      purpose: "Zugriffsprotokoll des Reverse-Proxys ohne IP-Adresse, Pfad, Header und Konto",
+      categories: ["Zeitpunkt", "Statuscode", "Antwortzeit", "Antwortgröße"],
+      retention: "höchstens 48 Stunden, danach automatisch gelöscht; ausgewertet werden nur Zähler",
+    },
+    {
+      purpose: "Betriebskennzahlen (Datenbank, Mail-Warteschlange, Jobs, Sicherung, Speicherplatz, Zertifikat)",
+      categories: ["Anzahlen", "Zeitpunkte", "bereinigte Fehlertexte ohne Adressen"],
+      retention: "nur aktueller Stand, kein Verlauf",
+    },
+  ],
+  note: "Keine Nutzungsstatistik je Person oder Seite, keine Weitergabe an Dritte.",
+};
+
 /** Verarbeitungstätigkeiten der aktiven Module (Grundsystem zuerst). */
 export function processingRecords(modules: readonly ModuleManifest[], periods: Periods = new Map()): ProcessingRecord[] {
   return [
     record("core", CORE_PROCESSING, CORE_RETENTION, periods),
+    OPERATIONS_RECORD,
     ...modules.filter((m) => m.processing).map((m) => record(m.id, m.processing!, m.retention ?? [], periods)),
   ];
 }

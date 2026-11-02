@@ -71,6 +71,9 @@ describe("öffentliche Pfade (Proxy, S30)", () => {
   it("genau die Anmeldeseiten sind ohne Sitzung erreichbar – nicht ähnlich benannte", () => {
     for (const p of ["/anmeldung", "/anmeldung/abc", "/anmeldung/bestaetigen/t", "/anmeldung/vorgang/t", "/anmeldung/vorgang/t/termin.ics", "/impressum", "/login"])
       expect(isPublicPath(p), p).toBe(true);
+    // CA-03: genau /ca.crt (die Route selbst liefert nur im Schulnetz aus)
+    expect(isPublicPath("/ca.crt")).toBe(true);
+    for (const p of ["/ca.crt/x", "/ca.crtx", "/api/system/ca"]) expect(isPublicPath(p), p).toBe(false);
     for (const p of ["/anmeldungen", "/anmeldungX/abc", "/schulanmeldung", "/verwaltung/anmeldung", "/impressum/x", "/api/anmeldung", "/dev/mail", "/"]) expect(isPublicPath(p), p).toBe(false);
   });
 });

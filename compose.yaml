@@ -22,6 +22,11 @@ services:
     # (Zertifikate, Schlüssel der eigenen CA). Ohne Capabilities außer dem Binden von 80/443 darf root dort nur, was jedem
     # Dateieigentümer erlaubt ist.
     cap_add: [NET_BIND_SERVICE]
+    # CA-01: Gruppe 1000 (Backup-Agent) – das Startskript gibt ihr Leserecht auf Wurzelzertifikat und -schlüssel der eigenen CA
+    # (sonst kämen sie nicht ins Backup) und liest daraus die Übergabe einer Wiederherstellung. Keine zusätzliche Capability:
+    # die Gruppe einer eigenen Datei darf jeder Eigentümer auf eine seiner Gruppen setzen.
+    group_add: ["1000"]
+    entrypoint: ["sh", "/etc/schulos/caddy-start.sh"]
     restart: unless-stopped
     depends_on:
       app:
@@ -31,6 +36,8 @@ services:
       - "${SCHULOS_HTTPS_PORT:-443}:443"
     environment:
       SCHULOS_DOMAIN: ${SCHULOS_DOMAIN:-localhost}
+      # Hinweisseite bei Aufruf per IP (http://): Link auf die Domain mit dem öffentlichen Port (leer = 443)
+      SCHULOS_PUBLIC_PORT: ${SCHULOS_PUBLIC_PORT:-}
       # „internal“ = eigene CA (nur Schulnetz) · E-Mail-Adresse = Let's Encrypt (öffentliche Domain)
       SCHULOS_TLS: ${SCHULOS_TLS:-internal}
       # P4-40 Außenzugang (INSTALLATION.md „Außenzugang“): keiner = nur Schulnetz · oeffentliche-seiten = aus dem Internet nur
@@ -50,11 +57,19 @@ services:
     configs:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
+      - source: caddy-start
+        target: /etc/schulos/caddy-start.sh
+      - source: adresshinweis
+        target: /etc/schulos/adresshinweis/index.html
     volumes:
       - caddy_data:/data
+      # CA-01: Übergabe der CA-Wurzel aus einer Wiederherstellung (schreibt der Backup-Agent, übernimmt caddy-start)
+      - ca_rueckspiel_caddy:/rueckspiel
       - caddy_config:/config
       # SEC-15: Zugriffsprotokoll (nur mit SCHULOS_CROWDSEC=1, 48 h)
       - caddy_logs:/var/log/caddy
+      # BM-05: IP-freies Betriebsprotokoll (immer an, 48 h) – eigenes Volume, damit die App nie das IP-haltige Log oben sieht
+      - caddy_betrieb:/var/log/caddy-betrieb
       # zusätzliche Sites, z. B. die Vorschau-Instanz (schulosctl vorschau an/aus schreibt bzw. löscht sie)
       - caddy_sites:/etc/caddy/sites
       # P4-40b: Wurzel- und Zwischenzertifikat der Schul-CA (schreibt step-ca; leer, solange die CA nicht läuft)
@@ -93,6 +108,8 @@ services:
       - config:/srv/schulos/config
       - files:/srv/schulos/files
       - geraete_ca:/srv/schulos/geraete-ca:ro
+      # BM-05: Zähler aus dem IP-freien Betriebsprotokoll von Caddy (nur lesen)
+      - caddy_betrieb:/var/log/caddy-betrieb:ro
     # ca: nur der Weg zur Schul-CA (Profil „geraete“)
     networks: [edge, db, ca]
 
@@ -111,16 +128,18 @@ services:
     cap_add: [CHOWN]
     # erst chmod (gehört noch root), dann chown – sonst bräuchte chmod FOWNER (SEC-13: nur CHOWN); gehört der Ordner schon
     # step (zweiter Lauf), darf chmod scheitern – die Rechte stimmen dann schon
-    entrypoint: ["sh", "-c", "chmod 0755 /export 2>/dev/null; chown 1000:1000 /export"]
+    # CA-01: ebenso die Übergabe aus einer Wiederherstellung (schreibt der Backup-Agent, uid 1000)
+    entrypoint: ["sh", "-c", "for d in /export /rueckspiel; do chmod 0755 $$d 2>/dev/null; chown 1000:1000 $$d || exit 1; done"]
     volumes:
       - geraete_ca:/export
+      - ca_rueckspiel_step:/rueckspiel
     network_mode: none
 
   step-ca:
     <<: *haertung
     profiles: [geraete]
     image: ${SCHULOS_STEP_CA_IMAGE:-smallstep/step-ca:0.30.2}
-    # Benutzer step (Image); beschreibbar nur step_ca, geraete_ca und /tmp
+    # Benutzer step (Image); beschreibbar nur step_ca, geraete_ca, die Übergabe einer Wiederherstellung (CA-01) und /tmp
     # Ausnahme SEC-13: das Programm step-ca trägt im Image eine Datei-Capability (setcap NET_BIND_SERVICE). Ohne diese
     # Capability bzw. mit no-new-privileges verweigert der Kernel den Start (EPERM) – der Dienst war sofort „unhealthy“.
     # Daher hier ohne no-new-privileges und mit NET_BIND_SERVICE; alle anderen Capabilities bleiben weg, Benutzer step.
@@ -146,6 +165,7 @@ services:
     volumes:
       - step_ca:/home/step
       - geraete_ca:/export
+      - ca_rueckspiel_step:/rueckspiel
     healthcheck:
       test: ["CMD", "step", "ca", "health", "--ca-url", "https://localhost:9000", "--root", "/home/step/certs/root_ca.crt"]
       interval: 10s
@@ -214,6 +234,8 @@ services:
     networks: [edge]
 
   # Backup-Agent (B-24/B-27): sichert Datenbank, Dateien und Konfiguration auf den gekoppelten Backupserver; ohne Kopplung wartet er.
+  # CA-01: dazu Wurzel + Schlüssel der eigenen CAs (Caddy, Schul-CA) – nur lesend; zurück gehen sie über je einen Übergabeordner,
+  # den Caddy bzw. step-ca beim nächsten Start übernehmen (dieselbe Wurzel wie vorher → keine Zertifikatsfehler an den Geräten).
   # Dateien schreibend – eine Wiederherstellung spielt sie zurück. Koppeln: Verwaltung → Backup oder
   #   docker compose run --rm backup-agent node /opt/schulos-agent/agent.mjs koppeln https://backup.schule.de K7Q2-9MXA-4RT1
   backup-agent:
@@ -242,6 +264,10 @@ services:
       - config:/srv/schulos/config
       - files:/srv/schulos/files
       - agent_tmp:/tmp
+      - caddy_data:/srv/schulos/caddy-data:ro
+      - step_ca:/srv/schulos/step-ca:ro
+      - ca_rueckspiel_caddy:/srv/schulos/rueckspiel-caddy
+      - ca_rueckspiel_step:/srv/schulos/rueckspiel-step-ca
     # db: Datenbank (intern) · edge: Weg zum Backupserver
     networks: [edge, db]
 
@@ -322,6 +348,29 @@ configs:
         servers {
           trusted_proxies static {$$SCHULOS_TRUSTED_PROXIES:127.0.0.1/32}
           trusted_proxies_strict
+        }
+        # BM-05 (Entscheidung bm-5): IP-freies Betriebsprotokoll, immer an – hängt am Zugriffs-Logger „zugriff“ der Site (Snippet
+        # crowdsec-0/-1), denn Caddy kennt je Site nur einen Logger (ein zweites „log“ ersetzt das erste). Der Filter entfernt die
+        # ganze Anfrage (IP, Port, Host, Pfad, Header) sowie Antwort-Header und Konto vor dem Schreiben – übrig bleiben Zeit,
+        # Status, Dauer und Größe. Gedreht wie SEC-15 (alle 24 h, eine gedrehte Datei, 24 h): nichts ist älter als 48 h. Lesbar
+        # (0644) für die App, die nur Zähler bildet.
+        log betrieb {
+          output file /var/log/caddy-betrieb/betrieb.log {
+            mode 0644
+            roll_interval 24h
+            roll_size 20MiB
+            roll_keep 1
+            roll_keep_for 24h
+          }
+          format filter {
+            wrap json
+            fields {
+              request delete
+              resp_headers delete
+              user_id delete
+            }
+          }
+          include http.log.access.zugriff
         }
       }
       # B-56: Kompression im Proxy statt im Node-Prozess der App (next.config.ts: compress: false) – Caddy verteilt sie auf
@@ -427,10 +476,15 @@ configs:
       # G4E-O11: zeitbasiert drehen (alle 24 h; roll_keep_for zählt in ganzen Tagen und gilt nur für gedrehte Dateien) – so ist
       # nichts älter als 48 h, auch an kleinen Schulen, wo 20 MiB Wochen dauern. Tokens in Pfaden und Parametern (Kalender-Abo,
       # Monitor, Passwort-Reset: lange Zeichenketten) werden vor dem Schreiben maskiert; Cookies/Authorization lässt Caddy ohnehin weg.
+      # BM-05: der Logger „zugriff“ gibt es immer (ohne CrowdSec schreibt er nichts) – das Betriebsprotokoll hängt sich global
+      # daran (siehe oben). Ein zweites „log“ im selben Site-Block ginge nicht: Caddy nimmt je Site nur einen Logger.
       (crowdsec-0) {
+        log zugriff {
+          output discard
+        }
       }
       (crowdsec-1) {
-        log {
+        log zugriff {
           output file /var/log/caddy/access.log {
             roll_interval 24h
             roll_size 20MiB
@@ -477,7 +531,82 @@ configs:
         }
         import zugang-{$$SCHULOS_PUBLIC_ACCESS:keiner}
       }
+      # Hinweisseite (ZERTIFIKATE.md, Teil A): Aufruf über http:// mit der IP bzw. einem fremden Namen (Server-IP im Browser
+      # eingetippt, Rechnername). Sonst leitete Caddy auf https://<IP> weiter – Zertifikatswarnung, weil der Name nicht passt.
+      # Im Schulnetz stattdessen eine Hinweisseite ohne Warnung: bitte über die Domain aufrufen, bei eigener CA mit Link zum
+      # Schul-Zertifikat (/ca.crt liefert die App nur im Schulnetz; Fingerabdruck abgleichen, SICHERHEIT S94). Die Domain leitet
+      # Caddy wie bisher auf https weiter (seine Weiterleitung steht vor diesem Catch-all), von außen ebenso alles andere.
+      # ACME-HTTP-Prüfungen (Let's Encrypt) beantwortet Caddy vor allen Blöcken. Über https:// bleibt es bei INST-10.
+      http:// {
+        header -Server
+        @domain host {$$SCHULOS_DOMAIN}
+        @extern not client_ip {$$SCHULOS_INTERNAL_NETS:private_ranges}
+        handle @domain {
+          redir https://{host}{uri} 308
+        }
+        handle @extern {
+          redir https://{host}{uri} 308
+        }
+        handle /ca.crt {
+          request_header -X-SchulOS-Extern
+          request_header -X-SchulOS-Geraet
+          import app
+        }
+        handle {
+          header Cache-Control no-store
+          header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+          header X-Content-Type-Options nosniff
+          header Referrer-Policy no-referrer
+          root * /etc/schulos/adresshinweis
+          rewrite * /index.html
+          templates
+          file_server
+        }
+      }
       import /etc/caddy/sites/*.caddy
+  # Hinweisseite für http://<IP> (Caddy-Vorlage: Host maskiert, Domain/TLS-Modus aus der Umgebung von Caddy)
+  adresshinweis:
+    content: |
+      <!doctype html>
+      <html lang="de">
+      <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="robots" content="noindex">
+      <title>SchulOS – bitte über die Schuladresse aufrufen</title>
+      <style>
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #f4f5f7; color: #1d2330; }
+      main { max-width: 36rem; margin: 3rem auto; padding: 2rem; background: #fff; border: 1px solid #d6dae1; border-radius: 1rem; }
+      h1 { font-size: 1.4rem; margin-top: 0; } h2 { font-size: 1.1rem; margin-top: 2rem; }
+      a { color: #1f4fbf; } code { font-size: .95em; }
+      .weiter { display: inline-block; padding: .6rem 1rem; border-radius: .5rem; background: #1f4fbf; color: #fff; text-decoration: none; font-weight: 600; }
+      .klein { color: #5a6273; font-size: .9rem; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #12151b; color: #e6e9ef; } main { background: #1b2029; border-color: #303744; }
+        a { color: #8fb0ff; } .weiter { background: #8fb0ff; color: #12151b; } .klein { color: #a3abba; }
+      }
+      </style>
+      </head>
+      <body>
+      <main>
+      <h1>Bitte über die Schuladresse aufrufen</h1>
+      <p>Sie haben diesen Server über <code>{{html .Host}}</code> aufgerufen. SchulOS ist für die Adresse
+      <strong>{{env "SCHULOS_DOMAIN"}}</strong> eingerichtet – nur dort passt das Zertifikat, und nur dort funktionieren Anmeldung
+      mit Passkey, Kamera und Benachrichtigungen.</p>
+      <p><a class="weiter" href="https://{{env "SCHULOS_DOMAIN"}}{{env "SCHULOS_PUBLIC_PORT"}}/">Weiter zu https://{{env "SCHULOS_DOMAIN"}}{{env "SCHULOS_PUBLIC_PORT"}}</a></p>
+      <p class="klein">Lässt sich die Adresse nicht öffnen („Server nicht gefunden“), fehlt sie im DNS des Schulnetzes – bitte der IT melden.</p>
+      {{if eq (env "SCHULOS_TLS") "internal"}}
+      <h2>Zertifikatswarnung unter der Schuladresse?</h2>
+      <p>Dann vertraut dieses Gerät dem Schul-Zertifikat noch nicht. Dienstgeräte bekommen es über die Geräteverwaltung der Schule;
+      sonst hier herunterladen und installieren:</p>
+      <p><a href="/ca.crt">Schul-Zertifikat herunterladen (schul-zertifikat.crt)</a></p>
+      <p class="klein">Die Datei kommt hier unverschlüsselt. Vor dem Installieren ihren SHA-256-Fingerabdruck mit dem vergleichen,
+      den die IT bekannt gibt (Bildschirm des Servers, Verwaltung → System) – stimmt er nicht, nicht installieren. Anleitung für
+      alle Geräte: Handbuch, Seite „Schul-Zertifikat installieren“.</p>
+      {{end}}
+      </main>
+      </body>
+      </html>
   # B-51: Postgres nach dem RAM einstellen – die Maschine gehört SchulOS allein, App und Caddy brauchen daneben ~1 GB.
   # shared_buffers 20 % (128 MB – 4 GB), effective_cache_size 50 %, work_mem RAM/256 (4 – 32 MB), maintenance_work_mem
   # RAM/16 (64 MB – 1 GB); SSD-Annahmen; pg_stat_statements für „langsame Abfragen“ unter Verwaltung → System.
@@ -525,6 +654,36 @@ configs:
       force_inotify: true
       labels:
         type: caddy
+  # CA-01: Start von Caddy. Übernimmt die Wurzel der eigenen CA aus einer Wiederherstellung (Übergabe des Backup-Agenten, nur
+  # wenn root.crt und root.key da sind; Rechte 600, Besitzer root) und verwirft dann Zwischen- und Serverzertifikate der alten
+  # Kette – Caddy stellt sie beim Start neu aus. Danach Leserecht für die Gruppe 1000 (Backup-Agent, group_add) auf root.crt/
+  # root.key und den Weg dorthin, nicht auf den Rest des Ordners. Auf einem frischen System legt Caddy die Wurzel erst beim
+  # Start an – dann wartet ein Hintergrundlauf darauf (bis 1 h). Schlüsselinhalte erscheinen nie im Protokoll.
+  caddy-start:
+    content: |
+      L=/data/caddy/pki/authorities/local
+      T=/rueckspiel
+      # Übergabeordner: gehört er root (Caddy hat ihn zuerst eingehängt), darf der Agent (Gruppe 1000) hineinschreiben
+      chgrp 1000 "$$T" 2>/dev/null && chmod 2770 "$$T" 2>/dev/null
+      if [ -s "$$T/root.crt" ] && [ -s "$$T/root.key" ]; then
+        if (umask 077 && mkdir -p "$$L" && cp "$$T/root.key" "$$L/root.key.neu" && cp "$$T/root.crt" "$$L/root.crt.neu" &&
+            chmod 600 "$$L/root.key.neu" "$$L/root.crt.neu" && mv "$$L/root.key.neu" "$$L/root.key" && mv "$$L/root.crt.neu" "$$L/root.crt"); then
+          rm -f "$$L/intermediate.crt" "$$L/intermediate.key" "$$T/root.crt" "$$T/root.key"
+          rm -rf /data/caddy/certificates/local
+          echo "[schulos] Wurzel der eigenen CA aus der Wiederherstellung übernommen" >&2
+        else
+          echo "[schulos] Wurzel aus der Wiederherstellung nicht übernommen (Übergabe nicht lesbar?)" >&2
+        fi
+      fi
+      lesbar() {
+        [ -f "$$L/root.key" ] || return 1
+        for d in /data/caddy /data/caddy/pki /data/caddy/pki/authorities; do chgrp 1000 "$$d" && chmod g+x,g-w "$$d" || return 1; done
+        chgrp 1000 "$$L" "$$L/root.crt" "$$L/root.key" && chmod g+rx,g-w "$$L" && chmod 640 "$$L/root.crt" "$$L/root.key"
+      }
+      if ! lesbar 2>/dev/null; then
+        ( i=0; while [ $$i -lt 120 ]; do sleep 30; lesbar 2>/dev/null && break; i=$$((i + 1)); done ) &
+      fi
+      exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
   # P4-40b: Start der Schul-CA. Erster Start: `step ca init` (Wurzel + Zwischen-CA, Schlüssel mit SCHULOS_DEVICE_CA_PASSWORD
   # verschlüsselt; JWK-Provisioner „schulos“ mit eigenem Passwort, das nur App und CA kennen) und Laufzeiten 1 h … 731 Tage.
   # Jeder Start kopiert die öffentlichen Zertifikate nach /export (Volume geraete_ca → Caddy trust_pool, App).
@@ -541,6 +700,15 @@ configs:
       prov=$$(mktemp)
       printf '%s' "$$SCHULOS_DEVICE_CA_PASSWORD" > "$$pw"
       printf '%s' "$$SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD" > "$$prov"
+      # CA-01: Stand aus einer Wiederherstellung (legt der Backup-Agent vollständig unter /rueckspiel/stand ab) ersetzt die CA
+      if [ -f /rueckspiel/stand/config/ca.json ]; then
+        shopt -s dotglob
+        rm -rf "$$STEPPATH"/*
+        cp -a /rueckspiel/stand/. "$$STEPPATH"/
+        rm -rf /rueckspiel/stand
+        shopt -u dotglob
+        echo "[schulos] Schul-CA aus der Wiederherstellung übernommen" >&2
+      fi
       if [ ! -f "$$STEPPATH/config/ca.json" ]; then
         step ca init --deployment-type standalone --name "$${SCHULOS_DEVICE_CA_NAME:-SchulOS Geraete-CA}" \
           --dns step-ca --dns localhost --address :9000 --provisioner schulos \
@@ -565,6 +733,8 @@ volumes:
   clamav_db:
   # SEC-15: Zugriffsprotokoll von Caddy (nur mit SCHULOS_CROWDSEC=1) und Zustand von CrowdSec
   caddy_logs:
+  # BM-05: IP-freies Betriebsprotokoll (Caddy schreibt, App liest; höchstens 48 h, nicht gesichert)
+  caddy_betrieb:
   crowdsec_config:
   crowdsec_data:
   caddy_data:
@@ -573,6 +743,9 @@ volumes:
   # P4-40b: Schlüssel der Schul-CA (nur step-ca) bzw. ihre öffentlichen Zertifikate (step-ca schreibt, Caddy/App lesen)
   step_ca:
   geraete_ca:
+  # CA-01: Übergabe der CA-Schlüssel aus einer Wiederherstellung an Caddy bzw. step-ca (nach der Übernahme leer, nicht gesichert)
+  ca_rueckspiel_caddy:
+  ca_rueckspiel_step:
 
 networks:
   edge:

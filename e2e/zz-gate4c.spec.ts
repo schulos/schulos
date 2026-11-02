@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
+import AxeBuilder from "./axe";
 import { createOpenVerfahren, fillAnmeldung, linkFromDevMail } from "./anmeldung-helpers";
 import { collectErrors, login, loginWithStartPassword, logoutForSwitch } from "./helpers";
 
@@ -79,6 +80,23 @@ test("P4-43: Antrag → Bestätigung → Unterlagen → Aufnahme → Schuljahres
   await expect(page.getByRole("main")).toContainText("<img src=x onerror=");
   await expect(page.locator('main img[src="x"]')).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { __xss?: number }).__xss)).toBeUndefined();
+  // KB-03: Klassenwunsch im Vorgang erfassen (Ole „zusammen mit“ Mila) – ohne Begründungsfeld, axe auf der Karte
+  await page.goto(`/verwaltung/anmeldung/${id}/antraege`);
+  await page.getByRole("link", { name: "Absage, Ole" }).click();
+  const kw = page.getByRole("article", { name: "Klassenwünsche" });
+  await expect(kw).toContainText("Keine Wünsche erfasst.");
+  const wishForm = kw.getByRole("form", { name: "Klassenwunsch erfassen" });
+  await expect(wishForm.getByRole("textbox")).toHaveCount(0);
+  await wishForm.getByLabel("Wunsch").selectOption("zusammen");
+  const milaOption = await wishForm.getByLabel("Kind").locator("option", { hasText: "Neuaufnahme, Mila" }).getAttribute("value");
+  await wishForm.getByLabel("Kind").selectOption(milaOption!);
+  await wishForm.getByRole("button", { name: "Wunsch speichern" }).click();
+  await expect(kw.getByRole("list", { name: "Wünsche" })).toContainText("zusammen mit Neuaufnahme, Mila");
+  const kwA11y = await new AxeBuilder({ page })
+    .include('[aria-label="Klassenwünsche"]')
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
+    .analyze();
+  expect(kwA11y.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
   await page.goto(`/verwaltung/anmeldung/${id}`);
   await page.getByRole("button", { name: "Anmeldung schließen" }).click();
   await expect(page.getByText("Geschlossen", { exact: true })).toBeVisible();
@@ -115,6 +133,9 @@ test("P4-43: Antrag → Bestätigung → Unterlagen → Aufnahme → Schuljahres
   const json = JSON.parse(await readFile((await dl.path())!, "utf8"));
   expect(json.antrag.stand).toBe("Abgelehnt");
   expect(json.antrag.loeschung).toMatch(/^Wird am \d{4}-\d{2}-\d{2} gelöscht/);
+  // KB-03: eigener Klassenwunsch ohne Namen des Partnerkindes
+  expect(json.antrag.klassenbildung.wuensche.map((w: { wunsch: string }) => w.wunsch)).toEqual(["Wunsch zusammen mit einem anderen Kind"]);
+  expect(JSON.stringify(json)).not.toContain("Mila");
   const due = new Date(/\d{4}-\d{2}-\d{2}/.exec(json.antrag.loeschung)![0]).getTime();
   expect(due).toBeGreaterThan(Date.now()); // Frist (Vorgabe 60 Tage) läuft erst ab dem Abschluss
   await logoutForSwitch(page);
@@ -130,10 +151,29 @@ test("P4-43: Antrag → Bestätigung → Unterlagen → Aufnahme → Schuljahres
   await expect(page.getByRole("form", { name: "Neuaufnahmen" })).toBeVisible();
   const steps = page.getByRole("list", { name: "Schritte" });
   await expect(steps.getByRole("listitem").filter({ hasText: "Neuaufnahmen" })).toHaveAttribute("aria-current", "step");
-  const table = page.getByRole("form", { name: "Neuaufnahmen" }).getByRole("table");
+  const table = page.getByRole("form", { name: "Neuaufnahmen" }).getByRole("table", { name: "Zuordnung" });
   await expect(table).toContainText("Neuaufnahme, Mila");
   await expect(table).not.toContainText("Absage, Ole"); // abgelehnt → nicht in der Liste
   await expect(page.getByLabel("Klasse für Neuaufnahme, Mila")).not.toHaveValue("");
+  // KB-02: Begründung je Kind, Kennzahlen je Klasse, „Neu vorschlagen“, Festpinnen
+  const form = page.getByRole("form", { name: "Neuaufnahmen" });
+  await expect(form.getByRole("list", { name: "Begründung für Neuaufnahme, Mila" }).getByRole("listitem").first()).toBeVisible();
+  const kennzahlen = form.getByRole("region", { name: "Kennzahlen je Klasse" });
+  await expect(kennzahlen.getByRole("table").first()).toContainText("5a");
+  await expect(kennzahlen.getByTestId("vorschlag-info")).toContainText("Vorschlag 1 · Richtwert 27 Kinder je Klasse · 0 festgepinnt");
+  const pin = form.getByLabel("Festpinnen: Neuaufnahme, Mila");
+  await pin.check();
+  await expect(kennzahlen.getByTestId("vorschlag-info")).toContainText("1 festgepinnt");
+  const before = await page.getByLabel("Klasse für Neuaufnahme, Mila").inputValue();
+  await kennzahlen.getByRole("button", { name: "Neu vorschlagen" }).click();
+  await expect(kennzahlen.getByTestId("vorschlag-info")).toContainText("Vorschlag 2");
+  await expect(page.getByLabel("Klasse für Neuaufnahme, Mila")).toHaveValue(before);
+  await expect(pin).toBeChecked();
+  const a11y = await new AxeBuilder({ page })
+    .include('form[aria-label="Neuaufnahmen"]')
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
+    .analyze();
+  expect(a11y.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
   await expect(table.getByTestId("elternteil2")).toContainText("neu: Bodo Neuaufnahme"); // Q5-23
   await page.getByRole("button", { name: "Neuaufnahmen übernehmen" }).click();
   await expect(page.getByRole("status")).toContainText("1 Kinder in 1 Klassen übernommen");

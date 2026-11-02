@@ -86,6 +86,29 @@ Vorschau-Instanz/Backupserver.
 - **Doku:** INSTALLATION §TLS (Checkliste Schulträger: Domain, Split-DNS, Token mit Minimalrechten nur für diese Zone),
   BETRIEBSHANDBUCH (Neuinstallation = neue Root, Restore = gleiche Root), SICHERHEIT.
 
+**Stand Teil A (CA-02…CA-05 umgesetzt), Abweichungen vom Entwurf oben:**
+- Statustyp: eigenes Feld `rootCa: { fingerprint, notAfter }` in `SystemStatus` und `CtlStatusReport` statt `tls.rootFingerprint` –
+  `tls.expiresAt` misst seit BM-04 das ausgelieferte Serverzertifikat, die Root ist davon unabhängig. Kein Feld `mode`: ohne eigene
+  CA fehlt `rootCa` und `root-ca.crt` wird entfernt.
+- Gemeinsamer Code in `@schulos/server/root-ca` (Erkennen, Fingerabdruck, `.cer`, `.mobileconfig`, Download-Antwort), App-Seite in
+  `src/core/system/root-ca.ts` (Bestätigung in `app_settings`, Schlüssel `zertifikat.root`; die erste Root gilt als bestätigt).
+- Routen: `/api/system/ca?format=crt|cer|mobileconfig` (Admin) und `/ca.crt` (Schulnetz). Backupserver: `/api/ca` nur angemeldet,
+  kein `/ca.crt` ohne Anmeldung (dort gibt es keine Unterscheidung Schulnetz/außen).
+- Anleitung als Starter-Seite „Schul-Zertifikat installieren“ im Handbuch (anlegen über Starter-Seiten) und INSTALLATION §5d.
+- **Hinweis beim Aufruf per IP/Fremdname** (Rest Teil A): Über `http://` zeigt Caddy im Schulnetz eine eigene Hinweisseite
+  (Vorlage `adresshinweis` in `compose.yaml`, Caddy-`templates`: aufgerufener Name maskiert, Domain und TLS-Modus aus der
+  Umgebung) mit Link auf die Domain und – nur bei eigener CA – auf `/ca.crt` (über http an die App, die nur im Schulnetz
+  ausliefert) samt Fingerabdruck-Hinweis. Die Domain und Aufrufe von außen leitet Caddy weiter auf https (seine automatische
+  Weiterleitung steht vor dem Catch-all; ACME-HTTP-Prüfungen beantwortet Caddy vor allen Blöcken). Über `https://<IP>` bleibt
+  die Zertifikatswarnung **unvermeidbar** – Caddy kennt beim Handshake nur die Domain und liefert deren Zertifikat (INST-10);
+  ein Zertifikat für beliebige IPs/Namen (on-demand) wäre ohne Vertrauen in die Root nicht besser und öffnete die Ausstellung
+  für fremde Namen. Nach dem Bestätigen der Warnung nennt die Anmeldeseite die richtige Adresse (`src/core/system/foreign-host.ts`).
+- **Backupserver:** bewusst kein `/ca.crt` ohne Anmeldung – er unterscheidet nicht zwischen Schulnetz und außen, und seine Root
+  braucht nur die IT (angemeldet, Karte „Zertifikat dieses Servers“). Keine Hinweisseite dort: der Aufruf per IP ist beim
+  Backupserver der übliche Weg (Konsole zeigt `https://<IP>`).
+- **Handbuch-Link:** Verwaltung → System verlinkt die Starter-Seite nur, wenn es sie gibt; sonst verweist die Karte auf
+  „Starter-Seiten anlegen“ im Handbuch (bzw. auf INSTALLATION §5d, wenn das Handbuch ausgeschaltet ist).
+
 ## Datenschutz
 
 - Das Root-Zertifikat ist öffentlich und ohne Personenbezug. **Die Schlüssel der CA sind schützenswert:** nur im verschlüsselten Backup,

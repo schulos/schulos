@@ -5,7 +5,7 @@ import { dockerExposureProblem, formatBytes, formatStatus, parseArgs, parseCompo
 describe("Aufruf", () => {
   it("Befehle, Installationsordner, Optionen", () => {
     expect(parseArgs([])).toEqual({ dir: "/opt/schulos", command: { name: "help" } });
-    expect(parseArgs(["status"], { SCHULOS_DIR: "/srv/x" })).toEqual({ dir: "/srv/x", command: { name: "status" } });
+    expect(parseArgs(["status"], { SCHULOS_DIR: "/srv/x" })).toEqual({ dir: "/srv/x", command: { name: "status", json: false } });
     expect(parseArgs(["--dir", "/a", "backup", "now"])).toEqual({ dir: "/a", command: { name: "backup-now" } });
     expect(parseArgs(["reset-admin"]).command).toEqual({ name: "reset-admin" });
     expect(parseArgs(["reset-admin", "chef"]).command).toEqual({ name: "reset-admin", username: "chef" });
@@ -160,5 +160,11 @@ describe("Support-Bundle ohne Personendaten", () => {
     expect(r).toContain("um 04:10:05");
     expect(r).toContain('"uri":"/api/health"');
     expect(r).toContain("a".repeat(64)); // Digests bleiben (Versionen nachvollziehbar)
+  });
+
+  it("CA-01: PEM-Blöcke (CA-Schlüssel, auch abgeschnitten) kommen nie ins Diagnosepaket", () => {
+    const key = "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIGEHEIM\nzeile2\n-----END EC PRIVATE KEY-----";
+    const r = redactLog(`vorher\n${key}\nnachher\n-----BEGIN PRIVATE KEY-----\nABGESCHNITTEN`);
+    expect(r).toBe("vorher\n<pem EC PRIVATE KEY>\nnachher\n<pem PRIVATE KEY>");
   });
 });

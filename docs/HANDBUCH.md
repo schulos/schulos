@@ -19,7 +19,7 @@ Dateien sind an Mitglieder oder Eigentümer gebunden. Das Modul verwendet nur Ba
   Kopfzeile, Ansprechperson je Seite, „Überprüfung fällig“ mit Gong (Vorgabe 12 Monate, abschaltbar).
 - **Anhänge und Verlauf (HB-05, HB-06, freigegeben 2026-10-28):** Anhänge (PDF/Bilder/Office, Typ-/Größenprüfung, Virenscan) und Seitenverlauf (letzte 20 Fassungen je Seite, siehe „Vorgaben (HB-05…HB-08)“).
 - **Starter-Seiten (HB-07):** wenige neutrale Vorlagen (Erste Schritte je Rolle, Zwei-Faktor, Krankmeldung, Kurswahl, Passwort
-  vergessen), die die Schule kopiert und anpasst; keine automatische Aktualisierung, keine Fremdinhalte. Kontexthilfe: „?“ führt
+  vergessen, Schul-Zertifikat installieren – CA-04), die die Schule kopiert und anpasst; keine automatische Aktualisierung, keine Fremdinhalte. Kontexthilfe: „?“ führt
   zur Seite des jeweiligen Moduls.
 
 **Ausdrücklich nicht:** freies Wiki für alle, Kommentare/Diskussion (dafür Foren), Mehrsprachigkeit, Freigabe-Workflows mit
@@ -102,7 +102,7 @@ Stand 2026-10-29, Migration 0119 (`hilfe_attachments`, `hilfe_revisions`). Damit
   `/hilfe/<adresse>/verlauf`: Fassungen ansehen und wiederherstellen – nur Pflegende (`hilfe.edit`/`hilfe.manage`), auch die Ansprechperson
   nicht. Wiederherstellen setzt Titel und Text, der Stand davor wandert selbst in den Verlauf; Adresse, Status, Zielgruppen bleiben.
   Die Verfasser:in folgt dem Konto (`set null`).
-- **Starter-Seiten (HB-07):** Bereich „Erste Schritte“ mit sieben neutralen Vorlagen, angelegt per Klick („Starter-Seiten anlegen“ auf
+- **Starter-Seiten (HB-07):** Bereich „Erste Schritte“ mit acht neutralen Vorlagen (seit CA-04 auch „Schul-Zertifikat installieren“), angelegt per Klick („Starter-Seiten anlegen“ auf
   `/hilfe`, nur Pflegende) über `createPage` – idempotent über die Adresse (vorhandene, auch umbenannte Seiten bleiben, nichts wird
   überschrieben oder doppelt angelegt). Sichtbarkeit laut Entscheidung 6: die Starter-Seiten sind für ihre Gruppen freigegeben (Eltern,
   Schüler:innen, Personal bzw. alle), eigene Seiten bleiben Vorgabe „nur Personal“. Danach gehören sie der Schule, keine automatische

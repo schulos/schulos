@@ -18,6 +18,7 @@ import { requestJson } from "@schulos/server/pinned-request";
 import { pgEnv, STATE_FILE, VERSION, type AgentConfig } from "./config";
 import { lastLine, type Exec } from "@schulos/server/exec";
 import { backup, ensureRepository, ResticError } from "./restic";
+import { caBackupPaths } from "./ca";
 import { runRestore } from "./restore";
 
 export const PAIRING_FILE = "backup-pairing.json";
@@ -65,7 +66,7 @@ export async function sendReport(d: AgentDeps, p: StoredPairing, r: AgentReport)
   }
 }
 
-/** Die eigentliche Sicherung: Repository prüfen/anlegen, Datenbank-Dump, ein Snapshot mit Dump + Dateien + Konfiguration. */
+/** Die eigentliche Sicherung: Repository prüfen/anlegen, Datenbank-Dump, ein Snapshot mit Dump + Dateien + Konfiguration + CA-Schlüsseln. */
 export async function runBackup(d: AgentDeps, p: StoredPairing, state: AgentState, trigger: RunTrigger): Promise<AgentReport> {
   const startedAt = d.now().toISOString();
   const work = d.cfg.workDir;
@@ -91,7 +92,9 @@ export async function runBackup(d: AgentDeps, p: StoredPairing, state: AgentStat
     const dump = await d.exec(d.cfg.pgDump, ["--format=custom", "--no-owner", "--file", dumpFile], { env: pgEnv(d.cfg.databaseUrl) });
     if (dump.code !== 0) throw new ResticError(`pg_dump fehlgeschlagen: ${lastLine(dump.stderr)}`);
 
-    const summary = await backup(ctx, [dumpDir, d.cfg.filesDir, d.cfg.configDir], ["schulos", `version:${VERSION}`], `schulos-${p.instanceId}`);
+    // CA-01: dazu Wurzel + Schlüssel der eigenen CAs (Caddy, Schul-CA) – nur, was es gibt und lesbar ist
+    const paths = [dumpDir, d.cfg.filesDir, d.cfg.configDir, ...caBackupPaths(d.cfg, d.log)];
+    const summary = await backup(ctx, paths, ["schulos", `version:${VERSION}`], `schulos-${p.instanceId}`);
     return { ...base, status: "ok", finishedAt: d.now().toISOString(), ...summary };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

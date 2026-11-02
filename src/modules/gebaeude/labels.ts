@@ -70,34 +70,47 @@ export const ticketNumber = (year: number, seq: number) => `M-${year}-${String(s
 export const MAX_PHOTOS = 3;
 export const MAX_PHOTO_MB = 5;
 
-// ---------------------------------------------------------------- Anlagen, Prüfungen, Wartung (P4-15…P4-17)
+// ---------------------------------------------------------------- Inventar, Prüfungen, Wartung (P4-15…P4-17, INV-01)
+// Die Arten der Anlagen sind seit INV-01 Kategorien in der Tabelle `gebaeude_asset_categories` (Vorlage `kategorien.ts`).
 
-export const ASSET_KINDS = [
-  "elektro_ortsveraenderlich",
-  "feuerloescher",
-  "spielgeraet",
-  "sportgeraet",
-  "aufzug",
-  "tor_tuer",
-  "leiter",
-  "erste_hilfe",
-  "lueftung",
-  "sonstiges",
-] as const;
-export type AssetKind = (typeof ASSET_KINDS)[number];
+/** Zustand eines Inventarguts (INV-01). Freitext dazu steht in der Notiz – ohne Personenbezug. */
+export const ASSET_CONDITIONS = ["neu", "gut", "gebraucht", "defekt"] as const;
+export type AssetCondition = (typeof ASSET_CONDITIONS)[number];
+export const CONDITION_LABELS: Record<AssetCondition, string> = { neu: "neu", gut: "gut", gebraucht: "gebraucht", defekt: "defekt" };
 
-export const ASSET_KIND_LABELS: Record<AssetKind, string> = {
-  elektro_ortsveraenderlich: "Elektrogerät (ortsveränderlich)",
-  feuerloescher: "Feuerlöscher",
-  spielgeraet: "Spielgerät (außen)",
-  sportgeraet: "Sportgerät",
-  aufzug: "Aufzug",
-  tor_tuer: "Kraftbetätigtes Tor/Tür",
-  leiter: "Leiter/Tritt",
-  erste_hilfe: "Erste-Hilfe-Material",
-  lueftung: "Lüftung",
-  sonstiges: "Sonstiges",
+/** Inventarnummern: Präfix der Kategorie + laufende Nummer (Moduleinstellung `gebaeude.inventory_no_format`). */
+export const INVENTORY_NO_FORMATS = ["prefix-4", "prefix-year-4", "prefix-6"] as const;
+export type InventoryNoFormat = (typeof INVENTORY_NO_FORMATS)[number];
+export const INVENTORY_NO_FORMAT_LABELS: Record<InventoryNoFormat, string> = {
+  "prefix-4": "Präfix-0001 (vierstellig, fortlaufend)",
+  "prefix-year-4": "Präfix-2026-0001 (mit Jahr, je Jahr neu)",
+  "prefix-6": "Präfix-000001 (sechsstellig, fortlaufend)",
 };
+
+/** Rein: Inventarnummer aus Präfix, Zähler und Format, z. B. „IT-0042“. */
+export function formatInventoryNo(format: InventoryNoFormat, prefix: string, n: number, year: number): string {
+  if (format === "prefix-year-4") return `${prefix}-${year}-${String(n).padStart(4, "0")}`;
+  if (format === "prefix-6") return `${prefix}-${String(n).padStart(6, "0")}`;
+  return `${prefix}-${String(n).padStart(4, "0")}`;
+}
+
+/** Rein: Zählerschlüssel je Präfix (mit Jahr, wenn das Format es führt) – so läuft die Nummer je Jahr neu. */
+export function inventoryCounterKey(format: InventoryNoFormat, prefix: string, year: number): string {
+  return format === "prefix-year-4" ? `${prefix}:${year}` : prefix;
+}
+
+/** Rein: Preis „1.234,56“ / „1234.5“ / „12 €“ → Cent; `null` bei leer, `NaN` bei unlesbar. */
+export function parsePriceCents(raw: string | null | undefined): number | null {
+  const v = (raw ?? "").replace(/[€\s]/g, "").trim();
+  if (!v) return null;
+  const norm = /^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(v) ? v.replace(/\./g, "").replace(",", ".") : v.replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(norm)) return Number.NaN;
+  return Math.round(Number(norm) * 100);
+}
+
+const euroFmt = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
+/** „1.234,56 €“ bzw. „–“ */
+export const formatPrice = (cents: number | null) => (cents === null ? "–" : euroFmt.format(cents / 100));
 
 /** Worauf sich eine Prüfart bezieht: einzelne Anlage/Gerät, Raum oder ganzes Gebäude. */
 export const INSPECTION_TARGETS = ["anlage", "raum", "gebaeude"] as const;

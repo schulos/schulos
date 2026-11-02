@@ -26,12 +26,13 @@ docker network create schulos-verbund >/dev/null
 # Stacks: getrennte Ports, damit beide auf einem Host laufen
 SCHULOS_HTTP_PORT=9080 SCHULOS_HTTPS_PORT=9443 $B up -d --build --wait --wait-timeout 300 || fail "Backupserver startet"
 ok "Backupserver läuft"
-SCHULOS_HTTP_PORT=8080 SCHULOS_HTTPS_PORT=8443 SCHULOS_PUBLIC_PORT=:8443 $M up -d --build --wait --wait-timeout 300 app postgres backup-agent ||
+# CA-01: mit Caddy (eigene CA) – deren Wurzel muss ins Backup und nach der Wiederherstellung dieselbe sein
+SCHULOS_HTTP_PORT=8080 SCHULOS_HTTPS_PORT=8443 SCHULOS_PUBLIC_PORT=:8443 $M up -d --build --wait --wait-timeout 300 app postgres backup-agent caddy ||
   fail "Hauptsystem startet"
-ok "Hauptsystem läuft (App, PostgreSQL, Backup-Agent)"
+ok "Hauptsystem läuft (App, PostgreSQL, Backup-Agent, Caddy)"
 # SEC-13: Härtung am laufenden Stack (Caddy bleibt root, nur mit NET_BIND_SERVICE)
 bash scripts/haertung-pruefen.sh schulos-bt-backup --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy || fail "Container-Härtung Backupserver"
-bash scripts/haertung-pruefen.sh schulos-bt-main --rw postgres || fail "Container-Härtung Hauptsystem"
+bash scripts/haertung-pruefen.sh schulos-bt-main --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres || fail "Container-Härtung Hauptsystem"
 ok "Container-Härtung (SEC-13)"
 
 # Kopplung wie im Installer: über TLS mit Caddys eigener CA (Fingerabdruck wird gepinnt)
@@ -67,6 +68,18 @@ bash scripts/ci/per-ip.sh "${BACKUP_HTTPS_PORT:-9443}" || fail "Backupserver per
 STATUS=$(curl -sk -o /dev/null -w '%{http_code}' -X POST https://127.0.0.1:${BACKUP_HTTPS_PORT:-9443}/api/intern/kopplungscode || true)
 [ "$STATUS" = 403 ] || fail "interne API per IP von außen erreichbar (HTTP $STATUS)"
 ok "Backupserver per IP und fremdem Namen aufrufbar, interne API per IP gesperrt"
+
+# CA-01: Caddy gibt dem Agenten (Gruppe 1000) Leserecht auf Wurzelzertifikat und -schlüssel – auf einem frischen System, sobald
+# Caddy sie angelegt hat (Hintergrundlauf im Startskript, alle 30 s). Den Zwischenschlüssel darf er nicht lesen.
+CA_DIR=/srv/schulos/caddy-data/caddy/pki/authorities/local
+agent_sh() { $M run --rm -T --no-deps --entrypoint sh backup-agent -c "$1"; }
+for i in $(seq 1 40); do agent_sh "test -r $CA_DIR/root.key" 2>/dev/null && break; sleep 3; done
+agent_sh "test -r $CA_DIR/root.key && test -r $CA_DIR/root.crt" || fail "CA-01: Agent kann die Wurzel der Caddy-CA nicht lesen"
+agent_sh "test -r $CA_DIR/intermediate.key" && fail "CA-01: Zwischenschlüssel der Caddy-CA für den Agenten lesbar"
+ROOT_VORHER=$(mktemp)
+agent_sh "cat $CA_DIR/root.crt" > "$ROOT_VORHER"
+grep -q "BEGIN CERTIFICATE" "$ROOT_VORHER" || fail "CA-01: Wurzelzertifikat nicht gelesen"
+ok "CA-01: Wurzel der Caddy-CA für den Agenten lesbar (Zwischenschlüssel nicht)"
 
 # Sicherung (wartet beim ersten Zugriff, bis der rest-server den neuen Zugang kennt)
 # Zeitlimit: restic wiederholt Serverfehler sonst bis zu 15 min
@@ -112,4 +125,21 @@ $M run --rm -T --entrypoint sh backup-agent -c '
   echo "abgelehnt: $(echo "$OUT" | grep -m1 -iE "fatal|denied|forbidden|error" || echo "$OUT" | head -n 1)"
   restic snapshots --json --no-lock | grep -q "$ID" || { echo "Stand $ID ist weg"; exit 1; }' || fail "append-only"
 ok "append-only: Löschen mit dem Zugang des Hauptsystems scheitert"
+
+# CA-01: neue Hardware nachgestellt – Caddys PKI weg, „wiederherstellen“ (wie der Installer, App aus), Caddy startet mit
+# derselben Wurzel: der Server ist mit dem alten Wurzelzertifikat ohne Warnung erreichbar.
+$M stop app caddy backup-agent >/dev/null
+$M run --rm -T --no-deps --entrypoint sh caddy -c 'rm -rf /data/caddy/pki /data/caddy/certificates' || fail "CA-01: Caddy-PKI löschen"
+OUT=$(timeout 300 $M run --rm -T backup-agent node /opt/schulos-agent/agent.mjs wiederherstellen 2>&1) || fail "CA-01: wiederherstellen: $OUT"
+echo "$OUT" | grep -q '"caddyCa":"bereitgelegt' || fail "CA-01: Caddy-Wurzel nicht aus dem Stand übergeben: $OUT"
+echo "$OUT" | grep -q 'BEGIN' && fail "CA-01: Schlüssel- oder Zertifikatsinhalt im Protokoll"
+SCHULOS_HTTP_PORT=8080 SCHULOS_HTTPS_PORT=8443 SCHULOS_PUBLIC_PORT=:8443 $M up -d --wait --wait-timeout 300 app caddy backup-agent || fail "CA-01: Hauptsystem startet nach der Wiederherstellung"
+$M logs --no-color caddy | grep -q "Wurzel der eigenen CA aus der Wiederherstellung übernommen" || fail "CA-01: Caddy hat die Wurzel nicht übernommen"
+[ "$($M exec -T caddy stat -c '%u %a' /data/caddy/pki/authorities/local/root.key)" = "0 640" ] || fail "CA-01: Rechte des Wurzelschlüssels"
+[ -z "$($M exec -T caddy ls -A /rueckspiel)" ] || fail "CA-01: Übergabeordner nach der Übernahme nicht leer"
+$M exec -T caddy cat /data/caddy/pki/authorities/local/root.crt | cmp -s - "$ROOT_VORHER" || fail "CA-01: andere Wurzel nach der Wiederherstellung"
+for i in $(seq 1 20); do curl -sf -o /dev/null --cacert "$ROOT_VORHER" https://localhost:8443/api/health && break; sleep 2; done
+curl -sf -o /dev/null --cacert "$ROOT_VORHER" https://localhost:8443/api/health || fail "CA-01: Server nicht mit der alten Wurzel erreichbar (TLS)"
+rm -f "$ROOT_VORHER"
+ok "CA-01: nach der Wiederherstellung dieselbe Wurzel – Geräte vertrauen weiter, keine Zertifikatsfehler"
 echo "Stack-Test Backup bestanden."

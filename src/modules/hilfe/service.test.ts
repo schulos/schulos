@@ -180,7 +180,8 @@ describe("Handbuch (Demo-Schule)", () => {
     expect(await hits(mutter, "Unterschriften")).toEqual([]);
     expect(await hits(mutter, "Sprechtage")).toEqual(["elternsprechtage"]);
     expect(await hits("u-jana.brandt", "Sprechtage")).toEqual([]);
-    expect(await hits("u-jana.brandt", "schlüssel")).toEqual(["schluesselausgabe"]);
+    // „Schlüssel“ kommt auch in der Starter-Seite „Schul-Zertifikat installieren“ vor (öffentliche Schlüssel, Gruppenrichtlinie)
+    expect(await hits("u-jana.brandt", "schlüssel")).toContain("schluesselausgabe");
     expect(await hits(mutter, "50%_")).toEqual([]);
     // globale Suche (Strg+K): Gruppe „Handbuch“
     const global = await hilfeSearch.search(h.db, { perms: await p(mutter) } as never, "Sprechtage");
