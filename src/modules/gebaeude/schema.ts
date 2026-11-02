@@ -1,4 +1,5 @@
 // Gebäude & Technik (P4-11) – nur relative Imports (drizzle-kit).
+import { sql } from "drizzle-orm";
 import { type AnyPgColumn, boolean, date, index, integer, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "../../core/db/schema-auth";
 import { buildingFloors, buildings, groups, rooms } from "../../core/db/schema-core";
@@ -9,6 +10,8 @@ import {
   INSPECTION_RESPONSIBLES,
   INSPECTION_RESULTS,
   INSPECTION_TARGETS,
+  INVENTORY_ITEM_STATES,
+  INVENTORY_METHODS,
   TICKET_CATEGORIES,
   TICKET_EVENT_KINDS,
   TICKET_PRIORITIES,
@@ -210,6 +213,68 @@ export const gebaeudeAssetPhotos = pgTable(
   },
   (t) => [index("gebaeude_asset_photos_asset_idx").on(t.assetId)],
 );
+
+// ---------------------------------------------------------------- Inventur (INV-04)
+
+export const gebaeudeInventoryItemStateEnum = pgEnum("gebaeude_inventory_item_state", INVENTORY_ITEM_STATES);
+export const gebaeudeInventoryMethodEnum = pgEnum("gebaeude_inventory_method", INVENTORY_METHODS);
+
+/**
+ * INV-04: Inventur eines Raums – Soll (Inventar des Raums beim Start) gegen Ist (Scan bzw. Knopf). Je Raum höchstens eine laufende.
+ * Kein Personenbezug: wer gestartet, erfasst oder abgeschlossen hat, steht nur im Audit-Log. Der Raum ist als Text mitgeschrieben,
+ * damit das Protokoll als Nachweis auch nach dem Löschen des Raums lesbar bleibt.
+ */
+export const gebaeudeInventories = pgTable(
+  "gebaeude_inventories",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    roomId: text("room_id").references(() => rooms.id, { onDelete: "set null", onUpdate: "cascade" }),
+    /** Raum als Text zum Start (Kürzel, Name, Gebäude) */
+    roomLabel: text("room_label").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gebaeude_inventories_room_idx").on(t.roomId), uniqueIndex("gebaeude_inventories_open_uq").on(t.roomId).where(sql`closed_at is null`)],
+);
+
+/**
+ * INV-04: Posten einer Inventur. Soll-Posten (`expected`) entstehen beim Start aus dem Inventar des Raums; gescannte Geräte aus
+ * anderen Räumen kommen als „falscher Raum“ dazu. Nummer, Bezeichnung und Kategorie sind mitgeschrieben (Protokoll bleibt, auch
+ * wenn das Gerät später gelöscht wird). Sammelposten: gezählte Menge (`counted`).
+ */
+export const gebaeudeInventoryItems = pgTable(
+  "gebaeude_inventory_items",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    inventoryId: text("inventory_id")
+      .notNull()
+      .references(() => gebaeudeInventories.id, { onDelete: "cascade" }),
+    assetId: text("asset_id").references(() => gebaeudeAssets.id, { onDelete: "set null" }),
+    inventoryNo: text("inventory_no"),
+    name: text("name").notNull(),
+    categoryName: text("category_name").notNull(),
+    /** gehört laut Inventar zum Raum (Soll) */
+    expected: boolean("expected").notNull(),
+    /** Soll-Menge (Sammelposten), bei „falscher Raum“ die Menge laut Inventar */
+    quantity: integer("quantity").notNull().default(1),
+    /** gezählte Menge (nur Sammelposten; sonst null) */
+    counted: integer("counted"),
+    /** Raumkürzel laut Inventar beim Scan, wenn das Gerät woanders hingehört */
+    homeRoomId: text("home_room_id"),
+    state: gebaeudeInventoryItemStateEnum("state").notNull().default("offen"),
+    method: gebaeudeInventoryMethodEnum("method"),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }),
+  },
+  (t) => [index("gebaeude_inventory_items_inventory_idx").on(t.inventoryId), uniqueIndex("gebaeude_inventory_items_asset_uq").on(t.inventoryId, t.assetId)],
+);
+
+export type GebaeudeInventory = typeof gebaeudeInventories.$inferSelect;
+export type GebaeudeInventoryItem = typeof gebaeudeInventoryItems.$inferSelect;
 
 /** Prüfart (Vorlage aus pruefarten.ts oder eigene). Quellen sind Hinweise „zu prüfen“ – SchulOS behauptet keine Rechtsverbindlichkeit. */
 export const gebaeudeInspectionTypes = pgTable("gebaeude_inspection_types", {

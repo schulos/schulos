@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contentSecurityPolicy, STATIC_SECURITY_HEADERS } from "./security-headers";
+import { contentSecurityPolicy, PERMISSIONS_POLICY, PERMISSIONS_POLICY_CAMERA_SELF, STATIC_SECURITY_HEADERS } from "./security-headers";
 
 describe("Sicherheits-Header", () => {
   it("CSP: Skripte nur mit Nonce, keine Einbettung von außen, kein eval in Produktion", () => {
@@ -21,5 +21,12 @@ describe("Sicherheits-Header", () => {
     expect(h["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
     expect(h["Permissions-Policy"]).toContain("camera=()");
     expect(h["Strict-Transport-Security"]).toMatch(/max-age=\d+/);
+  });
+
+  it("INV-04: Kamera nur für die eigene Herkunft, sonst dieselben Sperren", () => {
+    expect(PERMISSIONS_POLICY_CAMERA_SELF).toContain("camera=(self)");
+    expect(PERMISSIONS_POLICY_CAMERA_SELF.replace("camera=(self)", "camera=()")).toBe(PERMISSIONS_POLICY);
+    expect(PERMISSIONS_POLICY_CAMERA_SELF).toContain("microphone=()");
+    expect(PERMISSIONS_POLICY_CAMERA_SELF).toContain("geolocation=()");
   });
 });

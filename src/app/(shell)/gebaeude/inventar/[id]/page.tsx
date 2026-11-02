@@ -11,6 +11,7 @@ import {
   deleteAssetPhotoAction,
   moveAssetAction,
   recordInspectionAction,
+  scanAssetAction,
   setAssetActiveAction,
   setAssetConditionAction,
   updateAssetAction,
@@ -18,6 +19,7 @@ import {
 import { assetHistory, listAssetPhotos } from "@/modules/gebaeude/asset-seite";
 import { assetCode } from "@/modules/gebaeude/etiketten";
 import { canConfigure, listCategories, maintainableCategories } from "@/modules/gebaeude/inventar";
+import { openInventoriesForAsset } from "@/modules/gebaeude/inventur";
 import {
   ASSET_CONDITIONS,
   ASSET_PHOTOS_MAX,
@@ -25,6 +27,7 @@ import {
   CONDITION_LABELS,
   INSPECTION_RESULTS,
   INSPECTION_STATE_LABELS,
+  INVENTORY_ITEM_STATE_LABELS,
   MAX_REPORT_MB,
   RESULT_LABELS,
   formatPrice,
@@ -39,7 +42,7 @@ import { PageHeader } from "@schulos/ui/misc";
 import { SpecForm } from "@/ui/spec-form";
 import { GebaeudeNav, TicketItem } from "../../ui";
 import { assetFields } from "../asset-form";
-import { AssetPhotoForm, ConditionButtons, DeleteAsset, DeleteAssetPhoto, MoveForm, RenewAssetCode } from "./forms";
+import { AssetPhotoForm, ConditionButtons, DeleteAsset, DeleteAssetPhoto, InventoryFoundButton, MoveForm, RenewAssetCode } from "./forms";
 
 export const metadata: Metadata = { title: "Inventar" };
 
@@ -133,7 +136,7 @@ export default async function InventarDetailPage({ params, searchParams }: { par
   const a = r.asset;
   const configure = canConfigure(perms);
   const manage = canManage(perms);
-  const [categories, rooms, buildings, floors, own, code, photos, history, inspections] = await Promise.all([
+  const [categories, rooms, buildings, floors, own, code, photos, history, inspections, inventories] = await Promise.all([
     listCategories(db),
     r.maintain ? roomOptions(db) : [],
     r.maintain ? buildingOptions(db) : [],
@@ -143,6 +146,7 @@ export default async function InventarDetailPage({ params, searchParams }: { par
     listAssetPhotos(db, perms, a.id),
     assetHistory(db, perms, a.id),
     viewAll ? listInspections(db, perms, { state: "alle", assetId: a.id, limit: 20 }, toBerlinDate(new Date())) : [],
+    a.active ? openInventoriesForAsset(db, perms, a) : [],
   ]);
   const formCategories = categories.filter((c) => (c.active || c.id === a.categoryId) && (own === null || own.has(c.id))).map((c) => ({ value: c.id, label: c.name }));
   const today = toBerlinDate(new Date());
@@ -179,6 +183,26 @@ export default async function InventarDetailPage({ params, searchParams }: { par
           <Link href="/gebaeude/inventar">Zur Liste</Link>
         </Button>
       </div>
+
+      {inventories.length > 0 && (
+        <Card aria-labelledby="inventur">
+          <CardHeader title={<span id="inventur">Inventur läuft</span>} />
+          <div className="flex flex-col gap-3">
+            {inventories.map((i) => (
+              <InventoryFoundButton
+                key={i.inventoryId}
+                action={scanAssetAction.bind(null, i.inventoryId, a.id)}
+                roomLabel={i.roomLabel}
+                sameRoom={i.sameRoom}
+                state={i.state && i.state !== "offen" && i.state !== "fehlt" ? INVENTORY_ITEM_STATE_LABELS[i.state] : null}
+              />
+            ))}
+            <Link href={`/gebaeude/inventur/${encodeURIComponent(inventories[0]!.inventoryId)}`} className="text-sm font-medium text-accent-ink hover:underline">
+              Zur Inventur {inventories[0]!.roomLabel}
+            </Link>
+          </div>
+        </Card>
+      )}
 
       {r.maintain && a.active && (
         <Card aria-labelledby="schnell">

@@ -164,3 +164,35 @@ export const MAX_REPORT_MB = 10;
 export function placeLabel(t: { roomId: string | null; location: string | null }): string {
   return [t.roomId ? `Raum ${t.roomId}` : null, t.location].filter(Boolean).join(", ") || "ohne Ort";
 }
+
+// ---------------------------------------------------------------- Inventur (INV-04)
+
+/**
+ * Stand eines Postens in einer Inventur: offen (noch nicht gesehen), gefunden, fehlt (beim Abschluss nicht gefunden bzw. von Hand),
+ * falscher Raum (gefunden, gehört laut Inventar woanders hin), umgezogen (falscher Raum, per Knopf in den Inventurraum übernommen).
+ */
+export const INVENTORY_ITEM_STATES = ["offen", "gefunden", "fehlt", "falscher_raum", "umgezogen"] as const;
+export type InventoryItemState = (typeof INVENTORY_ITEM_STATES)[number];
+export const INVENTORY_ITEM_STATE_LABELS: Record<InventoryItemState, string> = {
+  offen: "offen",
+  gefunden: "gefunden",
+  fehlt: "fehlt",
+  falscher_raum: "falscher Raum",
+  umgezogen: "umgezogen",
+};
+
+/** Wie ein Posten erfasst wurde: Etikett mit der Kamera-App (`/i/<code>`), Scan in der App bzw. Eingabe, Knopf in der Liste. */
+export const INVENTORY_METHODS = ["etikett", "scan", "liste"] as const;
+export type InventoryMethod = (typeof INVENTORY_METHODS)[number];
+export const INVENTORY_METHOD_LABELS: Record<InventoryMethod, string> = { etikett: "Etikett", scan: "Scan/Eingabe", liste: "Liste" };
+
+/**
+ * Rein: Eingabe eines Scans (In-App-Scan, Handscanner, abgetippt) zerlegen – volle Kurz-URL bzw. Pfad `/i/<code>` → Code, sonst der
+ * Text selbst (Code oder Inventarnummer). Fremde Etiketten (`/r/<code>`) erkennt der Aufrufer am `kind`.
+ */
+export function parseScanInput(raw: string): { kind: "inventar" | "raum" | "text"; value: string } {
+  const v = raw.trim().slice(0, 300);
+  const m = /(?:^|\/)([ir])\/([0-9A-Za-z]{16})\/?(?:[?#].*)?$/.exec(v);
+  if (m) return { kind: m[1] === "i" ? "inventar" : "raum", value: m[2]! };
+  return { kind: "text", value: v };
+}

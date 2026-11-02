@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { STATIC_SECURITY_HEADERS } from "@schulos/server/security-headers";
+import { PERMISSIONS_POLICY_CAMERA_SELF, STATIC_SECURITY_HEADERS } from "@schulos/server/security-headers";
 
 /** Alte Verwaltungspfade der Stundenplanung → neue Pfade unter /planung (SP-03) */
 const PLANUNG_REDIRECTS: [string, string][] = [
@@ -38,6 +38,8 @@ const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      // INV-04 In-App-Scan: Kamera nur auf der Inventurseite (eigene Herkunft); überschreibt den Wert von oben (SICHERHEIT S100)
+      { source: "/gebaeude/inventur/:id", headers: [{ key: "Permissions-Policy", value: PERMISSIONS_POLICY_CAMERA_SELF }] },
     ];
   },
   // SP-03 (docs/STUNDENPLAN-UMBAU.md §2.3, Q-SP-7): die Planungsseiten sind aus der Verwaltung nach /planung umgezogen. Die alten

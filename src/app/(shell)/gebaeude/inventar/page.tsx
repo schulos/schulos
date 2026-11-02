@@ -7,6 +7,7 @@ import { toBerlinDate } from "@/core/time";
 import { createAssetAction, importAssetsAction } from "@/modules/gebaeude/actions";
 import { canPrintLabels } from "@/modules/gebaeude/etiketten";
 import { canConfigure, canSeeInventory, categoriesWithoutInspectionType, listCategories, maintainableCategories } from "@/modules/gebaeude/inventar";
+import { canReadInventories } from "@/modules/gebaeude/inventur";
 import { ASSET_CONDITIONS, CONDITION_LABELS } from "@/modules/gebaeude/labels";
 import { assetPlace, buildingOptions, floorOptions, formatDay, listAssets, roomOptions } from "@/modules/gebaeude/pruefungen";
 import { Badge } from "@schulos/ui/badge";
@@ -53,6 +54,11 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
         {printable && (
           <Button asChild variant="secondary" size="sm">
             <Link href="/gebaeude/inventar/etiketten">Etiketten drucken</Link>
+          </Button>
+        )}
+        {canReadInventories(perms) && (
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/gebaeude/inventur">Inventur</Link>
           </Button>
         )}
         {configure && (

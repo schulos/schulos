@@ -158,7 +158,7 @@ Asset-Seite führen).
   „nur ohne Etikett“, alle gefilterten) → `/druck/inventar-etiketten`; Neuerzeugen auf der Asset-Seite entwertet den alten Code.
 - **Audit:** `gebaeude.asset.create/update/activate/deactivate/delete/import`, `gebaeude.asset.qr.create/renew`,
   `gebaeude.asset_category.create/update/delete` – ohne Code und ohne Personennamen im Text.
-- **Noch offen (INV-04 ff.):** Inventur, Ausleihe, Export im Schulträgerformat, Karte im Raumsteckbrief.
+- **Noch offen (INV-05 ff.):** Ausleihe, Export im Schulträgerformat, Karte im Raumsteckbrief (Inventur: INV-04, s. u.).
 
 ## Umgesetzt (INV-03, 2026-11-02)
 
@@ -188,3 +188,37 @@ Asset-Seite führen).
   - Eine Meldung setzt den Zustand **nicht** automatisch auf „defekt“ – das entscheiden die Pflegenden per Knopf.
   - Ergebnis einer Prüfung erfassen nur mit `gebaeude.manage` (wie auf der Prüfungsseite); verantwortliche Gruppen ohne `view_all`
     sehen die Prüfungsliste am Gerät nicht.
+
+## Umgesetzt (INV-04, 2026-11-02)
+
+- **Inventur je Raum** (`/gebaeude/inventur`, Knopf „Inventur“ in der Inventarliste): Raum wählen, starten. Soll = Inventar in Betrieb,
+  das beim Start im Raum steht (Nummer, Bezeichnung, Kategorie, Menge werden mitgeschrieben). Je Raum läuft höchstens eine Inventur;
+  ein zweiter Start öffnet die laufende. Tabellen `gebaeude_inventories`/`gebaeude_inventory_items` (Migration
+  `0127_inv_04_inventur.sql`), ohne Personenbezug.
+- **Erfassen, drei Wege:** (1) Etikett mit der **Kamera-App** des Handys scannen → `/i/<code>` → Geräteseite mit der Karte „Inventur
+  läuft“ und dem Knopf „Gefunden in <Raum>“ (die Inventur im Raum des Geräts zuerst, bei mehreren laufenden je ein Knopf);
+  (2) auf der Inventurseite die Zeile „Code oder Inventarnummer“ – nimmt Kurz-URLs, Codes und Inventarnummern (ohne Groß-/Kleinschreibung),
+  passt auch für Handscanner, die wie eine Tastatur tippen; (3) Knöpfe „Gefunden“/„Fehlt“ in der Liste (Sammelposten mit gezählter Menge,
+  0 = fehlt). Ein Gerät aus einem anderen Raum wird „falscher Raum“ (mit dem Raum laut Inventar) und lässt sich per „Hierher umziehen“
+  übernehmen (Umzug wie auf der Geräteseite, „umgezogen“); ein nach dem Start hierher gezogenes Gerät zählt als gefunden, „nicht im Soll“.
+- **In-App-Scan (optional):** nur wenn der Browser die eingebaute Barcode-Erkennung (`BarcodeDetector`) hat – dann erscheint „Mit der
+  Kamera scannen“ (Rückkamera, QR, derselbe Code wird 4 s lang nicht doppelt gemeldet). Keine neue Abhängigkeit; ohne Unterstützung
+  (z. B. viele iOS-/Desktop-Browser) bleibt der Weg über die Kamera-App. Die Kamera ist per `Permissions-Policy` nur auf
+  `/gebaeude/inventur/<id>` freigegeben (SICHERHEIT S100) und braucht HTTPS mit vertrauenswürdigem Zertifikat.
+- **Abschluss:** alles Offene wird „fehlt“; danach nimmt die Inventur nichts mehr an, im Raum kann eine neue beginnen.
+- **Protokoll:** CSV (`/api/gebaeude/inventur/<id>`, Semikolon, UTF-8, Formeln entschärft) und Druckansicht `/druck/inventur/<id>`
+  (Soll/Ist je Posten, Zählung, Unterschriftszeilen) – ohne Namen.
+- **Audit:** `gebaeude.inventory.start/close/delete` (Ziel = Inventur), `gebaeude.asset.inventur` (Ziel = Gerät, Stand und Raum) – die
+  Historie der Geräteseite zeigt „Inventur: Gerät erfasst · gefunden · Inventur Raum 112“.
+- **Entscheidungen bei offenen Punkten (konservativ, INV-04):**
+  - Durchführen nur mit `gebaeude.inventory`/`configure` – eine Raum-Inventur umfasst alle Kategorien, verantwortliche Gruppen einer
+    einzelnen Kategorie erfassen (noch) nicht; lesen auch mit `view_all`.
+  - **Kein automatisches Erfassen beim Öffnen des Etiketts** – „gefunden“ ist immer ein Knopf (GET ohne Nebenwirkung, kein Erfassen durch
+    Vorladen oder versehentliches Scannen), wie im Konzept („vorhanden“ per Knopf).
+  - Welche Inventur ein Scan trifft, wird nicht im Browser gemerkt: die Geräteseite zeigt einen Knopf je laufender Inventur (die im Raum
+    des Geräts zuerst, höchstens 6).
+  - Die Inventur ändert das Inventar **nicht** von selbst: „fehlt“ mustert nicht aus, „falscher Raum“ zieht nur per Knopf um.
+  - Wer erfasst hat, steht nur im Audit-Log, nicht in den Tabellen, im CSV oder im Druck (kein Personenbezug, keine Auswertung je Person).
+  - Laufende Inventur abbrechen darf, wer durchführt; abgeschlossene Protokolle bleiben als Nachweis und sind nur mit `configure` löschbar.
+  - Ausgemustertes Inventar wird nicht erfasst (Hinweis „bitte im Inventar prüfen“).
+  - Live-Zähler bei mehreren Scannenden (Konzept „optional“) ist nicht gebaut: eigene Scans aktualisieren die Seite, sonst Neuladen.
