@@ -6,7 +6,9 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { gradeLevels, recordArchives, schoolYears } from "@/core/db/schema";
 import { moduleOn } from "@/core/modules/guard";
-import { pendingAdmissions, proposeAssignment, proposeClassNames, type AdmissionCandidate } from "@/modules/anmeldung/uebernahme";
+import { readModuleSetting } from "@/core/modules/settings";
+import { KLASSENGROESSE } from "@/modules/anmeldung/settings";
+import { pendingAdmissions, proposeClassNames, type AdmissionCandidate } from "@/modules/anmeldung/uebernahme";
 import { hasPermission } from "@/core/permissions";
 import { activeHolds, listRuns, planDeletion } from "@/core/privacy/loeschlauf";
 import { TZ, fromBerlinLocal, toBerlinDate } from "@/core/time";
@@ -347,21 +349,27 @@ async function ReviewStep({ transitionId, today, fromYearId, fromYearName, leave
 const birthFmt = (ymd: string) => ymd.split("-").reverse().join(".");
 
 async function AdmissionsStepServer({ transitionId, candidates, canCreate }: { transitionId: string; candidates: AdmissionCandidate[]; canCreate: boolean }) {
-  const all = await (await getDb()).select().from(gradeLevels);
+  const db = await getDb();
+  const all = await db.select().from(gradeLevels);
+  // KB-02: Richtwert aus der Moduleinstellung; die Verteilung selbst rechnet der Browser (klassenbildung.ts, Entwurf nicht gespeichert)
+  const sizeHint = Number(await readModuleSetting(db, KLASSENGROESSE));
   const levelIds = [...new Set(candidates.map((c) => c.gradeLevel))].sort((a, b) => a - b);
   const levels = levelIds.map((level) => {
     const g = all.find((x) => x.level === level);
     const mine = candidates.filter((c) => c.gradeLevel === level);
-    return { level, name: g?.name ?? `Jahrgang ${level}`, classes: proposeClassNames(g?.code ?? String(level), mine.length) };
+    return { level, name: g?.name ?? `Jahrgang ${level}`, classes: proposeClassNames(g?.code ?? String(level), mine.length, sizeHint) };
   });
-  const proposal = Object.assign({}, ...levels.map((l) => proposeAssignment(candidates.filter((c) => c.gradeLevel === l.level), l.classes))) as Record<string, string>;
+  // Familie = gleiche E-Mail von Elternteil 1 – an den Browser geht nur ein neutraler Schlüssel, nicht die Adresse
+  const familyKeys = new Map<string, string>();
+  for (const c of candidates) if (!familyKeys.has(c.parent1Email)) familyKeys.set(c.parent1Email, `f${familyKeys.size + 1}`);
   return (
     <AdmissionsStep
       transitionId={transitionId}
       canCreate={canCreate}
       levels={levels}
-      proposal={proposal}
+      sizeHint={sizeHint}
       rows={candidates.map((c) => ({
+        family: familyKeys.get(c.parent1Email)!,
         antragId: c.antragId,
         number: c.number,
         child: `${c.childLastName}, ${c.childFirstName}`,

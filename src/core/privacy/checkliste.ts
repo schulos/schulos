@@ -66,10 +66,11 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     id: "anmeldung",
     nr: 3,
     title: "Schulanmeldung",
-    schulos: "Öffentliches Formular mit E-Mail-Bestätigung; erhebt nur, was Termin und Gespräch brauchen; Auskunft ohne Konto per Vorgangsnummer.",
+    schulos: "Öffentliches Formular mit E-Mail-Bestätigung; erhebt nur, was Termin und Gespräch brauchen; Auskunft ohne Konto per Vorgangsnummer. Klassenbildung im Schuljahreswechsel nur als Vorschlag aus Grundschule und Familie, im Browser, nicht gespeichert; kein Geschlecht.",
     vorgabe: "Unbestätigte Anträge 48 h, abgelehnte/Warteliste Verfahrensabschluss + 60 Tage (je Verfahren 31–365), zurückgezogene/übernommene 90 Tage.",
     schule: "Entscheidet über Felder (Empfehlung, Anschrift), Fristen je Verfahren, Information von Elternteil 2, Identitätsprüfung bei Auskunft und Impressum.",
     where: { label: "Verwaltung → Schulanmeldung", href: "/verwaltung/anmeldung" },
+    settings: ["anmeldung.klassengroesse"],
   },
   {
     id: "schultraeger",

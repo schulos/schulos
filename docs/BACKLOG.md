@@ -724,8 +724,8 @@ Konzept und Entscheidungen: [`BETRIEBSMONITORING.md`](BETRIEBSMONITORING.md). Re
 
 ## Klassenbildung – Vorschlag für Neuaufnahmen (freigegeben von der Projektleitung 2026-11-01, Fragebogen Runde 12)
 Konzept und Entscheidungen: [`KLASSENBILDUNG.md`](KLASSENBILDUNG.md). Reihenfolge: Stufe 1–2 (KB-01…03) nach CA Teil A. Kurz: Vorschlag mit Begründung je Kind und Kennzahlen je Klasse im Schritt „Neuaufnahmen“ des Schuljahreswechsels; Wünsche (zusammen/nicht zusammen, höchstens 2 je Kind, ohne Begründung) intern durch das Sekretariat, Mehrlinge standardmäßig zusammen mit Häkchen „getrennt“; kein Geschlecht, keine weiteren Kriterien; Entwurf nur im Browser, Rechte des Schritts. Migrationsnummer erst direkt vor dem PR (nur KB-03 mit Migration).
-- [ ] **KB-01** (M) Reine Funktion `klassenbildung.ts` (harte Regeln: Größe ±1, Familien zusammen; weiche Ziele: Grundschulen mischen) + Eigenschaftstests, ersetzt `proposeAssignment`-Heuristik (Projektleitung 2026-11-01)
-- [ ] **KB-02** (S) Anzeige im Schritt „Neuaufnahmen“: Begründung je Kind, Kennzahlen je Klasse, „Neu vorschlagen“, Festpinnen; Einstellung `anmeldung.klassengroesse` (Projektleitung 2026-11-01)
+- [x] **KB-01** (M) Reine Funktion `klassenbildung.ts` (harte Regeln: Größe ±1, Familien zusammen; weiche Ziele: Grundschulen mischen) + Eigenschaftstests, ersetzt `proposeAssignment`-Heuristik (Projektleitung 2026-11-01)
+- [x] **KB-02** (S) Anzeige im Schritt „Neuaufnahmen“: Begründung je Kind, Kennzahlen je Klasse, „Neu vorschlagen“, Festpinnen; Einstellung `anmeldung.klassengroesse` (Projektleitung 2026-11-01)
 - [ ] **KB-03** (M) Wünsche: `anmeldung_klassenwuensche` + Migration, Erfassen im Vorgang (`anmeldung.manage`), „getrennt“-Häkchen je Familie, Einbezug in den Vorschlag, Löschklasse LK-90, Auskunft ohne Partnername (Projektleitung 2026-11-01)
 - [ ] **KB-04** (S) Doku (PHASE4-Verweis, DATENSCHUTZ, Handbuch), E2E (Projektleitung 2026-11-01)
 
