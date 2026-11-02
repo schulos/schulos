@@ -92,6 +92,37 @@ export function ConditionButtons({ action, current, options }: { action: Action;
   );
 }
 
+/**
+ * INV-04: „gefunden“ in einer laufenden Inventur – Ziel des Etiketts, das die Kamera-App öffnet. Ein Knopf je laufender Inventur
+ * (die im Raum des Geräts zuerst); schon erfasst → nur der Stand.
+ */
+export function InventoryFoundButton({ action, roomLabel, sameRoom, state }: { action: Action; roomLabel: string; sameRoom: boolean; state: string | null }) {
+  const [res, formAction, pending] = useActionState(action, {});
+  return (
+    <form action={formAction} aria-label={`Inventur ${roomLabel}`} className="flex flex-col gap-1.5">
+      {state ? (
+        <p className="text-sm">
+          Inventur {roomLabel}: <strong>{state}</strong>
+        </p>
+      ) : (
+        <Button type="submit" variant={sameRoom ? "primary" : "secondary"} disabled={pending || res.ok === true} className="w-full sm:w-auto">
+          {pending ? "Erfassen …" : `Gefunden in ${roomLabel}`}
+        </Button>
+      )}
+      {res.error && (
+        <p role="alert" className="text-sm text-danger">
+          {res.error}
+        </p>
+      )}
+      {res.ok && res.message && (
+        <p role="status" className="text-sm text-success">
+          {res.message}
+        </p>
+      )}
+    </form>
+  );
+}
+
 /** INV-03: Standort ändern – Raum wählen, speichern. */
 export function MoveForm({ action, rooms, current }: { action: Action; rooms: Option[]; current: string | null }) {
   const [state, formAction, pending] = useActionState(action, {});

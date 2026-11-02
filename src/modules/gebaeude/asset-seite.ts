@@ -16,7 +16,7 @@ import { scanUpload } from "@/modules/upload-scan";
 import { ACTION_LABELS } from "@/modules/verwaltung/audit-view";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { INVENTORY_PERMISSION, maintainableCategories, requireMaintain } from "./inventar";
-import { ASSET_CONDITIONS, ASSET_PHOTOS_MAX, ASSET_PHOTO_MAX_MB, CONDITION_LABELS, type AssetCondition } from "./labels";
+import { ASSET_CONDITIONS, ASSET_PHOTOS_MAX, ASSET_PHOTO_MAX_MB, CONDITION_LABELS, INVENTORY_ITEM_STATE_LABELS, type AssetCondition, type InventoryItemState } from "./labels";
 import { canViewAll } from "./service";
 
 export const ASSET_PHOTO_EDGE = 1600;
@@ -171,6 +171,7 @@ export const ASSET_HISTORY_ACTIONS = [
   "gebaeude.asset.photo.delete",
   "gebaeude.asset.qr.create",
   "gebaeude.asset.qr.renew",
+  "gebaeude.asset.inventur",
 ] as const;
 
 export interface AssetHistoryEntry {
@@ -182,6 +183,7 @@ export interface AssetHistoryEntry {
 }
 
 const conditionText = (v: unknown) => (typeof v === "string" && v in CONDITION_LABELS ? CONDITION_LABELS[v as AssetCondition] : "offen");
+const inventoryStateText = (v: unknown) => (typeof v === "string" && v in INVENTORY_ITEM_STATE_LABELS ? INVENTORY_ITEM_STATE_LABELS[v as InventoryItemState] : "erfasst");
 const roomText = (v: unknown) => (typeof v === "string" && v ? `Raum ${v}` : "ohne Raum");
 
 /**
@@ -205,6 +207,7 @@ export async function assetHistory(db: Db, viewer: PermissionSet, assetId: strin
     let detail: string | null = null;
     if (r.action === "gebaeude.asset.condition") detail = `${conditionText(m.from)} → ${conditionText(m.to)}`;
     else if (r.action === "gebaeude.asset.move") detail = `${roomText(m.from)} → ${roomText(m.to)}`;
+    else if (r.action === "gebaeude.asset.inventur") detail = `${inventoryStateText(m.state)} · Inventur ${roomText(m.room)}`;
     return {
       id: r.id,
       at: r.at,

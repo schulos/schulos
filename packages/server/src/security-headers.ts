@@ -23,15 +23,23 @@ export function contentSecurityPolicy(nonce: string, dev = false): string {
   ].join("; ");
 }
 
+const DENIED_FEATURES = "microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), interest-cohort=(), browsing-topics=()";
+
+/** Vorgabe für alle Seiten: keine Kamera, kein Mikrofon, kein Standort usw. */
+export const PERMISSIONS_POLICY = `camera=(), ${DENIED_FEATURES}`;
+
+/**
+ * INV-04 In-App-Scan: nur die Inventurseiten (`/gebaeude/inventur/<id>`) dürfen die Kamera der eigenen Herkunft nutzen – der Browser
+ * fragt trotzdem nach; alles andere bleibt gesperrt (SICHERHEIT.md S100).
+ */
+export const PERMISSIONS_POLICY_CAMERA_SELF = `camera=(self), ${DENIED_FEATURES}`;
+
 /** Feste Header für alle Antworten. HSTS wirkt nur über HTTPS – Browser ignorieren ihn bei http (Dev, E2E). */
 export const STATIC_SECURITY_HEADERS: { key: string; value: string }[] = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  {
-    key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), interest-cohort=(), browsing-topics=()",
-  },
+  { key: "Permissions-Policy", value: PERMISSIONS_POLICY },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },

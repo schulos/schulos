@@ -251,3 +251,104 @@ test("INV-03: mobile Asset-Seite – Zustand, Standort, Foto, Historie; Mangel m
   expect(errors).toEqual([]);
   await hm.close();
 });
+
+test("INV-04: Inventur am Handy – Soll/Ist, Eingabe, Geräteseite (Etikett), falscher Raum übernehmen, Protokoll, Rechte", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const mobile = { viewport: { width: 360, height: 800 }, colorScheme: "dark" as const };
+  const hm = await browser.newContext(mobile);
+  const page = await hm.newPage();
+  const errors = collectErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page, "klaus.berger");
+
+  // zwei Geräte: eines im Inventurraum, eines nebenan
+  const anlegen = async (name: string, room: string) => {
+    await page.goto("/gebaeude/inventar");
+    const neu = page.getByRole("form", { name: "Inventar anlegen" });
+    await neu.getByLabel("Bezeichnung").fill(name);
+    await neu.getByLabel("Kategorie").selectOption({ index: 1 });
+    await neu.getByLabel("Raum").selectOption(room);
+    await neu.getByRole("button", { name: "Anlegen" }).click();
+    await expect(page).toHaveURL(/\/gebaeude\/inventar\/[^/?]+\?angelegt=1$/);
+    const no = ((await page.getByRole("status").filter({ hasText: "Inventarnummer" }).textContent()) ?? "").match(/Inventarnummer (\S+)\./)![1]!;
+    return { url: new URL(page.url()).pathname, no };
+  };
+  const laptop = await anlegen("E2E Inventur Laptop", "IF1");
+  const tablet = await anlegen("E2E Inventur Tablet", "110");
+
+  await page.goto("/gebaeude/inventar");
+  await page.getByRole("link", { name: "Inventur" }).click();
+  await expect(page).toHaveURL("/gebaeude/inventur");
+  expect((await page.request.get("/gebaeude/inventur")).headers()["permissions-policy"]).toContain("camera=()");
+  const start = page.getByRole("form", { name: "Inventur starten" });
+  await start.getByLabel("Raum").selectOption("IF1");
+  await start.getByRole("button", { name: "Starten" }).click();
+  await expect(page).toHaveURL(/\/gebaeude\/inventur\/[^/?]+$/);
+  const invUrl = new URL(page.url()).pathname;
+  // In-App-Scan: Kamera nur hier (eigene Herkunft)
+  expect((await page.request.get(invUrl)).headers()["permissions-policy"]).toContain("camera=(self)");
+  const posten = page.getByRole("list", { name: "Posten der Inventur" });
+  await expect(posten.getByRole("listitem").filter({ hasText: "E2E Inventur Laptop" })).toContainText("offen");
+
+  // Eingabe der Inventarnummer (Handscanner/abgetippt)
+  const scan = page.getByRole("form", { name: "Code oder Inventarnummer erfassen" });
+  await scan.getByLabel("Code oder Inventarnummer").fill(laptop.no.toLowerCase());
+  await scan.getByRole("button", { name: "Erfassen" }).click();
+  await expect(scan.getByRole("status")).toHaveText(`${laptop.no} E2E Inventur Laptop: gefunden.`);
+  await expect(posten.getByRole("listitem").filter({ hasText: "E2E Inventur Laptop" })).toContainText("gefunden");
+  await scan.getByLabel("Code oder Inventarnummer").fill("GIBT-ES-NICHT");
+  await scan.getByRole("button", { name: "Erfassen" }).click();
+  await expect(scan.getByText("Kein Inventar zu diesem Code bzw. dieser Nummer")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await axeClean(page);
+
+  // Geräteseite (Ziel des Etiketts, Kamera-App): Gerät aus einem anderen Raum → „falscher Raum“
+  await page.goto(tablet.url);
+  const found = page.getByRole("button", { name: /^Gefunden in IF1/ });
+  await found.click();
+  await expect(page.getByRole("status").filter({ hasText: "falscher Raum" })).toContainText(`${tablet.no} E2E Inventur Tablet: falscher Raum – gehört laut Inventar in Raum 110.`);
+  await expect(page.getByRole("list", { name: "Historie" })).toContainText("Inventur: Gerät erfasst · falscher Raum · Inventur Raum IF1");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await axeClean(page);
+
+  // übernehmen: Gerät zieht in den Inventurraum
+  await page.goto(invUrl);
+  const tab = posten.getByRole("listitem").filter({ hasText: "E2E Inventur Tablet" });
+  await expect(tab).toContainText("gehört in Raum 110");
+  await tab.getByRole("button", { name: /^Hierher umziehen/ }).click();
+  await expect(tab).toContainText("umgezogen");
+
+  // Protokoll: CSV und Druck
+  const csvHref = (await page.getByRole("link", { name: "CSV herunterladen" }).getAttribute("href"))!;
+  const csv = await page.request.get(csvHref);
+  expect(csv.status()).toBe(200);
+  expect(csv.headers()["content-type"]).toContain("text/csv");
+  const body = await csv.text();
+  expect(body).toContain(`${laptop.no};E2E Inventur Laptop;`);
+  expect(body).toContain("erfasst über");
+  expect(body).not.toContain("Klaus Berger");
+  await page.getByRole("link", { name: "Druckansicht" }).click();
+  // Druckansicht ist für A4 gebaut – am Handy genügt, dass sie lädt und alles enthält
+  await expect(page.getByRole("heading", { name: "Inventurprotokoll" })).toBeAttached();
+  await expect(page.getByRole("table")).toContainText("E2E Inventur Tablet");
+
+  // abschließen: Offenes wird „fehlt“
+  await page.goto(invUrl);
+  await page.getByRole("button", { name: "Inventur abschließen" }).click();
+  await expect(page.getByText("Inventur abgeschlossen", { exact: true })).toBeVisible();
+  await expect(page.getByRole("form", { name: "Code oder Inventarnummer erfassen" })).toHaveCount(0);
+  // abgeschlossene Protokolle löscht nur configure
+  await expect(page.getByRole("button", { name: "Protokoll löschen" })).toHaveCount(0);
+  await axeClean(page);
+  expect(errors).toEqual([]);
+
+  // Lehrkraft: weder Inventuren noch Protokoll
+  const lk = await browser.newContext(mobile);
+  const t = await lk.newPage();
+  await login(t, "jana.brandt");
+  expect((await t.request.get("/gebaeude/inventur")).status()).toBe(404);
+  expect((await t.request.get(invUrl)).status()).toBe(404);
+  expect((await t.request.get(`/api/gebaeude/inventur/${invUrl.split("/").pop()}`)).status()).toBe(404);
+  await lk.close();
+  await hm.close();
+});

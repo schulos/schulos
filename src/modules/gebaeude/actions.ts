@@ -12,7 +12,8 @@ import { readSchoolSettings } from "@/core/settings";
 import { toBerlinDate } from "@/core/time";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { TICKET_CATEGORIES, TICKET_STATUSES, type TicketCategory, type TicketStatus } from "./labels";
+import { INVENTORY_ITEM_STATE_LABELS, TICKET_CATEGORIES, TICKET_STATUSES, type InventoryItemState, type TicketCategory, type TicketStatus } from "./labels";
+import { adoptInventoryItem, closeInventory, deleteInventory, scanAsset, scanInput, setInventoryItem, startInventory, type ScanResult } from "./inventur";
 import { addAssetPhoto, deleteAssetPhoto, moveAsset, setAssetCondition } from "./asset-seite";
 import { renewAssetCode } from "./etiketten";
 import { createCategory, deleteCategory, updateCategory, type CategoryInput } from "./inventar";
@@ -466,4 +467,102 @@ export async function deleteMaintenanceAction(id: string): Promise<void> {
   const { perms } = await requireUser();
   await deleteMaintenance(await getDb(), perms, id);
   revalidatePath("/", "layout");
+}
+
+// ---------------------------------------------------------------- Inventur (INV-04)
+
+/** Rückmeldung eines Scans als Text (Kamera, Eingabe, Geräteseite). */
+function scanMessage(r: ScanResult): string {
+  const label = `${r.inventoryNo ? `${r.inventoryNo} ` : ""}${r.name}`;
+  if (r.already) return `${label}: schon erfasst (${INVENTORY_ITEM_STATE_LABELS[r.state]}).`;
+  if (r.state === "falscher_raum") return `${label}: falscher Raum – gehört laut Inventar ${r.homeRoomId ? `in Raum ${r.homeRoomId}` : "keinem Raum an"}.`;
+  return `${label}: gefunden.`;
+}
+
+export async function startInventoryAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  let id: string;
+  try {
+    ({ id } = await startInventory(await getDb(), perms, String(form.get("roomId") ?? "")));
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/gebaeude/inventur");
+  redirect(`/gebaeude/inventur/${encodeURIComponent(id)}`);
+}
+
+/** Scan in der App bzw. Eingabe (Kurz-URL, Code, Inventarnummer) – auch direkt aus dem Kamera-Scan aufgerufen. */
+export async function scanInventoryAction(inventoryId: string, raw: string): Promise<{ ok: boolean; message: string; state?: InventoryItemState }> {
+  const { perms } = await requireUser();
+  try {
+    const r = await scanInput(await getDb(), perms, String(inventoryId), String(raw));
+    revalidatePath(`/gebaeude/inventur/${inventoryId}`);
+    return { ok: true, message: scanMessage(r), state: r.state };
+  } catch (err) {
+    if (err instanceof ValidationError) return { ok: false, message: Object.values(err.fieldErrors)[0] ?? "Eingabe prüfen" };
+    throw err;
+  }
+}
+
+export async function scanInventoryFormAction(inventoryId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const r = await scanInventoryAction(inventoryId, String(form.get("code") ?? ""));
+  return r.ok ? { ok: true, message: r.message } : { error: r.message, fieldErrors: { code: r.message } };
+}
+
+/** Geräteseite (Ziel des Etiketts): „gefunden“ in einer laufenden Inventur. */
+export async function scanAssetAction(inventoryId: string, assetId: string): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    const r = await scanAsset(await getDb(), perms, inventoryId, assetId, "etikett");
+    revalidatePath(`/gebaeude/inventar/${assetId}`);
+    return { ok: true, message: scanMessage(r) };
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Nicht erfasst" };
+    throw err;
+  }
+}
+
+/** Posten per Knopf: gefunden (Sammelposten mit Menge), fehlt, zurück auf offen. */
+export async function setInventoryItemAction(itemId: string, state: string, form: FormData): Promise<void> {
+  const { perms } = await requireUser();
+  let inventoryId: string;
+  try {
+    const counted = form.get("counted");
+    inventoryId = await setInventoryItem(await getDb(), perms, itemId, state, counted === null ? null : String(counted));
+  } catch (err) {
+    if (err instanceof ValidationError) return; // veraltete Ansicht (abgeschlossen, gelöscht) – die Seite lädt neu
+    throw err;
+  }
+  revalidatePath(`/gebaeude/inventur/${inventoryId}`);
+}
+
+/** Gerät aus einem anderen Raum in den Inventurraum übernehmen. */
+export async function adoptInventoryItemAction(itemId: string): Promise<void> {
+  const { perms } = await requireUser();
+  let inventoryId: string;
+  try {
+    inventoryId = await adoptInventoryItem(await getDb(), perms, itemId);
+  } catch (err) {
+    if (err instanceof ValidationError) return;
+    throw err;
+  }
+  revalidatePath(`/gebaeude/inventur/${inventoryId}`);
+}
+
+export async function closeInventoryAction(id: string): Promise<void> {
+  const { perms } = await requireUser();
+  await closeInventory(await getDb(), perms, id).catch((err: unknown) => {
+    if (!(err instanceof ValidationError)) throw err;
+  });
+  revalidatePath("/gebaeude/inventur");
+  revalidatePath(`/gebaeude/inventur/${id}`);
+}
+
+export async function deleteInventoryAction(id: string): Promise<void> {
+  const { perms } = await requireUser();
+  await deleteInventory(await getDb(), perms, id).catch((err: unknown) => {
+    if (!(err instanceof ValidationError)) throw err;
+  });
+  revalidatePath("/gebaeude/inventur");
+  redirect("/gebaeude/inventur?geloescht=1");
 }

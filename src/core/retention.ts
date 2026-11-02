@@ -279,6 +279,8 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   gebaeude_asset_photos: "Fotos je Inventargut (INV-03): Sachen, keine Personen (Hinweis am Upload), Metadaten entfernt; wer hochgeladen hat, steht nur im Audit-Log",
   gebaeude_asset_categories: "Kategorien des Inventars (INV-01: Name, Präfix, Prüfpflicht, verantwortliche Gruppe) – keine Personen",
   gebaeude_inventory_counters: "Zähler für automatische Inventarnummern je Präfix (INV-01) – nur Zahlen",
+  gebaeude_inventories: "Inventur je Raum (INV-04): Raum, Beginn, Abschluss – wer gestartet/abgeschlossen hat, steht nur im Audit-Log",
+  gebaeude_inventory_items: "Posten einer Inventur (INV-04): Inventarnummer, Bezeichnung, Soll/Ist, Menge, Stand – Sachangaben; wer erfasst hat, steht nur im Audit-Log",
   gebaeude_inspection_types: "Prüfarten (Name, Intervall, Quelle) – keine Personen",
   buecherei_titles: "Bücherei-Bestand: Titel (bibliografische Angaben) – keine Personen",
   buecherei_copies: "Bücherei-Bestand: Exemplare (Nummer, Signatur, Standort, Zustand, Aussonderung) – keine Personen",
