@@ -12,13 +12,13 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.11",
+    "@electric-sql/pglite": "^0.5.13",
     "@schulos/server": "0.1.0",
     "@schulos/ui": "0.1.0",
     "bcryptjs": "^3.0.3",
-    "better-auth": "^1.7.12",
+    "better-auth": "^1.7.14",
     "drizzle-orm": "^0.45.4",
-    "next": "^16.4.2",
+    "next": "^16.4.3",
     "postgres": "^3.4.9",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
