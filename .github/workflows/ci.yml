@@ -189,7 +189,7 @@ jobs:
       # INST-10: Aufruf über die IP bzw. einen fremden Namen landet bei der App (Weiterleitung zur Anmeldung), nicht auf
       # Caddys leerer 200-Antwort
       - name: Aufruf per IP (INST-10)
-        run: bash scripts/ci/per-ip.sh 8443
+        run: bash scripts/ci/per-ip.sh 8443 8080 localhost
       # SEC-13: non-root, read_only, cap_drop ALL, no-new-privileges, kein docker.sock – am laufenden Stack
       - name: Container-Härtung (SEC-13)
         run: bash scripts/haertung-pruefen.sh schulos --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres --rw step-ca --rw crowdsec --rw clamav --ohne-nnp step-ca --cap step-ca=NET_BIND_SERVICE

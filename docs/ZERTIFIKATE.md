@@ -95,8 +95,19 @@ Vorschau-Instanz/Backupserver.
 - Routen: `/api/system/ca?format=crt|cer|mobileconfig` (Admin) und `/ca.crt` (Schulnetz). Backupserver: `/api/ca` nur angemeldet,
   kein `/ca.crt` ohne Anmeldung (dort gibt es keine Unterscheidung Schulnetz/außen).
 - Anleitung als Starter-Seite „Schul-Zertifikat installieren“ im Handbuch (anlegen über Starter-Seiten) und INSTALLATION §5d.
-- **Offen:** eigene Hinweisseite beim Aufruf per IP/Fremdname (dafür bräuchte Caddy eine eigene Antwort für fremde Namen; bisher
-  zeigt der Browser dort das Zertifikat der Domain mit Namenswarnung, INST-10).
+- **Hinweis beim Aufruf per IP/Fremdname** (Rest Teil A): Über `http://` zeigt Caddy im Schulnetz eine eigene Hinweisseite
+  (Vorlage `adresshinweis` in `compose.yaml`, Caddy-`templates`: aufgerufener Name maskiert, Domain und TLS-Modus aus der
+  Umgebung) mit Link auf die Domain und – nur bei eigener CA – auf `/ca.crt` (über http an die App, die nur im Schulnetz
+  ausliefert) samt Fingerabdruck-Hinweis. Die Domain und Aufrufe von außen leitet Caddy weiter auf https (seine automatische
+  Weiterleitung steht vor dem Catch-all; ACME-HTTP-Prüfungen beantwortet Caddy vor allen Blöcken). Über `https://<IP>` bleibt
+  die Zertifikatswarnung **unvermeidbar** – Caddy kennt beim Handshake nur die Domain und liefert deren Zertifikat (INST-10);
+  ein Zertifikat für beliebige IPs/Namen (on-demand) wäre ohne Vertrauen in die Root nicht besser und öffnete die Ausstellung
+  für fremde Namen. Nach dem Bestätigen der Warnung nennt die Anmeldeseite die richtige Adresse (`src/core/system/foreign-host.ts`).
+- **Backupserver:** bewusst kein `/ca.crt` ohne Anmeldung – er unterscheidet nicht zwischen Schulnetz und außen, und seine Root
+  braucht nur die IT (angemeldet, Karte „Zertifikat dieses Servers“). Keine Hinweisseite dort: der Aufruf per IP ist beim
+  Backupserver der übliche Weg (Konsole zeigt `https://<IP>`).
+- **Handbuch-Link:** Verwaltung → System verlinkt die Starter-Seite nur, wenn es sie gibt; sonst verweist die Karte auf
+  „Starter-Seiten anlegen“ im Handbuch (bzw. auf INSTALLATION §5d, wenn das Handbuch ausgeschaltet ist).
 
 ## Datenschutz
 

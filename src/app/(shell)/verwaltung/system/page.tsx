@@ -18,6 +18,10 @@ import { Table } from "@schulos/ui/table";
 import { AlarmSettingsForm, ChannelForm, HealthSettingsForm, RebootForm, ReleaseForm, RootCaConfirmForm, TestMailForm } from "./forms";
 import { fingerprintLines } from "@schulos/server/root-ca";
 import { readRootCa, rootCaState } from "@/core/system/root-ca";
+import { isEnabled, loadModuleStates } from "@/core/modules/registry";
+import { MODULES } from "@/modules";
+import { visibleSlugs } from "@/modules/hilfe/service";
+import { ROOT_CA_HELP_SLUG } from "@/modules/hilfe/starter";
 import { collectHealth } from "@/core/system/health";
 import { readHealthSettings } from "@/core/system/health-settings";
 import type { HealthLevel } from "@schulos/server/system";
@@ -229,6 +233,10 @@ export default async function SystemPage() {
   const root = readRootCa();
   const rootState = await rootCaState(await getDb(), root?.info ?? null);
   const rootFp = root ? fingerprintLines(root.info.fingerprint) : null;
+  // Handbuch-Link nur, wenn es die Starter-Seite gibt (sonst 404) – ohne sie auf „Starter-Seiten anlegen“ im Handbuch verweisen
+  const hilfe = MODULES.find((m) => m.id === "hilfe");
+  const helpOn = !!root && !!hilfe && isEnabled(hilfe, await loadModuleStates(await getDb()));
+  const helpPage = helpOn && (await visibleSlugs(await getDb(), perms, [ROOT_CA_HELP_SLUG])).has(ROOT_CA_HELP_SLUG);
   const rootCard = (
     <Card aria-label="Schul-Zertifikat">
       <CardHeader title="Schul-Zertifikat" />
@@ -267,9 +275,21 @@ export default async function SystemPage() {
           <p className="text-muted">
             Ohne Anmeldung im Schulnetz unter <code>/ca.crt</code>; den Fingerabdruck zeigen auch die Konsole des Servers und{" "}
             <code>schulosctl status</code>. Verteilwege:{" "}
-            <Link href="/hilfe/schul-zertifikat-installieren" className="text-accent-ink underline underline-offset-2">
-              Handbuch „Schul-Zertifikat installieren“
-            </Link>
+            {helpPage ? (
+              <Link href={`/hilfe/${ROOT_CA_HELP_SLUG}`} className="text-accent-ink underline underline-offset-2">
+                Handbuch „Schul-Zertifikat installieren“
+              </Link>
+            ) : helpOn ? (
+              <>
+                Starter-Seite „Schul-Zertifikat installieren“ im{" "}
+                <Link href="/hilfe" className="text-accent-ink underline underline-offset-2">
+                  Handbuch
+                </Link>{" "}
+                über „Starter-Seiten anlegen“
+              </>
+            ) : (
+              "Installationsanleitung §5d (das Handbuch ist ausgeschaltet)"
+            )}
             .
           </p>
           {rootState.changed && <RootCaConfirmForm fingerprint={root.info.fingerprint} />}

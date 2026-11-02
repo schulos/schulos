@@ -336,7 +336,7 @@ auf UTF-8 und laden die passende Größe (`konsole.sh` vor jedem Neuzeichnen); o
 |---|---|---|
 | Speicher | eine Platte oder **zwei als Spiegel** (RAID 1, mdadm) | Spiegel, wenn zwei Platten vorhanden sind |
 | Web-UI-Konto | Name, Benutzername, Passwort; 2FA beim ersten Login | – |
-| Adresse & TLS | wie beim Hauptsystem | nur Schulnetz. Die Web-UI ist auch über die IP-Adresse oder einen anderen Namen (z. B. `rechnername.local`) erreichbar – ohne DNS-Eintrag für die Domain (Caddy `default_sni`/`fallback_sni` + Site-Adresse `https://`, INST-10; gilt ebenso fürs Hauptsystem): der Browser zeigt dann das Zertifikat der Domain und warnt wegen des Namens, die Verbindung bleibt verschlüsselt. Anmelden mit Passkey geht nur unter der Domain. |
+| Adresse & TLS | wie beim Hauptsystem | nur Schulnetz. Die Web-UI ist auch über die IP-Adresse oder einen anderen Namen (z. B. `rechnername.local`) erreichbar – ohne DNS-Eintrag für die Domain (Caddy `default_sni`/`fallback_sni` + Site-Adresse `https://`, INST-10; gilt ebenso fürs Hauptsystem): der Browser zeigt dann das Zertifikat der Domain und warnt wegen des Namens, die Verbindung bleibt verschlüsselt. Anmelden mit Passkey geht nur unter der Domain. Beim Hauptsystem zeigt `http://<IP>` stattdessen eine Hinweisseite mit Link auf die Domain und das Schul-Zertifikat (§5d). |
 | Aufbewahrung | täglich / wöchentlich / monatlich | 14 / 4 / 3 (älteste Sicherung ≈ 3 Monate; mehr nur mit Begründung, siehe DATENSCHUTZ.md §3.3/§3.5) |
 | Offsite-Kopie | aus / SFTP (z. B. Hetzner Storage Box) / S3 | aus, später in der Web-UI |
 | E-Mail-Alarm | SMTP + Empfänger für „Backup überfällig“ | optional |
@@ -915,7 +915,15 @@ und Apps ohne Warnung verbinden (und Passkeys, Kamera usw. funktionieren), muss 
   Außen-Allowlist von Caddy und App; von außen 403 bzw. 404, auch im Modus „alles“). Anleitung für alle: Handbuch-Seite
   „Schul-Zertifikat installieren“ (Starter-Seite, im Handbuch über „Starter-Seiten anlegen“).
 - **Backupserver (CA-05):** gleicher Download (angemeldet) auf seiner Übersicht, Karte „Zertifikat dieses Servers“ (Quelle
-  `/ca/root.crt`). Das Hauptsystem braucht ihn nicht – es pinnt die CA bei der Kopplung (§4).
+  `/ca/root.crt`). Das Hauptsystem braucht ihn nicht – es pinnt die CA bei der Kopplung (§4). Kein `/ca.crt` ohne Anmeldung:
+  der Backupserver unterscheidet nicht zwischen Schulnetz und außen, und nur die IT braucht seine Root.
+- **Aufruf per IP oder fremdem Namen:** Über `http://<IP>` (bzw. einen anderen Namen als die Domain) zeigt Caddy im Schulnetz
+  eine **Hinweisseite** statt der Weiterleitung auf `https://<IP>`: „Bitte über die Schuladresse aufrufen“ mit Link auf die
+  Domain und – bei eigener CA – auf `/ca.crt` samt Hinweis zum Fingerabdruck. So kommt ein neues Gerät ohne Zertifikatswarnung an
+  die Root, auch wenn die Domain wegen fehlenden Vertrauens (oder einer HSTS-Sperre nach einer Neuinstallation) gar nicht öffnet.
+  Die Domain selbst und Aufrufe von außen leitet Caddy weiter auf https. Über `https://<IP>` ist die **Zertifikatswarnung
+  unvermeidbar** (das Zertifikat lautet auf die Domain, INST-10); nach dem Bestätigen nennt die Anmeldeseite die richtige
+  Adresse (Abgleich mit `BETTER_AUTH_URL`). Geprüft im CI-Job `stack` (`scripts/ci/per-ip.sh`).
 
 **Verteilwege**
 
