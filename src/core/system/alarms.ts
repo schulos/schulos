@@ -1,4 +1,4 @@
-// BM-04: zusätzlich Mail-Stau und ablaufendes Zertifikat.
+// BM-04: zusätzlich Mail-Stau und ablaufendes Zertifikat; CA-08: überfällige Erneuerung öffentlicher Zertifikate.
 // Alarme des Hauptsystems per E-Mail (B-38): Backup überfällig/fehlgeschlagen/nicht eingerichtet, Update fehlgeschlagen,
 // Speicherplatz knapp, Abgleich mit dem Server läuft nicht; SEC-14: unveränderliche Kopie veraltet/fehlt, Häufung von
 // Fehl-Anmeldungen, neue Admin-/Verwaltungsrechte (security-alarms.ts), Empfänger auch aus Verwaltung → System. Je Ursache einmal, täglich erinnert, „behoben“ beim Verschwinden.
@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { alarmMessage, alarmRecipients, DISK_WARN_PERCENT, mailConfig, planAlarms, smtpSender, type Alarm, type AlarmState, type MailConfig, type Sender } from "@schulos/server/mail";
 import { immutableHealth } from "@schulos/server/agent-api";
 import { collectSecurityAlarms, readAlarmSettings } from "./security-alarms";
-import { daysUntil, rebootPendingDays, REBOOT_RED_DAYS, TLS_WARN_DAYS, type SystemStatus } from "@schulos/server/system";
+import { daysUntil, rebootPendingDays, REBOOT_RED_DAYS, TLS_WARN_DAYS, tlsRenewalOverdue, type SystemStatus } from "@schulos/server/system";
 import type { Db } from "@/core/db/client";
 import { appSettings } from "@/core/db/schema";
 import type { BackupStatus } from "@/core/backup/status";
@@ -105,12 +105,23 @@ export function collectAlarms(input: {
         detail: `${s.tpm.problems.join(" ")} Solange nur PCR 7 gilt, entsperrt auch ein fremdes Debian-Startmedium die Platte (INSTALLATION.md §2.3).`,
       });
     // BM-04: Zertifikat des Reverse-Proxys läuft ab (schulosctl misst beim Abgleich)
+    // CA-08: bei öffentlichen Zertifikaten (Let's Encrypt, auch per DNS-Prüfung) schon, wenn die Erneuerung überfällig ist
+    const renewalHint =
+      "Prüfen: „schulosctl zertifikat-pruefen“ auf dem Server und das Caddy-Protokoll („docker compose logs caddy“, Stichworte acme/dns); bei der DNS-Prüfung zuerst Zugang und Rechte des API-Tokens beim DNS-Anbieter (INSTALLATION.md „Öffentliches Zertifikat per DNS“).";
     if (s.tls && daysUntil(s.tls.expiresAt, input.now) < TLS_WARN_DAYS) {
       const days = daysUntil(s.tls.expiresAt, input.now);
       out.push({
         key: "zertifikat",
         title: days < 0 ? "Zertifikat ist abgelaufen" : `Zertifikat läuft in ${days} Tagen ab`,
-        detail: "Browser und Geräte melden sonst Zertifikatsfehler. Bei Let's-Encrypt-Zertifikaten prüfen, ob die Erneuerung klappt (Caddy-Log); bei der Schul-CA siehe INSTALLATION.md (TLS).",
+        detail: s.tls.acme
+          ? `Browser und Geräte melden sonst Zertifikatsfehler. Die automatische Erneuerung klappt nicht. ${renewalHint}`
+          : "Browser und Geräte melden sonst Zertifikatsfehler. Bei Let's-Encrypt-Zertifikaten prüfen, ob die Erneuerung klappt (Caddy-Log); bei der Schul-CA siehe INSTALLATION.md (TLS).",
+      });
+    } else if (s.tls && tlsRenewalOverdue(s.tls, input.now)) {
+      out.push({
+        key: "zertifikat:erneuerung",
+        title: `Zertifikat wurde nicht erneuert (läuft in ${daysUntil(s.tls.expiresAt, input.now)} Tagen ab)`,
+        detail: `Das öffentliche Zertifikat hätte schon erneuert sein sollen; noch ist es gültig. ${renewalHint}`,
       });
     }
     if (statusIsStale(s, input.now))

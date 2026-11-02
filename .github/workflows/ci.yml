@@ -193,6 +193,13 @@ jobs:
       # SEC-13: non-root, read_only, cap_drop ALL, no-new-privileges, kein docker.sock – am laufenden Stack
       - name: Container-Härtung (SEC-13)
         run: bash scripts/haertung-pruefen.sh schulos --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres --rw step-ca --rw crowdsec --rw clamav --ohne-nnp step-ca --cap step-ca=NET_BIND_SERVICE
+      # CA-07/CA-08: Caddy mit DNS-Modulen bauen (Basis-Images per Digest wie Release/ISO) und ohne echte Domain prüfen –
+      # Module, Caddyfile je Anbieter (mit/ohne ACME-Staging), Abbruch des Standard-Images, Ersatz im laufenden Stack
+      - name: Caddy mit DNS-Modulen (CA-07)
+        run: |
+          docker build -q -f deploy/caddy-dns/Dockerfile --build-arg "GO_IMAGE=$(sh scripts/pin.sh golang)" \
+            --build-arg "CADDY_IMAGE=$(sh scripts/pin.sh caddy)" -t schulos-caddy-dns:ci .
+          bash scripts/caddy-dns-test.sh schulos-caddy-dns:ci https://localhost:8443
       # P4-40: Außenzugang je Modus (nur Caddy wird neu erstellt); danach wieder die Vorgabe „keiner“
       - name: Außenzugang
         run: |

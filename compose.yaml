@@ -40,6 +40,19 @@ services:
       SCHULOS_PUBLIC_PORT: ${SCHULOS_PUBLIC_PORT:-}
       # „internal“ = eigene CA (nur Schulnetz) · E-Mail-Adresse = Let's Encrypt (öffentliche Domain)
       SCHULOS_TLS: ${SCHULOS_TLS:-internal}
+      # CA-06: Let's Encrypt per DNS-Prüfung (Server nur im Schulnetz) – Anbieter (aus = HTTP-Prüfung bzw. eigene CA). Braucht
+      # das Caddy-Image mit DNS-Modulen (SCHULOS_CADDY_IMAGE = SCHULOS_CADDY_DNS_IMAGE, setzt der Installer). Zugang zum
+      # DNS-Anbieter nur aus der .env (Rechte 600) – nie im Backup, im Diagnosepaket geschwärzt (docs/ZERTIFIKATE.md Teil B)
+      SCHULOS_TLS_DNS: ${SCHULOS_TLS_DNS:-aus}
+      SCHULOS_DNS_TOKEN: ${SCHULOS_DNS_TOKEN:-}
+      SCHULOS_DNS_USER: ${SCHULOS_DNS_USER:-}
+      SCHULOS_DNS_SECRET: ${SCHULOS_DNS_SECRET:-}
+      SCHULOS_DNS_SERVER: ${SCHULOS_DNS_SERVER:-}
+      SCHULOS_DNS_KEY_ALG: ${SCHULOS_DNS_KEY_ALG:-hmac-sha256}
+      # öffentliche DNS-Server für die Prüfung (der Schul-DNS kennt bei Split-DNS den TXT-Eintrag nicht)
+      SCHULOS_DNS_RESOLVERS: ${SCHULOS_DNS_RESOLVERS:-9.9.9.9 1.1.1.1}
+      # CA-08: 1 = Testzertifikate der ACME-Staging-Umgebung (Systemtest scripts/acme-staging-test.sh), nie im Betrieb
+      SCHULOS_ACME_STAGING: ${SCHULOS_ACME_STAGING:-0}
       # P4-40 Außenzugang (INSTALLATION.md „Außenzugang“): keiner = nur Schulnetz · oeffentliche-seiten = aus dem Internet nur
       # Schulanmeldung, Impressum, Datenschutzhinweise · alles = ganz SchulOS
       SCHULOS_PUBLIC_ACCESS: ${SCHULOS_PUBLIC_ACCESS:-keiner}
@@ -472,6 +485,78 @@ configs:
       # Die Wurzel legt step-ca (Profil „geraete“) ins Volume geraete_ca. Ein unbekannter Wert lässt Caddy nicht starten.
       (tls-geraete-aus) {
       }
+      # CA-06/CA-07: öffentliches Zertifikat per DNS-Prüfung (ACME DNS-01) – SCHULOS_TLS_DNS = Anbieter, nur mit dem Caddy-Image
+      # mit DNS-Modulen (deploy/caddy-dns; caddy-start bricht sonst mit klarer Meldung ab). Zugangsdaten nur als Laufzeit-
+      # Platzhalter {env.…}: sie stehen in der .env (600), nie in der umgewandelten Konfiguration (Admin-API, Protokoll).
+      # resolvers: öffentliche DNS-Server für die Prüfung – im Schulnetz zeigt der Name per Split-DNS auf die private Adresse, der
+      # Schul-DNS kennt den TXT-Eintrag (bzw. die Zone) dann nicht. Neuer Anbieter: deploy/caddy-dns/main.go + go.mod, Snippet
+      # hier, Liste in apps/installer/src/dns.ts (compose-dns.test.ts vergleicht). Ein unbekannter Wert lässt Caddy nicht starten.
+      (tls-dns-aus) {
+      }
+      (tls-acme-staging-0) {
+      }
+      (tls-acme-staging-1) {
+        ca https://acme-staging-v02.api.letsencrypt.org/directory
+      }
+      (tls-dns-gemeinsam) {
+        resolvers {$$SCHULOS_DNS_RESOLVERS:9.9.9.9}
+        import tls-acme-staging-{$$SCHULOS_ACME_STAGING:0}
+      }
+      (tls-dns-cloudflare) {
+        dns cloudflare {env.SCHULOS_DNS_TOKEN}
+        import tls-dns-gemeinsam
+      }
+      (tls-dns-hetzner) {
+        dns hetzner {env.SCHULOS_DNS_TOKEN}
+        propagation_delay 30s
+        import tls-dns-gemeinsam
+      }
+      (tls-dns-ionos) {
+        dns ionos {env.SCHULOS_DNS_TOKEN}
+        import tls-dns-gemeinsam
+      }
+      (tls-dns-desec) {
+        dns desec {
+          token {env.SCHULOS_DNS_TOKEN}
+        }
+        import tls-dns-gemeinsam
+      }
+      # netcup übernimmt Änderungen erst nach Minuten (Modul-Doku: bis zu 15–20 min)
+      (tls-dns-netcup) {
+        dns netcup {
+          customer_number {env.SCHULOS_DNS_USER}
+          api_key {env.SCHULOS_DNS_TOKEN}
+          api_password {env.SCHULOS_DNS_SECRET}
+        }
+        propagation_delay 10m
+        propagation_timeout 20m
+        import tls-dns-gemeinsam
+      }
+      # shared_secret nur bei Zwei-Faktor-Anmeldung des API-Kontos (leer = ohne)
+      (tls-dns-inwx) {
+        dns inwx {
+          username {env.SCHULOS_DNS_USER}
+          password {env.SCHULOS_DNS_SECRET}
+          shared_secret {env.SCHULOS_DNS_TOKEN}
+        }
+        import tls-dns-gemeinsam
+      }
+      (tls-dns-route53) {
+        dns route53 {
+          access_key_id {env.SCHULOS_DNS_USER}
+          secret_access_key {env.SCHULOS_DNS_SECRET}
+        }
+        import tls-dns-gemeinsam
+      }
+      (tls-dns-rfc2136) {
+        dns rfc2136 {
+          server {env.SCHULOS_DNS_SERVER}
+          key_name {env.SCHULOS_DNS_USER}
+          key_alg {env.SCHULOS_DNS_KEY_ALG}
+          key {env.SCHULOS_DNS_SECRET}
+        }
+        import tls-dns-gemeinsam
+      }
       # SEC-15: Zugriffsprotokoll nur für CrowdSec (SCHULOS_CROWDSEC=1) – JSON, höchstens 48 h, dann gelöscht.
       # G4E-O11: zeitbasiert drehen (alle 24 h; roll_keep_for zählt in ganzen Tagen und gilt nur für gedrehte Dateien) – so ist
       # nichts älter als 48 h, auch an kleinen Schulen, wo 20 MiB Wochen dauern. Tokens in Pfaden und Parametern (Kalender-Abo,
@@ -511,6 +596,7 @@ configs:
       {$$SCHULOS_DOMAIN}, https:// {
         tls {$$SCHULOS_TLS} {
           import tls-geraete-{$$SCHULOS_DEVICE_CERTS:aus}
+          import tls-dns-{$$SCHULOS_TLS_DNS:aus}
         }
         import kompression
         import crowdsec-{$$SCHULOS_CROWDSEC:0}
@@ -661,6 +747,17 @@ configs:
   # Start an – dann wartet ein Hintergrundlauf darauf (bis 1 h). Schlüsselinhalte erscheinen nie im Protokoll.
   caddy-start:
     content: |
+      # CA-07: DNS-Prüfung nur mit dem Caddy-Image mit DNS-Modulen – sonst gleich mit verständlicher Meldung abbrechen
+      if [ "$${SCHULOS_TLS_DNS:-aus}" != aus ]; then
+        if ! caddy list-modules 2>/dev/null | grep -qx "dns.providers.$${SCHULOS_TLS_DNS}"; then
+          echo "[schulos] SCHULOS_TLS_DNS=$${SCHULOS_TLS_DNS}: dieses Caddy-Image kann das nicht – SCHULOS_CADDY_IMAGE auf das Image mit DNS-Modulen (SCHULOS_CADDY_DNS_IMAGE) stellen" >&2
+          exit 1
+        fi
+        if [ "$${SCHULOS_TLS:-internal}" = internal ]; then
+          echo "[schulos] DNS-Prüfung braucht Let's Encrypt: SCHULOS_TLS=<E-Mail-Adresse> statt internal" >&2
+          exit 1
+        fi
+      fi
       L=/data/caddy/pki/authorities/local
       T=/rueckspiel
       # Übergabeordner: gehört er root (Caddy hat ihn zuerst eingehängt), darf der Agent (Gruppe 1000) hineinschreiben

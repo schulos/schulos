@@ -23,7 +23,8 @@ export interface BundleImage {
 export function bundleImages(manifests: ReleaseManifest[]): BundleImage[] {
   const out = new Map<string, BundleImage>();
   for (const m of manifests) {
-    const refs = [m.images.app, m.images.backup, m.images.agent, ...RUNTIME_UPSTREAM.map((n) => m.upstream?.[n]).filter((r): r is string => !!r)];
+    // CA-07: Caddy mit DNS-Modulen (falls das Release es mitbringt) – sonst scheiterte ein Offline-Update bei DNS-Prüfung
+    const refs = [m.images.app, m.images.backup, m.images.agent, m.images["caddy-dns"], ...RUNTIME_UPSTREAM.map((n) => m.upstream?.[n])].filter((r): r is string => !!r);
     for (const ref of refs) {
       if (out.has(ref)) continue;
       const [name, digest] = ref.split("@") as [string, string];

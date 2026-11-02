@@ -16,7 +16,9 @@ Ablauf (INSTALLATION.md §5a.2, B-29):
    direkt vorigen Minor-Reihe aus erreichbar), `securityRelevant` (Vorgabe: gibt es eine Änderung `sicherheit`),
    `betaDays` (Vorgabe 14; 0 = sofort stabil). Prüfen: `npx tsx scripts/release-manifest.ts --check <version>`.
 3. Committen, Tag `v<version>` (bzw. `v<version>-rc.N` für eine Vorabversion) pushen → Workflow `release.yml`:
-   baut die Images App, Backup und Agent für GHCR, signiert sie mit cosign (Schlüsselpaar, ohne Rekor), schreibt das
+   baut die Images App, Backup und Agent (seit CA-07 auch `schulos-caddy-dns`, Caddy mit DNS-Modulen – im Manifest
+   optional als `images.caddy-dns`; nach dem ersten Release das neue GHCR-Paket einmal auf **öffentlich** stellen, sonst können
+   Server es nicht ziehen) für GHCR, signiert sie mit cosign (Schlüsselpaar, ohne Rekor), schreibt das
    Release-Manifest (Images per Digest) und signiert es, legt das GitHub-Release mit `release.json` + `release.json.sig` an.
    Dazu (GATE-031, ab v0.3.2) `schulosctl.mjs` (aus dem Build-Stand gebaut) und `compose.yaml` als Anhang, ihre SHA-256 stehen
    unter `files` im Manifest (`--files`, geprüft mit `--hostfiles`) – damit ersetzt `schulosctl update` sich selbst und die
@@ -39,7 +41,7 @@ Fingerabdruck des Schlüssels (SHA-256 über DER, `openssl pkey -pubin -in relea
 ein Release kommt; auf Servern prüft besser das installierte `schulosctl` (eingebackener Schlüssel, siehe INSTALLATION.md §5a.2).
 
 **Wöchentlicher Neubau (B-30):** Montags 04:00 UTC (oder von Hand: Actions → Release → „Run workflow“) prüft der Workflow,
-ob sich eines der Fremd-Images (`node`, `restic` als Basis; `caddy`, `postgres`, `rest-server` im Stack) seit dem neuesten
+ob sich eines der Fremd-Images (`node`, `restic`, `golang` als Basis; `caddy`, `postgres`, `rest-server` im Stack) seit dem neuesten
 fertigen Release geändert hat – verglichen wird der Digest mit `upstream` im Manifest. Wenn ja, **meldet** er nur (TD-13,
 Projektleitung 2026-10-27; Release-Tags legen nur Admins an): Warnung + Zusammenfassung im Lauf und ein Issue „Patch-Release
 vx.y.(z+1) fällig“ mit dem fertigen Befehl. Ein Admin setzt dann den Tag **auf den Commit des letzten Releases**

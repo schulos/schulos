@@ -96,8 +96,8 @@ export interface SystemStatus {
    * kein TPM2 ohne PIN (Passphrase, PIN, unverschlüsselt) bzw. älteres schulosctl.
    */
   tpm?: { problems: string[] } | null;
-  /** BM-04: Ablauf des Zertifikats, das der Reverse-Proxy ausliefert (schulosctl prüft den Handshake; null/fehlend = unbekannt) */
-  tls?: { expiresAt: string } | null;
+  /** BM-04: Ablauf des Zertifikats, das der Reverse-Proxy ausliefert (schulosctl prüft den Handshake; null/fehlend = unbekannt); CA-08: Ausstellung, ACME, Vertrauen */
+  tls?: TlsInfo | null;
   /**
    * CA-02: Root der eigenen CA (nur bei `SCHULOS_TLS=internal`; null/fehlend = keine eigene CA bzw. nicht lesbar). Eigenes Feld
    * statt `tls.rootFingerprint` (Konzept): `tls` misst das ausgelieferte Serverzertifikat (BM-04), die Root ist davon unabhängig.
@@ -217,20 +217,54 @@ export function daysUntil(iso: string, now = new Date()): number {
   return Math.floor((Date.parse(iso) - now.getTime()) / 86_400_000);
 }
 
+/**
+ * CA-08: Messwert des ausgelieferten Zertifikats (schulosctl, BM-04) – `issuedAt`, `acme` und `trusted` kamen mit CA-08 dazu
+ * (fehlen bei älterem schulosctl). `acme` = öffentliches Zertifikat (Let's Encrypt per HTTP oder DNS-01), `trusted` = Kette
+ * gegen die öffentlichen Wurzeln und Name der Domain geprüft.
+ */
+export interface TlsInfo {
+  expiresAt: string;
+  issuedAt?: string;
+  acme?: boolean;
+  trusted?: boolean;
+}
+
+/**
+ * CA-08: Caddy erneuert ACME-Zertifikate, wenn noch ein Drittel der Laufzeit übrig ist (90 Tage → nach 60). Ist danach noch
+ * dasselbe Zertifikat da (Spielraum: ein Zehntel der Laufzeit, höchstens 3 Tage), klappt die Erneuerung nicht – das meldet
+ * SchulOS Wochen vor der 14-Tage-Grenze. Nur für ACME-Zertifikate mit bekanntem Ausstellungsdatum; sonst false.
+ */
+export function tlsRenewalOverdue(tls: TlsInfo, now: Date): boolean {
+  if (!tls.acme || !tls.issuedAt) return false;
+  const from = Date.parse(tls.issuedAt);
+  const to = Date.parse(tls.expiresAt);
+  if (Number.isNaN(from) || Number.isNaN(to) || to <= from) return false;
+  const life = to - from;
+  const slack = Math.min(3 * 86_400_000, life / 10);
+  return to - now.getTime() < life / 3 - slack;
+}
+
 /** Befunde zum Zertifikat und zum Speicherplatz – für App und schulosctl gleich. */
-export function hostProblems(input: { disk?: { usedPercent: number } | null; tls?: { expiresAt: string } | null; diskWarnPercent: number; now: Date }): HealthProblem[] {
+export function hostProblems(input: { disk?: { usedPercent: number } | null; tls?: TlsInfo | null; diskWarnPercent: number; now: Date }): HealthProblem[] {
   const out: HealthProblem[] = [];
   const d = input.disk;
   if (d && d.usedPercent >= input.diskWarnPercent)
     out.push({ level: d.usedPercent >= DISK_ERROR_PERCENT ? "error" : "warn", key: "platz", text: `Speicherplatz knapp (${d.usedPercent} % belegt)` });
   if (input.tls) {
-    const days = daysUntil(input.tls.expiresAt, input.now);
+    const tls = input.tls;
+    const days = daysUntil(tls.expiresAt, input.now);
     if (days < TLS_WARN_DAYS)
       out.push({
         level: days < TLS_ERROR_DAYS ? "error" : "warn",
         key: "zertifikat",
-        text: days < 0 ? "Zertifikat ist abgelaufen" : `Zertifikat läuft in ${days} Tagen ab`,
+        text:
+          (days < 0 ? "Zertifikat ist abgelaufen" : `Zertifikat läuft in ${days} Tagen ab`) +
+          (tls.acme ? " – die automatische Erneuerung klappt nicht" : ""),
       });
+    else if (tlsRenewalOverdue(tls, input.now))
+      out.push({ level: "warn", key: "zertifikat:erneuerung", text: `Zertifikat wurde nicht erneuert (läuft in ${days} Tagen ab)` });
+    if (tls.acme && tls.trusted === false)
+      out.push({ level: "warn", key: "zertifikat:vertrauen", text: "Zertifikat ist nicht öffentlich vertrauenswürdig (Testzertifikat oder falscher Name)" });
   }
   return out;
 }

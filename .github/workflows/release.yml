@@ -247,6 +247,26 @@ jobs:
             NODE_IMAGE=${{ steps.upstream.outputs.node }}
             RESTIC_IMAGE=${{ steps.upstream.outputs.restic }}
           tags: ${{ steps.plan.outputs.registry }}/schulos-agent:${{ steps.plan.outputs.version }}
+      # CA-07: Caddy mit DNS-Modulen (nur für „Let's Encrypt per DNS“) – fehlt in Ständen vor CA-07 (Patch-Release alter Commits)
+      - name: Caddy-DNS vorhanden?
+        id: dnsfile
+        if: steps.plan.outputs.skip != 'true' && steps.upstream.outputs.skip != 'true'
+        run: if [ -f build/deploy/caddy-dns/Dockerfile ]; then echo "da=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Image Caddy-DNS
+        id: caddydns
+        if: steps.plan.outputs.skip != 'true' && steps.upstream.outputs.skip != 'true' && steps.dnsfile.outputs.da == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: build
+          file: build/deploy/caddy-dns/Dockerfile
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            SCHULOS_VERSION=${{ steps.plan.outputs.version }}
+            GO_IMAGE=${{ steps.upstream.outputs.golang }}
+            CADDY_IMAGE=${{ steps.upstream.outputs.caddy }}
+          tags: ${{ steps.plan.outputs.registry }}/schulos-caddy-dns:${{ steps.plan.outputs.version }}
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         if: steps.plan.outputs.skip != 'true' && steps.upstream.outputs.skip != 'true'
@@ -259,16 +279,19 @@ jobs:
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          CADDY_DNS_DIGEST: ${{ steps.caddydns.outputs.digest }}
         run: |
           r="${{ steps.plan.outputs.registry }}"
           app="$r/schulos@${{ steps.app.outputs.digest }}"
           backup="$r/schulos-backup@${{ steps.backup.outputs.digest }}"
           agent="$r/schulos-agent@${{ steps.agent.outputs.digest }}"
-          for ref in "$app" "$backup" "$agent"; do
+          refs=("$app" "$backup" "$agent")
+          if [ -n "$CADDY_DNS_DIGEST" ]; then caddydns="$r/schulos-caddy-dns@$CADDY_DNS_DIGEST"; refs+=("$caddydns"); fi
+          for ref in "${refs[@]}"; do
             cosign sign --yes --key env://COSIGN_PRIVATE_KEY --tlog-upload=false --use-signing-config=false "$ref"
             cosign verify --key release/cosign.pub --insecure-ignore-tlog=true "$ref" > /dev/null
           done
-          { echo "app=$app"; echo "backup=$backup"; echo "agent=$agent"; } >> "$GITHUB_OUTPUT"
+          { echo "app=$app"; echo "backup=$backup"; echo "agent=$agent"; echo "caddydns=${caddydns:-}"; } >> "$GITHUB_OUTPUT"
 
       # B-48: Inhalt der Images (OS- und npm-Pakete) als CycloneDX je Image – Commit und Digests stehen in release.json.
       # Ohne SBOM (syft gescheitert) geht das Release trotzdem raus, mit Warnung.
@@ -278,9 +301,12 @@ jobs:
           APP: ${{ steps.refs.outputs.app }}
           BACKUP: ${{ steps.refs.outputs.backup }}
           AGENT: ${{ steps.refs.outputs.agent }}
+          CADDYDNS: ${{ steps.refs.outputs.caddydns }}
         run: |
           mkdir -p dist-release
-          for pair in "app=$APP" "backup=$BACKUP" "agent=$AGENT"; do
+          pairs=("app=$APP" "backup=$BACKUP" "agent=$AGENT")
+          [ -z "$CADDYDNS" ] || pairs+=("caddy-dns=$CADDYDNS")
+          for pair in "${pairs[@]}"; do
             name="${pair%%=*}"; ref="${pair#*=}"
             docker run --rm -v "$HOME/.docker/config.json:/config/config.json:ro" -e DOCKER_CONFIG=/config "$(sh scripts/pin.sh syft)" -q \
               "registry:$ref" -o cyclonedx-json > "dist-release/sbom-$name.cdx.json" ||
@@ -302,10 +328,13 @@ jobs:
 
       - name: Release-Manifest schreiben
         if: steps.plan.outputs.skip != 'true' && steps.upstream.outputs.skip != 'true'
+        env:
+          CADDYDNS: ${{ steps.refs.outputs.caddydns }}
         run: |
+          dns=(); [ -z "$CADDYDNS" ] || dns=(--caddy-dns "$CADDYDNS")
           $TSX scripts/release-manifest.ts --version "${{ steps.plan.outputs.version }}" --commit "${{ steps.plan.outputs.ref }}" \
             --app "${{ steps.refs.outputs.app }}" --backup "${{ steps.refs.outputs.backup }}" --agent "${{ steps.refs.outputs.agent }}" \
-            --upstream upstream.json ${{ steps.upstream.outputs.auto }} --files dist-release --out dist-release
+            "${dns[@]}" --upstream upstream.json ${{ steps.upstream.outputs.auto }} --files dist-release --out dist-release
 
       # nur cosign sieht den Schlüssel – kein Node/tsx in diesem Schritt
       - name: Release-Manifest signieren

@@ -8,6 +8,7 @@ import { applies, resolve, writeInstallYaml } from "./answers";
 import { envSafe, hhmm, parseWindow } from "./checks";
 import { QUESTIONS, retentionOf, SSH_PRIVATE_NETS, type Answers, type InstallContext } from "./questions";
 import { rcloneObscure } from "./rclone";
+import { DNS_ENV, dnsFields } from "./dns";
 
 export const MAIN_DIR = "/opt/schulos";
 export const BACKUP_DIR = "/opt/schulos-backup";
@@ -88,7 +89,20 @@ const s = (a: Answers, id: string) => (typeof a[id] === "string" ? (a[id] as str
 const n = (a: Answers, id: string) => (typeof a[id] === "number" ? String(a[id]) : undefined);
 const xs = (a: Answers, id: string) => (Array.isArray(a[id]) ? (a[id] as string[]) : []);
 
+/** CA-06: DNS-Anbieter und Zugang (nur .env des Hauptsystems, Rechte 600) – das Caddy-Image stellt der Systemschritt um */
+function dns(a: Answers): Entry[] {
+  const provider = s(a, "web.dns_provider")!;
+  return [
+    "Let's Encrypt per DNS-Prüfung (docs/ZERTIFIKATE.md Teil B): Zugang zum DNS-Anbieter – nur hier, nie im Backup; Caddy mit DNS-Modulen",
+    ["SCHULOS_TLS", s(a, "web.acme_email")],
+    ["SCHULOS_TLS_DNS", provider],
+    ...dnsFields(provider).map((f): Entry => [DNS_ENV[f], s(a, `web.dns_${f}`)]),
+    ["SCHULOS_DNS_RESOLVERS", xs(a, "web.dns_resolvers").join(" ")],
+  ];
+}
+
 function tls(a: Answers): Entry[] {
+  if (a["web.tls"] === "dns") return dns(a);
   if (a["web.tls"] === "letsencrypt") return [["SCHULOS_TLS", s(a, "web.acme_email")]];
   if (a["web.tls"] === "proxy") return ["hinter vorhandenem Proxy: der Proxy spricht https mit der eigenen CA dieses Servers", ["SCHULOS_TLS", "internal"]];
   return [["SCHULOS_TLS", "internal"]];

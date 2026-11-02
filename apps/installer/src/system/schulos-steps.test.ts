@@ -57,6 +57,33 @@ describe("SchulOS-Schritte", () => {
     expect(konsole).not.toMatch(/qrencode|Kopplungscode erzeugen/);
   });
 
+  it("CA-06/CA-07: DNS-Prüfung – Caddy-Image umstellen (Zeile ersetzen), Abschlussprüfung im Erststart", async () => {
+    const dns = { ...PRODUCTION, "web.tls": "dns", "web.acme_email": "it@gs-musterstadt.de", "web.dns_provider": "desec", "web.dns_token": "t0ken" };
+    const plan = await generate(dns, deps, CTX);
+    const steps = schulosSteps(plan, O);
+    const step = steps.find((s) => s.title === "Caddy mit DNS-Modulen") as Extract<Step, { kind: "run" }>;
+    expect(step.argv.slice(0, 2)).toEqual(["sh", "-c"]);
+    expect(step.argv.at(-1)).toBe("/target/opt/schulos/.env");
+    // nach dem Anhängen der Image-Angaben
+    expect(steps.indexOf(step)).toBe(steps.findIndex((s) => s.title === "Image-Angaben in die .env") + 1);
+    expect(schulosSteps(await generate(PRODUCTION, deps, CTX), O).some((s) => s.title === "Caddy mit DNS-Modulen")).toBe(false);
+    // das Skript selbst: ersetzt die Zeile, statt eine zweite anzuhängen; ohne DNS-Image auf dem Medium Abbruch
+    const run = (env: string) => {
+      const script = `f=$(mktemp)\nprintf '%s' "$ENV_TEXT" > "$f"\nset -- "$f"\n${step.argv[2]}\nrc=$?\ncat "$f"\nrm -f "$f"\nexit $rc\n`;
+      return spawnSync("bash", ["-s"], { input: script, encoding: "utf8", env: { ...process.env, ENV_TEXT: env } });
+    };
+    const ok = run("SCHULOS_TLS_DNS=desec\nSCHULOS_CADDY_IMAGE=caddy:2@sha256:aa\nSCHULOS_CADDY_DNS_IMAGE=schulos-caddy-dns:1.0@sha256:bb\n");
+    expect(ok.status).toBe(0);
+    expect(ok.stdout.match(/^SCHULOS_CADDY_IMAGE=.*$/gm)).toEqual(["SCHULOS_CADDY_IMAGE=schulos-caddy-dns:1.0@sha256:bb"]);
+    const fehlt = run("SCHULOS_CADDY_IMAGE=caddy:2\n");
+    expect(fehlt.status).not.toBe(0);
+    expect(fehlt.stderr).toContain("SCHULOS_CADDY_DNS_IMAGE fehlt");
+    // Erststart: Anbieter bekannt, Abschlussprüfung nicht fatal
+    expect(sourceEnv(firstbootEnv(plan), ["TLS_DNS"])).toEqual({ TLS_DNS: "desec" });
+    expect(firstbootEnv(await generate(PRODUCTION, deps, CTX))).not.toContain("TLS_DNS");
+    expect(firstbootScript()).toContain('schulosctl zertifikat-pruefen --warten 1500 || echo "Kein öffentliches Zertifikat');
+  });
+
   it("Backupserver: kein schulosctl/Timer, Stack aus compose.backup.yaml, Offsite-Host für den Schlüsselabgleich", async () => {
     const plan = await generate({ ...BACKUP, "offsite.type": "sftp", "offsite.host": "u1.your-storagebox.de", "offsite.port": 23, "offsite.user": "u1", "offsite.password": "Box-Pass-1" }, deps, CTX);
     const steps = schulosSteps(plan, O);

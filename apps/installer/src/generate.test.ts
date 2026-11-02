@@ -9,6 +9,7 @@ import { readInstallYaml, resolve } from "./answers";
 import { BACKUP, PRODUCTION } from "./fixtures";
 import { generate, summarize, wartungDropin, type GenerateDeps, type InstallPlan } from "./generate";
 import { rcloneReveal } from "./rclone";
+import type { Answers } from "./questions";
 
 const deps: GenerateDeps = { hashPassword, randomSecret: () => "zufall-0123456789abcdef", pairingCode: () => "AB12-CD34-EF56", now: new Date("2026-10-05T08:00:00Z") };
 
@@ -132,6 +133,62 @@ describe("Konfiguration erzeugen – Hauptsystem", () => {
     // Proxy-Adressen nur bei web.tls = proxy
     const le = await generate({ ...PRODUCTION, "web.tls": "letsencrypt", "web.acme_email": "it@schule.de", "web.trusted_proxies": ["10.0.0.5"] }, deps);
     expect(env(le, "/.env").SCHULOS_TRUSTED_PROXIES).toBeUndefined();
+  });
+
+  it("CA-06: Let's Encrypt per DNS-Prüfung – Anbieter und Zugang nur in der .env, nie in schulos-install.yaml", async () => {
+    const dns = { ...PRODUCTION, "web.tls": "dns", "web.acme_email": "it@gs-musterstadt.de", "web.dns_provider": "netcup", "web.dns_user": "12345", "web.dns_token": "api-key-1", "web.dns_secret": "pa$s-wort!" };
+    const plan = await generate(dns, deps);
+    const e = env(plan, "/.env");
+    expect(e).toMatchObject({
+      SCHULOS_TLS: "it@gs-musterstadt.de",
+      SCHULOS_TLS_DNS: "netcup",
+      SCHULOS_DNS_USER: "12345",
+      SCHULOS_DNS_TOKEN: "api-key-1",
+      SCHULOS_DNS_SECRET: "pa$s-wort!",
+      SCHULOS_DNS_RESOLVERS: "9.9.9.9 1.1.1.1",
+    });
+    expect(e.SCHULOS_DNS_SERVER).toBeUndefined();
+    expect(e.SCHULOS_CADDY_IMAGE).toBeUndefined();
+    expect(file(plan, "/.env").mode).toBe(0o600);
+    // App und Export sehen den Zugang nicht
+    expect(file(plan, "schulos.env").content).not.toMatch(/SCHULOS_DNS_|api-key-1/);
+    const exported = file(plan, "schulos-install.yaml").content;
+    expect(exported).toContain("dns_provider: netcup");
+    expect(exported).toContain("dns_user:");
+    expect(exported).not.toMatch(/api-key-1|pa\$s|dns_token|dns_secret/);
+    expect(summarize(dns).find((l) => l.id === "web.dns_secret")!.value).toBe("••••••••");
+    // RFC 2136: Server, Schlüsselname, Verfahren, Schlüssel; eigene Prüf-DNS-Server
+    const rfc = await generate(
+      { ...PRODUCTION, "web.tls": "dns", "web.acme_email": "it@gs-musterstadt.de", "web.dns_provider": "rfc2136", "web.dns_server": "ns1.gs-musterstadt.de:53", "web.dns_user": "acme", "web.dns_secret": "c2VjcmV0", "web.dns_resolvers": ["10.0.0.53"] },
+      deps,
+    );
+    expect(env(rfc, "/.env")).toMatchObject({ SCHULOS_TLS_DNS: "rfc2136", SCHULOS_DNS_SERVER: "ns1.gs-musterstadt.de:53", SCHULOS_DNS_KEY_ALG: "hmac-sha256", SCHULOS_DNS_RESOLVERS: "10.0.0.53" });
+    // INWX ohne Zwei-Faktor: kein Token
+    const inwx = await generate({ ...dns, "web.dns_provider": "inwx", "web.dns_user": "schulos-api", "web.dns_token": undefined as never }, deps);
+    expect(env(inwx, "/.env").SCHULOS_DNS_TOKEN).toBeUndefined();
+  });
+
+  it("CA-06: Prüfungen – nur Hauptsystem, öffentliche Domain, Pflichtangaben je Anbieter, Formate", () => {
+    const base: Answers = { ...PRODUCTION, "web.tls": "dns", "web.acme_email": "it@gs-musterstadt.de" };
+    const ids = (a: Answers) => {
+      const r = resolve(a);
+      return { missing: r.missing, errors: r.errors.map((e) => e.id) };
+    };
+    expect(ids(base).missing).toEqual(expect.arrayContaining(["web.dns_provider"]));
+    expect(ids({ ...base, "web.dns_provider": "netcup" }).missing).toEqual(expect.arrayContaining(["web.dns_user", "web.dns_token", "web.dns_secret"]));
+    expect(ids({ ...base, "web.dns_provider": "cloudflare", "web.dns_token": "zu-kurz" }).errors).toContain("web.dns_token");
+    expect(ids({ ...base, "web.dns_provider": "cloudflare", "web.dns_token": "a".repeat(40) })).toEqual({ missing: [], errors: [] });
+    expect(ids({ ...base, "web.dns_provider": "ionos", "web.dns_token": "ohnepunkt" }).errors).toContain("web.dns_token");
+    expect(ids({ ...base, "web.dns_provider": "netcup", "web.dns_user": "K-12", "web.dns_token": "k", "web.dns_secret": "p" }).errors).toContain("web.dns_user");
+    expect(ids({ ...base, "web.dns_provider": "rfc2136", "web.dns_server": "ns1:99999", "web.dns_user": "a", "web.dns_secret": "!!" }).errors).toEqual(
+      expect.arrayContaining(["web.dns_server", "web.dns_secret"]),
+    );
+    expect(ids({ ...base, "web.dns_provider": "desec", "web.dns_token": "t", "web.dns_resolvers": ["10.0.0.0/8"] }).errors).toContain("web.dns_resolvers");
+    expect(ids({ ...base, "web.domain": "schulos.local", "web.dns_provider": "desec", "web.dns_token": "t" }).errors).toContain("web.tls");
+    // Backupserver: DNS-Prüfung nicht angeboten (Stufe 1)
+    expect(resolve({ ...BACKUP, "web.tls": "dns" }).errors.map((e) => e.id)).toContain("web.tls");
+    // Hinweis auf Split-DNS und Zertifikatsprotokolle
+    expect(resolve({ ...base, "web.dns_provider": "desec", "web.dns_token": "t" }).warnings.map((w) => w.id)).toContain("web.tls");
   });
 
   it("Wartungsfenster als Timer-Drop-in: erstes Viertel des Fensters", () => {

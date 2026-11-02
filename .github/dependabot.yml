@@ -52,3 +52,20 @@ updates:
         update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "images"
+  # CA-07: Go-Module des Caddy-Images mit DNS-Modulen (deploy/caddy-dns: Caddy + caddy-dns/*, go.sum mit Prüfsummen) –
+  # gebündelt; Major-Sprünge (Caddy 3, Modul /v3) von Hand. Neuer Caddy-Stand → Laufzeit-Basis caddy:2 (oben) passt weiter.
+  - package-ecosystem: gomod
+    directory: /deploy/caddy-dns
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Berlin
+    groups:
+      caddy-dns:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: "caddy-dns"

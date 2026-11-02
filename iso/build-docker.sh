@@ -114,7 +114,8 @@ BUILDER=schulos-repro-$(pin buildkit | sed 's/.*sha256:\(.\{12\}\).*/\1/')
 docker buildx inspect "$BUILDER" >/dev/null 2>&1 ||
   docker buildx create --name "$BUILDER" --driver docker-container --driver-opt "image=$(pin buildkit)" >/dev/null
 ARGS=(--build-arg "SCHULOS_VERSION=$VERSION" --build-arg "SCHULOS_BUILD_ID=$COMMIT" --build-arg "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
-  --build-arg "NODE_IMAGE=$(pin node)" --build-arg "RESTIC_IMAGE=$(pin restic)" --build-arg "RCLONE_IMAGE=$(pin rclone)")
+  --build-arg "NODE_IMAGE=$(pin node)" --build-arg "RESTIC_IMAGE=$(pin restic)" --build-arg "RCLONE_IMAGE=$(pin rclone)"
+  --build-arg "GO_IMAGE=$(pin golang)" --build-arg "CADDY_IMAGE=$(pin caddy)")
 # immer ohne Cache: gecachte Layer tragen die Zeitstempel eines früheren Baus (anderes SOURCE_DATE_EPOCH, nur nach oben
 # begrenzt) – mit Cache wären die Bytes vom Zustand des Builders abhängig
 ARGS+=(--no-cache)
@@ -130,6 +131,8 @@ own() { # <name> <dockerfile>
 own schulos Dockerfile
 own schulos-agent apps/agent/Dockerfile
 own schulos-backup apps/backup/Dockerfile
+# CA-07: Caddy mit DNS-Modulen – auf dem Medium, aktiv nur bei „Let's Encrypt per DNS“ (Installer stellt SCHULOS_CADDY_IMAGE um)
+own schulos-caddy-dns deploy/caddy-dns/Dockerfile
 # Cache des Builders wird nie wiederverwendet (--no-cache) – sonst wächst er mit jedem Bau um einige GB (die Build-VM lief voll)
 docker buildx prune --builder "$BUILDER" -af >/dev/null
 # Fremd-Images per Digest ziehen, unter dem Tag ablegen (images.env, Compose) – der Digest steht in der Stückliste
@@ -149,13 +152,14 @@ SCHULOS_IMAGE=schulos:$VERSION
 SCHULOS_AGENT_IMAGE=schulos-agent:$VERSION
 SCHULOS_BACKUP_IMAGE=schulos-backup:$VERSION
 SCHULOS_CADDY_IMAGE=$CADDY
+SCHULOS_CADDY_DNS_IMAGE=schulos-caddy-dns:$VERSION
 SCHULOS_POSTGRES_IMAGE=$POSTGRES
 SCHULOS_REST_IMAGE=$REST
 SCHULOS_CLAMAV_IMAGE=$(pin clamav)
 SCHULOS_CROWDSEC_IMAGE=$(pin crowdsec)
 SCHULOS_STEP_CA_IMAGE=$(pin step-ca)
 EOF
-REFS=(schulos:$VERSION schulos-agent:$VERSION schulos-backup:$VERSION "$CADDY" "$POSTGRES" "$REST")
+REFS=(schulos:$VERSION schulos-agent:$VERSION schulos-backup:$VERSION schulos-caddy-dns:$VERSION "$CADDY" "$POSTGRES" "$REST")
 fi
 # SEC-08: Tags → name:tag@sha256:… (Digest aus dem jeweiligen Archiv)
 npx --no-install tsx scripts/release-manifest.ts --pin-images "$(host "$IN/medium/images/images.env")" --digests "$(host "$IN/digests.txt")"

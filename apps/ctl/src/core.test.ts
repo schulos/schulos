@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyAgentState } from "@schulos/server/agent-api";
-import { dockerExposureProblem, formatBytes, formatStatus, parseArgs, parseComposePs, parseDf, redactLog, sanitizeEnv, UsageError } from "./core";
+import { certCheckText, dockerExposureProblem, formatBytes, formatStatus, parseArgs, parseComposePs, parseDf, redactLog, sanitizeEnv, UsageError } from "./core";
 
 describe("Aufruf", () => {
   it("Befehle, Installationsordner, Optionen", () => {
@@ -48,6 +48,41 @@ describe("Aufruf", () => {
     expect(() => parseArgs(["update", "--kanal", "nightly"])).toThrow("--kanal: stabil oder beta");
     expect(() => parseArgs(["status", "extra"])).toThrow("Unerwartet: extra");
     expect(() => parseArgs(["--dir"])).toThrow("--dir braucht einen Wert");
+  });
+
+  it("CA-06: zertifikat-pruefen", () => {
+    expect(parseArgs(["zertifikat-pruefen"]).command).toEqual({ name: "zertifikat-pruefen", waitSeconds: 0, staging: false });
+    expect(parseArgs(["zertifikat-pruefen", "--warten", "1500", "--staging"]).command).toEqual({ name: "zertifikat-pruefen", waitSeconds: 1500, staging: true });
+    expect(() => parseArgs(["zertifikat-pruefen", "--warten", "bald"])).toThrow("--warten: Sekunden");
+    expect(() => parseArgs(["zertifikat-pruefen", "x"])).toThrow("Unerwartet: x");
+  });
+});
+
+describe("CA-06: Abschlussprüfung des Zertifikats", () => {
+  const o = { domain: "schulos.schule-xy.de", acme: true, dns: "hetzner", staging: false };
+  const cert = { expiresAt: "2027-01-31T10:00:00.000Z", issuer: "Let's Encrypt R12", trusted: true, nameOk: true, problem: null };
+
+  it("öffentlich gültig → ok; eigene CA → nichts zu prüfen", () => {
+    expect(certCheckText(cert, o)).toEqual({ ok: true, text: "schulos.schule-xy.de: öffentliches Zertifikat von Let's Encrypt R12, gültig bis 2027-01-31 ✓" });
+    expect(certCheckText(null, { ...o, acme: false, dns: null }).ok).toBe(true);
+  });
+
+  it("kein bzw. nicht vertrauenswürdiges Zertifikat → Hinweise je Prüfart", () => {
+    const none = certCheckText(null, o);
+    expect(none.ok).toBe(false);
+    expect(none.text).toContain("noch kein Zertifikat");
+    expect(none.text).toContain("DNS-Prüfung (hetzner)");
+    expect(certCheckText(null, { ...o, dns: null }).text).toContain("Port 80 aus dem Internet");
+    const self = certCheckText({ ...cert, issuer: "Caddy Local Authority", trusted: false, problem: "SELF_SIGNED_CERT_IN_CHAIN" }, o);
+    expect(self).toMatchObject({ ok: false });
+    expect(self.text).toContain("nicht öffentlich vertrauenswürdig (SELF_SIGNED_CERT_IN_CHAIN)");
+  });
+
+  it("Staging: Testzertifikat zählt nur mit --staging und passendem Namen", () => {
+    const staging = { ...cert, issuer: "(STAGING) Let's Encrypt (STAGING) Counterfeit Cashew R10", trusted: false, problem: "UNABLE_TO_GET_ISSUER_CERT_LOCALLY" };
+    expect(certCheckText(staging, o).ok).toBe(false);
+    expect(certCheckText(staging, { ...o, staging: true })).toMatchObject({ ok: true });
+    expect(certCheckText({ ...staging, nameOk: false, problem: "Name passt nicht" }, { ...o, staging: true }).ok).toBe(false);
   });
 });
 
@@ -137,6 +172,28 @@ describe("Support-Bundle ohne Personendaten", () => {
         "SCHULOS_HTTP_PORT=80",
       ].join("\n"),
     );
+  });
+
+  it("CA-06: Zugang zum DNS-Anbieter und ACME-E-Mail geschwärzt, Anbieter und Modus lesbar", () => {
+    const env = [
+      "SCHULOS_TLS=it@schule.de",
+      "SCHULOS_TLS_DNS=netcup",
+      "SCHULOS_DNS_USER=12345",
+      "SCHULOS_DNS_TOKEN=abc",
+      "SCHULOS_DNS_SECRET='x$y'",
+      "SCHULOS_DNS_SERVER=ns1.schule.de:53",
+      "SCHULOS_DNS_RESOLVERS=9.9.9.9 1.1.1.1",
+    ].join("\n");
+    expect(sanitizeEnv(env).split("\n")).toEqual([
+      "SCHULOS_TLS=***",
+      "SCHULOS_TLS_DNS=netcup",
+      "SCHULOS_DNS_USER=***",
+      "SCHULOS_DNS_TOKEN=***",
+      "SCHULOS_DNS_SECRET=***",
+      "SCHULOS_DNS_SERVER=***",
+      "SCHULOS_DNS_RESOLVERS=9.9.9.9 1.1.1.1",
+    ]);
+    expect(sanitizeEnv("SCHULOS_TLS=internal")).toBe("SCHULOS_TLS=internal");
   });
 
   it("Logs: E-Mail, IP, Token, Namen, Zufallswerte", () => {

@@ -123,4 +123,20 @@ describe("BM-04: Mail-Stau und Zertifikat", () => {
     expect(alarms("2026-10-01T00:00:00Z")[0]).toMatchObject({ key: "zertifikat", title: "Zertifikat ist abgelaufen" });
     expect(collectAlarms({ backup: okBackup, system: system({ tls: null }), now })).toEqual([]);
   });
+
+  it("CA-08: öffentliches Zertifikat – Mail schon, wenn die Erneuerung überfällig ist (Drittel der Laufzeit minus Spielraum)", () => {
+    const day = 86_400_000;
+    // 90 Tage Laufzeit: Caddy erneuert ab 30 Tagen Rest, Alarm ab weniger als 27 Tagen
+    const tls = (restDays: number, acme = true) => {
+      const expiresAt = new Date(now.getTime() + restDays * day);
+      return { expiresAt: expiresAt.toISOString(), issuedAt: new Date(expiresAt.getTime() - 90 * day).toISOString(), acme };
+    };
+    const keys = (t: ReturnType<typeof tls>) => collectAlarms({ backup: okBackup, system: system({ tls: t }), now }).map((a) => a.key);
+    expect(keys(tls(28))).toEqual([]);
+    expect(keys(tls(26))).toEqual(["zertifikat:erneuerung"]);
+    expect(keys(tls(26, false))).toEqual([]);
+    const [a] = collectAlarms({ backup: okBackup, system: system({ tls: tls(10) }), now });
+    expect(a).toMatchObject({ key: "zertifikat", title: "Zertifikat läuft in 10 Tagen ab" });
+    expect(a!.detail).toContain("automatische Erneuerung klappt nicht");
+  });
 });

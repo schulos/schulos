@@ -15,7 +15,7 @@ import { bundleImages, bundleInfo, checkImageArchive, loadedDigests } from "./bu
 import { formatProtocolLine, lockFromBeforeBoot, readEnvValue, runUpdate, setEnvValues, type ProtocolEntry, type UpdateOutcome } from "./update";
 import { buildStatus, nextRebootState, orderEffect, protocolTail, windowDecision, type Approval, type RebootPending } from "./system-sync";
 import { prepareConsole } from "./konsole";
-import { probeTlsExpiry, tlsTargetFromEnv } from "./tls-probe";
+import { acmeFromEnv, probeTls, probeTlsExpiry, tlsTargetFromEnv } from "./tls-probe";
 import { readCaddyRoot } from "./root-ca";
 import { checkAfterBoot, nextCodename, runOsUpgrade } from "./os-upgrade";
 import { MARKER as OS_MARKER, osDeps, rebootRequired } from "./os";
@@ -34,6 +34,7 @@ import {
 import { parseOrder, parseOsRelease, ROOT_CA_FILE, SYSTEM_ORDER_FILE, SYSTEM_STATUS_FILE, type SystemOrder } from "@schulos/server/system";
 import {
   dockerExposureProblem,
+  certCheckText,
   formatStatus,
   statusReport as statusReportJson,
   type StatusInput,
@@ -129,6 +130,41 @@ async function backupState(c: Compose): Promise<AgentState | null> {
   }
 }
 
+/** Ziel und Modus aus der .env des Stacks (BM-04, CA-08) */
+function tlsEnv(envText: string) {
+  const env = {
+    SCHULOS_DOMAIN: readEnvValue(envText, "SCHULOS_DOMAIN"),
+    SCHULOS_HTTPS_PORT: readEnvValue(envText, "SCHULOS_HTTPS_PORT"),
+    SCHULOS_TLS: readEnvValue(envText, "SCHULOS_TLS"),
+  };
+  const dns = readEnvValue(envText, "SCHULOS_TLS_DNS");
+  return { target: tlsTargetFromEnv(env), acme: acmeFromEnv(env), dns: dns && dns !== "aus" ? dns : null };
+}
+
+function stackTls(envText: string) {
+  const t = tlsEnv(envText);
+  return probeTlsExpiry(t.target, t.acme);
+}
+
+/**
+ * CA-06: Abschlussprüfung bzw. Prüfung von Hand – öffentliches Zertifikat am HTTPS-Port? Mit --warten alle 15 s erneut, bis es
+ * passt oder die Zeit um ist (Caddy holt es nach dem Start; die DNS-Prüfung dauert je Anbieter Sekunden bis Minuten).
+ */
+async function certCheck(dir: string, waitSeconds: number, staging: boolean): Promise<number> {
+  const envFile = path.join(dir, ".env");
+  const t = tlsEnv(existsSync(envFile) ? readFileSync(envFile, "utf8") : "");
+  const until = Date.now() + waitSeconds * 1000;
+  for (;;) {
+    const r = t.acme ? await probeTls(t.target) : null;
+    const res = certCheckText(r, { domain: t.target.servername, acme: t.acme, dns: t.dns, staging });
+    if (res.ok || Date.now() >= until) {
+      (res.ok ? console.log : console.error)(res.text);
+      return res.ok ? 0 : 1;
+    }
+    await new Promise((r) => setTimeout(r, 15_000));
+  }
+}
+
 async function statusInput(c: Compose, dir: string): Promise<StatusInput> {
   const ps = await c.capture(["ps", "--all", "--format", "json"]);
   if (ps.code !== 0) throw new Error(`docker compose ps fehlgeschlagen: ${ps.stderr.trim() || ps.code}`);
@@ -136,8 +172,8 @@ async function statusInput(c: Compose, dir: string): Promise<StatusInput> {
   const read = (f: string) => (existsSync(f) ? readFileSync(f, "utf8") : null);
   const exposure = dockerExposureProblem(read("/etc/docker/daemon.json"), readEnvValue(read(path.join(dir, ".env")) ?? "", "SCHULOS_PUBLIC_ACCESS"));
   const envText = read(path.join(dir, ".env")) ?? "";
-  // BM-04: Ablauf des Zertifikats am HTTPS-Port des Stacks
-  const tls = await probeTlsExpiry(tlsTargetFromEnv({ SCHULOS_DOMAIN: readEnvValue(envText, "SCHULOS_DOMAIN"), SCHULOS_HTTPS_PORT: readEnvValue(envText, "SCHULOS_HTTPS_PORT") }));
+  // BM-04: Ablauf des Zertifikats am HTTPS-Port des Stacks (CA-08: dazu Ausstellung, ACME, Vertrauen)
+  const tls = await stackTls(envText);
   // CA-02: Fingerabdruck der eigenen Root (nur TLS-Modus internal)
   const root = await readCaddyRoot(readEnvValue(envText, "SCHULOS_TLS"), (a) => c.capture(a));
   return { services: parseComposePs(ps.stdout), app, backup, disk: df.code === 0 ? parseDf(df.stdout) : null, now: new Date(), exposure, tls, rootCa: root?.info ?? null };
@@ -269,6 +305,8 @@ async function run(inv: Invocation): Promise<number> {
       return dbRoleCmd(dir);
     case "system-sync":
       return systemSync(dir);
+    case "zertifikat-pruefen":
+      return certCheck(dir, cmd.waitSeconds, cmd.staging);
     case "wartungsfenster":
       return maintenanceWindow(dir);
     case "vorschau":
@@ -869,7 +907,7 @@ async function systemSync(dir: string): Promise<number> {
     reboot,
     tpm: tpm.mode === "tpm2" ? { problems: tpmBindingProblems(tpm) } : null,
     // BM-04: Ablauf des Zertifikats am HTTPS-Port (null = nicht messbar)
-    tls: await probeTlsExpiry(tlsTargetFromEnv({ SCHULOS_DOMAIN: readEnvValue(s.env(), "SCHULOS_DOMAIN"), SCHULOS_HTTPS_PORT: readEnvValue(s.env(), "SCHULOS_HTTPS_PORT") })),
+    tls: await stackTls(s.env()),
     rootCa: root?.info ?? null,
     error,
   });
