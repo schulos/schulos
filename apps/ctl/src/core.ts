@@ -397,9 +397,11 @@ export function sanitizeEnv(text: string): string {
  * Logzeilen schwärzen: E-Mail-Adressen, IP-Adressen (außer Loopback/Docker-intern bleibt erkennbar als Klasse),
  * Bearer-/Basic-Token, lange Zufallszeichenketten (Token, Sitzungen), Benutzernamen in „…“ und Schlüssel=Wert-Paare
  * mit Personenbezug. Lieber zu viel als zu wenig – das Bundle verlässt die Schule.
+ * CA-01: PEM-Blöcke (Schlüssel, Zertifikate) ganz – CA-Schlüssel gehören nur ins verschlüsselte Backup, nie ins Bundle.
  */
 export function redactLog(text: string): string {
   return text
+    .replace(/-----BEGIN ([A-Z0-9 ]+)-----[\s\S]*?(?:-----END \1-----|$)/g, "<pem $1>")
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "<email>")
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 <token>")
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, (ip) => (ip.startsWith("127.") || ip === "0.0.0.0" ? ip : "<ip>"))

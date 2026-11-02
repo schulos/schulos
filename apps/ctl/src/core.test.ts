@@ -161,4 +161,10 @@ describe("Support-Bundle ohne Personendaten", () => {
     expect(r).toContain('"uri":"/api/health"');
     expect(r).toContain("a".repeat(64)); // Digests bleiben (Versionen nachvollziehbar)
   });
+
+  it("CA-01: PEM-Blöcke (CA-Schlüssel, auch abgeschnitten) kommen nie ins Diagnosepaket", () => {
+    const key = "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIGEHEIM\nzeile2\n-----END EC PRIVATE KEY-----";
+    const r = redactLog(`vorher\n${key}\nnachher\n-----BEGIN PRIVATE KEY-----\nABGESCHNITTEN`);
+    expect(r).toBe("vorher\n<pem EC PRIVATE KEY>\nnachher\n<pem PRIVATE KEY>");
+  });
 });

@@ -395,6 +395,17 @@ Agent-Zugang scheitert (append-only), der Dump lässt sich mit `pg_restore` lese
 alle 30 s neu und bemerkt eine per `rename` ersetzte Datei gar nicht – die Backup-App schreibt sie deshalb in place, der Agent wartet
 beim ersten Zugriff ein 401 bis zu einer Minute ab.
 
+**CA-Schlüssel im Backup (CA-01, Projektleitung 2026-11-01):** Jeder Snapshot enthält zusätzlich die Wurzel der eigenen CA von Caddy
+(`caddy_data` → `caddy/pki/authorities/local/root.crt` + `root.key`, nicht Zwischen- und Serverzertifikate – die stellt Caddy neu aus)
+und, sobald eingerichtet, die ganze Schul-CA für Gerätezertifikate (Volume `step_ca`, §5c). Ohne sie erzeugt Caddy nach einer
+Wiederherstellung eine **neue Wurzel** – alle Geräte, die der alten vertrauen, zeigen dann Zertifikatsfehler. Der Agent hängt beide
+Volumes **nur lesend** ein; Caddy (Startskript `caddy-start`, `group_add: 1000`) gibt ihm Leserecht nur auf `root.crt`/`root.key`
+(0640, Besitzer root, Gruppe 1000) – auf einem frischen System, sobald Caddy die Wurzel angelegt hat. Fehlt etwas (Let's Encrypt,
+step-ca nicht eingerichtet) oder ist es nicht lesbar, sichert der Agent ohne diesen Teil weiter und schreibt einen Hinweis ins
+Protokoll. Die Schlüssel stehen nur im verschlüsselten restic-Repository – nie in Meldungen an den Backupserver, Protokollen oder im
+Diagnosepaket (`schulosctl support-bundle` enthält keine Volumes und schwärzt PEM-Blöcke). Die Schlüssel der Schul-CA sind zusätzlich
+mit `SCHULOS_DEVICE_CA_PASSWORD` verschlüsselt; dieses Passwort steht nur in der `.env` und gehört in den Notfallordner.
+
 ### 4.2 Web-UI
 | Bereich | Inhalt |
 |---|---|
@@ -532,6 +543,20 @@ Backupserver vertrauenswürdig ist.
   zurück, lokal Geändertes bleibt), neue Hardware (leere DB/Volumes → alles zurück, alter Agent-Token 401). Auch hier wartet der Agent beim
   ersten Zugriff ein 401 ab (rest-server liest die .htpasswd nur alle ~30 s).
 - Für die Stacks (B-28): Agent braucht `files` **schreibend**, App `restart: unless-stopped`, Backupserver einen Test-Postgres-Sidecar.
+- *CA-Schlüssel zurück (CA-01)*: Bei „komplett“, neuer Hardware und Offsite legt der Agent Wurzel + Schlüssel aus dem Stand in den
+  Übergabeordner des jeweiligen Dienstes (Volumes `ca_rueckspiel_caddy`, `ca_rueckspiel_step`) – nur wenn der Stand sie enthält und
+  sie sich vom laufenden System unterscheiden (sonst „unverändert“). **Caddy** übernimmt die Wurzel beim nächsten Start (Rechte 600,
+  Besitzer root, danach 0640 für den Agenten), verwirft Zwischen- und Serverzertifikate der alten Kette und stellt sie neu aus;
+  **step-ca** ersetzt beim nächsten Start seinen Ordner durch den Stand (Besitzer step, Schlüssel 600). Auf neuer Hardware starten
+  beide ohnehin erst nach der Wiederherstellung – **dieselbe Wurzel wie vorher, keine Zertifikatsfehler**. Bei „komplett“ auf einem
+  laufenden System mit anderer Wurzel (selten: Neuinstallation ohne Wiederherstellung, dann ein alter Stand) nennt das Ergebnis
+  „bereitgelegt“ – dann `docker compose restart caddy` (bzw. `docker compose --profile geraete restart step-ca`). Das Ergebnis
+  (`caddyCa`, `geraeteCa`) steht im Bericht der Wiederherstellung; ein Fehler dabei bricht sie nicht ab. Für die Schul-CA braucht die
+  neue `.env` dieselben `SCHULOS_DEVICE_CA_PASSWORD`/`SCHULOS_DEVICE_CA_PROVISIONER_PASSWORD` wie vorher (Notfallordner).
+- *Neuinstallation ohne Wiederherstellung* (Demo/Produktiv statt „aus Backup“): Caddy und step-ca legen **neue Wurzeln** an – die
+  Geräte brauchen die neuen Wurzelzertifikate (§5b, §5c). Stände von vor CA-01 enthalten die Schlüssel noch nicht („nicht im Stand“).
+- *Backupserver* (`compose.backup.yaml`): seine eigene Caddy-CA wird nicht gesichert. Nach einer Neuinstallation des Backupservers
+  gibt es eine neue Wurzel; Hauptsysteme pinnen die CA bei der Kopplung und müssen daher neu koppeln.
 
 ## 5. Hauptsystem im Betrieb
 
@@ -832,7 +857,7 @@ und zählt für die Anmeldesperre. Eine im Schulnetz begonnene Sitzung gilt von 
    lässt sich die CA nicht mehr starten. Optional `SCHULOS_DEVICE_CA_NAME` (Name der CA, Vorgabe „SchulOS Geraete-CA“).
 2. `docker compose --profile geraete up -d` – startet step-ca (Compose-Profil `geraete`). Beim ersten Start entstehen Wurzel,
    Zwischen-CA und der Provisioner `schulos` (Laufzeiten bis 731 Tage); die öffentlichen Zertifikate liegen danach im
-   Volume `geraete_ca`, die Schlüssel nur im Volume `step_ca` (gehört ins Backup – siehe Frage P4-40b). step-ca ist nur im
+   Volume `geraete_ca`, die Schlüssel nur im Volume `step_ca` (seit CA-01 im Backup, §4.1 – das Passwort aus Schritt 1 nicht, also Notfallordner). step-ca ist nur im
    internen Netz `ca` erreichbar, nicht von außen und nicht aus dem Schulnetz.
 3. In der `.env` `SCHULOS_DEVICE_CERTS=an` setzen, dann `docker compose up -d`. Caddy fragt jetzt nach einem Client-Zertifikat
    (`client_auth`, Modus `verify_if_given`: ohne Zertifikat geht es normal weiter). **Reihenfolge einhalten:** ohne die

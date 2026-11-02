@@ -214,6 +214,9 @@ jobs:
           # bei --wait-Fehlern die Protokolle der betroffenen Dienste ausgeben (sonst sieht man im CI-Log nur „unhealthy“)
           docker compose --profile geraete up -d --no-deps --wait --wait-timeout 180 step-ca ||
             { docker compose --profile geraete logs --no-color geraete-ca-init step-ca; exit 1; }
+          # CA-01: der Backup-Agent (hat step_ca zuerst eingehängt) liest die Schul-CA samt Schlüssel – sie kommt ins Backup
+          docker compose exec -T backup-agent sh -c 'test -r /srv/schulos/step-ca/config/ca.json && test -r /srv/schulos/step-ca/secrets/root_ca_key' ||
+            { echo "CA-01: Backup-Agent kann die Schul-CA nicht lesen"; exit 1; }
           bash scripts/haertung-pruefen.sh schulos --root caddy --cap caddy=NET_BIND_SERVICE --rw caddy --rw postgres --rw step-ca --rw crowdsec --rw clamav --ohne-nnp step-ca --cap step-ca=NET_BIND_SERVICE
           SCHULOS_DEVICE_CERTS=an docker compose up -d --wait --wait-timeout 180 app
           docker compose exec -T app node cli.mjs geraete-ca-pruefen

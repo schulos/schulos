@@ -1,5 +1,6 @@
 // Wiederherstellung auf das Hauptsystem (B-27, INSTALLATION.md §4.4) – nur bestätigte Aufträge (Code im Hauptsystem eingegeben).
-//  komplett: Sicherung des aktuellen Stands → Wartungsmodus → Datenbank (pg_restore --clean) → Dateien genau wie im Stand → Neustart
+//  komplett: Sicherung des aktuellen Stands → Wartungsmodus → Datenbank (pg_restore --clean) → Dateien genau wie im Stand →
+//            CA-Schlüssel an Caddy/step-ca übergeben, falls anders als jetzt (CA-01) → Neustart
 //  dateien:  nur fehlende Dateien zurück, vorhandene bleiben unverändert (versehentlich gelöschte Dateien)
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -9,7 +10,8 @@ import { lastLine } from "@schulos/server/exec";
 import type { StoredPairing } from "@schulos/server/pairing-client";
 import type { AgentDeps } from "./agent";
 import { pgEnv } from "./config";
-import { dumpFile, latestSnapshot, ResticError, restoreSnapshot, type ResticContext } from "./restic";
+import { stageCaRestore } from "./ca";
+import { dumpFile, latestSnapshot, ResticError, restoreSnapshot, snapshotPaths, type ResticContext } from "./restic";
 
 /** Pfad des Dumps im Snapshot (so legt ihn runBackup ab). */
 export const dumpPathIn = (workDir: string) => path.join(workDir, "datenbank", "schulos.dump");
@@ -75,6 +77,7 @@ export async function runRestore(d: RestoreDeps, p: StoredPairing, state: AgentS
       // Dateien genau wie im Stand: Neueres wird ersetzt, seitdem Hinzugekommenes gelöscht
       await restoreSnapshot(ctx, req.snapshotId, d.cfg.filesDir, [], { overwrite: "always", deleteExtra: true, sub: d.cfg.filesDir });
       details.dateien = "wie im Stand";
+      Object.assign(details, await caDetails(d, ctx, req.snapshotId));
     }
     return { id: req.id, status: "fertig", details };
   } catch (err) {
@@ -89,8 +92,25 @@ export async function runRestore(d: RestoreDeps, p: StoredPairing, state: AgentS
 }
 
 /**
+ * CA-01: Schlüssel der eigenen CAs aus dem Stand an Caddy bzw. step-ca übergeben. Scheitert das, bleibt die Wiederherstellung
+ * gültig (Datenbank und Dateien sind zurück) – das Ergebnis nennt es, Caddy erzeugt dann eine neue Wurzel.
+ */
+async function caDetails(d: AgentDeps, ctx: ResticContext, snapshotId: string, paths?: string[]): Promise<Record<string, string>> {
+  try {
+    const r = await stageCaRestore(d.cfg, ctx, snapshotId, paths ?? (await snapshotPaths(ctx, snapshotId)));
+    d.log(`CA-Schlüssel: Caddy ${r.caddyCa}, Schul-CA ${r.geraeteCa}`);
+    return { caddyCa: r.caddyCa, geraeteCa: r.geraeteCa };
+  } catch (err) {
+    const msg = `nicht zurückgespielt: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}`;
+    d.log(`CA-Schlüssel ${msg}`);
+    return { caddyCa: msg, geraeteCa: msg };
+  }
+}
+
+/**
  * Neue Hardware (INSTALLATION.md §4.4, Installer „aus Backup wiederherstellen“): vor dem ersten Start der App den neuesten Stand
- * zurückspielen – Datenbank, Dateien und secret.env (mit dem alten Geheimnis sind die Zwei-Faktor-Geheimnisse verschlüsselt).
+ * zurückspielen – Datenbank, Dateien und secret.env (mit dem alten Geheimnis sind die Zwei-Faktor-Geheimnisse verschlüsselt),
+ * dazu die CA-Schlüssel (CA-01: Caddy und step-ca übernehmen sie beim ersten Start – dieselbe Wurzel wie vorher).
  * Voraussetzung: Ersatz-Kopplung (backup-pairing.json mit dem Passwort des bestehenden Repositorys).
  */
 export async function restoreFromScratch(d: AgentDeps, p: StoredPairing): Promise<{ snapshot: string; details: Record<string, unknown> }> {
@@ -152,7 +172,8 @@ async function restoreLatest(d: AgentDeps, ctx: ResticContext): Promise<{ snapsh
     // Geheimnis der App per `restic dump` – ein Zurückholen nach „/“ setzte Rechte von /srv, /srv/schulos (nicht erlaubt)
     const secretFile = path.join(d.cfg.configDir, "secret.env");
     writeFileSync(secretFile, await dumpFile(ctx, snap.id, secretFile), { mode: 0o600 });
-    return { snapshot: snap.shortId, details: { datenbank: "eingespielt", dateien: "wie im Stand", geheimnis: "übernommen" } };
+    const ca = await caDetails(d, ctx, snap.id, snap.paths);
+    return { snapshot: snap.shortId, details: { datenbank: "eingespielt", dateien: "wie im Stand", geheimnis: "übernommen", ...ca } };
   } finally {
     rmSync(restoreDir, { recursive: true, force: true });
   }
