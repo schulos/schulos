@@ -756,6 +756,24 @@ Konzept und Entscheidungen: [`BEOBACHTUNGSNOTIZEN.md`](BEOBACHTUNGSNOTIZEN.md). 
 - [ ] **BN-03** (M) Oberfläche im Notenbuch, Hinweis- und Wortwarnung, `NOTICE_VERSION` anheben – erst nach DSB-Votum (Projektleitung 2026-11-01)
 - [ ] **BN-04** (S) Handbuch, Nutzungsordnungs-Baustein, Datenschutzdoku, E2E – erst nach DSB-Votum (Projektleitung 2026-11-01)
 
+## Losverfahren – Schulanmeldung bei Anmeldeüberhang (freigegeben von der Projektleitung 2026-11-02, Runde 13)
+Hebt Q-34 („kein Los in V1“) für ein eigenes, protokolliertes Werkzeug auf. Kurz: die Schulleitung (`anmeldung.decide`) bildet aus gleichrangigen offenen Anträgen eine Losgruppe für N Restplätze – SchulOS bewertet keine Kriterien; Seed-Hash wird vor dem Ziehen angezeigt, die Reihenfolge ist nachrechenbar (`lotOrder` aus der Kurswahl, nach `src/core/los.ts`); Ergebnis als Rangliste, Übernahme per Klick (Aufnahme 1…N, Rest Warteliste mit Rang); Neulosen nur mit Pflicht-Begründung, alter Lauf bleibt sichtbar; Protokoll speichert nur Antragsnummern, Seed und Zeugen-Funktionen, Namen nur im Druck; Löschklasse folgt dem Verfahren (LK-ENDE-1J).
+- [ ] **LO-01** (M) `anmeldung_lose` + Migration, `anmeldung_antraege.waitlist_rank`, `lotOrder` nach `src/core/los.ts` (Kurswahl nutzt es weiter), Service vorbereiten/ziehen/übernehmen/wiederholen mit Tests, Manifest `retention` (Projektleitung 2026-11-02)
+- [ ] **LO-02** (S–M) Oberfläche in der Entscheidungsliste: Losgruppe aus Auswahl, Vorschau mit Seed-Hash, Ergebnis, Übernahme; Wartelisten-Rang in Liste und Export (Projektleitung 2026-11-02)
+- [ ] **LO-03** (S) Protokoll-Druck, Audit, Doku (Handbuch mit Rechtshinweis „zu prüfen“, DATENSCHUTZ §3, PHASE4-Verweis Q-34), E2E (Projektleitung 2026-11-02)
+
+## Fachraum-Prüfungen – Gefahrstoffe/Chemie-Sammlung im Prüfkatalog (freigegeben von der Projektleitung 2026-11-02, Runde 13)
+Erweitert Q-23. Kurz: neue Prüfarten in der Vorlage (alle „zu prüfen“, Vorgabe inaktiv) für Chemie/NW-Fachräume und Strahlenschutz Physik (Laborabzüge, Notduschen, Sicherheitsschränke, Gasversorgung/Not-Aus, Gefahrstoffverzeichnis aktualisieren, Gefährdungsbeurteilungen Fachraum, Dichtheitsprüfung radioaktiver Präparate); Biologie später. Zuständige Gruppe je Prüfart (z. B. Fachschaft) bekommt die Erinnerungen und darf Prüfungen dieser Art erfassen, die Hausmeisterei sieht weiter alles. Kein Chemikalienkataster – nur die Frist „Verzeichnis aktualisiert“ mit PDF-Anhang.
+- [ ] **GS-01** (S) Vorlagen + Anlagenarten Abzug/Notdusche/Sicherheitsschrank als Kategorie-Vorlagen, Quellen-Hinweise, Tests der Vorlage – **abhängig von INV-01** (Kategorien-Tabelle) (Projektleitung 2026-11-02)
+- [ ] **GS-02** (M) Zuständige Gruppe je Prüfart: `gebaeude_inspection_types.responsible_group_id` + Migration, Erinnerungen/Alarm an die Gruppe, Erfassen und Planen für Gruppenmitglieder (nur diese Prüfart), Filter „meine Zuständigkeit“, Rechte-Tests – **nach INV-01** (gleiche Tabellen) (Projektleitung 2026-11-02)
+- [ ] **GS-03** (S) Doku (Handbuch „Fachraum-Prüfungen“, Hinweis „zu prüfen“), E2E (Projektleitung 2026-11-02)
+
+## Veranstaltungsanmeldung – an die Hausmeisterei (freigegeben von der Projektleitung 2026-11-02, Runde 13)
+Aus PHASE4 P4-75. Kurz: eigene Tabelle im Modul `gebaeude` (keine Ticket-Kategorie); anmelden alle mit `gebaeude.report`, bestätigen/Rückfrage/ablehnen mit `gebaeude.manage`; Zeitraum mit Auf-/Abbau, Räume, Personenzahl, Bedarf (Bestuhlung, Technik, Auf-/Abschließen, Heizung, Reinigung); Freigabe durch die Schulleitung nur per Moduleinstellung (Vorgabe aus); Raumsperre nur bei Überschneidung mit Unterricht, sonst Konflikthinweis (Wartung, Raumsperren, Buchungen); „Heute im Haus“ + Wochenvorschau, Gong am Vortag; Löschklasse LK-ENDE-1J ab Veranstaltungsende.
+- [ ] **VA-01** (M) `gebaeude_veranstaltungen` + `gebaeude_veranstaltung_raeume` + Verlauf, Migration, Service (anlegen/bestätigen/Rückfrage/absagen, Konflikte), Moduleinstellung Schulleitungs-Freigabe, Manifest `retention`, Tests (Projektleitung 2026-11-02)
+- [ ] **VA-02** (S–M) Seiten: Formular (Lehrkraft), Liste/Detail (Hausmeisterei), „Heute im Haus“ + Wochenvorschau, Vortag-Gong (Projektleitung 2026-11-02)
+- [ ] **VA-03** (S) Raumsperre und optionaler Schulkalender-Eintrag bei Bestätigung, Doku (Handbuch), E2E (Projektleitung 2026-11-02)
+
 ## Technische Schulden / Folgepunkte
 - [x] **TD-01** Deutsche Sortierung in DB-Listen (Benutzer, Adressbuch, Gruppen): PGlite sortiert per C-Collation (ä hinter z). Entweder ICU-Collation prüfen oder Sortierschlüssel-Spalte (umlaut-normalisiert). In der Aufgaben-Matrix bereits per Intl.Collator gelöst.
 - [x] **TD-02** Formulare verlieren nach einem Validierungsfehler die Eingaben (React 19 setzt Formulare nach einer Action zurück). In der Stundenplan-Pflege per `FormState.values` + `key` gelöst; Kalender-, Benutzer-, Gruppen- und News-Formulare prüfen und ggf. gleich lösen.
