@@ -12,6 +12,7 @@ import { taskFiles, tasks, taskSubmissions } from "@/modules/aufgaben/schema";
 import { schoolbookAuskunft, schoolbookText } from "@/modules/buecherei/ausgabe";
 import { compensationAuskunft, compensationText } from "@/modules/buecherei/ersatz";
 import { libraryAuskunft, libraryText } from "@/modules/buecherei/katalog";
+import { loanAuskunft, loanText } from "@/modules/gebaeude/leihe";
 
 const safe = (s: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "_").trim().slice(0, 100) || "unbenannt";
 const dtFmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Berlin" });
@@ -108,6 +109,9 @@ export async function planOwnExport(db: Db, userId: string): Promise<OwnExportPl
   // BU-12: Ersatzforderungen (offen und abgeschlossen)
   const compensations = compensationText(await compensationAuskunft(db, userId));
   if (compensations) push("Ersatzforderungen.txt", { text: compensations });
+  // INV-05: Leihgeräte (offen und zurückgegeben bis zum Ablauf der Löschfrist)
+  const loans = loanText(await loanAuskunft(db, userId));
+  if (loans) push("Leihgeräte.txt", { text: loans });
   const bytes = entries.reduce((sum, e) => sum + (e.size ?? 0), 0);
   return { entries, counts: { files, submissions: subs.length, tasks: own.length }, bytes };
 }

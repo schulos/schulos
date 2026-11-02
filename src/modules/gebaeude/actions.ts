@@ -16,6 +16,7 @@ import { INVENTORY_ITEM_STATE_LABELS, TICKET_CATEGORIES, TICKET_STATUSES, type I
 import { adoptInventoryItem, closeInventory, deleteInventory, scanAsset, scanInput, setInventoryItem, startInventory, type ScanResult } from "./inventur";
 import { addAssetPhoto, deleteAssetPhoto, moveAsset, setAssetCondition } from "./asset-seite";
 import { renewAssetCode } from "./etiketten";
+import { cancelLoan, extendLoan, lendAsset, returnLoan } from "./leihe";
 import { createCategory, deleteCategory, updateCategory, type CategoryInput } from "./inventar";
 import {
   MAX_ASSET_CSV_BYTES,
@@ -565,4 +566,58 @@ export async function deleteInventoryAction(id: string): Promise<void> {
   });
   revalidatePath("/gebaeude/inventur");
   redirect("/gebaeude/inventur?geloescht=1");
+}
+
+// ---------------------------------------------------------------- Ausleihe (INV-05)
+
+/** Gerät an die gewählte Person verleihen; danach zurück zur Geräteseite (ohne Suchparameter). */
+export async function lendAssetAction(assetId: string, userId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await lendAsset(await getDb(), perms, assetId, { userId, dueOn: String(form.get("dueOn") ?? ""), accessories: String(form.get("accessories") ?? "") }, today());
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath(`/gebaeude/inventar/${assetId}`);
+  revalidatePath("/gebaeude/leihen");
+  redirect(`/gebaeude/inventar/${encodeURIComponent(assetId)}?verliehen=1#leihe`);
+}
+
+/** Rückgabedatum ändern (verlängern bzw. verkürzen). */
+export async function extendLoanAction(loanId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    const assetId = await extendLoan(await getDb(), perms, loanId, String(form.get("dueOn") ?? ""), today());
+    revalidatePath(`/gebaeude/inventar/${assetId}`);
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/gebaeude/leihen");
+  return { ok: true };
+}
+
+/** Rückgabe buchen (optional mit Befund). */
+export async function returnLoanAction(loanId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    const assetId = await returnLoan(await getDb(), perms, loanId, String(form.get("note") ?? ""));
+    revalidatePath(`/gebaeude/inventar/${assetId}`);
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/gebaeude/leihen");
+  return { ok: true };
+}
+
+/** Versehentlich angelegte Ausleihe stornieren. */
+export async function cancelLoanAction(loanId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    const assetId = await cancelLoan(await getDb(), perms, loanId);
+    revalidatePath(`/gebaeude/inventar/${assetId}`);
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/gebaeude/leihen");
+  return { ok: true };
 }

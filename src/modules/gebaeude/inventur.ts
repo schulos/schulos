@@ -15,6 +15,7 @@ import { ForbiddenError, type PermissionSet } from "@/core/permissions";
 import { TZ } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { moveAsset } from "./asset-seite";
+import { lentAssetIds } from "./leihe";
 import { INVENTORY_PERMISSION, canConfigure, canMaintainInventory } from "./inventar";
 import { INVENTORY_ITEM_STATE_LABELS, INVENTORY_METHOD_LABELS, parseScanInput, type InventoryItemState, type InventoryMethod } from "./labels";
 import { canViewAll } from "./service";
@@ -52,11 +53,13 @@ export interface InventorySummary {
   moved: number;
   /** Sammelposten mit weniger gezählt als Soll */
   short: number;
+  /** INV-05: an eine Person verliehen (zählt als erledigt, nicht als „fehlt“) */
+  lent: number;
 }
 
 /** Rein: Zählung einer Inventur. */
 export function summarizeInventory(items: readonly { expected: boolean; state: InventoryItemState; quantity: number; counted: number | null }[]): InventorySummary {
-  const s: InventorySummary = { expected: 0, done: 0, found: 0, missing: 0, open: 0, wrongRoom: 0, moved: 0, short: 0 };
+  const s: InventorySummary = { expected: 0, done: 0, found: 0, missing: 0, open: 0, wrongRoom: 0, moved: 0, short: 0, lent: 0 };
   for (const i of items) {
     if (i.expected) {
       s.expected++;
@@ -67,14 +70,15 @@ export function summarizeInventory(items: readonly { expected: boolean; state: I
     else if (i.state === "offen") s.open++;
     else if (i.state === "falscher_raum") s.wrongRoom++;
     else if (i.state === "umgezogen") s.moved++;
+    else if (i.state === "verliehen") s.lent++;
     if (i.state === "gefunden" && i.counted !== null && i.counted < i.quantity) s.short++;
   }
   return s;
 }
 
-const STATE_ORDER: Record<InventoryItemState, number> = { offen: 0, falscher_raum: 1, fehlt: 2, gefunden: 3, umgezogen: 4 };
+const STATE_ORDER: Record<InventoryItemState, number> = { offen: 0, falscher_raum: 1, fehlt: 2, verliehen: 3, gefunden: 4, umgezogen: 5 };
 
-/** Rein: Reihenfolge der Liste – offen zuerst, dann falscher Raum, fehlt, gefunden; innerhalb nach Inventarnummer. */
+/** Rein: Reihenfolge der Liste – offen zuerst, dann falscher Raum, fehlt, verliehen, gefunden; innerhalb nach Inventarnummer. */
 export function sortInventoryItems<T extends { state: InventoryItemState; inventoryNo: string | null; name: string }>(items: readonly T[]): T[] {
   return [...items].sort(
     (a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || (a.inventoryNo ?? "~").localeCompare(b.inventoryNo ?? "~", "de", { numeric: true }) || a.name.localeCompare(b.name, "de"),
@@ -99,7 +103,8 @@ export interface InventoryRow {
 
 /**
  * Inventur eines Raums starten: Soll = Inventar in Betrieb mit diesem Raum (Nummer, Bezeichnung, Kategorie, Menge mitgeschrieben).
- * Je Raum nur eine laufende – läuft schon eine, kommt deren ID zurück (`existing`).
+ * Gerade verliehene Geräte (INV-05) stehen gleich als „verliehen“ drin. Je Raum nur eine laufende – läuft schon eine, kommt deren ID
+ * zurück (`existing`).
  */
 export async function startInventory(db: Db, viewer: PermissionSet, rawRoomId: string): Promise<{ id: string; existing: boolean }> {
   requireRun(viewer);
@@ -121,9 +126,23 @@ export async function startInventory(db: Db, viewer: PermissionSet, rawRoomId: s
       .from(gebaeudeAssets)
       .innerJoin(gebaeudeAssetCategories, eq(gebaeudeAssetCategories.id, gebaeudeAssets.categoryId))
       .where(and(eq(gebaeudeAssets.roomId, room.id), eq(gebaeudeAssets.active, true), isNull(gebaeudeAssets.retiredOn)));
+    const lent = await lentAssetIds(
+      tx,
+      assets.map((a) => a.id),
+    );
+    const now = new Date();
     if (assets.length > 0)
       await tx.insert(gebaeudeInventoryItems).values(
-        assets.map((a) => ({ inventoryId: inv!.id, assetId: a.id, inventoryNo: a.inventoryNo, name: a.name, categoryName: a.categoryName, expected: true, quantity: a.quantity })),
+        assets.map((a) => ({
+          inventoryId: inv!.id,
+          assetId: a.id,
+          inventoryNo: a.inventoryNo,
+          name: a.name,
+          categoryName: a.categoryName,
+          expected: true,
+          quantity: a.quantity,
+          ...(lent.has(a.id) ? { state: "verliehen" as const, recordedAt: now } : {}),
+        })),
       );
     return { id: inv!.id, existing: false, expected: assets.length };
   });
@@ -207,7 +226,8 @@ export async function scanAsset(db: Db, viewer: PermissionSet, inventoryId: stri
       .from(gebaeudeInventoryItems)
       .where(and(eq(gebaeudeInventoryItems.inventoryId, inventoryId), eq(gebaeudeInventoryItems.assetId, assetId)));
     const base = { assetId: a.id, name: a.name, inventoryNo: a.inventoryNo, roomLabel: inv.roomLabel };
-    if (item && item.state !== "offen" && item.state !== "fehlt")
+    // „verliehen“ wird beim Scan zu „gefunden“ – das Gerät ist offenbar doch im Raum
+    if (item && item.state !== "offen" && item.state !== "fehlt" && item.state !== "verliehen")
       return { ...base, itemId: item.id, state: item.state, homeRoomId: item.homeRoomId, already: true, roomId: inv.roomId };
     if (!a.active || a.retiredOn) throw new ValidationError({ code: `${a.name} ist ausgemustert – bitte im Inventar prüfen` });
     const now = new Date();
@@ -313,12 +333,30 @@ export async function adoptInventoryItem(db: Db, viewer: PermissionSet, itemId: 
   return inv.id;
 }
 
-/** Abschließen: alles Offene wird „fehlt“. Das Inventar selbst bleibt unverändert (Ausmustern/Umzug entscheiden die Pflegenden). */
+/**
+ * Abschließen: alles Offene wird „fehlt“ – außer Geräten, die gerade verliehen sind (INV-05: „verliehen“). Das Inventar selbst bleibt
+ * unverändert (Ausmustern/Umzug entscheiden die Pflegenden).
+ */
 export async function closeInventory(db: Db, viewer: PermissionSet, id: string): Promise<InventorySummary> {
   requireRun(viewer);
   const summary = await db.transaction(async (raw) => {
     const tx = raw as unknown as Db;
     await lockOpen(tx, id);
+    const open = await tx
+      .select({ assetId: gebaeudeInventoryItems.assetId })
+      .from(gebaeudeInventoryItems)
+      .where(and(eq(gebaeudeInventoryItems.inventoryId, id), eq(gebaeudeInventoryItems.state, "offen")));
+    const lent = [
+      ...(await lentAssetIds(
+        tx,
+        open.map((o) => o.assetId).filter((x): x is string => !!x),
+      )),
+    ];
+    if (lent.length)
+      await tx
+        .update(gebaeudeInventoryItems)
+        .set({ state: "verliehen", recordedAt: new Date() })
+        .where(and(eq(gebaeudeInventoryItems.inventoryId, id), eq(gebaeudeInventoryItems.state, "offen"), inArray(gebaeudeInventoryItems.assetId, lent)));
     await tx
       .update(gebaeudeInventoryItems)
       .set({ state: "fehlt", counted: sql`case when ${gebaeudeInventoryItems.quantity} > 1 then 0 else null end` })

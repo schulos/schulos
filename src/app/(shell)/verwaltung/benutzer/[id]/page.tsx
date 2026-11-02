@@ -18,6 +18,7 @@ import { updateUserAction } from "@/modules/verwaltung/actions";
 import { actorFromPerms, assignableRoles, manageProblem } from "@/modules/verwaltung/escalation";
 import { getUserDetail } from "@/modules/verwaltung/users";
 import { noOpenItems, openItemsOf, openItemsText } from "@/modules/buecherei/offen";
+import { openLoanCounts } from "@/modules/gebaeude/leihe";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
@@ -60,6 +61,7 @@ export default async function BenutzerDetailPage({ params }: { params: Promise<{
   const blocked = isSelf ? null : await manageProblem(db, actor, user.id);
   const libraryItems = (await openItemsOf(db, [user.id])).get(user.id);
   const libraryOpen = libraryItems && !noOpenItems(libraryItems) ? libraryItems : null;
+  const devicesOpen = (await openLoanCounts(db, [user.id])).get(user.id) ?? 0;
   const assignable = await assignableRoles(db, actor, ROLES);
   const roles = isSelf ? [user.role] : ROLES.filter((r) => r === user.role || assignable.includes(r));
 
@@ -105,6 +107,13 @@ export default async function BenutzerDetailPage({ params }: { params: Promise<{
               <p role="note" className="text-sm text-muted">
                 Offen in der Bücherei: {openItemsText(libraryOpen)}. Bitte vor oder beim Abgang zurückholen bzw. als Ersatzforderung erfassen – Abgang und
                 Löschung werden dadurch nicht aufgehalten.
+              </p>
+            )}
+            {/* INV-05: offene Leihgeräte – blockieren Abgang und Löschung ebenfalls nicht (die Ausleihe bleibt ohne Person stehen) */}
+            {devicesOpen > 0 && (
+              <p role="note" className="text-sm text-muted">
+                Ausgeliehen: {devicesOpen === 1 ? "1 Leihgerät" : `${devicesOpen} Leihgeräte`} (Gebäude & Technik). Bitte vor oder beim Abgang zurückholen – nach der Kontolöschung
+                bleibt die Ausleihe ohne Namen stehen, bis die Rückgabe gebucht ist.
               </p>
             )}
           </Card>

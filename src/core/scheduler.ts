@@ -13,6 +13,7 @@ import { isEnabled, loadModuleStates } from "@/core/modules/registry";
 import { safeMailConfig } from "@schulos/server/mail";
 import { MODULES } from "@/modules";
 import { runInspectionReminders } from "@/modules/gebaeude/pruefungen";
+import { runLoanReminders } from "@/modules/gebaeude/leihe";
 import { purgeUnconfirmed } from "@/modules/anmeldung/public";
 import { runGapReminders } from "@/modules/klassenbuch/luecken";
 import { runPrefWindowReminders } from "@/modules/stundenplan/zeitwunsch-fenster";
@@ -185,6 +186,19 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
       const library = await runDunning(db, toBerlinDate(now), opts, now);
       // BU-11: nicht zurückgegebene Schulbücher (nur mit eingeschalteter Schulbuchausleihe; Eltern Minderjähriger ab Stufe 1)
       return { ...library, schoolbooks: await runSchoolbookDunning(db, toBerlinDate(now), opts, now) };
+    },
+  },
+  {
+    // INV-05: Leihgeräte – Erinnerung vor dem Rückgabedatum, danach an Schultagen bis zu 3 Erinnerungen (Eltern Minderjähriger ab
+    // der 2., Pflegende bei der 1.; Mail optional, ohne Gerät) – Muster der Bücherei-Mahnungen
+    name: "gebaeude-leihe",
+    at: "06:50",
+    until: "20:00",
+    ttlMs: 10 * 60_000,
+    run: async (db, now) => {
+      const m = MODULES.find((x) => x.id === "gebaeude");
+      if (!m || !isEnabled(m, await loadModuleStates(db))) return;
+      return runLoanReminders(db, toBerlinDate(now), { mail: mailAvailable(), school: (await readSchoolSettings(db)).name }, now);
     },
   },
 ];

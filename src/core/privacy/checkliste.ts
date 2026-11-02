@@ -310,6 +310,19 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
       "Legt fest, wer Raumdaten pflegt (z. B. Gruppe Hausmeisterei), und trägt Fachraumleitungen nur mit deren Wissen als verantwortlich ein; achtet darauf, dass Fotos keine Personen und keine Aushänge mit Namen zeigen und Infofelder keine privaten Telefonnummern enthalten; nimmt Raumverantwortliche in die Verarbeitungstätigkeit „Benutzerverwaltung/Organisation“ des VVT auf. Rechtliche Einordnung: zu prüfen.",
     where: { label: "Raumsteckbrief (/raeume) und Verwaltung → Rechte & Module", href: "/raeume" },
   },
+  {
+    id: "leihgeraete",
+    nr: 23,
+    title: "Leihgeräte: Ausleihe aus dem Inventar",
+    schulos:
+      "Verleiht Geräte aus dem Inventar (Tablets, Instrumente, Messgeräte) nur an Personen mit Konto (Schüler:innen, Beschäftigte – keine Eltern, keine Externen): gespeichert werden Person, Gerät, Ausgabe- und Rückgabedatum, Zubehör, ein Befund bei der Rückgabe (nur zur Sache) und der Erinnerungsstand. Verleihen und zurücknehmen dürfen nur die Pflegenden der Kategorie; sie sehen Person und Klasse, die Person selbst sieht ihre Leihgeräte (Eltern Minderjähriger lesend), Lesende mit „alles lesen“ nur „verliehen bis …“, alle anderen nichts. Wer verliehen hat, steht nur im Audit-Log, dort ohne die entleihende Person. Vor dem Rückgabedatum kommt eine Erinnerung, danach an Schultagen höchstens drei, ab der zweiten auch an die Eltern Minderjähriger, auf Wunsch per Mail – Benachrichtigungen und Mails nennen kein Gerät. Der Leihvertrag ist nur eine Druckansicht. Die Inventur zeigt verliehene Geräte als „verliehen“ statt „fehlt“; Auskunft und Eigenexport enthalten die eigenen Ausleihen; beim Abgang zeigt die Benutzerverwaltung nur die Zahl offener Leihgeräte.",
+    vorgabe:
+      "Leihfrist 4 Wochen (frei änderbar bis 2 Jahre), Erinnerung 3 Tage vorher, danach höchstens drei Erinnerungen im Abstand von einer Woche, Mail aus. Ausleihen werden 1 Jahr nach der Rückgabe gelöscht (LK-ENDE-1J), offene bleiben; die Kontolöschung lässt eine offene Ausleihe ohne Person stehen, bis die Rückgabe gebucht ist.",
+    schule:
+      "Bestätigt die Grundlage (Ausstattung mit Lernmitteln bzw. Arbeitsmitteln – zu prüfen), legt fest, wer verleiht (Recht Inventar bzw. verantwortliche Gruppe der Kategorie), passt die allgemeinen Bedingungen des Leihvertrags (Haftung, Ersatz) mit dem Schulträger an und verwahrt die unterschriebenen Verträge auf Papier; stellt Leihfrist, Erinnerung und Mail ein.",
+    settings: ["gebaeude.loan_days", "gebaeude.loan_remind_days", "gebaeude.loan_mail"],
+    where: { label: "Inventar → Leihgeräte und Verwaltung → Rechte & Module → Gebäude & Technik", href: "/gebaeude/leihen" },
+  },
 ];
 
 /** Rein: die Kurzfassung eines Themas für docs/DSB-FRAGEN.md (zwischen den Markern). */

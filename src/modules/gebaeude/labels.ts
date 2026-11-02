@@ -169,9 +169,10 @@ export function placeLabel(t: { roomId: string | null; location: string | null }
 
 /**
  * Stand eines Postens in einer Inventur: offen (noch nicht gesehen), gefunden, fehlt (beim Abschluss nicht gefunden bzw. von Hand),
- * falscher Raum (gefunden, gehört laut Inventar woanders hin), umgezogen (falscher Raum, per Knopf in den Inventurraum übernommen).
+ * falscher Raum (gefunden, gehört laut Inventar woanders hin), umgezogen (falscher Raum, per Knopf in den Inventurraum übernommen),
+ * verliehen (INV-05: beim Start bzw. Abschluss an eine Person ausgeliehen – nicht „fehlt“).
  */
-export const INVENTORY_ITEM_STATES = ["offen", "gefunden", "fehlt", "falscher_raum", "umgezogen"] as const;
+export const INVENTORY_ITEM_STATES = ["offen", "gefunden", "fehlt", "falscher_raum", "umgezogen", "verliehen"] as const;
 export type InventoryItemState = (typeof INVENTORY_ITEM_STATES)[number];
 export const INVENTORY_ITEM_STATE_LABELS: Record<InventoryItemState, string> = {
   offen: "offen",
@@ -179,6 +180,7 @@ export const INVENTORY_ITEM_STATE_LABELS: Record<InventoryItemState, string> = {
   fehlt: "fehlt",
   falscher_raum: "falscher Raum",
   umgezogen: "umgezogen",
+  verliehen: "verliehen",
 };
 
 /** Wie ein Posten erfasst wurde: Etikett mit der Kamera-App (`/i/<code>`), Scan in der App bzw. Eingabe, Knopf in der Liste. */
@@ -195,4 +197,26 @@ export function parseScanInput(raw: string): { kind: "inventar" | "raum" | "text
   const m = /(?:^|\/)([ir])\/([0-9A-Za-z]{16})\/?(?:[?#].*)?$/.exec(v);
   if (m) return { kind: m[1] === "i" ? "inventar" : "raum", value: m[2]! };
   return { kind: "text", value: v };
+}
+
+// ---------------------------------------------------------------- Ausleihe (INV-05)
+
+/** Höchstens so viele Erinnerungen nach Fristende (1. am ersten Schultag danach, dann im Abstand `LOAN_OVERDUE_INTERVAL_DAYS`). */
+export const LOAN_MAX_OVERDUE_LEVEL = 3;
+/** Abstand der Erinnerungen bei überfälligen Leihgeräten (Tage, nur an Schultagen). */
+export const LOAN_OVERDUE_INTERVAL_DAYS = 7;
+/** Ab dieser Erinnerung erfahren es die Eltern Minderjähriger (wie Bücherei-Mahnstufe 2). */
+export const LOAN_PARENT_LEVEL = 2;
+/** Längste Leihfrist ab heute (Tage) – auch Schuljahresleihen passen hinein. */
+export const LOAN_MAX_DAYS = 730;
+export const LOAN_TEXT_MAX = 300;
+
+/** Stand einer Ausleihe für Anzeige und Sortierung. */
+export type LoanState = "offen" | "ueberfaellig" | "zurueck";
+export const LOAN_STATE_LABELS: Record<LoanState, string> = { offen: "verliehen", ueberfaellig: "überfällig", zurueck: "zurückgegeben" };
+
+/** Rein: Stand einer Ausleihe am Tag `today` (YYYY-MM-DD). */
+export function loanState(l: { dueOn: string; returnedAt: Date | null }, today: string): LoanState {
+  if (l.returnedAt) return "zurueck";
+  return l.dueOn < today ? "ueberfaellig" : "offen";
 }

@@ -10,6 +10,23 @@ import { cn } from "@schulos/ui/cn";
 type Action = (prev: FormState, form: FormData) => Promise<FormState>;
 type Option = { value: string; label: string };
 
+/**
+ * INV-05: Person zum Verleihen suchen (GET `?leihe=` auf der Geräteseite). Als Client-Komponente, damit `Field` sein Eingabefeld
+ * direkt als Element bekommt (wie die Personensuche der Bücherei-Theke).
+ */
+export function LoanPersonSearch({ q }: { q: string }) {
+  return (
+    <form aria-label="Person zum Verleihen suchen" className="flex flex-wrap items-end gap-3" action="#leihe">
+      <Field label="Name oder Klasse" hint="z. B. „Schäfer“, „7b“ oder „Lea 7b“">
+        <Input type="search" name="leihe" defaultValue={q} maxLength={60} className="w-full sm:w-56" />
+      </Field>
+      <Button type="submit" variant="secondary" className="w-full sm:w-auto">
+        Suchen
+      </Button>
+    </form>
+  );
+}
+
 /** INV-02: neuen Etikett-Code erzeugen – mit Rückfrage, der alte Code wird ungültig. */
 export function RenewAssetCode({ id }: { id: string }) {
   const [pending, start] = useTransition();

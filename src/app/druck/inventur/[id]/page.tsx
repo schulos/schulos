@@ -44,6 +44,7 @@ export default async function InventurDruckPage({ params }: { params: Promise<{ 
           Soll-Posten: {s.expected} · erfasst: {s.done} · gefunden: {s.found} · fehlen: {s.missing}
           {s.open > 0 && ` · offen: ${s.open}`} · falscher Raum: {s.wrongRoom}
           {s.moved > 0 && ` · umgezogen: ${s.moved}`}
+          {s.lent > 0 && ` · verliehen: ${s.lent}`}
           {s.short > 0 && ` · Sammelposten mit Fehlmenge: ${s.short}`}
         </p>
         {inv.items.length === 0 ? (
