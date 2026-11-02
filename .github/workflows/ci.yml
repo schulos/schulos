@@ -279,6 +279,13 @@ jobs:
           sleep 2
           docker compose exec -T caddy grep -q '/monitor/\*\*\*' /var/log/caddy/access.log
           if docker compose exec -T caddy grep -q abcdefghijklmnopqrstuvwxyz0123 /var/log/caddy/access.log; then echo "Token im Zugriffsprotokoll"; exit 1; fi
+          # BM-05: das Betriebsprotokoll (immer an) hat Status und Dauer, aber weder Adresse noch Pfad noch Header; die App liest es
+          docker compose exec -T caddy grep -q '"status":' /var/log/caddy-betrieb/betrieb.log
+          if docker compose exec -T caddy grep -qE '10\.99\.0\.8|remote_ip|client_ip|"uri"|/monitor/|headers' /var/log/caddy-betrieb/betrieb.log; then
+            echo "BM-05: Betriebsprotokoll enthält Adresse, Pfad oder Header"; docker compose exec -T caddy tail -n 2 /var/log/caddy-betrieb/betrieb.log; exit 1
+          fi
+          docker compose exec -T app test -r /var/log/caddy-betrieb/betrieb.log ||
+            { echo "BM-05: App kann das Betriebsprotokoll nicht lesen"; exit 1; }
           # G4E-O13: CrowdSec wertet die Client-Adresse aus (client_ip), nicht den Proxy davor (der Docker-Gateway wäre als privates
           # Netz ausgenommen) – Abtasten von außen (203.0.113.9, Caddy antwortet 403) muss zu einer Sperre genau dieser Adresse führen
           # Szenario crowdsecurity/http-probing: > 10 verschiedene Pfade mit 403/404 innerhalb von ~10 s je Quelle (leaky bucket) –

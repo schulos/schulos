@@ -39,6 +39,7 @@ export default defineConfig({
         url: `http://localhost:${PORT}/api/health`,
         reuseExistingServer: false,
         timeout: 60_000,
-        env: { PGLITE_DIR, SCHULOS_DEMO_LOGIN: "1", SCHULOS_DEV_MAIL: "1" },
+        // BM-06: Betriebsprotokoll des Proxys – die Spec legt dort Zeilen ab (betriebsmonitoring.spec.ts)
+        env: { PGLITE_DIR, SCHULOS_DEMO_LOGIN: "1", SCHULOS_DEV_MAIL: "1", SCHULOS_TRAFFIC_LOG_DIR: ".data/e2e-betrieb" },
       },
 });
