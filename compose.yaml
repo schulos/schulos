@@ -64,6 +64,8 @@ services:
       - caddy_config:/config
       # SEC-15: Zugriffsprotokoll (nur mit SCHULOS_CROWDSEC=1, 48 h)
       - caddy_logs:/var/log/caddy
+      # BM-05: IP-freies Betriebsprotokoll (immer an, 48 h) – eigenes Volume, damit die App nie das IP-haltige Log oben sieht
+      - caddy_betrieb:/var/log/caddy-betrieb
       # zusätzliche Sites, z. B. die Vorschau-Instanz (schulosctl vorschau an/aus schreibt bzw. löscht sie)
       - caddy_sites:/etc/caddy/sites
       # P4-40b: Wurzel- und Zwischenzertifikat der Schul-CA (schreibt step-ca; leer, solange die CA nicht läuft)
@@ -102,6 +104,8 @@ services:
       - config:/srv/schulos/config
       - files:/srv/schulos/files
       - geraete_ca:/srv/schulos/geraete-ca:ro
+      # BM-05: Zähler aus dem IP-freien Betriebsprotokoll von Caddy (nur lesen)
+      - caddy_betrieb:/var/log/caddy-betrieb:ro
     # ca: nur der Weg zur Schul-CA (Profil „geraete“)
     networks: [edge, db, ca]
 
@@ -463,6 +467,28 @@ configs:
           }
         }
       }
+      # BM-05 (Entscheidung bm-5): IP-freies Betriebsprotokoll, immer an. Der Filter entfernt die ganze Anfrage (IP, Port, Host,
+      # Pfad, Header) sowie Antwort-Header und Konto vor dem Schreiben – übrig bleiben Zeit, Status, Dauer und Größe. Gedreht wie
+      # SEC-15 (alle 24 h, eine gedrehte Datei, 24 h): nichts ist älter als 48 h. Lesbar (0644) für die App, die nur Zähler bildet.
+      (betriebslog) {
+        log betrieb {
+          output file /var/log/caddy-betrieb/betrieb.log {
+            mode 0644
+            roll_interval 24h
+            roll_size 20MiB
+            roll_keep 1
+            roll_keep_for 24h
+          }
+          format filter {
+            wrap json
+            fields {
+              request delete
+              resp_headers delete
+              user_id delete
+            }
+          }
+        }
+      }
       (tls-geraete-an) {
         client_auth {
           mode verify_if_given
@@ -478,6 +504,7 @@ configs:
         }
         import kompression
         import crowdsec-{$$SCHULOS_CROWDSEC:0}
+        import betriebslog
         # Sicherheits-Header setzt die App (CSP mit Nonce)
         header -Server
         # P4-73: Service Worker nie zwischenspeichern – sonst bliebe ein alter Worker nach einem Update hängen
@@ -622,6 +649,8 @@ volumes:
   clamav_db:
   # SEC-15: Zugriffsprotokoll von Caddy (nur mit SCHULOS_CROWDSEC=1) und Zustand von CrowdSec
   caddy_logs:
+  # BM-05: IP-freies Betriebsprotokoll (Caddy schreibt, App liest; höchstens 48 h, nicht gesichert)
+  caddy_betrieb:
   crowdsec_config:
   crowdsec_data:
   caddy_data:

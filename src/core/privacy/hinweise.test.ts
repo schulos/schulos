@@ -22,6 +22,10 @@ describe("Verarbeitungstätigkeiten aus den Manifesten", () => {
   it("Grundsystem zuerst; Datenarten mit Fristen, Folgetabellen erben die Frist", () => {
     const recs = processingRecords(MODULES);
     expect(recs[0]!.id).toBe("core");
+    // BM-06: Betriebsüberwachung direkt nach dem Grundsystem, ohne IP und mit 48 h
+    expect(recs[1]).toMatchObject({ id: "betrieb", title: "Betriebsüberwachung", legalBasis: expect.stringMatching(/Art\. 32/) });
+    expect(recs[1]!.dataTypes[0]!.categories).not.toContain("IP-Adresse");
+    expect(recs[1]!.dataTypes[0]!.retention).toMatch(/48 Stunden/);
     const kb = recs.find((r) => r.id === "klassenbuch")!;
     expect(kb.dataTypes.map((d) => d.purpose)).toEqual(["Klassenbuch führen (Unterrichtsinhalte, Hausaufgaben)", "Fehlzeiten und Verspätungen erfassen"]);
     expect(kb.dataTypes[1]!.retention).toBe(kb.dataTypes[0]!.retention);
