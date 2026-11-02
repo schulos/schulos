@@ -36,6 +36,8 @@ services:
       - "${SCHULOS_HTTPS_PORT:-443}:443"
     environment:
       SCHULOS_DOMAIN: ${SCHULOS_DOMAIN:-localhost}
+      # Hinweisseite bei Aufruf per IP (http://): Link auf die Domain mit dem öffentlichen Port (leer = 443)
+      SCHULOS_PUBLIC_PORT: ${SCHULOS_PUBLIC_PORT:-}
       # „internal“ = eigene CA (nur Schulnetz) · E-Mail-Adresse = Let's Encrypt (öffentliche Domain)
       SCHULOS_TLS: ${SCHULOS_TLS:-internal}
       # P4-40 Außenzugang (INSTALLATION.md „Außenzugang“): keiner = nur Schulnetz · oeffentliche-seiten = aus dem Internet nur
@@ -57,6 +59,8 @@ services:
         target: /etc/caddy/Caddyfile
       - source: caddy-start
         target: /etc/schulos/caddy-start.sh
+      - source: adresshinweis
+        target: /etc/schulos/adresshinweis/index.html
     volumes:
       - caddy_data:/data
       # CA-01: Übergabe der CA-Wurzel aus einer Wiederherstellung (schreibt der Backup-Agent, übernimmt caddy-start)
@@ -527,7 +531,82 @@ configs:
         }
         import zugang-{$$SCHULOS_PUBLIC_ACCESS:keiner}
       }
+      # Hinweisseite (ZERTIFIKATE.md, Teil A): Aufruf über http:// mit der IP bzw. einem fremden Namen (Server-IP im Browser
+      # eingetippt, Rechnername). Sonst leitete Caddy auf https://<IP> weiter – Zertifikatswarnung, weil der Name nicht passt.
+      # Im Schulnetz stattdessen eine Hinweisseite ohne Warnung: bitte über die Domain aufrufen, bei eigener CA mit Link zum
+      # Schul-Zertifikat (/ca.crt liefert die App nur im Schulnetz; Fingerabdruck abgleichen, SICHERHEIT S94). Die Domain leitet
+      # Caddy wie bisher auf https weiter (seine Weiterleitung steht vor diesem Catch-all), von außen ebenso alles andere.
+      # ACME-HTTP-Prüfungen (Let's Encrypt) beantwortet Caddy vor allen Blöcken. Über https:// bleibt es bei INST-10.
+      http:// {
+        header -Server
+        @domain host {$$SCHULOS_DOMAIN}
+        @extern not client_ip {$$SCHULOS_INTERNAL_NETS:private_ranges}
+        handle @domain {
+          redir https://{host}{uri} 308
+        }
+        handle @extern {
+          redir https://{host}{uri} 308
+        }
+        handle /ca.crt {
+          request_header -X-SchulOS-Extern
+          request_header -X-SchulOS-Geraet
+          import app
+        }
+        handle {
+          header Cache-Control no-store
+          header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+          header X-Content-Type-Options nosniff
+          header Referrer-Policy no-referrer
+          root * /etc/schulos/adresshinweis
+          rewrite * /index.html
+          templates
+          file_server
+        }
+      }
       import /etc/caddy/sites/*.caddy
+  # Hinweisseite für http://<IP> (Caddy-Vorlage: Host maskiert, Domain/TLS-Modus aus der Umgebung von Caddy)
+  adresshinweis:
+    content: |
+      <!doctype html>
+      <html lang="de">
+      <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta name="robots" content="noindex">
+      <title>SchulOS – bitte über die Schuladresse aufrufen</title>
+      <style>
+      body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #f4f5f7; color: #1d2330; }
+      main { max-width: 36rem; margin: 3rem auto; padding: 2rem; background: #fff; border: 1px solid #d6dae1; border-radius: 1rem; }
+      h1 { font-size: 1.4rem; margin-top: 0; } h2 { font-size: 1.1rem; margin-top: 2rem; }
+      a { color: #1f4fbf; } code { font-size: .95em; }
+      .weiter { display: inline-block; padding: .6rem 1rem; border-radius: .5rem; background: #1f4fbf; color: #fff; text-decoration: none; font-weight: 600; }
+      .klein { color: #5a6273; font-size: .9rem; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #12151b; color: #e6e9ef; } main { background: #1b2029; border-color: #303744; }
+        a { color: #8fb0ff; } .weiter { background: #8fb0ff; color: #12151b; } .klein { color: #a3abba; }
+      }
+      </style>
+      </head>
+      <body>
+      <main>
+      <h1>Bitte über die Schuladresse aufrufen</h1>
+      <p>Sie haben diesen Server über <code>{{html .Host}}</code> aufgerufen. SchulOS ist für die Adresse
+      <strong>{{env "SCHULOS_DOMAIN"}}</strong> eingerichtet – nur dort passt das Zertifikat, und nur dort funktionieren Anmeldung
+      mit Passkey, Kamera und Benachrichtigungen.</p>
+      <p><a class="weiter" href="https://{{env "SCHULOS_DOMAIN"}}{{env "SCHULOS_PUBLIC_PORT"}}/">Weiter zu https://{{env "SCHULOS_DOMAIN"}}{{env "SCHULOS_PUBLIC_PORT"}}</a></p>
+      <p class="klein">Lässt sich die Adresse nicht öffnen („Server nicht gefunden“), fehlt sie im DNS des Schulnetzes – bitte der IT melden.</p>
+      {{if eq (env "SCHULOS_TLS") "internal"}}
+      <h2>Zertifikatswarnung unter der Schuladresse?</h2>
+      <p>Dann vertraut dieses Gerät dem Schul-Zertifikat noch nicht. Dienstgeräte bekommen es über die Geräteverwaltung der Schule;
+      sonst hier herunterladen und installieren:</p>
+      <p><a href="/ca.crt">Schul-Zertifikat herunterladen (schul-zertifikat.crt)</a></p>
+      <p class="klein">Die Datei kommt hier unverschlüsselt. Vor dem Installieren ihren SHA-256-Fingerabdruck mit dem vergleichen,
+      den die IT bekannt gibt (Bildschirm des Servers, Verwaltung → System) – stimmt er nicht, nicht installieren. Anleitung für
+      alle Geräte: Handbuch, Seite „Schul-Zertifikat installieren“.</p>
+      {{end}}
+      </main>
+      </body>
+      </html>
   # B-51: Postgres nach dem RAM einstellen – die Maschine gehört SchulOS allein, App und Caddy brauchen daneben ~1 GB.
   # shared_buffers 20 % (128 MB – 4 GB), effective_cache_size 50 %, work_mem RAM/256 (4 – 32 MB), maintenance_work_mem
   # RAM/16 (64 MB – 1 GB); SSD-Annahmen; pg_stat_statements für „langsame Abfragen“ unter Verwaltung → System.

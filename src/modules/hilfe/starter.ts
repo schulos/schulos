@@ -12,6 +12,8 @@ import { toBerlinDate } from "@/core/time";
 import { canEditAll, createPage, createSection, EDIT, slugify, STAFF_TARGET_ROLES } from "./service";
 
 export const STARTER_SECTION = "Erste Schritte";
+/** CA-04: Starter-Seite zum Schul-Zertifikat (Verwaltung → System verlinkt sie, wenn es sie gibt) */
+export const ROOT_CA_HELP_SLUG = "schul-zertifikat-installieren";
 
 export interface StarterPage {
   /** muss `slugify(title)` entsprechen (Test) – Ziel der Kontexthilfe in context.ts */
@@ -204,7 +206,7 @@ Fragen beantwortet das Sekretariat.`,
   },
   {
     // CA-04 (docs/ZERTIFIKATE.md, Verteilwege): eigene CA der Schule auf Geräten vertrauen
-    slug: "schul-zertifikat-installieren",
+    slug: ROOT_CA_HELP_SLUG,
     title: "Schul-Zertifikat installieren",
     roles: [],
     body: `SchulOS läuft im Schulnetz mit einem Zertifikat der schuleigenen Zertifizierungsstelle. Damit Browser und Apps die Verbindung ohne Warnung als sicher erkennen, muss jedes Gerät dem **Wurzelzertifikat** („Schul-Zertifikat“) der Schule vertrauen. Es enthält keine Personendaten und nichts Geheimes.
@@ -212,6 +214,7 @@ Fragen beantwortet das Sekretariat.`,
 ## Zertifikat holen und prüfen
 
 - **Im Schulnetz ohne Anmeldung:** die Adresse von SchulOS mit \`/ca.crt\` am Ende aufrufen (z. B. \`https://schulos.example/ca.crt\`).
+- **Öffnet sich die Adresse wegen des Zertifikats gar nicht:** im Schulnetz \`http://\` und die IP-Adresse des Servers aufrufen (ohne „s“). Dort erscheint eine Hinweisseite mit dem Link zum Schul-Zertifikat.
 - **Für die IT:** **Verwaltung → System → Schul-Zertifikat** – dort als \`.crt\`, \`.cer\` (Windows) und \`.mobileconfig\` (iPad/Mac).
 - **Vor dem Import den Fingerabdruck (SHA-256) vergleichen:** Er steht in Verwaltung → System, auf dem Bildschirm des Servers und in \`schulosctl status\`. Stimmt er nicht überein, das Zertifikat nicht installieren und die IT informieren.
 

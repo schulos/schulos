@@ -39,7 +39,11 @@ test("Schul-Zertifikat: /ca.crt nur im Schulnetz, Download für Admin, Wechsel b
     const card = page.getByRole("article", { name: "Schul-Zertifikat" });
     await expect(card.getByLabel("Fingerabdruck")).toContainText(fp("ca.pem").slice(0, 47));
     await expect(card.getByRole("link", { name: "iPad/Mac (.mobileconfig)" })).toBeVisible();
-    // erste Root gilt als bestätigt – kein Hinweis
+    // Wiederholbar auf derselben DB: ein früherer Lauf hat zuletzt other-ca.pem bestätigt – dann gilt ca.pem jetzt als Wechsel
+    // und wird hier zuerst bestätigt (auf frischer DB gilt die erste Root ohnehin als bestätigt). Danach in jedem Fall: kein Hinweis.
+    if ((await card.getByRole("alert").count()) > 0) {
+      await card.getByRole("button", { name: "Neues Zertifikat bestätigen" }).click();
+    }
     await expect(card.getByRole("alert")).toHaveCount(0);
     const cer = await page.request.get("/api/system/ca?format=cer");
     expect(cer.status()).toBe(200);

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getDemoAccounts, isDemoInstance, previewVersion } from "@/core/auth/demo";
 import { getCurrentUser } from "@/core/auth/session";
 import { EXTERNAL_LOGIN_HINT, externalZone } from "@/core/external-access";
+import { foreignHost } from "@/core/system/foreign-host";
 import { mailAvailable } from "@/core/mail";
 import { getSchoolSettings } from "@/core/settings";
 import { sourceInfo } from "@/core/source";
@@ -22,7 +23,10 @@ export const dynamic = "force-dynamic";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
   if (await getCurrentUser()) redirect("/");
-  const [{ next }, school, demo, demoInstance, zone] = await Promise.all([searchParams, getSchoolSettings(), getDemoAccounts(), isDemoInstance(), headers().then(externalZone)]);
+  const [{ next }, school, demo, demoInstance, h] = await Promise.all([searchParams, getSchoolSettings(), getDemoAccounts(), isDemoInstance(), headers()]);
+  const zone = externalZone(h);
+  // Aufruf per IP/Fremdname (nach der Zertifikatswarnung): richtige Adresse nennen – nur dort gelten Zertifikat und Passkeys
+  const foreign = foreignHost(h.get("host"), process.env.BETTER_AUTH_URL);
   const source = sourceInfo();
   return (
     <SchoolTheme>
@@ -45,6 +49,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             {zone !== "intern" && (
               <p role="note" className="mb-4 rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
                 {EXTERNAL_LOGIN_HINT}
+              </p>
+            )}
+            {foreign && (
+              <p role="note" className="mb-4 rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
+                Aufgerufen über „{foreign.host}“. Bitte über{" "}
+                <a href={foreign.loginUrl} className="font-medium text-accent-ink underline underline-offset-2">
+                  {foreign.loginUrl.replace(/\/login$/, "")}
+                </a>{" "}
+                anmelden – nur dort passt das Zertifikat und funktioniert die Anmeldung mit Passkey.
               </p>
             )}
             <LoginForm action={loginAction} next={safeNext(next)} />
