@@ -14,10 +14,12 @@
 // GATE-031 R-05: Den Umfang leitet der Server aus dem Suchbegriff ab (`query`): Treffer über die Adresse von Elternteil 2 ist
 // immer eingeschränkt, egal was das Formular schickt; ein Suchbegriff, der nicht zum Antrag passt, liefert nichts. Bei der
 // Vorgangsnummer wählt die Schule ausdrücklich (zwei Knöpfe). Jede Auskunft hält Umfang und Anlass im Audit-Log fest.
+// KB-03: Klassenwünsche des Kindes nur mit Art und Zeitpunkt – ohne Namen oder Nummer des Partnerkindes (Daten Dritter,
+// Art. 15 Abs. 4); Wünsche anderer Anträge, die dieses Kind nennen, gehören zu deren Antrag.
 import { asc, eq, sql } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
-import { anmeldungAntraege, anmeldungEreignisse, anmeldungSlots, anmeldungVerfahren, rooms } from "@/core/db/schema";
+import { anmeldungAntraege, anmeldungEreignisse, anmeldungKlassenwuensche, anmeldungSlots, anmeldungVerfahren, rooms } from "@/core/db/schema";
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
 import type { StateCode } from "@/core/school/catalog";
 import { anmeldungKatalog } from "./katalog";
@@ -140,6 +142,11 @@ export async function antragAuskunft(
     .from(anmeldungEreignisse)
     .where(eq(anmeldungEreignisse.antragId, antragId))
     .orderBy(asc(anmeldungEreignisse.at), asc(anmeldungEreignisse.id));
+  const wishes = await db
+    .select({ art: anmeldungKlassenwuensche.art, at: anmeldungKlassenwuensche.createdAt })
+    .from(anmeldungKlassenwuensche)
+    .where(eq(anmeldungKlassenwuensche.antragId, antragId))
+    .orderBy(asc(anmeldungKlassenwuensche.createdAt), asc(anmeldungKlassenwuensche.id));
   const number = antragNumber(a.year, a.seq);
   const loeschung = a.retentionFrom
     ? `Wird am ${addDaysMs(a.retentionFrom, LK90_DAYS).toISOString().slice(0, 10)} gelöscht (Löschlauf der Schule).`
@@ -211,6 +218,13 @@ export async function antragAuskunft(
       termin: slot ? { beginn: iso(slot.startsAt), ende: iso(slot.endsAt), ort: slot.room ?? slot.note ?? null } : null,
       unterlagenVorgelegt: katalog.checklist.map((c) => ({ unterlage: c.label, vorgelegt: checklist[c.key] === true })),
       entscheidung: a.decidedAt ? { zeitpunkt: iso(a.decidedAt), notizDerSchule: a.decisionNote } : null,
+      klassenbildung: {
+        wuensche: wishes.map((w) => ({
+          wunsch: w.art === "zusammen" ? "Wunsch zusammen mit einem anderen Kind" : "Wunsch nicht zusammen mit einem anderen Kind",
+          erfasst: iso(w.at),
+        })),
+        familieGetrennt: a.familySeparate,
+      },
       uebernommenAm: iso(a.transferredAt),
       loeschung,
     },

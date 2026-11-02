@@ -46,6 +46,7 @@ export default defineModule({
         "Elternkonto (nur bei Anmeldung über das Konto)",
         "Vorgelegte Unterlagen (nur ja/nein)",
         "Entscheidung, interne Notiz",
+        "Klassenbildung: Familie „getrennt“ (ja/nein)",
       ],
       class: "LK-90",
       start: "retention_from",
@@ -57,14 +58,20 @@ export default defineModule({
       categories: ["Handelnde Person", "Vorgang", "Notiz", "Zeitpunkt"],
       follows: "anmeldung_antraege",
     },
+    {
+      table: "anmeldung_klassenwuensche",
+      purpose: "Klassenbildung: interne Wünsche „zusammen“/„nicht zusammen“ zwischen zwei Anträgen (KB-03), vom Sekretariat erfasst",
+      categories: ["Antrag und Partner-Antrag", "Art des Wunsches (ohne Begründung)", "Erfassende Person", "Zeitpunkt"],
+      follows: "anmeldung_antraege",
+    },
   ],
   processing: {
     title: "Schulanmeldung (Vormerkung mit Gesprächstermin)",
-    purpose: "Anmeldung neuer Schüler:innen vorbereiten: Daten für Terminvergabe und Aufnahmegespräch erfassen, Vorgang bis zur Entscheidung verfolgen",
+    purpose: "Anmeldung neuer Schüler:innen vorbereiten: Daten für Terminvergabe und Aufnahmegespräch erfassen, Vorgang bis zur Entscheidung verfolgen; Klassenbildung (Vorschlag für die Verteilung der Neuaufnahmen)",
     legalBasis:
       "Art. 6 Abs. 1 lit. e, Abs. 3 DSGVO i. V. m. § 120 Abs. 1, 5 SchulG NRW und VO-DV I (Aufnahmedaten); Aufnahme nach § 46 SchulG NRW durch die Schulleitung (zu prüfen)",
     subjects: ["Kinder, die angemeldet werden (noch keine Schüler:innen)", "Eltern bzw. Sorgeberechtigte"],
     recipients: ["Sekretariat", "Schulleitung (Entscheidung)", "Eltern (eigener Vorgang über den Bearbeitungslink)"],
-    note: "Online nur, was Terminvergabe und Gespräch brauchen – keine Religionszugehörigkeit, kein Förderbedarf, keine Gesundheitsdaten, keine Noten, keine Uploads (Unterlagen werden im Original vorgelegt). Die rechtlich maßgebliche Aufnahme läuft weiter über Papier bzw. die Schulverwaltungssoftware. Keine automatische Auswahl. Klassenbildung (KB-01): der Schritt „Neuaufnahmen“ schlägt aus Grundschule und Familie (gleiche E-Mail) eine Verteilung auf die neuen Klassen vor – nur ein Vorschlag im Browser, nicht gespeichert; kein Geschlecht, keine weiteren Merkmale. Mails gehen nur an Elternteil 1; die Adresse des zweiten Elternteils (optional, Q5-23) wird erst bei der Übernahme für dessen Elternkonto genutzt.",
+    note: "Online nur, was Terminvergabe und Gespräch brauchen – keine Religionszugehörigkeit, kein Förderbedarf, keine Gesundheitsdaten, keine Noten, keine Uploads (Unterlagen werden im Original vorgelegt). Die rechtlich maßgebliche Aufnahme läuft weiter über Papier bzw. die Schulverwaltungssoftware. Keine automatische Auswahl. Klassenbildung (KB-01…03): der Schritt „Neuaufnahmen“ schlägt aus Grundschule, Familie (gleiche E-Mail, Häkchen „getrennt“) und internen Klassenwünschen (zusammen/nicht zusammen, höchstens 2 je Kind, ohne Begründung, vom Sekretariat aus Aufnahmegespräch oder Grundschulbogen erfasst; Eltern sehen sie nicht, die Auskunft nennt das Partnerkind nicht) eine Verteilung auf die neuen Klassen vor – nur ein Vorschlag im Browser, nicht gespeichert; kein Geschlecht, keine weiteren Merkmale. Mails gehen nur an Elternteil 1; die Adresse des zweiten Elternteils (optional, Q5-23) wird erst bei der Übernahme für dessen Elternkonto genutzt.",
   },
 });

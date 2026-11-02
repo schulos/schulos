@@ -6,7 +6,9 @@ import { getDb } from "@/core/db/client";
 import { readSchoolSettings } from "@/core/settings";
 import { canAuskunft } from "@/modules/anmeldung/auskunft";
 import { anmeldungKatalog } from "@/modules/anmeldung/katalog";
-import { ANTRAG_STATUS_LABELS } from "@/modules/anmeldung/labels";
+import { MAX_WISHES_PER_CHILD } from "@/modules/anmeldung/klassenbildung";
+import { klassenwunschView } from "@/modules/anmeldung/klassenwuensche";
+import { ANTRAG_STATUS_LABELS, KLASSENWUNSCH_LABELS } from "@/modules/anmeldung/labels";
 import { slotText } from "@/modules/anmeldung/mails";
 import { getAntrag } from "@/modules/anmeldung/sekretariat";
 import { canDecide, canManage, DECISION_STATUSES, lateAdmissionOpen, listSlots, OPEN_STATUSES } from "@/modules/anmeldung/service";
@@ -14,7 +16,7 @@ import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
-import { ChecklistForm, DecideOneForm, MoveSlotForm, NoteForm } from "../../../forms";
+import { ChecklistForm, DecideOneForm, MoveSlotForm, NoteForm, SeparateForm, WishForm, WishRemove } from "../../../forms";
 import { dateTime, VerfahrenNav } from "../../../shared";
 
 export const metadata: Metadata = { title: "Antrag" };
@@ -42,6 +44,8 @@ export default async function AntragPage({ params }: { params: Promise<{ id: str
   const decidable = late || (canDecide(perms) && r.verfahrenStatus !== "abgeschlossen" && (open || (DECISION_STATUSES as readonly string[]).includes(a.status)));
   const slots = manage && (open || a.status === "unbestaetigt") ? await listSlots(db, a.verfahrenId) : [];
   const options = slots.filter((s) => s.id === a.slotId || (s.free > 0 && s.startsAt > new Date())).map((s) => ({ id: s.id, label: `${slotText(s)}${s.id === a.slotId ? " (aktuell)" : ""}` }));
+  // KB-03: Klassenwünsche und „getrennt“ (nur Sekretariat/Schulleitung, nie Eltern)
+  const kw = await klassenwunschView(db, perms, a.id);
   const row = (label: string, value: React.ReactNode) => (
     <>
       <dt className="text-muted">{label}</dt>
@@ -137,6 +141,50 @@ export default async function AntragPage({ params }: { params: Promise<{ id: str
             <Card aria-label="Termin">
               <CardHeader title="Termin verschieben" />
               <MoveSlotForm verfahrenId={a.verfahrenId} antragId={a.id} current={a.slotId} options={options} />
+            </Card>
+          )}
+          {kw && (kw.editable || kw.own.length > 0 || kw.incoming.length > 0 || kw.family.length > 0) && (
+            <Card aria-label="Klassenwünsche">
+              <CardHeader title="Klassenwünsche" />
+              <p className="text-sm text-muted">
+                Für den Vorschlag bei der Klassenbildung (Schuljahreswechsel): höchstens 2 Wünsche je Kind, aus Aufnahmegespräch oder
+                Grundschulbogen. Bitte keine Gründe eintragen. Eltern sehen die Wünsche nicht.
+              </p>
+              {kw.own.length > 0 ? (
+                <ul aria-label="Wünsche" className="flex flex-col gap-1 text-sm">
+                  {kw.own.map((w) => (
+                    <li key={w.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        {KLASSENWUNSCH_LABELS[w.art]} {w.partner.name} <span className="text-muted">({w.partner.number})</span>
+                      </span>
+                      {kw.editable && <WishRemove verfahrenId={a.verfahrenId} antragId={a.id} wishId={w.id} label={`${KLASSENWUNSCH_LABELS[w.art]} ${w.partner.name}`} />}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm">Keine Wünsche erfasst.</p>
+              )}
+              {kw.incoming.length > 0 && (
+                <div className="text-sm">
+                  <p className="text-muted">Genannt in anderen Anträgen:</p>
+                  <ul aria-label="Genannt in anderen Anträgen">
+                    {kw.incoming.map((w) => (
+                      <li key={w.id}>
+                        {w.partner.name} ({w.partner.number}): {KLASSENWUNSCH_LABELS[w.art]} diesem Kind
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {kw.editable && kw.own.length < MAX_WISHES_PER_CHILD && kw.candidates.length > 0 && <WishForm verfahrenId={a.verfahrenId} antragId={a.id} candidates={kw.candidates} />}
+              {kw.family.length > 0 &&
+                (kw.editable ? (
+                  <SeparateForm verfahrenId={a.verfahrenId} antragId={a.id} separate={kw.familySeparate} names={kw.family.map((f) => f.name)} />
+                ) : (
+                  <p className="text-sm">
+                    Familie ({kw.family.map((f) => f.name).join(", ")}): {kw.familySeparate ? "getrennt auf verschiedene Klassen" : "zusammen in eine Klasse"}
+                  </p>
+                ))}
             </Card>
           )}
           {manage && (

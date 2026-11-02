@@ -7,6 +7,7 @@ import { getDb } from "@/core/db/client";
 import { gradeLevels, recordArchives, schoolYears } from "@/core/db/schema";
 import { moduleOn } from "@/core/modules/guard";
 import { readModuleSetting } from "@/core/modules/settings";
+import { wishesForAdmission } from "@/modules/anmeldung/klassenwuensche";
 import { KLASSENGROESSE } from "@/modules/anmeldung/settings";
 import { pendingAdmissions, proposeClassNames, type AdmissionCandidate } from "@/modules/anmeldung/uebernahme";
 import { hasPermission } from "@/core/permissions";
@@ -362,12 +363,17 @@ async function AdmissionsStepServer({ transitionId, candidates, canCreate }: { t
   // Familie = gleiche E-Mail von Elternteil 1 – an den Browser geht nur ein neutraler Schlüssel, nicht die Adresse
   const familyKeys = new Map<string, string>();
   for (const c of candidates) if (!familyKeys.has(c.parent1Email)) familyKeys.set(c.parent1Email, `f${familyKeys.size + 1}`);
+  // KB-03: Wünsche nur als Antrags-IDs + Art, „getrennte“ Familien nur als neutraler Schlüssel
+  const wishes = await wishesForAdmission(db, candidates.map((c) => c.antragId));
+  const separateFamilies = [...new Set(candidates.filter((c) => c.familySeparate).map((c) => familyKeys.get(c.parent1Email)!))];
   return (
     <AdmissionsStep
       transitionId={transitionId}
       canCreate={canCreate}
       levels={levels}
       sizeHint={sizeHint}
+      wishes={wishes}
+      separateFamilies={separateFamilies}
       rows={candidates.map((c) => ({
         family: familyKeys.get(c.parent1Email)!,
         antragId: c.antragId,
