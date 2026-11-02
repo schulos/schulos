@@ -227,7 +227,7 @@ services:
   crowdsec:
     <<: *haertung
     profiles: [crowdsec]
-    image: ${SCHULOS_CROWDSEC_IMAGE:-crowdsecurity/crowdsec:v1.8.1}
+    image: ${SCHULOS_CROWDSEC_IMAGE:-crowdsecurity/crowdsec:v1.8.2}
     # Ausnahme SEC-13: läuft als root (Konfiguration und Hub-Dateien gehören root), aber ohne jede Capability
     restart: unless-stopped
     environment:
