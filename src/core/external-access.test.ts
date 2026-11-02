@@ -246,7 +246,8 @@ describe("Caddy-Konfiguration (compose.yaml)", () => {
   });
 
   it("P4-40b: client_auth nur mit SCHULOS_DEVICE_CERTS=an, verify_if_given gegen die Schul-CA; Vorgabe aus", () => {
-    expect(file).toMatch(/tls \{\$SCHULOS_TLS\} \{\s*import tls-geraete-\{\$SCHULOS_DEVICE_CERTS:aus\}\s*\}/);
+    // CA-06: danach die DNS-Prüfung (Vorgabe aus, compose-dns.test.ts)
+    expect(file).toMatch(/tls \{\$SCHULOS_TLS\} \{\s*import tls-geraete-\{\$SCHULOS_DEVICE_CERTS:aus\}\s*import tls-dns-\{\$SCHULOS_TLS_DNS:aus\}\s*\}/);
     expect(snippet(file, "tls-geraete-aus").replace(/\s/g, "")).toBe("(tls-geraete-aus){");
     const an = snippet(file, "tls-geraete-an");
     expect(an).toContain("mode verify_if_given");

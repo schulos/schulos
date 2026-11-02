@@ -6,6 +6,7 @@
 //   --latest                             neuestes fertiges Release aus den Tags auf stdin
 //   --changed <release.json> --upstream <upstream.json>   geänderte Fremd-Images seit dem Release (Komma-Liste, leer = keine)
 //   --version 1.5.0 --commit <sha> --app/--backup/--agent <ref@sha256:…> --out <ordner> [--upstream <json>] [--auto-patch <namen>]
+//                                        [--caddy-dns <ref@sha256:…>]: Caddy mit DNS-Modulen (CA-07, optional)
 //                                        release.json + release-notes.md schreiben (danach mit cosign signieren, Bytes nicht ändern)
 //                                        [--files <ordner>]: Host-Dateien (schulosctl.mjs, compose.yaml) daraus mit SHA-256 ins
 //                                        Manifest (GATE-031 C-01) – sie hängen als Anhang am Release
@@ -60,6 +61,7 @@ const { values } = parseArgs({
     app: { type: "string" },
     backup: { type: "string" },
     agent: { type: "string" },
+    "caddy-dns": { type: "string" },
     out: { type: "string", default: "." },
     files: { type: "string" },
     hostfiles: { type: "string" },
@@ -78,7 +80,8 @@ function hostFileHashes(dir: string): Partial<Record<HostFile, string>> {
   return out;
 }
 
-const UPSTREAM_SOURCES = ["Dockerfile", "apps/backup/Dockerfile", "apps/agent/Dockerfile", "compose.yaml", "compose.backup.yaml"];
+// CA-07: deploy/caddy-dns/Dockerfile (Go-Basis) fehlt in Ständen vor CA-07 – Patch-Releases alter Commits lesen nur, was es gibt
+const UPSTREAM_SOURCES = ["Dockerfile", "apps/backup/Dockerfile", "apps/agent/Dockerfile", "compose.yaml", "compose.backup.yaml", "deploy/caddy-dns/Dockerfile"];
 
 function loadNotes(version: string) {
   const v = parseVersion(version);
@@ -128,7 +131,7 @@ try {
     console.log(`Release-Notizen für ${values.check} in Ordnung (${notes.changes.length} Änderungen)`);
   } else if (values["upstream-refs"]) {
     const dir = values["upstream-refs"];
-    let refs = upstreamRefs(UPSTREAM_SOURCES.map((f) => readFileSync(join(dir, f), "utf8")));
+    let refs = upstreamRefs(UPSTREAM_SOURCES.filter((f) => existsSync(join(dir, f))).map((f) => readFileSync(join(dir, f), "utf8")));
     const pins = join(dir, UPSTREAM_PINS_FILE);
     if (existsSync(pins)) refs = pinUpstream(refs, parsePins(readFileSync(pins, "utf8")));
     for (const [name, ref] of Object.entries(refs)) console.log(`${name}=${ref}`);
@@ -147,7 +150,9 @@ try {
     const upstream = values.upstream ? (readJson(values.upstream) as Record<string, string>) : undefined;
     const files = values.files ? hostFileHashes(values.files) : undefined;
     if (values.files && Object.keys(files!).length !== HOST_FILES.length) throw new Error(`--files ${values.files}: erwartet ${HOST_FILES.join(", ")}`);
-    const manifest = buildManifest({ version, notes, images: { app, backup, agent }, commit, publishedAt: new Date(), upstream, files });
+    const caddyDns = values["caddy-dns"];
+    const images = { app, backup, agent, ...(caddyDns ? { "caddy-dns": caddyDns } : {}) };
+    const manifest = buildManifest({ version, notes, images, commit, publishedAt: new Date(), upstream, files });
     mkdirSync(values.out, { recursive: true });
     writeFileSync(join(values.out, "release.json"), JSON.stringify(manifest, null, 2) + "\n");
     writeFileSync(join(values.out, "release-notes.md"), releaseNotesMarkdown(manifest));

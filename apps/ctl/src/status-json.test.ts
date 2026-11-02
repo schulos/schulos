@@ -84,7 +84,7 @@ describe("Zertifikatsablauf (BM-04)", () => {
   });
 
   it("nicht erreichbar → null (kein Fehler)", async () => {
-    expect(await probeTlsExpiry({ host: "127.0.0.1", port: 1, servername: "localhost" }, 500)).toBeNull();
+    expect(await probeTlsExpiry({ host: "127.0.0.1", port: 1, servername: "localhost" }, false, 500)).toBeNull();
   });
 
   it("liest das Ablaufdatum eines echten Handshakes", async () => {
@@ -97,8 +97,11 @@ describe("Zertifikatsablauf (BM-04)", () => {
     await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
     try {
       const port = (srv.address() as { port: number }).port;
-      const r = await probeTlsExpiry({ host: "127.0.0.1", port, servername: "localhost" }, 3000);
+      const r = await probeTlsExpiry({ host: "127.0.0.1", port, servername: "localhost" }, true, 3000);
       expect(r?.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      // CA-08: Ausstellung, Modus und Vertrauen (Testzertifikat → nicht öffentlich vertrauenswürdig)
+      expect(r?.issuedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(r).toMatchObject({ acme: true, trusted: false });
     } finally {
       srv.close();
     }

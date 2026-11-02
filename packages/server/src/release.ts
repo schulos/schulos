@@ -65,6 +65,13 @@ export const BETA_DAYS = 14;
 
 export type ImageRole = "app" | "backup" | "agent";
 export const IMAGE_ROLES: ImageRole[] = ["app", "backup", "agent"];
+/**
+ * CA-07: eigene Images, die ein Release mitbringen kann, aber nicht muss (fehlen in älteren Releases): „caddy-dns“ = Caddy mit
+ * DNS-Modulen (deploy/caddy-dns) – nur für Server, die ihr Zertifikat per DNS-Prüfung holen.
+ */
+export type OptionalImageRole = "caddy-dns";
+export const OPTIONAL_IMAGE_ROLES: OptionalImageRole[] = ["caddy-dns"];
+export type ReleaseImages = Record<ImageRole, string> & Partial<Record<OptionalImageRole, string>>;
 
 export type ChangeKind = "neu" | "verbessert" | "behoben" | "sicherheit";
 export const CHANGE_LABEL: Record<ChangeKind, string> = {
@@ -93,8 +100,8 @@ export interface ReleaseManifest {
   minVersion: string;
   securityRelevant: boolean;
   changes: ReleaseChange[];
-  /** Images per Digest, z. B. ghcr.io/schulos/schulos@sha256:… */
-  images: Record<ImageRole, string>;
+  /** Images per Digest, z. B. ghcr.io/schulos/schulos@sha256:… (CA-07: dazu optional „caddy-dns“) */
+  images: ReleaseImages;
   /** Git-Commit des Builds */
   commit: string;
   /**
@@ -206,6 +213,10 @@ export function validateManifest(raw: unknown): ReleaseManifest {
     const ref = images?.[role];
     if (typeof ref !== "string" || !IMAGE_REF.test(ref)) errors.push(`images.${role}: Image mit Digest (…@sha256:…)`);
   }
+  for (const role of OPTIONAL_IMAGE_ROLES) {
+    const ref = images?.[role];
+    if (ref !== undefined && (typeof ref !== "string" || !IMAGE_REF.test(ref))) errors.push(`images.${role}: Image mit Digest (…@sha256:…)`);
+  }
   if (typeof m.commit !== "string" || !/^[0-9a-f]{7,40}$/.test(m.commit)) errors.push("commit: Git-Hash");
   if (m.upstream !== undefined) {
     if (!m.upstream || typeof m.upstream !== "object") errors.push("upstream: Objekt name → Image@sha256:…");
@@ -233,7 +244,7 @@ export function validateManifest(raw: unknown): ReleaseManifest {
 export function buildManifest(input: {
   version: string;
   notes: ReleaseNotes;
-  images: Record<ImageRole, string>;
+  images: ReleaseImages;
   commit: string;
   publishedAt: Date;
   upstream?: Record<string, string>;
@@ -454,7 +465,7 @@ export function releaseNotesMarkdown(m: ReleaseManifest): string {
   }
   const stable = m.stableFrom ? `ab ${m.stableFrom.slice(0, 10)} im Kanal stabil` : "Vorabversion, nur im Kanal beta";
   lines.push(`Kanal: beta, ${stable}. Direkt erreichbar ab Version ${m.minVersion}.`, "", "Images:");
-  for (const role of IMAGE_ROLES) lines.push(`- ${role}: \`${m.images[role]}\``);
+  for (const role of [...IMAGE_ROLES, ...OPTIONAL_IMAGE_ROLES]) if (m.images[role]) lines.push(`- ${role}: \`${m.images[role]}\``);
   return lines.join("\n") + "\n";
 }
 
@@ -495,6 +506,12 @@ export function isoImages(m: ReleaseManifest): { images: IsoImage[]; env: Record
     // G4E-O10: Profil-Images (nicht auf dem Medium, aus dem Internet) gleich per Digest aus dem signierten Manifest
     ...profileImageEnv(m),
   };
+  // CA-07: Caddy mit DNS-Modulen auf dem Medium (der Installer stellt SCHULOS_CADDY_IMAGE nur bei DNS-Prüfung darauf um)
+  const dns = m.images["caddy-dns"];
+  if (dns) {
+    images.push(own("schulos-caddy-dns", dns));
+    env.SCHULOS_CADDY_DNS_IMAGE = tag("schulos-caddy-dns");
+  }
   return { images, env };
 }
 

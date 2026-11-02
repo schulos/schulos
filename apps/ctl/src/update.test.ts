@@ -230,6 +230,17 @@ describe(".env und Images", () => {
     });
   });
 
+  it("CA-07: Caddy mit DNS-Modulen – mitgeführt, aktiv nur bei DNS-Prüfung; fehlt es dann, kein Update", () => {
+    const base = rel("1.6.0", { caddy: `caddy:2@${d64("d")}` });
+    const dns = `ghcr.io/schulos/schulos-caddy-dns@${d64("9")}`;
+    const m = { ...base, images: { ...base.images, "caddy-dns": dns } };
+    expect(imageEnvFor(m, "SCHULOS_TLS=internal\n")).toMatchObject({ SCHULOS_CADDY_IMAGE: `caddy:2@${d64("d")}`, SCHULOS_CADDY_DNS_IMAGE: dns });
+    expect(imageEnvFor(m, "SCHULOS_TLS_DNS=aus\n").SCHULOS_CADDY_IMAGE).toBe(`caddy:2@${d64("d")}`);
+    expect(imageEnvFor(m, "SCHULOS_TLS=it@schule.de\nSCHULOS_TLS_DNS=hetzner\n")).toMatchObject({ SCHULOS_CADDY_IMAGE: dns, SCHULOS_CADDY_DNS_IMAGE: dns });
+    expect(() => imageEnvFor(base, "SCHULOS_TLS_DNS=hetzner\n")).toThrow("kein Caddy mit DNS-Modulen");
+    expect(imageEnvFor(base, "")).not.toHaveProperty("SCHULOS_CADDY_DNS_IMAGE");
+  });
+
   it("Protokollzeile", () => {
     expect(formatProtocolLine({ at: "2026-10-05T02:00:00Z", step: "rueckweg", ok: true, from: "1.4.1", to: "1.4.0", detail: "alte Version läuft wieder" })).toBe(
       "2026-10-05T02:00:00Z ✓ rueckweg 1.4.1 → 1.4.0 – alte Version läuft wieder",

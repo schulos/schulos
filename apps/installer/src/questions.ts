@@ -21,6 +21,7 @@ import {
   parseIPv4,
   parseWindow,
 } from "./checks";
+import { DNS_PROVIDER_BY_VALUE, DNS_PROVIDERS, DNS_RESOLVERS_DEFAULT, dnsFields, isCloudflareToken, TSIG_ALGORITHMS, type DnsField } from "./dns";
 
 export type Value = string | number | boolean | string[];
 export type Answers = Record<string, Value>;
@@ -98,6 +99,18 @@ const offsite = (t: string) => (a: Answers) => hasOffsite(a) && a["offsite.type"
 const offsiteOn = (a: Answers) => hasOffsite(a) && (a["offsite.type"] === "sftp" || a["offsite.type"] === "s3");
 const mailOn = (a: Answers) => hasMail(a) && typeof a["mail.host"] === "string" && a["mail.host"] !== "";
 const pairNow = (a: Answers) => (isFresh(a) && a["backup.mode"] === "pair") || isRestoreBackup(a);
+/** Let's Encrypt (HTTP- bzw. DNS-Prüfung) */
+const isAcme = (a: Answers) => a["web.tls"] === "letsencrypt" || a["web.tls"] === "dns";
+/** CA-06: DNS-Prüfung – nur Hauptsystem */
+const isDns = (a: Answers) => isMain(a) && a["web.tls"] === "dns";
+const dnsField = (f: DnsField) => (a: Answers) => isDns(a) && dnsFields(str(a["web.dns_provider"] ?? "")).includes(f);
+/** Name oder IPv4-Adresse, optional mit :Port (RFC-2136-Server) */
+function isHostPort(s: string): boolean {
+  const m = /^([^:\s]+)(?::(\d{1,5}))?$/.exec(s.trim());
+  if (!m) return false;
+  if (m[2] !== undefined && (Number(m[2]) < 1 || Number(m[2]) > 65535)) return false;
+  return isDomain(m[1]!) || parseIPv4(m[1]!) !== null;
+}
 
 const str = (v: Value) => (typeof v === "string" ? v : "");
 const list = (v: Value) => (Array.isArray(v) ? v : []);
@@ -457,20 +470,111 @@ export const QUESTIONS: Question[] = [
     id: "web.tls",
     label: "Zertifikat",
     kind: "select",
-    options: () => [
+    help: "öffentliche Domain, Server nur im Schulnetz: Let's Encrypt prüft die Domain über einen TXT-Eintrag beim DNS-Anbieter – kein Zugang aus dem Internet nötig, keine Zertifikatswarnung auf privaten Geräten",
+    // CA-06: DNS-Prüfung nur im Hauptsystem (Stufe 1) – der Backupserver bleibt bei eigener CA (Kopplung pinnt sie) bzw. Let's Encrypt
+    options: (a) => [
       { value: "internal", label: "nur Schulnetz (eigene CA)" },
       { value: "letsencrypt", label: "öffentliche Domain (Let's Encrypt)" },
+      ...(isMain(a) ? [{ value: "dns", label: "öffentliche Domain, Server nur im Schulnetz (Let's Encrypt per DNS)" }] : []),
       { value: "proxy", label: "hinter vorhandenem Proxy" },
     ],
     default: () => "internal",
-    validate: (v, a) => (v === "letsencrypt" && !isPublicDomain(str(a["web.domain"] ?? "")) ? "Let's Encrypt braucht eine öffentliche Domain" : null),
+    validate: (v, a) =>
+      (v === "letsencrypt" || v === "dns") && !isPublicDomain(str(a["web.domain"] ?? "")) ? "Let's Encrypt braucht eine öffentliche Domain" : null,
+    warn: (v) =>
+      v === "dns"
+        ? "Der Name muss im Schulnetz auf diesen Server zeigen (Eintrag im Schul-DNS) · die Domain erscheint in den öffentlichen Zertifikatsprotokollen (Certificate Transparency)"
+        : null,
   },
   {
     id: "web.acme_email",
     label: "E-Mail für Let's Encrypt",
     kind: "text",
-    when: (a) => a["web.tls"] === "letsencrypt",
+    when: isAcme,
     validate: (v) => (isEmail(str(v)) ? null : "E-Mail-Adresse"),
+  },
+  // CA-06: DNS-Anbieter und Zugang (apps/installer/src/dns.ts) – Zugangsdaten nur in der .env, nie in schulos-install.yaml
+  {
+    id: "web.dns_provider",
+    label: "DNS-Anbieter der Domain",
+    help: "dort liegt die Zone der Domain; Zugang mit Rechten nur für diese Zone anlegen (INSTALLATION.md §5d.1, Checkliste für den Schulträger)",
+    kind: "select",
+    when: isDns,
+    options: () => DNS_PROVIDERS.map((p) => ({ value: p.value, label: p.label })),
+    // welcher Zugang mit welchen Rechten – als Hinweis nach der Auswahl
+    warn: (v) => DNS_PROVIDER_BY_VALUE.get(str(v))?.access ?? null,
+  },
+  {
+    id: "web.dns_server",
+    label: "DNS-Server für Updates",
+    help: "Name oder IP-Adresse des primären DNS-Servers, optional mit Port, z. B. ns1.schule-xy.de:53",
+    kind: "text",
+    when: dnsField("server"),
+    validate: (v) => (isHostPort(str(v)) ? null : "Name oder IP-Adresse, optional mit :Port"),
+  },
+  {
+    id: "web.dns_user",
+    label: "DNS-Zugang: Kennung",
+    help: "netcup: Kundennummer · INWX: Benutzername des API-Kontos · Route 53: Access Key ID · RFC 2136: Name des TSIG-Schlüssels",
+    kind: "text",
+    when: dnsField("user"),
+    validate: (v, a) =>
+      a["web.dns_provider"] === "netcup" && !/^\d+$/.test(str(v)) ? "Kundennummer (nur Ziffern)" : /\s/.test(str(v)) || !str(v) ? "ohne Leerzeichen" : null,
+  },
+  {
+    id: "web.dns_key_alg",
+    label: "TSIG-Verfahren",
+    kind: "select",
+    when: dnsField("key_alg"),
+    options: () => TSIG_ALGORITHMS.map((x) => ({ value: x, label: x })),
+    default: () => "hmac-sha256",
+  },
+  {
+    id: "web.dns_token",
+    label: "DNS-Zugang: API-Token",
+    help: "Cloudflare/Hetzner/deSEC: API-Token · IONOS: Präfix.Geheimnis · netcup: API-Key – mit Rechten nur für diese Zone",
+    kind: "password",
+    secret: true,
+    when: dnsField("token"),
+    validate: (v, a) => {
+      const s = str(v);
+      if (/\s/.test(s)) return "ohne Leerzeichen";
+      if (a["web.dns_provider"] === "cloudflare" && !isCloudflareToken(s)) return "Cloudflare-API-Token (35–50 Zeichen bzw. cfut_…/cfat_…), ohne Anführungszeichen";
+      if (a["web.dns_provider"] === "ionos" && !/^[^.]+\.[^.]+$/.test(s)) return "IONOS-API-Schlüssel als Präfix.Geheimnis";
+      return null;
+    },
+  },
+  {
+    id: "web.dns_shared_secret",
+    label: "DNS-Zugang: Shared Secret (optional)",
+    help: "nur, wenn das API-Konto mit Zwei-Faktor-Anmeldung geschützt ist – sonst leer lassen",
+    kind: "password",
+    secret: true,
+    optional: true,
+    when: dnsField("shared_secret"),
+    validate: (v) => (/\s/.test(str(v)) ? "ohne Leerzeichen" : null),
+  },
+  {
+    id: "web.dns_secret",
+    label: "DNS-Zugang: Passwort bzw. Geheimschlüssel",
+    help: "netcup: API-Passwort · INWX: Passwort des API-Kontos · Route 53: Secret Access Key · RFC 2136: TSIG-Schlüssel (Base64)",
+    kind: "password",
+    secret: true,
+    when: dnsField("secret"),
+    validate: (v, a) =>
+      a["web.dns_provider"] === "rfc2136" && !/^[A-Za-z0-9+/]+={0,2}$/.test(str(v)) ? "TSIG-Schlüssel in Base64" : str(v) ? null : "Pflicht",
+  },
+  {
+    id: "web.dns_resolvers",
+    label: "DNS-Server für die Prüfung",
+    help: "öffentliche DNS-Server, über die Caddy den TXT-Eintrag nachsieht – der Schul-DNS kennt ihn bei Split-DNS nicht. Nur ändern, wenn die Firewall DNS nach außen nur über einen eigenen Server erlaubt",
+    kind: "list",
+    when: isDns,
+    default: () => [...DNS_RESOLVERS_DEFAULT],
+    validate: (v) => {
+      const bad = list(v).find((x) => !isIpOrCidr(x) || x.includes("/"));
+      return bad ? `„${bad}“ ist keine IP-Adresse` : list(v).length ? null : "Mindestens ein DNS-Server";
+    },
   },
   // P4-40 Außenzugang (INSTALLATION.md „Außenzugang“) – nur Hauptsystem; Vorgabe: nur im Schulnetz
   {

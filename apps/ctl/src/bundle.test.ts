@@ -28,6 +28,14 @@ describe("Offline-Bundle", () => {
     expect(bundleInfo([rel("1.5.0", "e")], new Date("2026-10-05T00:00:00Z"))).toMatchObject({ versions: ["1.5.0"], images: expect.arrayContaining([`postgres:18@${d64("3")}`]) });
   });
 
+  it("CA-07: Caddy mit DNS-Modulen kommt mit, wenn das Release es nennt", () => {
+    const m = rel("1.6.0", "f");
+    const dns = `ghcr.io/x/schulos-caddy-dns@${d64("9")}`;
+    const imgs = bundleImages([{ ...m, images: { ...m.images, "caddy-dns": dns } }]);
+    expect(imgs.map((i) => i.tag)).toContain("ghcr.io/x/schulos-caddy-dns:1.6.0");
+    expect(bundleImages([m]).map((i) => i.tag)).not.toContain("ghcr.io/x/schulos-caddy-dns:1.6.0");
+  });
+
   it("liest die geladenen Digests aus docker load", () => {
     const out = `Loaded image ID: ${d64("a")}\nLoaded image: caddy:2@${d64("2")}\n`;
     expect(loadedDigests(out)).toEqual(new Set([d64("a"), d64("2")]));

@@ -63,6 +63,8 @@ const q = (v: string) => `'${v.replace(/'/g, `'\\''`)}'`;
 /** Angaben für den Erststart (0600, wird danach gelöscht): Rolle, Stack, Kopplung bzw. Wiederherstellung */
 export function firstbootEnv(plan: InstallPlan): string {
   const lines = [`ROLE=${plan.role}`, `STACK=${plan.stackDir}`];
+  const dns = planTlsDns(plan);
+  if (dns) lines.push(`TLS_DNS=${dns}`);
   if (plan.pairing) lines.push(`PAIR_URL=${q(plan.pairing.url)}`, `PAIR_CODE=${q(plan.pairing.code)}`);
   if (plan.restore) lines.push(`RESTORE=${plan.restore.mode}`);
   if (plan.restore?.mode === "offsite") {
@@ -125,6 +127,12 @@ else
   if [ -z "\${RESTORE:-}" ] && [ -n "\${PAIR_URL:-}" ]; then
     status "Mit dem Backupserver koppeln"
     compose run --rm -T backup-agent "\${AGENT[@]}" koppeln "$PAIR_URL" "$PAIR_CODE" || echo "Kopplung fehlgeschlagen – in Verwaltung → Backup nachholen"
+  fi
+  # CA-06: Abschlussprüfung – öffentliches Zertifikat per DNS-Prüfung da? (netcup braucht bis zu 20 min); scheitert sie, läuft
+  # SchulOS trotzdem (Browser warnen bis dahin), Verwaltung → System meldet es
+  if [ -n "\${TLS_DNS:-}" ]; then
+    status "Zertifikat per DNS-Prüfung holen ($TLS_DNS)"
+    schulosctl zertifikat-pruefen --warten 1500 || echo "Kein öffentliches Zertifikat – später erneut: schulosctl zertifikat-pruefen (INSTALLATION.md §5d.1)"
   fi
 fi
 
@@ -275,6 +283,23 @@ export function planDomain(plan: InstallPlan): string {
   return /^SCHULOS(?:_BACKUP)?_DOMAIN=(.+)$/m.exec(env)?.[1] ?? "localhost";
 }
 
+/** CA-06: DNS-Anbieter aus der .env des Plans (Let's Encrypt per DNS-Prüfung), sonst null */
+export function planTlsDns(plan: InstallPlan): string | null {
+  const env = plan.files.find((f) => f.path.endsWith("/.env"))?.content ?? "";
+  const v = /^SCHULOS_TLS_DNS=([a-z0-9]+)$/m.exec(env)?.[1];
+  return v && v !== "aus" ? v : null;
+}
+
+/**
+ * CA-07: Caddy mit DNS-Modulen statt des Standard-Images – SCHULOS_CADDY_IMAGE in der .env auf SCHULOS_CADDY_DNS_IMAGE (aus
+ * images.env des Mediums, per Digest) stellen. Ersetzt die Zeile statt eine zweite anzuhängen (schulosctl liest die erste).
+ */
+export const CADDY_DNS_IMAGE_SCRIPT = [
+  'v=$(sed -n "s/^SCHULOS_CADDY_DNS_IMAGE=//p" "$1" | tail -n 1)',
+  '[ -n "$v" ] || { echo "Medium ohne Caddy mit DNS-Modulen (SCHULOS_CADDY_DNS_IMAGE fehlt in images.env)" >&2; exit 1; }',
+  'if grep -q "^SCHULOS_CADDY_IMAGE=" "$1"; then sed -i "s|^SCHULOS_CADDY_IMAGE=.*|SCHULOS_CADDY_IMAGE=$v|" "$1"; else echo "SCHULOS_CADDY_IMAGE=$v" >> "$1"; fi',
+].join("\n");
+
 /** Was nur von der Rolle abhängt: Docker, Node 24, Stack-Dateien, schulosctl und Timer, Images, Erststart- und Konsolendienst. */
 export function schulosImageSteps(role: Role, o: StepOptions & { dist: string }): Step[] {
   const t = o.target;
@@ -323,6 +348,7 @@ export function schulosConfigSteps(plan: InstallPlan, t: string): Step[] {
     ...(proxy ? [write("Proxy für Docker", `${t}/etc/systemd/system/docker.service.d/proxy.conf`, dockerProxyDropin(proxy, ["localhost", "127.0.0.1", domain]))] : []),
     ...plan.files.map((f) => write(`Konfiguration ${f.path}`, `${t}${f.path}`, f.content, f.mode)),
     run("Image-Angaben in die .env", ["sh", "-c", `cat "$1" >> "$2"`, "sh", `${t}${IMAGES_ENV}`, `${t}${plan.stackDir}/.env`]),
+    ...(planTlsDns(plan) ? [run("Caddy mit DNS-Modulen", ["sh", "-c", CADDY_DNS_IMAGE_SCRIPT, "sh", `${t}${plan.stackDir}/.env`])] : []),
     write("Erststart: Angaben", `${t}${FIRSTBOOT_ENV}`, firstbootEnv(plan), 0o600),
     write("Konsolenstatus: Skript", `${t}${LIB_DIR}/konsole.sh`, consoleScript(plan, domain), 0o755),
   ];

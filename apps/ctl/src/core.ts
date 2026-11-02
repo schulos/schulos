@@ -2,7 +2,8 @@
 import { backupHealth, HEALTH_LABEL, type AgentState } from "@schulos/server/agent-api";
 import { DISK_WARN_PERCENT } from "@schulos/server/mail";
 import { fingerprintLines } from "@schulos/server/root-ca";
-import { daysUntil, healthExitCode, hostProblems, overallLevel, type CtlStatusReport, type HealthProblem, type RootCaInfo } from "@schulos/server/system";
+import { daysUntil, healthExitCode, hostProblems, overallLevel, type CtlStatusReport, type HealthProblem, type RootCaInfo, type TlsInfo } from "@schulos/server/system";
+import { isStagingIssuer } from "./tls-probe";
 
 export const USAGE = `schulosctl – Betrieb von SchulOS (INSTALLATION.md §5)
 
@@ -23,6 +24,10 @@ Aufruf: schulosctl [--dir <installationsordner>] <befehl>
   test-restore            neuesten Stand vom Backupserver in eine Wegwerf-Datenbank, App darauf starten,
                           Rauchtest, danach alles löschen (Ergänzung zur monatlichen Prüfung)
   system-sync             Abgleich mit Verwaltung → System (systemd-Timer): Auftrag ausführen, Status schreiben
+  zertifikat-pruefen [--warten <sekunden>] [--staging]
+                          öffentliches Zertifikat (Let's Encrypt, auch per DNS-Prüfung) am HTTPS-Port prüfen: Kette und
+                          Name; --warten: so lange erneut versuchen (Abschluss der Installation); --staging: Test-
+                          zertifikat der ACME-Staging-Umgebung gilt als Erfolg (Systemtest). Exit 0 gültig · 1 nicht
   wartungsfenster         im Wartungsfenster (systemd-Timer): Patches automatisch, Funktions-Updates nur freigegeben;
                           braucht Debian einen Neustart (Kernel, libc), danach sichern und neu starten –
                           nur mit TPM2; bei LUKS-Passphrase nur melden (Verwaltung → System, Alarm-Mail)
@@ -69,6 +74,7 @@ export type Command =
   | { name: "test-restore" }
   | { name: "db-rolle" }
   | { name: "system-sync" }
+  | { name: "zertifikat-pruefen"; waitSeconds: number; staging: boolean }
   | { name: "wartungsfenster" }
   | { name: "os-upgrade"; target?: string; yes: boolean }
   | { name: "os-upgrade-pruefen" }
@@ -119,6 +125,9 @@ export function parseArgs(argv: string[], env: Record<string, string | undefined
   const extern = flag("--extern");
   const off = flag("--aus");
   const passwordStdin = flag("--passwort-stdin");
+  const warten = take("--warten");
+  const staging = flag("--staging");
+  if (warten !== undefined && !/^\d{1,5}$/.test(warten)) throw new UsageError("--warten: Sekunden (0–99999)");
   if (kanal && kanal !== "stabil" && kanal !== "beta") throw new UsageError("--kanal: stabil oder beta");
   if (flag("--help") || flag("-h")) return { dir, command: { name: "help" } };
   const [a, b, ...rest] = args;
@@ -170,6 +179,9 @@ export function parseArgs(argv: string[], env: Record<string, string | undefined
     case "system-sync":
       extra(1);
       return { dir, command: { name: "system-sync" } };
+    case "zertifikat-pruefen":
+      extra(1);
+      return { dir, command: { name: "zertifikat-pruefen", waitSeconds: warten ? Number(warten) : 0, staging } };
     case "wartungsfenster":
       extra(1);
       return { dir, command: { name: "wartungsfenster" } };
@@ -253,10 +265,34 @@ export interface StatusInput {
   now: Date;
   /** Ergebnis von dockerExposureProblem (GATE-4c) */
   exposure?: string | null;
-  /** BM-04: Ablauf des Zertifikats, das der Reverse-Proxy ausliefert (null = nicht gemessen) */
-  tls?: { expiresAt: string } | null;
+  /** BM-04: Ablauf des Zertifikats, das der Reverse-Proxy ausliefert (null = nicht gemessen); CA-08: Ausstellung, ACME, Vertrauen */
+  tls?: TlsInfo | null;
   /** CA-02: Root der eigenen CA (null = keine eigene CA bzw. nicht lesbar) */
   rootCa?: RootCaInfo | null;
+}
+
+/** CA-06: Ergebnis von `schulosctl zertifikat-pruefen` als Text – rein, getestet. */
+export function certCheckText(
+  r: { expiresAt: string; issuer: string; trusted: boolean; nameOk: boolean; problem: string | null } | null,
+  o: { domain: string; acme: boolean; dns: string | null; staging: boolean },
+): { ok: boolean; text: string } {
+  if (!o.acme)
+    return { ok: true, text: `${o.domain}: eigene CA bzw. Proxy (SCHULOS_TLS=internal) – kein öffentliches Zertifikat vorgesehen, nichts zu prüfen` };
+  const hint = [
+    "Ursache im Caddy-Protokoll: docker compose logs caddy | grep -iE 'acme|dns|challenge|error'",
+    o.dns
+      ? `DNS-Prüfung (${o.dns}): Zugang und Rechte beim DNS-Anbieter (.env: SCHULOS_DNS_*), Zone der Domain beim Anbieter, ausgehendes DNS zu SCHULOS_DNS_RESOLVERS`
+      : "HTTP-Prüfung: Port 80 aus dem Internet erreichbar, Domain zeigt öffentlich auf diesen Server",
+  ];
+  if (!r) return { ok: false, text: [`${o.domain}: noch kein Zertifikat am HTTPS-Port`, ...hint].join("\n") };
+  const until = r.expiresAt.slice(0, 10);
+  if (r.trusted) return { ok: true, text: `${o.domain}: öffentliches Zertifikat von ${r.issuer}, gültig bis ${until} ✓` };
+  if (o.staging && isStagingIssuer(r.issuer) && r.nameOk)
+    return { ok: true, text: `${o.domain}: Testzertifikat der ACME-Staging-Umgebung (${r.issuer}), gültig bis ${until} ✓ – nicht für den Betrieb` };
+  return {
+    ok: false,
+    text: [`${o.domain}: Zertifikat von ${r.issuer} ist nicht öffentlich vertrauenswürdig (${r.problem ?? "unbekannt"})`, ...hint].join("\n"),
+  };
 }
 
 /**
@@ -395,8 +431,12 @@ export function sanitizeEnv(text: string): string {
     .map((line) => {
       const m = /^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/.exec(line);
       if (!m) return line;
-      const [, pre, key] = m;
-      const personal = /^SCHULOS_(ADMIN_|SCHOOL_NAME|SCHOOL_NUMBER)/.test(key!) || /DOMAIN|EMAIL|MAIL_FROM/.test(key!);
+      const [, pre, key, value] = m;
+      // CA-06: Zugang zum DNS-Anbieter (Kennung, Server) und die ACME-E-Mail in SCHULOS_TLS („internal“ bleibt lesbar)
+      const personal =
+        /^SCHULOS_(ADMIN_|SCHOOL_NAME|SCHOOL_NUMBER|DNS_USER|DNS_SERVER)/.test(key!) ||
+        /DOMAIN|EMAIL|MAIL_FROM/.test(key!) ||
+        (key === "SCHULOS_TLS" && value!.includes("@"));
       return SECRET_KEY.test(key!) || personal ? `${pre}${key}=***` : line;
     })
     .join("\n");

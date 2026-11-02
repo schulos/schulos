@@ -213,6 +213,15 @@ export function imageEnvFor(m: ReleaseManifest, currentEnv: string): Record<stri
   if (m.upstream?.caddy) env.SCHULOS_CADDY_IMAGE = m.upstream.caddy;
   // G4E-O10: auch die Profil-Images (ClamAV, CrowdSec, step-ca) per Digest – wer ein Profil einschaltet, bekommt genau dieses Image
   Object.assign(env, profileImageEnv(m));
+  // CA-07: Caddy mit DNS-Modulen – immer mitgeführt (späteres Umstellen), aktiv nur bei DNS-Prüfung. Fehlt es im Release, wäre
+  // das Standard-Image ohne DNS-Modul die Folge und Caddy startete nicht – dann lieber kein Update.
+  const dnsImage = m.images["caddy-dns"];
+  if (dnsImage) env.SCHULOS_CADDY_DNS_IMAGE = dnsImage;
+  const dns = readEnvValue(currentEnv, "SCHULOS_TLS_DNS");
+  if (dns && dns !== "aus") {
+    if (!dnsImage) throw new Error(`Release ${m.version} bringt kein Caddy mit DNS-Modulen mit – dieser Server holt sein Zertifikat per DNS-Prüfung (${dns})`);
+    env.SCHULOS_CADDY_IMAGE = dnsImage;
+  }
   if (m.upstream?.postgres) {
     const tag = (ref: string) => ref.split("@")[0]!.split(":")[1] ?? "latest";
     const major = (ref: string) => tag(ref).split(/[.-]/)[0];

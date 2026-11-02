@@ -60,7 +60,7 @@ Jede Neuinstallation erzeugt eine **neue Root**: alles neu verteilen, alte Eintr
 **Ausdrücklich nicht:** Wildcard-Zertifikate in Stufe 1, automatische Verteilung der Root an Clients, eigene Geräteverwaltung,
 Root-Download über HTTP als „vertrauenswürdig“ ausgeben ohne Fingerabdruck-Abgleich.
 **Spätere Stufen:** `acme-dns`-Delegation (falls der Anbieter keine API hat); ACME-Staging-Test im Installer; Wildcard für
-Vorschau-Instanz/Backupserver.
+Vorschau-Instanz/Backupserver; automatischer Ausstellungstest in der CI (lokale ACME-Test-CA + DNS-Server per RFC 2136).
 
 ## Umsetzung
 
@@ -108,6 +108,38 @@ Vorschau-Instanz/Backupserver.
   Backupserver der übliche Weg (Konsole zeigt `https://<IP>`).
 - **Handbuch-Link:** Verwaltung → System verlinkt die Starter-Seite nur, wenn es sie gibt; sonst verweist die Karte auf
   „Starter-Seiten anlegen“ im Handbuch (bzw. auf INSTALLATION §5d, wenn das Handbuch ausgeschaltet ist).
+
+**Stand Teil B (CA-06…CA-08 umgesetzt), Entscheidungen bei offenen Fragen (konservativ, Umsetzung 2026-11-02):**
+- **Installer:** Wert `dns` für `web.tls` („öffentliche Domain, Server nur im Schulnetz (Let's Encrypt per DNS)“), dazu
+  `web.dns_provider` und je Anbieter nur die Angaben, die sein Caddy-Modul braucht (`apps/installer/src/dns.ts`):
+  `web.dns_token`, `web.dns_user`, `web.dns_secret`, `web.dns_server`, `web.dns_key_alg`, `web.dns_shared_secret` (INWX mit
+  Zwei-Faktor) – abweichend vom Entwurf (nur `web.dns_token`), weil netcup, INWX, Route 53 und RFC 2136 mehrere Angaben brauchen.
+  Die E-Mail bleibt `web.acme_email` (wie bei Let's Encrypt per HTTP). Je Feld eine Variable `SCHULOS_DNS_*` in der `.env`.
+- **Nur Hauptsystem (Stufe 1):** Der Backupserver bekommt die Option nicht – ihn erreichen nur IT und Hauptsystem, die Kopplung
+  pinnt seine eigene CA (bzw. nutzt bei Let's Encrypt per HTTP den System-Truststore wie bisher). Wildcard/Backupserver per DNS
+  bleibt bei den späteren Stufen.
+- **Prüf-DNS-Server** (`web.dns_resolvers`, Vorgabe 9.9.9.9 und 1.1.1.1): ohne sie fragte Caddy den Schul-DNS, der die Domain per
+  Split-DNS anders auflöst und den TXT-Eintrag bzw. die Zone nicht kennt (typischer Fehler „expected 1 zone, got 0“). Änderbar,
+  falls die Firewall DNS nach außen nur über einen eigenen Server erlaubt.
+- **Caddy-Image ohne xcaddy-Aufruf:** `deploy/caddy-dns` enthält das Hauptprogramm, das xcaddy erzeugen würde, mit `go.mod` und
+  `go.sum` – so liegt jede Abhängigkeit mit Prüfsumme fest, der Bau ist reproduzierbar (`-trimpath`, `-buildvcs=false`,
+  `GOTOOLCHAIN=local`, `-mod=readonly`) und Dependabot (`gomod`) hält Caddy und die Module aktuell; xcaddy selbst wäre eine
+  weitere, ungepinnte Abhängigkeit. Go-Basis (`golang`) und Laufzeit-Basis (`caddy:2`) per Digest aus `deploy/upstream/Dockerfile`.
+  Hetzner über das Modul `caddy-dns/hetzner/v2` (DNS-API der Hetzner Console, API-Token eines Projekts).
+- **Image im Release optional** (`images.caddy-dns` im Manifest): ältere Releases haben es nicht; eine Release-ISO bringt es nur,
+  wenn das Release es nennt. `schulosctl update` führt `SCHULOS_CADDY_DNS_IMAGE` immer mit und stellt `SCHULOS_CADDY_IMAGE` nur
+  bei DNS-Prüfung darauf um; nennt ein Release es nicht, **bricht das Update ab** (sonst liefe Caddy ohne Modul).
+- **Abschlussprüfung = Erststart + `schulosctl zertifikat-pruefen`:** Eine Prüfung des Zugangs schon im Installer (acht
+  verschiedene APIs, im Live-System ohne Caddy) ist bewusst nicht gebaut. Der Installer prüft Pflichtangaben und Formate (u. a. das
+  Token-Format von Cloudflare – ein falsches stünde sonst in der Fehlermeldung des Moduls); der Erststart wartet bis zu 25 Minuten
+  auf ein öffentlich gültiges Zertifikat und meldet sonst Ursache und nächsten Schritt, ohne SchulOS anzuhalten.
+- **Ablaufwarnung:** Erneuerung überfällig = Restlaufzeit unter einem Drittel (Caddys Erneuerungszeitpunkt) minus Spielraum
+  (ein Zehntel der Laufzeit, höchstens 3 Tage) – passt auch zu kürzeren Laufzeiten künftiger Let's-Encrypt-Zertifikate. Fehler der
+  Erneuerung selbst (Caddy-Protokoll) werden nicht ausgewertet: die überfällige Erneuerung ist das verlässliche Zeichen, das
+  Protokoll nennt dann die Ursache. Gilt für alle ACME-Zertifikate (auch Let's Encrypt per HTTP).
+- **Systemtest mit ACME-Staging:** in der CI ohne Domain bis zur Ausstellung (`scripts/caddy-dns-test.sh`, Job `stack`), die
+  Ausstellung selbst manuell (`scripts/acme-staging-test.sh`, INSTALLATION §5d.1). Ein vollautomatischer Test mit lokaler
+  ACME-Test-CA und eigenem DNS-Server (RFC 2136) wäre möglich, ist aber eine spätere Stufe.
 
 ## Datenschutz
 

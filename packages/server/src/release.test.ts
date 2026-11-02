@@ -237,9 +237,11 @@ describe("Fremd-Images aus Dockerfiles und Compose (B-30)", () => {
 
   it("die echten Dateien im Repo", () => {
     const root = new URL("../../../", import.meta.url);
-    const files = ["Dockerfile", "apps/backup/Dockerfile", "apps/agent/Dockerfile", "compose.yaml", "compose.backup.yaml"];
+    const files = ["Dockerfile", "apps/backup/Dockerfile", "apps/agent/Dockerfile", "compose.yaml", "compose.backup.yaml", "deploy/caddy-dns/Dockerfile"];
     const refs = upstreamRefs(files.map((f) => readFileSync(new URL(f, root), "utf8")));
-    expect(Object.keys(refs).sort()).toEqual(["caddy", "clamav", "crowdsec", "node", "postgres", "rclone", "rest-server", "restic", "step-ca"]);
+    expect(Object.keys(refs).sort()).toEqual(["caddy", "clamav", "crowdsec", "golang", "node", "postgres", "rclone", "rest-server", "restic", "step-ca"]);
+    // CA-07: dieselbe Liste wie im Release-Workflow (scripts/release-manifest.ts)
+    expect(readFileSync(new URL("scripts/release-manifest.ts", root), "utf8")).toContain(JSON.stringify(files).replaceAll(",", ", "));
     // B-47: jede Vorgabe ist in der Pin-Datei mit genau diesem Tag gepinnt (Dependabot-Tag-Anhebung → hier rot)
     const pins = parsePins(readFileSync(new URL(UPSTREAM_PINS_FILE, root), "utf8"));
     expect(Object.keys(pinUpstream(refs, pins)).sort()).toEqual(Object.keys(refs).sort());
@@ -284,6 +286,20 @@ describe("Release-ISO (B-49)", () => {
       SCHULOS_POSTGRES_IMAGE: "postgres:18",
       SCHULOS_REST_IMAGE: "restic/rest-server:0.14.0",
     });
+  });
+
+  it("CA-07: Caddy mit DNS-Modulen als optionales eigenes Image – Manifest, Medium, images.env", () => {
+    const dns = `ghcr.io/timow1989/schulos-caddy-dns@${digest("e")}`;
+    const m = release("0.13.0", { upstream, images: { ...images, "caddy-dns": dns } });
+    expect(validateManifest(JSON.parse(JSON.stringify(m)))).toEqual(m);
+    const { images: list, env } = isoImages(m);
+    expect(list.at(-1)).toEqual({ file: "schulos-caddy-dns", ref: dns, tag: "ghcr.io/timow1989/schulos-caddy-dns:0.13.0", signed: true });
+    expect(env.SCHULOS_CADDY_DNS_IMAGE).toBe("ghcr.io/timow1989/schulos-caddy-dns:0.13.0");
+    // Standard bleibt caddy:2 – umgestellt wird nur bei DNS-Prüfung (Installer bzw. schulosctl update)
+    expect(env.SCHULOS_CADDY_IMAGE).toBe("caddy:2");
+    expect(isoImages(release("0.12.0", { upstream })).env).not.toHaveProperty("SCHULOS_CADDY_DNS_IMAGE");
+    expect(() => validateManifest({ ...m, images: { ...images, "caddy-dns": "caddy:2" } })).toThrow("images.caddy-dns");
+    expect(releaseNotesMarkdown(m)).toContain(`- caddy-dns: \`${dns}\``);
   });
 
   it("G4E-O10: Profil-Images (ClamAV, CrowdSec, step-ca) per Digest in images.env, nicht auf dem Medium", () => {

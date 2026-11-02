@@ -326,7 +326,7 @@ auf UTF-8 und laden die passende Größe (`konsole.sh` vor jedem Neuzeichnen); o
 | Schule | Name · Schulnummer · Bundesland (für Feiertage und Ferien; **freigegeben nur NRW** – andere Länder mit deutlichem Hinweis) · Schulform · laufendes Schuljahr | nur Name, Rest vorbelegt (Lindenhof) | Pflicht |
 | Admin-Konto | Vor- und Nachname · Benutzername · Passwort (mind. 12 Zeichen); 2FA wird beim ersten Login eingerichtet | entfällt (Demo-Konten) | Pflicht |
 | Vorlagen | Fächerliste des Bundeslandes mit Fachfarben · Zeitraster (45/60 min) · **keine Personendaten** | – | optional, Vorgabe aus |
-| Adresse & TLS | öffentliche Domain (Let's Encrypt) / nur Schulnetz (eigene CA) / hinter vorhandenem Proxy (+ dessen Adresse) | nur Schulnetz | Pflicht |
+| Adresse & TLS | öffentliche Domain (Let's Encrypt) / öffentliche Domain, Server nur im Schulnetz (Let's Encrypt per DNS: Anbieter, Zugang, Prüf-DNS-Server – §5d.1) / nur Schulnetz (eigene CA) / hinter vorhandenem Proxy (+ dessen Adresse) | nur Schulnetz | Pflicht |
 | Außenzugang | aus dem Internet erreichbar: nichts / nur öffentliche Seiten (Schulanmeldung) / alles – §5b; Gerätezertifikate für Personal richtet der Admin danach ein (§5c) | nichts | Vorgabe nichts |
 | E-Mail (SMTP) | Server, Port, Absender, Zugang; „Testmail senden“ | entfällt | optional, für Passwort-Reset und Benachrichtigungen |
 | **Backup** | Adresse des Backupservers + Kopplungscode (§4.3) · oder „später koppeln“ | „später“ | dringend empfohlen; ohne Kopplung zeigt die Verwaltung dauerhaft eine rote Warnung |
@@ -942,6 +942,70 @@ HSTS-Sperre ohne Weiterklicken). Eine **Wiederherstellung** aus dem Backup bring
 die Root, meldet SchulOS das an die Alarm-Empfänger (täglich) und zeigt in Verwaltung → System einen Hinweis, bis ein Admin den
 neuen Fingerabdruck bestätigt (Protokoll: „Neues Schul-Zertifikat bestätigt“). Die erste Root einer Installation gilt ohne
 Rückfrage als bestätigt.
+
+### 5d.1 Öffentliches Zertifikat per DNS – Server nur im Schulnetz (CA-06…CA-08)
+
+Mit **„öffentliche Domain, Server nur im Schulnetz (Let's Encrypt per DNS)“** (Installer-Frage „Zertifikat“, `web.tls = dns`,
+nur Hauptsystem) bekommt SchulOS ein **öffentlich vertrauenswürdiges** Zertifikat, ohne aus dem Internet erreichbar zu sein:
+Caddy weist die Domain bei Let's Encrypt über einen TXT-Eintrag `_acme-challenge.<domain>` beim DNS-Anbieter nach (ACME DNS-01).
+Der Server braucht nur **ausgehend** HTTPS (Let's Encrypt, API des DNS-Anbieters) und DNS (Port 53 zu den Prüf-DNS-Servern).
+Private Geräte (Eltern, Schüler:innen) sehen keine Zertifikatswarnung; kein Schul-Zertifikat muss verteilt werden.
+Konzept und Entscheidungen: [ZERTIFIKATE.md](ZERTIFIKATE.md) Teil B.
+
+- **Anbieter (Stufe 1):** Cloudflare, Hetzner (Console), IONOS, netcup, INWX, deSEC, AWS Route 53 und eigener DNS-Server per
+  RFC 2136 (TSIG). Liste mit den nötigen Zugangsdaten: `apps/installer/src/dns.ts`.
+- **Zugang nur in der `.env`** des Stacks (Rechte 600, `SCHULOS_TLS_DNS`, `SCHULOS_DNS_TOKEN`/`_USER`/`_SECRET`/`_SERVER`/`_KEY_ALG`):
+  nicht in `schulos-install.yaml` (der Installer fragt ihn bei einer Wiederholung neu), nicht in `schulos.env` (die App sieht ihn
+  nie), nicht im Backup (das sichert die `.env` nicht – nach einer Wiederherstellung auf neuer Hardware fragt der Installer ihn
+  neu), im Diagnosepaket geschwärzt. Caddy liest ihn nur zur Laufzeit (`{env.…}`), er steht nicht in der umgewandelten
+  Konfiguration.
+- **Caddy-Image mit DNS-Modulen (CA-07):** `deploy/caddy-dns` (Caddy + Module, `go.mod`/`go.sum`, Basis-Images per Digest),
+  auf der ISO als `schulos-caddy-dns` (per Digest in `images.env`), im Release signiert wie die eigenen Images
+  (`images.caddy-dns` im Manifest). Der Installer stellt `SCHULOS_CADDY_IMAGE` nur bei DNS-Prüfung darauf um; alle anderen
+  Installationen behalten das Standard-Image `caddy:2`. `schulosctl update` führt beide mit; fehlt das DNS-Image in einem Release,
+  bricht das Update bei DNS-Prüfung ab (statt Caddy ohne Modul zu starten). Startet Caddy mit `SCHULOS_TLS_DNS` aus Versehen mit
+  dem Standard-Image, bricht `caddy-start` mit klarer Meldung ab.
+- **Prüf-DNS-Server:** Vorgabe `9.9.9.9 1.1.1.1` (`SCHULOS_DNS_RESOLVERS`) – der Schul-DNS löst die Domain per Split-DNS auf die
+  private Adresse auf und kennt den TXT-Eintrag bzw. die Zone nicht. Nur ändern, wenn die Firewall DNS nach außen nur über einen
+  eigenen Server erlaubt (der darf dann nicht selbst für die Zone zuständig sein).
+- **Abschlussprüfung (CA-06):** Der Erststart wartet nach dem Start bis zu 25 Minuten auf das Zertifikat
+  (`schulosctl zertifikat-pruefen --warten 1500`: Kette gegen die öffentlichen Wurzeln, Name der Domain); scheitert das, läuft
+  SchulOS trotzdem, das Protokoll (`/var/log/schulos-erststart.log`) nennt die Ursache und den nächsten Schritt. Jederzeit von Hand:
+  `schulosctl zertifikat-pruefen` (Exit 0 gültig, 1 nicht).
+- **Ablaufwarnung (CA-08):** `schulosctl` misst Ablauf **und** Ausstellung des ausgelieferten Zertifikats. Caddy erneuert bei einem
+  Drittel Restlaufzeit (90 Tage → nach 60); ist danach (mit Spielraum, bis 3 Tage) noch dasselbe Zertifikat da, meldet SchulOS
+  „Zertifikat wurde nicht erneuert“ – in Verwaltung → System (Karte „Betrieb“, `schulosctl status`) und per Mail an die
+  Alarm-Empfänger, Wochen vor der 14-Tage-Grenze. Unter 14 Tagen bleibt der bisherige Alarm, mit dem Zusatz, dass die
+  Erneuerung nicht klappt. Ein nicht öffentlich vertrauenswürdiges Zertifikat (Testzertifikat, falscher Name) ist ein eigener Befund.
+
+**Checkliste für den Schulträger** (vor der Installation):
+
+1. **Domain** der Schule bzw. des Schulträgers, deren Zone bei einem der Anbieter oben liegt (z. B. `schulos.schule-xy.de`).
+   Sie erscheint in den öffentlichen Zertifikatsprotokollen (Certificate Transparency) – ohne Personenbezug, aber sichtbar.
+2. **Split-DNS:** Im Schul-DNS (Router, Firewall, Server) zeigt der Name auf die **private** Adresse des SchulOS-Servers. Ein
+   öffentlicher A-Eintrag ist nicht nötig (und ohne Außenzugang nicht sinnvoll).
+3. **Zugang mit Minimalrechten**, nur für diese Zone:
+   Cloudflare – API-Token mit „Zone → Zone → Lesen“ und „Zone → DNS → Bearbeiten“, beschränkt auf die Zone ·
+   Hetzner – API-Token (Lesen & Schreiben) eines eigenen Projekts nur mit dieser Zone ·
+   IONOS – API-Schlüssel „Präfix.Geheimnis“ (gilt für alle Zonen des Kontos – eigenes Konto empfohlen) ·
+   netcup – Kundennummer, API-Key, API-Passwort (gilt für das ganze Kundenkonto; Prüfung dauert dort bis zu 20 Minuten) ·
+   INWX – eigenes API-Unterkonto nur für diese Domain (Shared Secret nur bei Zwei-Faktor-Anmeldung) ·
+   deSEC – Token, auf diese Domain beschränkt · Route 53 – IAM-Benutzer nur mit `route53:ChangeResourceRecordSets` auf die
+   Hosted Zone (plus Lesen der Zonen) · RFC 2136 – TSIG-Schlüssel, der nur `_acme-challenge.<domain>` (TXT) ändern darf.
+4. **Firewall ausgehend:** HTTPS zu Let's Encrypt (`acme-v02.api.letsencrypt.org`) und zur API des DNS-Anbieters, DNS (UDP/TCP 53)
+   zu den Prüf-DNS-Servern. Eingehend: nichts (außer bei Außenzugang, §5b).
+5. **E-Mail-Adresse** für Let's Encrypt (Ablaufhinweise des Anbieters) und Alarm-Empfänger in SchulOS (Ablaufwarnung).
+6. Zugang **aufbewahren** wie ein Passwort (nicht im Backup von SchulOS): nach einer Neuinstallation bzw. Wiederherstellung auf
+   neuer Hardware fragt der Installer ihn neu. Bei Verdacht auf Missbrauch beim Anbieter widerrufen, neuen eintragen
+   (`/opt/schulos/.env`, dann `docker compose up -d caddy`).
+
+**Manuelle Prüfung (Systemtest mit ACME-Staging):** In der CI gibt es weder Domain noch Zugang – dort prüft der Job `stack`
+(`scripts/caddy-dns-test.sh`) alles bis zur Ausstellung: Module im Image, das echte Caddyfile je Anbieter mit und ohne
+Staging (umgewandelt und validiert, Zugang nur als Platzhalter), den Abbruch des Standard-Images und das DNS-Image als
+Ersatz im laufenden Stack. Die Ausstellung selbst prüft `bash scripts/acme-staging-test.sh <env-datei>` auf einem Rechner mit
+Docker und einer echten Test-Domain: Caddy allein mit `SCHULOS_ACME_STAGING=1` (Testzertifikate, keine Rate-Limits),
+`schulosctl zertifikat-pruefen --staging`, danach wird alles entfernt. Vor einem Release mit Änderungen an `deploy/caddy-dns`
+bzw. den DNS-Snippets mindestens einmal mit einem Anbieter ausführen.
 
 ---
 
