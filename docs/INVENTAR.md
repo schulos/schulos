@@ -128,3 +128,35 @@ Asset-Seite führen).
 - **inv-9** Zweckbindung/Förderung: nur Felder (Finanzierung, Bindefrist) und ein Hinweis in „Offenes“ kurz vor Fristende; keine Förderabrechnung. – wie vorgeschlagen
 - **inv-10** Schlüsselbuch und Gefahrstoff-Prüfkatalog sind getrennte, eigene Ideen; das Inventar bietet nur die Kategorie „Chemikalienschrank“ bzw. einen Verweis. – wie vorgeschlagen
 - **rf-1** Reihenfolge der Runde 12: CA-01 → Betriebsmonitoring → CA Teil A → Klassenbildung 1–2 → Inventar INV-01/02 → CA Teil B → Inventar Rest (INV-03…07). – wie vorgeschlagen
+
+## Umgesetzt (INV-01/INV-02, 2026-11-02)
+
+- **Kategorien statt Enum:** `gebaeude_asset_categories` (Schlüssel, Name, Präfix, Prüfpflicht, verantwortliche Gruppe, Reihenfolge, aktiv) mit
+  20 Vorlagen in `src/modules/gebaeude/kategorien.ts` – die zehn früheren Enum-Werte behalten ihren Schlüssel, dazu IT, Präsentation/AV,
+  Fachsammlungen, Werken, Musik, Hauswirtschaft, Sicherheit, Hausmeisterei, Chemikalienschrank (nur Verweis, inv-10), Möbel. Eigene
+  Kategorien unter `/gebaeude/inventar/kategorien` (`gebaeude.configure`); Vorlagen lassen sich nur ausschalten. Die Prüfarten hängen über
+  `gebaeude_inspection_types.category_id` an den Kategorien (`INSPECTION_TEMPLATE.categoryKey`).
+- **Migration zweistufig:** `0124_inv_01_inventar.sql` legt Tabellen und Spalten an, macht aus jedem Enum-Wert eine Kategorie gleichen
+  Schlüssels, trägt `category_id` an Anlagen und Prüfarten ein, übernimmt Freitext-Gebäude in `buildings` (wie RS-10) und setzt
+  `retired_on` für bisher „außer Betrieb“; `0125_inv_01_enum_entfernen.sql` entfernt `kind`, `building`, `asset_kind` und den Enum.
+  Kein Datenverlust; der CSV-Import nimmt die alte Kopfzeile „Art“ weiter an.
+- **Felder:** Modell, Zustand (neu/gut/gebraucht/defekt), Menge (Sammelposten), Preis (Cent), Lieferant (Firma), Finanzierung,
+  Zweckbindung bis, Garantie bis, Ausmusterung (Datum, Grund), Gebäude/Etage aus den Stammdaten (`building_id`/`floor_id`) oder über den
+  Raum. Ausgemusterte bleiben als Nachweis, Liste nur mit „auch ausgemusterte“, endgültig löschen nur `configure` (inv-8).
+- **Inventarnummern:** `gebaeude_inventory_counters` je Präfix (bzw. Präfix:Jahr), atomar per `insert … on conflict … returning`,
+  von Hand oder per Import vergebene Nummern werden übersprungen; Format als Moduleinstellung `gebaeude.inventory_no_format`
+  (Präfix-0001, Präfix-2026-0001, Präfix-000001). Leere Nummer beim Ändern lässt die bisherige stehen.
+- **Rechte:** neu `gebaeude.inventory` (alle Kategorien; Demo über die Gruppe Hausmeisterei, nicht über die Rolle), `configure` schließt
+  es ein; Mitglieder der verantwortlichen Gruppe pflegen nur ihre Kategorie (`maintainableCategories`/`requireMaintain` in
+  `inventar.ts`, jede Server Action geht über den Service). Lesen mit `view_all`; die Liste zeigt verantwortlichen Gruppen nur ihre
+  Kategorien. Asset-Seite ohne Pflegerecht: Bezeichnung, Kategorie, Standort, „Mangel melden“ (inv-5).
+- **Etiketten (`/i/<code>`):** `label_codes.asset_id` (Tabelle jetzt in `src/core/etiketten/schema.ts`, weil sie Kern und Modul
+  verbindet), Art „inventar“ in `LABEL_KINDS`, Seite `src/app/i/[code]` nach dem Muster von `/r/<code>` (SICHERHEIT S95). Formate
+  `LABEL_FORMATS`: A4-Bogen 3×8 (70 × 36 mm), A4-Bogen 4×13 (48,5 × 21,2 mm), Endlosrolle 62 mm (62 × 29 mm, ein Etikett je Abschnitt);
+  Vorgabe als Moduleinstellung `gebaeude.label_format`; „ab Etikett Nr.“ für angefangene Bögen. Inhalt: QR, Inventarnummer, Kurzname,
+  Schulname, Standort (auf dem kleinsten Raster nur Nummer und Name). Sammeldruck `/gebaeude/inventar/etiketten` (Kategorie, Raum,
+  „nur ohne Etikett“, alle gefilterten) → `/druck/inventar-etiketten`; Neuerzeugen auf der Asset-Seite entwertet den alten Code.
+- **Audit:** `gebaeude.asset.create/update/activate/deactivate/delete/import`, `gebaeude.asset.qr.create/renew`,
+  `gebaeude.asset_category.create/update/delete` – ohne Code und ohne Personennamen im Text.
+- **Noch offen (INV-03 ff.):** Aktionen auf der mobilen Asset-Seite (Zustand/Standort per Knopf, Prüfung, Historie, Fotos), Tickets mit
+  `asset_id` (heute: „Mangel melden“ mit vorbelegtem Raum), Inventur, Ausleihe, Export im Schulträgerformat, Karte im Raumsteckbrief.

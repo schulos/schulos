@@ -98,6 +98,7 @@ Deine Eltern melden dich krank (siehe [Krankmeldung](/hilfe/krankmeldung)). Wenn
 - **Abwesenheiten:** Meldungen Ihrer Klasse sehen und entscheiden.
 - **Messenger**, **News**, **Elternbriefe:** Kommunikation mit Kolleginnen, Kollegen und Eltern.
 - **Dateien** und **Aufgaben:** Material verteilen, Abgaben einsammeln.
+- **Gebäude & Technik:** Mängel melden. Geräte und Möbel tragen ein Etikett mit QR-Code – mit der Kamera des Handys scannen, anmelden, dann sehen Sie Bezeichnung, Kategorie und Standort und können direkt „Mangel melden“. Wer das Inventar pflegt (Hausmeisterei, IT oder die verantwortliche Gruppe einer Kategorie), findet unter Gebäude & Technik → Inventar die Liste, das Anlegen und den Etikettendruck.
 
 Die Startseite zeigt außerdem Ihre offenen Punkte, zum Beispiel Anträge, die auf eine Entscheidung warten.
 

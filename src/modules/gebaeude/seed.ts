@@ -2,9 +2,9 @@
 // Prüfungen (eine überfällig, eine in 14 Tagen fällig) und eingeschaltete Prüfarten aus der Vorlage.
 import { inArray } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { gebaeudeAssets, gebaeudeInspections, gebaeudeInspectionTypes, gebaeudeResponsibilities, gebaeudeTicketEvents, gebaeudeTickets } from "@/core/db/schema";
+import { buildings, gebaeudeAssetCategories, gebaeudeAssets, gebaeudeInspections, gebaeudeInspectionTypes, gebaeudeResponsibilities, gebaeudeTicketEvents, gebaeudeTickets } from "@/core/db/schema";
 import { addDays, toBerlinDate } from "@/core/time";
-import { TICKET_CATEGORIES, type AssetKind } from "./labels";
+import { TICKET_CATEGORIES } from "./labels";
 import { addMonths, ensureTemplate, planDue } from "./pruefungen";
 
 export async function seedGebaeude(db: Db, opts: { groupId: string; hausmeisterId: string; now?: Date }) {
@@ -30,13 +30,16 @@ export async function seedGebaeude(db: Db, opts: { groupId: string; hausmeisterI
   await seedInspections(db, toBerlinDate(now));
 }
 
-/** Demo-Anlagen und Prüfungen relativ zu „heute“: Leiter überfällig, Feuerlöscher in 14 Tagen fällig, Rest geplant. */
+/** Demo-Inventar und Prüfungen relativ zu „heute“: Leiter überfällig, Feuerlöscher in 14 Tagen fällig, Rest geplant; IT-Geräte ohne Prüfpflicht. */
 async function seedInspections(db: Db, today: string) {
   await ensureTemplate(db);
   const active = ["elektro-ortsveraenderlich", "feuerloescher", "leitern", "erste-hilfe", "brandschutz-technik", "begehung-arbeitsschutz"];
   await db.update(gebaeudeInspectionTypes).set({ active: true }).where(inArray(gebaeudeInspectionTypes.templateKey, active));
   const types = new Map((await db.select({ id: gebaeudeInspectionTypes.id, key: gebaeudeInspectionTypes.templateKey }).from(gebaeudeInspectionTypes)).map((t) => [t.key, t.id]));
-  const assets: { name: string; kind: AssetKind; roomId: string | null; building?: string; inventoryNo: string; type: string; months: number; lastDone: string }[] = [
+  const cats = new Map((await db.select({ id: gebaeudeAssetCategories.id, key: gebaeudeAssetCategories.key }).from(gebaeudeAssetCategories)).map((c) => [c.key, c.id]));
+  const houses = new Map((await db.select({ id: buildings.id, name: buildings.name }).from(buildings)).map((b) => [b.name, b.id]));
+  const cat = (key: string) => cats.get(key)!;
+  const assets: { name: string; kind: string; roomId: string | null; building?: string; inventoryNo: string; type: string; months: number; lastDone: string }[] = [
     // zuletzt geprüft: so gewählt, dass die nächste Prüfung in 14 Tagen bzw. vor 20 Tagen fällig ist
     { name: "Feuerlöscher Flur EG", kind: "feuerloescher", roomId: null, building: "Hauptgebäude", inventoryNo: "FL-001", type: "feuerloescher", months: 24, lastDone: addMonths(addDays(today, 14), -24) },
     { name: "Feuerlöscher Chemie", kind: "feuerloescher", roomId: "NW2", inventoryNo: "FL-002", type: "feuerloescher", months: 24, lastDone: addMonths(today, -6) },
@@ -47,12 +50,17 @@ async function seedInspections(db: Db, today: string) {
   for (const a of assets) {
     const [row] = await db
       .insert(gebaeudeAssets)
-      .values({ name: a.name, kind: a.kind, roomId: a.roomId, building: a.building ?? null, inventoryNo: a.inventoryNo })
+      .values({ name: a.name, categoryId: cat(a.kind), roomId: a.roomId, buildingId: a.building ? (houses.get(a.building) ?? null) : null, inventoryNo: a.inventoryNo, condition: "gut" })
       .returning({ id: gebaeudeAssets.id });
     await db.insert(gebaeudeInspections).values({ typeId: types.get(a.type)!, assetId: row!.id, dueOn: a.lastDone, doneOn: a.lastDone, result: "ok", company: "Prüfdienst Rhein-Ruhr GmbH" });
   }
   await planDue(db, today);
   await db.insert(gebaeudeInspections).values({ typeId: types.get("brandschutz-technik")!, building: "Hauptgebäude", dueOn: addDays(today, 75) });
-  // Inventar ohne aktive Prüfart (Lüftung) bleibt ohne Prüfung
-  await db.insert(gebaeudeAssets).values({ name: "Lüftungsanlage Pavillon", kind: "lueftung", building: "Pavillon", inventoryNo: "LU-001" });
+  // Inventar ohne aktive Prüfart (Lüftung, IT, Möbel als Sammelposten) bleibt ohne Prüfung
+  await db.insert(gebaeudeAssets).values([
+    { name: "Lüftungsanlage Pavillon", categoryId: cat("lueftung"), buildingId: houses.get("Pavillon") ?? null, inventoryNo: "LU-001" },
+    { name: "Tablet-Koffer 7. Jahrgang (16 Geräte)", categoryId: cat("it"), roomId: "IF1", inventoryNo: "IT-0001", quantity: 16, condition: "gut", manufacturer: "Musterwerk", model: "Tab 11", acquiredOn: addMonths(today, -14), warrantyUntil: addMonths(today, 10), financing: "DigitalPakt", boundUntil: addMonths(today, 46), priceCents: 689000 },
+    { name: "Dokumentenkamera Physik", categoryId: cat("praesentation"), roomId: "NW3", inventoryNo: "AV-0001", condition: "gebraucht", acquiredOn: addMonths(today, -50) },
+    { name: "Schülertische 7b", categoryId: cat("moebel"), roomId: "205", inventoryNo: "MO-0001", quantity: 15, condition: "gut" },
+  ]);
 }
