@@ -15,7 +15,9 @@ import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
 import { Table } from "@schulos/ui/table";
-import { AlarmSettingsForm, ChannelForm, HealthSettingsForm, RebootForm, ReleaseForm, TestMailForm } from "./forms";
+import { AlarmSettingsForm, ChannelForm, HealthSettingsForm, RebootForm, ReleaseForm, RootCaConfirmForm, TestMailForm } from "./forms";
+import { fingerprintLines } from "@schulos/server/root-ca";
+import { readRootCa, rootCaState } from "@/core/system/root-ca";
 import { collectHealth } from "@/core/system/health";
 import { readHealthSettings } from "@/core/system/health-settings";
 import type { HealthLevel } from "@schulos/server/system";
@@ -223,6 +225,64 @@ export default async function SystemPage() {
       <p className="text-sm text-muted">Schulnetz-Bereiche, Stichtag der Zwei-Faktor-Pflicht und Abmeldung nach Inaktivität.</p>
     </Card>
   );
+  // CA-03: Root der eigenen CA (legt schulosctl ab) – Download, Fingerabdruck, Bestätigung nach einem Wechsel
+  const root = readRootCa();
+  const rootState = await rootCaState(await getDb(), root?.info ?? null);
+  const rootFp = root ? fingerprintLines(root.info.fingerprint) : null;
+  const rootCard = (
+    <Card aria-label="Schul-Zertifikat">
+      <CardHeader title="Schul-Zertifikat" />
+      {root && rootFp ? (
+        <div className="flex flex-col gap-3 text-sm">
+          {rootState.changed && (
+            <p role="alert" className="rounded-xl border border-warn-border bg-warn-soft px-3 py-2 text-warn">
+              <strong>Neues Schul-Zertifikat.</strong> Der Server nutzt ein anderes Wurzelzertifikat als bisher bestätigt (z. B. nach einer
+              Neuinstallation). Bis es auf allen Geräten verteilt und das alte entfernt ist, melden Browser Zertifikatsfehler. Nach dem
+              Verteilen hier bestätigen – bis dahin kommt täglich eine Alarm-Mail.
+            </p>
+          )}
+          <p>
+            Wurzelzertifikat der eigenen Zertifizierungsstelle, gültig bis {day.format(new Date(root.info.notAfter))}. Geräte der Schule
+            müssen ihm vertrauen, sonst warnen Browser bei jedem Aufruf. Nur das Zertifikat – der Schlüssel verlässt den Server nie.
+          </p>
+          <div>
+            <span className="text-muted">Fingerabdruck (SHA-256) – vor dem Import abgleichen:</span>
+            <code className="mt-1 block font-mono text-xs break-all" aria-label="Fingerabdruck">
+              {rootFp[0]}
+              <br />
+              {rootFp[1]}
+            </code>
+          </div>
+          <p className="flex flex-wrap gap-4">
+            <a href="/api/system/ca?format=crt" download className="font-medium text-accent-ink hover:underline">
+              Herunterladen (.crt)
+            </a>
+            <a href="/api/system/ca?format=cer" download className="font-medium text-accent-ink hover:underline">
+              Windows (.cer)
+            </a>
+            <a href="/api/system/ca?format=mobileconfig" download className="font-medium text-accent-ink hover:underline">
+              iPad/Mac (.mobileconfig)
+            </a>
+          </p>
+          <p className="text-muted">
+            Ohne Anmeldung im Schulnetz unter <code>/ca.crt</code>; den Fingerabdruck zeigen auch die Konsole des Servers und{" "}
+            <code>schulosctl status</code>. Verteilwege:{" "}
+            <Link href="/hilfe/schul-zertifikat-installieren" className="text-accent-ink underline underline-offset-2">
+              Handbuch „Schul-Zertifikat installieren“
+            </Link>
+            .
+          </p>
+          {rootState.changed && <RootCaConfirmForm fingerprint={root.info.fingerprint} />}
+        </div>
+      ) : (
+        <p className="text-sm text-muted">
+          Keine eigene Zertifizierungsstelle gemeldet. Mit einem öffentlichen Zertifikat ist nichts zu verteilen; sonst legt der Abgleich mit
+          dem Server (<code>schulosctl system-sync</code>) das Zertifikat hier ab.
+        </p>
+      )}
+    </Card>
+  );
+
   const geraeteCard = (
     <Card aria-label="Gerätezertifikate">
       <CardHeader title="Gerätezertifikate" action={{ href: "/verwaltung/system/geraete", label: "Verwalten" }} />
@@ -291,6 +351,7 @@ export default async function SystemPage() {
         {backupCard}
         {mailCard}
         {anmeldungCard}
+        {rootCard}
         {geraeteCard}
         {scanCard}
         {crowdsecCard}
@@ -457,6 +518,7 @@ export default async function SystemPage() {
       {backupCard}
       {mailCard}
       {anmeldungCard}
+      {rootCard}
       {geraeteCard}
       {scanCard}
       {crowdsecCard}

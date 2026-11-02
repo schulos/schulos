@@ -16,6 +16,7 @@ import { formatProtocolLine, lockFromBeforeBoot, readEnvValue, runUpdate, setEnv
 import { buildStatus, nextRebootState, orderEffect, protocolTail, windowDecision, type Approval, type RebootPending } from "./system-sync";
 import { prepareConsole } from "./konsole";
 import { probeTlsExpiry, tlsTargetFromEnv } from "./tls-probe";
+import { readCaddyRoot } from "./root-ca";
 import { checkAfterBoot, nextCodename, runOsUpgrade } from "./os-upgrade";
 import { MARKER as OS_MARKER, osDeps, rebootRequired } from "./os";
 import {
@@ -30,7 +31,7 @@ import {
   VORSCHAU_SITE,
   vorschauSite,
 } from "./vorschau";
-import { parseOrder, parseOsRelease, SYSTEM_ORDER_FILE, SYSTEM_STATUS_FILE, type SystemOrder } from "@schulos/server/system";
+import { parseOrder, parseOsRelease, ROOT_CA_FILE, SYSTEM_ORDER_FILE, SYSTEM_STATUS_FILE, type SystemOrder } from "@schulos/server/system";
 import {
   dockerExposureProblem,
   formatStatus,
@@ -137,7 +138,9 @@ async function statusInput(c: Compose, dir: string): Promise<StatusInput> {
   const envText = read(path.join(dir, ".env")) ?? "";
   // BM-04: Ablauf des Zertifikats am HTTPS-Port des Stacks
   const tls = await probeTlsExpiry(tlsTargetFromEnv({ SCHULOS_DOMAIN: readEnvValue(envText, "SCHULOS_DOMAIN"), SCHULOS_HTTPS_PORT: readEnvValue(envText, "SCHULOS_HTTPS_PORT") }));
-  return { services: parseComposePs(ps.stdout), app, backup, disk: df.code === 0 ? parseDf(df.stdout) : null, now: new Date(), exposure, tls };
+  // CA-02: Fingerabdruck der eigenen Root (nur TLS-Modus internal)
+  const root = await readCaddyRoot(readEnvValue(envText, "SCHULOS_TLS"), (a) => c.capture(a));
+  return { services: parseComposePs(ps.stdout), app, backup, disk: df.code === 0 ? parseDf(df.stdout) : null, now: new Date(), exposure, tls, rootCa: root?.info ?? null };
 }
 
 async function statusReport(c: Compose, dir: string): Promise<{ ok: boolean; text: string }> {
@@ -843,6 +846,14 @@ async function systemSync(dir: string): Promise<number> {
     }
   }
 
+  // CA-02: Root der eigenen CA für den Download in der App ablegen (nur Zertifikat; ohne eigene CA entfernen → Download 404)
+  const root = await readCaddyRoot(readEnvValue(s.env(), "SCHULOS_TLS"), (a) => s.compose(a));
+  const rootFile = `${APP_CONFIG}/${ROOT_CA_FILE}`;
+  const rw = root
+    ? await s.composeInput(["exec", "-T", "app", "sh", "-c", `cat > ${rootFile}.tmp && mv -f ${rootFile}.tmp ${rootFile}`], root.pem)
+    : await s.compose(["exec", "-T", "app", "rm", "-f", rootFile]);
+  if (rw.code !== 0) console.error(`Wurzelzertifikat nicht abgelegt: ${rw.stderr.trim()}`);
+
   const approved = existsSync(approvalFile) ? (JSON.parse(readFileSync(approvalFile, "utf8")) as Approval) : null;
   const os = existsSync("/etc/os-release") ? parseOsRelease(readFileSync("/etc/os-release", "utf8")) : null;
   const df = await exec("df", ["-P", "-B1", dir]);
@@ -859,6 +870,7 @@ async function systemSync(dir: string): Promise<number> {
     tpm: tpm.mode === "tpm2" ? { problems: tpmBindingProblems(tpm) } : null,
     // BM-04: Ablauf des Zertifikats am HTTPS-Port (null = nicht messbar)
     tls: await probeTlsExpiry(tlsTargetFromEnv({ SCHULOS_DOMAIN: readEnvValue(s.env(), "SCHULOS_DOMAIN"), SCHULOS_HTTPS_PORT: readEnvValue(s.env(), "SCHULOS_HTTPS_PORT") })),
+    rootCa: root?.info ?? null,
     error,
   });
   const file = `${APP_CONFIG}/${SYSTEM_STATUS_FILE}`;

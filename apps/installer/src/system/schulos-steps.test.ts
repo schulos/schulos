@@ -130,6 +130,25 @@ describe("Konsolenstatus (INST-03)", () => {
     expect(k).not.toMatch(/autologin/i);
   });
 
+  it("CA-02: Fingerabdruck der Root nur auf dem Hauptsystem, zwei Zeilen ≤ 100 Zeichen, nur aus dem Zertifikat", async () => {
+    const k = consoleScript(await generate(PRODUCTION, deps, CTX), "schulos.schule.de");
+    expect(k).toContain("exec -T app cat /srv/schulos/config/root-ca.crt");
+    expect(consoleScript(await generate(BACKUP, deps, CTX), "backup.schule.de")).not.toContain("root-ca.crt");
+    const js = /root-ca\.crt 2>\/dev\/null \| node -e '([^']+)'/.exec(k)?.[1];
+    expect(js).toBeTruthy();
+    const { readFileSync } = await import("node:fs");
+    const { X509Certificate } = await import("node:crypto");
+    const fixtures = new URL("../../../../packages/server/test-fixtures/", import.meta.url);
+    const ca = readFileSync(new URL("ca.pem", fixtures), "utf8");
+    const out = spawnSync(process.execPath, ["-e", js!], { input: ca, encoding: "utf8" }).stdout.trimEnd().split("\n");
+    expect(out).toHaveLength(2);
+    expect(out.map((l) => l.trim()).join(":")).toBe(new X509Certificate(ca).fingerprint256);
+    expect(out.every((l) => l.length <= 100)).toBe(true);
+    // Serverzertifikat bzw. Unsinn → keine Ausgabe (Zeile entfällt)
+    expect(spawnSync(process.execPath, ["-e", js!], { input: readFileSync(new URL("localhost.pem", fixtures), "utf8"), encoding: "utf8" }).stdout).toBe("");
+    expect(spawnSync(process.execPath, ["-e", js!], { input: "kaputt", encoding: "utf8" }).stdout).toBe("");
+  });
+
   it("Unit: tty1 mit Terminal, Neustart nach dem Abmelden", () => {
     const u = consoleUnit();
     expect(u).toContain("StandardInput=tty");

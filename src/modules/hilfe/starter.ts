@@ -202,6 +202,35 @@ Die Schule teilt zu. Das Ergebnis erscheint auf derselben Seite unter „Zugetei
 
 Fragen beantwortet das Sekretariat.`,
   },
+  {
+    // CA-04 (docs/ZERTIFIKATE.md, Verteilwege): eigene CA der Schule auf Geräten vertrauen
+    slug: "schul-zertifikat-installieren",
+    title: "Schul-Zertifikat installieren",
+    roles: [],
+    body: `SchulOS läuft im Schulnetz mit einem Zertifikat der schuleigenen Zertifizierungsstelle. Damit Browser und Apps die Verbindung ohne Warnung als sicher erkennen, muss jedes Gerät dem **Wurzelzertifikat** („Schul-Zertifikat“) der Schule vertrauen. Es enthält keine Personendaten und nichts Geheimes.
+
+## Zertifikat holen und prüfen
+
+- **Im Schulnetz ohne Anmeldung:** die Adresse von SchulOS mit \`/ca.crt\` am Ende aufrufen (z. B. \`https://schulos.example/ca.crt\`).
+- **Für die IT:** **Verwaltung → System → Schul-Zertifikat** – dort als \`.crt\`, \`.cer\` (Windows) und \`.mobileconfig\` (iPad/Mac).
+- **Vor dem Import den Fingerabdruck (SHA-256) vergleichen:** Er steht in Verwaltung → System, auf dem Bildschirm des Servers und in \`schulosctl status\`. Stimmt er nicht überein, das Zertifikat nicht installieren und die IT informieren.
+
+## Verteilwege
+
+| Geräte | Weg |
+|---|---|
+| Windows-PCs der Schule (Domäne) | Gruppenrichtlinie: Richtlinien für öffentliche Schlüssel → Vertrauenswürdige Stammzertifizierungsstellen |
+| Windows ohne Domäne | Konfigurationsprofil der Geräteverwaltung („Vertrauenswürdiges Zertifikat“) |
+| Windows einzeln | \`certutil -addstore -f Root schul-zertifikat.crt\` in einer Eingabeaufforderung als Administrator |
+| iPads/Macs | Profil \`.mobileconfig\` über die Geräteverwaltung; von Hand: Profil öffnen, installieren, dann unter Einstellungen → Allgemein → Info → Zertifikatsvertrauenseinstellungen das volle Vertrauen einschalten |
+| Android/Chromebooks | Geräteverwaltung bzw. Admin-Konsole des Geräteanbieters; von Hand: Einstellungen → Sicherheit → Zertifikat installieren (CA-Zertifikat) |
+| Firefox | übernimmt die Zertifikate des Systems mit \`security.enterprise_roots.enabled\` bzw. der Richtlinie \`Certificates.ImportEnterpriseRoots\` |
+| Private Geräte (Eltern, eigene Geräte) | praktisch nicht verwaltbar – die Warnung bleibt, bis die Schule ein öffentliches Zertifikat nutzt |
+
+## Neues Schul-Zertifikat
+
+Nach einer **Neuinstallation** des Servers gibt es ein neues Schul-Zertifikat: Es muss neu verteilt und das alte von den Geräten entfernt werden, sonst sperren Browser die Seite ganz. Nach einer **Wiederherstellung aus dem Backup** bleibt es gleich. Wechselt es, bekommt die IT eine Alarm-Mail, bis sie den neuen Fingerabdruck in Verwaltung → System bestätigt.`,
+  },
 ];
 
 const STARTER_SLUGS = STARTER_PAGES.map((p) => p.slug);

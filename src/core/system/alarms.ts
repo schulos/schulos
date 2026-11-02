@@ -15,6 +15,7 @@ import { backupStatus } from "@/core/backup/status";
 import { outboxStats, type OutboxStats } from "@/core/mail";
 import { MAIL_BACKLOG_DEFAULT, readHealthSettings } from "./health-settings";
 import { readSystemStatus, statusIsStale } from "./status";
+import { rootCaState, type RootCaState } from "./root-ca";
 import { TZ } from "@/core/time";
 
 export const ALARM_STATE_KEY = "alarms.state";
@@ -24,7 +25,15 @@ const UPDATE_ALARM_HOURS = 48;
 const fmt = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "short", timeZone: TZ });
 
 /** `mail` + `mailBacklogMinutes` (BM-04): Mail-Stau; ohne Angabe kein Mail-Alarm (alte Aufrufer, Tests). */
-export function collectAlarms(input: { backup: BackupStatus; system: SystemStatus | null; now: Date; mail?: Pick<OutboxStats, "pending" | "oldestPending"> | null; mailBacklogMinutes?: number }): Alarm[] {
+export function collectAlarms(input: {
+  backup: BackupStatus;
+  system: SystemStatus | null;
+  now: Date;
+  mail?: Pick<OutboxStats, "pending" | "oldestPending"> | null;
+  mailBacklogMinutes?: number;
+  /** CA-03: Root der eigenen CA gewechselt (ohne Angabe kein Alarm) */
+  rootCa?: RootCaState | null;
+}): Alarm[] {
   const out: Alarm[] = [];
   const b = input.backup;
   if (!b.paired)
@@ -54,6 +63,15 @@ export function collectAlarms(input: { backup: BackupStatus; system: SystemStatu
       key: "mail:stau",
       title: `Mail-Stau (${input.mail!.pending} Mails warten)`,
       detail: `Die älteste Mail wartet seit ${fmt.format(oldest)} auf den Versand. SMTP-Zugangsdaten und Erreichbarkeit des Mailservers prüfen (Verwaltung → System → E-Mail, Testmail).`,
+    });
+
+  // CA-03 (ca-6): neue Root – alle Geräte müssen ihr neu vertrauen; bis ein Admin den neuen Fingerabdruck bestätigt
+  const rc = input.rootCa;
+  if (rc?.changed && rc.current)
+    out.push({
+      key: `zertifikat:root:${rc.current.fingerprint.replace(/:/g, "").slice(0, 16)}`,
+      title: "Schul-Zertifikat gewechselt – Geräte müssen neu vertrauen",
+      detail: `Der Server nutzt ein neues Wurzelzertifikat (SHA-256 ${rc.current.fingerprint}), z. B. nach einer Neuinstallation. Browser und Geräte melden Zertifikatsfehler, bis es neu verteilt und das alte entfernt ist. Verwaltung → System → „Schul-Zertifikat“: herunterladen, verteilen, neuen Fingerabdruck bestätigen.`,
     });
 
   const s = input.system;
@@ -127,6 +145,7 @@ export async function runAlarms(
       now,
       mail: await outboxStats(db),
       mailBacklogMinutes: health.mailBacklogMinutes,
+      rootCa: await rootCaState(db),
     }),
     ...(await collectSecurityAlarms(db, { now, loginAlarmActive: Boolean(state["anmeldung:haeufung"]), settings })),
   ];

@@ -86,6 +86,18 @@ Vorschau-Instanz/Backupserver.
 - **Doku:** INSTALLATION §TLS (Checkliste Schulträger: Domain, Split-DNS, Token mit Minimalrechten nur für diese Zone),
   BETRIEBSHANDBUCH (Neuinstallation = neue Root, Restore = gleiche Root), SICHERHEIT.
 
+**Stand Teil A (CA-02…CA-05 umgesetzt), Abweichungen vom Entwurf oben:**
+- Statustyp: eigenes Feld `rootCa: { fingerprint, notAfter }` in `SystemStatus` und `CtlStatusReport` statt `tls.rootFingerprint` –
+  `tls.expiresAt` misst seit BM-04 das ausgelieferte Serverzertifikat, die Root ist davon unabhängig. Kein Feld `mode`: ohne eigene
+  CA fehlt `rootCa` und `root-ca.crt` wird entfernt.
+- Gemeinsamer Code in `@schulos/server/root-ca` (Erkennen, Fingerabdruck, `.cer`, `.mobileconfig`, Download-Antwort), App-Seite in
+  `src/core/system/root-ca.ts` (Bestätigung in `app_settings`, Schlüssel `zertifikat.root`; die erste Root gilt als bestätigt).
+- Routen: `/api/system/ca?format=crt|cer|mobileconfig` (Admin) und `/ca.crt` (Schulnetz). Backupserver: `/api/ca` nur angemeldet,
+  kein `/ca.crt` ohne Anmeldung (dort gibt es keine Unterscheidung Schulnetz/außen).
+- Anleitung als Starter-Seite „Schul-Zertifikat installieren“ im Handbuch (anlegen über Starter-Seiten) und INSTALLATION §5d.
+- **Offen:** eigene Hinweisseite beim Aufruf per IP/Fremdname (dafür bräuchte Caddy eine eigene Antwort für fremde Namen; bisher
+  zeigt der Browser dort das Zertifikat der Domain mit Namenswarnung, INST-10).
+
 ## Datenschutz
 
 - Das Root-Zertifikat ist öffentlich und ohne Personenbezug. **Die Schlüssel der CA sind schützenswert:** nur im verschlüsselten Backup,

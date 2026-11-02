@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useActionState } from "react";
-import { alarmSettingsAction, channelAction, healthSettingsAction, healthTokenAction, rebootAction, releaseUpdateAction, testMailAction, type SystemOrderState } from "@/modules/verwaltung/system-actions";
+import { alarmSettingsAction, channelAction, confirmRootCaAction, healthSettingsAction, healthTokenAction, rebootAction, releaseUpdateAction, testMailAction, type SystemOrderState } from "@/modules/verwaltung/system-actions";
 import { BACKUP_HOURS_MAX, BACKUP_HOURS_MIN, HEALTH_MODE_LABEL, HEALTH_MODES, MAIL_BACKLOG_MAX, MAIL_BACKLOG_MIN, type HealthSettings } from "@/core/system/health-config";
 import { Button } from "@schulos/ui/button";
 import { Input, Select } from "@schulos/ui/field";
@@ -166,5 +166,21 @@ export function HealthSettingsForm({ settings }: { settings: HealthSettings }) {
         <Message state={tokenState} />
       </form>
     </div>
+  );
+}
+
+/** CA-03: neuen Fingerabdruck der Root bestätigen (erst nach dem Verteilen an die Geräte) */
+export function RootCaConfirmForm({ fingerprint }: { fingerprint: string }) {
+  const [state, action, pending] = useActionState<SystemOrderState, FormData>(confirmRootCaAction, {});
+  return (
+    <form action={action} aria-label="Neues Schul-Zertifikat bestätigen" className="flex flex-col gap-2">
+      <input type="hidden" name="fingerabdruck" value={fingerprint} />
+      <div>
+        <Button type="submit" variant="primary" size="sm" disabled={pending}>
+          Neues Zertifikat bestätigen
+        </Button>
+      </div>
+      <Message state={state} />
+    </form>
   );
 }

@@ -7,8 +7,9 @@
 // A11Y-02: Erklärung zur Barrierefreiheit (genau /barrierefreiheit) – vor der Anmeldung lesbar wie das Impressum.
 // P4-73: Service Worker (genau /sw.js) und Web-App-Manifest (genau /manifest.webmanifest) – der Browser lädt sie ohne
 // Cookies bzw. prüft auch auf der Anmeldeseite auf Updates; beide enthalten keine Personendaten.
+// CA-03: Root der eigenen CA (genau /ca.crt) – die Route liefert nur im Schulnetz aus, nicht in der Außen-Allowlist.
 // Kalender-Abo (Q5-15): genau /api/kalender/abo/<token> – nicht in der Außen-Allowlist (von außen nur im Modus „alles“, S39).
-const PUBLIC = /^\/(login|passwort-vergessen(?:\/|$)|datenschutzhinweise|impressum$|barrierefreiheit$|sw\.js$|manifest\.webmanifest$|anmeldung(?:\/|$)|api\/auth|api\/health|monitor\/|api\/monitor\/|api\/schule\/logo$|api\/kalender\/abo\/[A-Za-z0-9_-]+$)/;
+const PUBLIC = /^\/(login|passwort-vergessen(?:\/|$)|datenschutzhinweise|impressum$|barrierefreiheit$|sw\.js$|ca\.crt$|manifest\.webmanifest$|anmeldung(?:\/|$)|api\/auth|api\/health|monitor\/|api\/monitor\/|api\/schule\/logo$|api\/kalender\/abo\/[A-Za-z0-9_-]+$)/;
 
 export function isPublicPath(pathname: string): boolean {
   return PUBLIC.test(pathname);

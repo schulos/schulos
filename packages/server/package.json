@@ -24,6 +24,7 @@
     "./pinned-request": "./src/pinned-request.ts",
     "./recovery-key": "./src/recovery-key.ts",
     "./release": "./src/release.ts",
+    "./root-ca": "./src/root-ca.ts",
     "./safe-next": "./src/safe-next.ts",
     "./security-headers": "./src/security-headers.ts",
     "./ssh-netz": "./src/ssh-netz.ts",

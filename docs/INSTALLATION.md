@@ -899,6 +899,42 @@ TLS-Client-Authentifizierung), `src/core/external-access.test.ts` (Kennzeichen, 
 unbekannt, abgelaufen, fremde CA, gefälschte Kennzeichen – je Modus `keiner`/`alles`) und die echte step-ca
 (`node cli.mjs geraete-ca-pruefen`).
 
+### 5d. TLS: Schul-Zertifikat verteilen (CA-02…CA-05)
+
+Im TLS-Modus „nur Schulnetz“ (`SCHULOS_TLS=internal`) stellt Caddy die Zertifikate mit einer **eigenen CA** aus. Damit Browser
+und Apps ohne Warnung verbinden (und Passkeys, Kamera usw. funktionieren), muss jedes Gerät dem **Wurzelzertifikat** dieser CA
+(„Schul-Zertifikat“, Root) vertrauen. Konzept und Entscheidungen: [ZERTIFIKATE.md](ZERTIFIKATE.md).
+
+- **Bereitstellen (CA-02):** `schulosctl system-sync` (Timer, alle 5 Minuten) liest bei `SCHULOS_TLS=internal` nur
+  `root.crt` aus dem Caddy-Container und legt es als `root-ca.crt` in den Konfigurationsordner der App; bei Let's Encrypt
+  entfernt es die Datei (Download dann 404). Der Schlüssel bleibt in `caddy_data`, die App sieht das Volume nicht.
+- **Fingerabdruck (SHA-256)** zum Abgleich vor jedem Import: Verwaltung → System → „Schul-Zertifikat“, `schulosctl status`
+  (und `--json`, Feld `rootCa`), Bildschirm des Servers (tty1) sowie `system-status.json` (Feld `rootCa`).
+- **Herunterladen (CA-03/CA-04):** Verwaltung → System → „Schul-Zertifikat“ als `.crt` (PEM), `.cer` (DER, Windows) und
+  `.mobileconfig` (Apple-Profil); ohne Anmeldung unter `https://<adresse>/ca.crt` – **nur aus dem Schulnetz** (nicht in der
+  Außen-Allowlist von Caddy und App; von außen 403 bzw. 404, auch im Modus „alles“). Anleitung für alle: Handbuch-Seite
+  „Schul-Zertifikat installieren“ (Starter-Seite, im Handbuch über „Starter-Seiten anlegen“).
+- **Backupserver (CA-05):** gleicher Download (angemeldet) auf seiner Übersicht, Karte „Zertifikat dieses Servers“ (Quelle
+  `/ca/root.crt`). Das Hauptsystem braucht ihn nicht – es pinnt die CA bei der Kopplung (§4).
+
+**Verteilwege**
+
+| Geräte | Weg |
+|---|---|
+| Windows-PCs der Schule (Domäne) | Gruppenrichtlinie: Richtlinien für öffentliche Schlüssel → Vertrauenswürdige Stammzertifizierungsstellen |
+| Windows ohne Domäne | Konfigurationsprofil der Geräteverwaltung („Vertrauenswürdiges Zertifikat“) |
+| Windows einzeln | `certutil -addstore -f Root schul-zertifikat.crt` (als Administrator, Computerspeicher) |
+| iPads/Macs | `.mobileconfig` über die Geräteverwaltung; von Hand zusätzlich Zertifikatsvertrauenseinstellungen → volles Vertrauen |
+| Android/Chromebooks | Geräteverwaltung bzw. Admin-Konsole des Geräteanbieters |
+| Firefox | System-Roots über `security.enterprise_roots.enabled` bzw. Richtlinie `Certificates.ImportEnterpriseRoots` |
+| Private Geräte (Eltern, eigene Geräte) | praktisch nicht verwaltbar – Warnung bleibt; dafür öffentliches Zertifikat (Teil B) |
+
+**Neue Root:** Jede **Neuinstallation** erzeugt eine neue Root – neu verteilen und die alte von den Geräten entfernen (sonst
+HSTS-Sperre ohne Weiterklicken). Eine **Wiederherstellung** aus dem Backup bringt dieselbe Root zurück (CA-01, §4.4). Wechselt
+die Root, meldet SchulOS das an die Alarm-Empfänger (täglich) und zeigt in Verwaltung → System einen Hinweis, bis ein Admin den
+neuen Fingerabdruck bestätigt (Protokoll: „Neues Schul-Zertifikat bestätigt“). Die erste Root einer Installation gilt ohne
+Rückfrage als bestätigt.
+
 ---
 
 ## 5a. Updates: Betriebssystem und SchulOS
