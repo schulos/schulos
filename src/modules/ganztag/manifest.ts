@@ -8,7 +8,7 @@ import { GANZTAG_SETTINGS } from "./settings";
 export default defineModule({
   id: "ganztag",
   name: "Ganztag",
-  description: "Anwesenheitslisten für AGs, Förderkurse und Ganztagsangebote – Termine mit Ferien, Ausfall, Erfassung per Klick, Heimweg",
+  description: "Anwesenheitslisten für AGs, Förderkurse und Ganztagsangebote – Termine mit Ferien, Ausfall, Erfassung per Klick, Heimweg, Mittagessen",
   icon: "UserCheck",
   section: "organisation",
   order: 27,
@@ -55,10 +55,18 @@ export default defineModule({
       categories: ["Schüler:in", "Art des Heimwegs (Tagesänderung)", "geändert von und am", "gegangen um", "vermerkt von"],
       follows: "ganztag_sessions",
     },
+    {
+      table: "ganztag_meal_orders",
+      purpose: "Anmeldung zum Mittagessen je Tag mit Menünummer (Zählung und Ausgabe für die Küche) – ohne Gesundheitsangaben, ohne Abrechnung",
+      categories: ["Schüler:in", "Tag", "Menünummer", "angemeldet von und am"],
+      class: "LK-SJ",
+      start: "date",
+      note: "zum Ende des Schuljahres des Tages; geht mit dem Konto der Schüler:in",
+    },
   ],
   processing: {
     title: "Anwesenheit in Ganztags- und AG-Angeboten",
-    purpose: "Aufsicht und Organisation im Ganztag: wer an einem Termin da sein müsste und wer da war, wie die Kinder nach Hause kommen und wann sie gegangen sind; Ausfall an Teilnehmende und Eltern melden",
+    purpose: "Aufsicht und Organisation im Ganztag: wer an einem Termin da sein müsste und wer da war, wie die Kinder nach Hause kommen und wann sie gegangen sind; Mittagessen bestellen und ausgeben; Ausfall an Teilnehmende und Eltern melden",
     // GANZTAG.md „Datenschutz“: Rechtsgrundlage und Einordnung als Schulversäumnis sind schulform- und länderabhängig
     subjects: ["Schüler:innen (Teilnehmende)", "Leitung der Angebote"],
     recipients: [
@@ -66,8 +74,9 @@ export default defineModule({
       "Personen mit „Ganztag verwalten“ (alle Listen)",
       "Klassenleitung (Zeilen der Kinder ihrer Klasse; bei verpflichtenden Angeboten ein gebündelter Tageshinweis zu unentschuldigtem Fehlen)",
       "Schüler:in selbst; Eltern minderjähriger Kinder bzw. eigenständiger Schüler:innen mit Einwilligung (nur die Zeilen des eigenen Kindes, Hinweis auf einen Ausfall)",
-      "Personen mit „Ganztag auswerten“ (nur Zahlen je Angebot und Monat, ohne Namen)",
+      "Personen mit „Ganztag auswerten“ (nur Zahlen je Angebot und Monat, ohne Namen; Mittagessen: Zahlen je Tag und Menü)",
+      "Küche bzw. Ausgabe über Personen mit „Ganztag verwalten“ (Ausgabeliste Mittagessen: Name, Klasse, Menünummer; Zählung als CSV ohne Namen)",
     ],
-    note: "Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, kein Gesundheitsbezug. Aus den Abwesenheiten wird nur gelesen, ob eine Krankmeldung, Beurlaubung oder Entscheidung vorliegt (Vorbelegung „fehlt (entschuldigt)“, abschaltbar je Angebot) – nie der Grund. Keine Schreibverbindung ins Klassenbuch: bei verpflichtenden Angeboten nur ein Hinweis an die Klassenleitung. Heimweg (GT-09/GT-10): nur die Art der Regel (geht allein / wird abgeholt / Bus) und die Uhrzeit „gegangen“ – keine Namen oder Kontaktdaten Abholberechtigter; Eltern ändern den Heimweg für den Tag bis zur Frist, die Leitung bekommt dazu einen Gong. Listen starten leer. Rechtsgrundlage und die Frage, ob Fehlen im Ganztag als Schulversäumnis zählt: schulform- und länderabhängig, zu prüfen.",
+    note: "Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, kein Gesundheitsbezug. Aus den Abwesenheiten wird nur gelesen, ob eine Krankmeldung, Beurlaubung oder Entscheidung vorliegt (Vorbelegung „fehlt (entschuldigt)“, abschaltbar je Angebot) – nie der Grund. Keine Schreibverbindung ins Klassenbuch: bei verpflichtenden Angeboten nur ein Hinweis an die Klassenleitung. Heimweg (GT-09/GT-10): nur die Art der Regel (geht allein / wird abgeholt / Bus) und die Uhrzeit „gegangen“ – keine Namen oder Kontaktdaten Abholberechtigter; Eltern ändern den Heimweg für den Tag bis zur Frist, die Leitung bekommt dazu einen Gong. Mittagessen (GT-11/GT-12): Speiseplan mit nummerierten Menüs, Anmeldung je Tag nur mit der Menünummer – keine Allergien, Unverträglichkeiten oder Kostformen (Hinweis: direkt mit der Küche klären), keine Abrechnung; die Küche bekommt Zahlen je Tag und Menü (CSV) und eine Ausgabeliste mit Name, Klasse und Menünummer. Listen starten leer. Rechtsgrundlage und die Frage, ob Fehlen im Ganztag als Schulversäumnis zählt: schulform- und länderabhängig, zu prüfen.",
   },
 });

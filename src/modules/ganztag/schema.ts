@@ -172,5 +172,46 @@ export const ganztagDepartures = pgTable(
   (t) => [primaryKey({ columns: [t.sessionId, t.studentId] }), index("ganztag_departures_student_idx").on(t.studentId)],
 );
 
+/**
+ * GT-11 (Projektleitung 2026-11-03): Speiseplan je Tag – nummerierte Menüs (1–4) mit Kurzbeschreibung, von Hand gepflegt. Ohne
+ * Personenbezug (wer gepflegt hat, steht nur im Audit-Log).
+ */
+export const ganztagMenus = pgTable(
+  "ganztag_menus",
+  {
+    date: date("date").notNull(),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.date, t.number] }),
+    check("ganztag_menus_number", sql`${t.number} between 1 and 4`),
+    check("ganztag_menus_title", sql`length(${t.title}) between 1 and 80`),
+  ],
+);
+
+/**
+ * GT-11: Anmeldung zum Mittagessen je Tag und Schüler:in – nur die Menünummer. Keine Allergien, Unverträglichkeiten, Kostformen
+ * oder Abrechnung (Art. 9). Abmelden = Zeile löschen.
+ */
+export const ganztagMealOrders = pgTable(
+  "ganztag_meal_orders",
+  {
+    date: date("date").notNull(),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    menuNumber: integer("menu_number").notNull(),
+    orderedBy: text("ordered_by").references(() => users.id, { onDelete: "set null" }),
+    orderedAt: timestamp("ordered_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.date, t.studentId] }),
+    check("ganztag_meal_orders_menu", sql`${t.menuNumber} between 1 and 4`),
+    index("ganztag_meal_orders_student_idx").on(t.studentId),
+  ],
+);
+
 export type GanztagSession = typeof ganztagSessions.$inferSelect;
 export type GanztagSeries = typeof ganztagSeries.$inferSelect;

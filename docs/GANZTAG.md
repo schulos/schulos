@@ -179,3 +179,24 @@ Stand 2026-11-03, Migration 0135 (`ganztag_way_home_rules`, `ganztag_departures`
   Schüler:in ihre Zeilen, handelnde Personen nur Angebot bzw. Termin. Audit: „Heimweg geändert“, „Heimweg für einen Termin geändert“,
   „gegangen vermerkt/zurückgenommen“. Abholberechtigungen (wer abholen darf) klärt die Schule außerhalb von SchulOS.
 - Tests: `heimweg.test.ts`, `heimweg.migration.test.ts`, E2E `e2e/ganztag-heimweg.spec.ts` (Mutter, Leitung, Lea 360 px dunkel).
+
+## Umgesetzt (GT-11/GT-12) – Mittagessen
+
+Stand 2026-11-03, Migration 0136 (`ganztag_menus`, `ganztag_meal_orders`).
+
+- **Speiseplan** (`/ganztag/essen`, nur „Ganztag verwalten“ pflegt): je Tag (Mo–Fr) bis zu vier nummerierte Menüs mit Kurzbeschreibung
+  (höchstens 80 Zeichen), Wochenansicht mit Vor-/Folgewoche. Hinweis im Formular: Menüs nach dem Gericht benennen, nicht nach Kostform
+  oder Diät (DSB-FRAGEN §21); Allergene gehören auf den Aushang der Küche. Ein Menü mit Anmeldungen lässt sich nicht entfernen.
+  `ganztag_menus` ohne Personenbezug (`NO_PERSONAL_DATA`, wer gepflegt hat, steht im Audit-Log). Demo: zwei Menüs je Schultag für zwei Wochen.
+- **Anmeldung je Tag** (`ganztag_meal_orders`: Tag, Schüler:in, Menünummer): in der Familienansicht der Speiseplan der nächsten zwei
+  Wochen, je Tag „nicht angemeldet“ oder „Menü n: …“. Anmelden/abmelden/ändern bis zum Anmeldeschluss `ganztag.meal_deadline` (Vorgabe am
+  Werktag davor 12:00 – für Montag am Freitag; am Tag selbst 8/9 Uhr, Werktag davor 14 Uhr oder zwei Werktage vorher einstellbar). Handeln dürfen Eltern minderjähriger Kinder und
+  eigenständige Schüler:innen; minderjährige Schüler:innen sehen ihre Anmeldung nur. „Ganztag verwalten“ meldet auch nach dem Schluss an
+  oder ab (bis zum Tag selbst). Überall der Hinweis „Allergien und Unverträglichkeiten bitte direkt mit der Küche bzw. der
+  Ganztagsleitung klären – SchulOS erfasst sie nicht.“ **Keine Abrechnung**, keine Allergien/Unverträglichkeiten/Kostformen, kein Freitext.
+- **Küche (GT-12):** Zahl der Anmeldungen je Tag und Menü auf der Wochenseite (auch für „Ganztag auswerten“) und als CSV
+  `/api/ganztag/essen?von=…&bis=…` (Datum, Menü, Beschreibung, Anmeldungen; höchstens drei Monate, ohne Namen); Ausgabeliste je Tag
+  (`/ganztag/essen/ausgabe?datum=…`, nur „Ganztag verwalten“): Menü, Name, Klasse – sortiert nach Menü und Klasse, Einsicht protokolliert
+  (`lesen.ganztag_essen`).
+- **Datenschutz:** Anmeldungen `LK-SJ` ab dem Tag, gehen mit dem Konto der Schüler:in; „angemeldet von“ wird bei der Kontolöschung
+  geleert; Auskunft der handelnden Person nur mit dem Tag. Tests `essen.test.ts`, `essen.migration.test.ts`, E2E `e2e/ganztag-essen.spec.ts`.
