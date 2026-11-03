@@ -911,6 +911,13 @@
       "when": 1793665760544,
       "tag": "0129_gs_02_zustaendige_gruppe",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1793678475275,
+      "tag": "0130_lo_01_losverfahren",
+      "breakpoints": true
     }
   ]
 }

@@ -1,15 +1,16 @@
 // Schulanmeldung (P4-32) – nur relative Imports (drizzle-kit).
-import { boolean, check, date, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, check, date, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "../../core/db/schema-auth";
 import { rooms, schoolYears } from "../../core/db/schema-core";
-import { ANTRAG_STATUSES, EREIGNIS_KINDS, KLASSENWUNSCH_ARTEN, VERFAHREN_KINDS, VERFAHREN_STATUSES } from "./labels";
+import { ANTRAG_STATUSES, EREIGNIS_KINDS, KLASSENWUNSCH_ARTEN, LOS_STATUSES, VERFAHREN_KINDS, VERFAHREN_STATUSES } from "./labels";
 
 export const anmeldungKindEnum = pgEnum("anmeldung_kind", VERFAHREN_KINDS);
 export const anmeldungVerfahrenStatusEnum = pgEnum("anmeldung_verfahren_status", VERFAHREN_STATUSES);
 export const anmeldungAntragStatusEnum = pgEnum("anmeldung_antrag_status", ANTRAG_STATUSES);
 export const anmeldungEreignisKindEnum = pgEnum("anmeldung_ereignis_kind", EREIGNIS_KINDS);
 export const anmeldungKlassenwunschArtEnum = pgEnum("anmeldung_klassenwunsch_art", KLASSENWUNSCH_ARTEN);
+export const anmeldungLosStatusEnum = pgEnum("anmeldung_los_status", LOS_STATUSES);
 
 /** Anmeldeverfahren, z. B. „Anmeldung Klasse 5 – Schuljahr 2027/28“. */
 export const anmeldungVerfahren = pgTable(
@@ -130,6 +131,8 @@ export const anmeldungAntraege = pgTable(
      * für alle Anträge der Familie im Verfahren gleich; Vorgabe: zusammen.
      */
     familySeparate: boolean("family_separate").notNull().default(false),
+    /** LO-01: Rang auf der Warteliste aus einem übernommenen Losverfahren (1 = rückt zuerst nach); NULL = ohne Los bzw. nicht auf der Warteliste */
+    waitlistRank: integer("waitlist_rank"),
     /** Beginn der 90-Tage-Löschfrist (LK-90), gesetzt von der Statusmaschine; offene Anträge: NULL */
     retentionFrom: timestamp("retention_from", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -189,5 +192,55 @@ export const anmeldungKlassenwuensche = pgTable(
     uniqueIndex("anmeldung_klassenwuensche_paar_uq").on(t.antragId, t.partnerAntragId),
     index("anmeldung_klassenwuensche_partner_idx").on(t.partnerAntragId),
     check("anmeldung_klassenwuensche_selbst", sql`${t.antragId} <> ${t.partnerAntragId}`),
+  ],
+);
+
+/**
+ * LO-01 (docs/LOSVERFAHREN.md): Losverfahren bei Anmeldeüberhang. Die Schulleitung bildet aus gleichrangigen offenen Anträgen
+ * eine Losgruppe für N Plätze; SchulOS bewertet keine Kriterien. Commit-Reveal: der Seed entsteht beim Vorbereiten, angezeigt
+ * wird bis zum Ziehen nur sein SHA-256; die Reihenfolge ist mit `lotOrder` (src/core/los.ts) über die Antragsnummern
+ * nachrechenbar. Gespeichert werden nur Antrags-IDs und -nummern, Seed, Reihenfolge und Zeugen-**Funktionen** – Namen nur im
+ * Druck aus den noch vorhandenen Anträgen. Läufe werden nie gelöscht (verworfen statt gelöscht), sie gehen mit dem Verfahren.
+ */
+export const anmeldungLose = pgTable(
+  "anmeldung_lose",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    verfahrenId: text("verfahren_id")
+      .notNull()
+      .references(() => anmeldungVerfahren.id, { onDelete: "cascade" }),
+    /** laufende Nummer je Verfahren („Lauf 1, 2 …“) */
+    seq: integer("seq").notNull(),
+    status: anmeldungLosStatusEnum("status").notNull().default("vorbereitet"),
+    /** Plätze, die verlost werden (1 ≤ N < Teilnehmende) */
+    places: integer("places").notNull(),
+    /** Teilnehmende: `{ id, number }[]` (Antrags-ID und Vorgangsnummer), Reihenfolge der Auswahl */
+    participants: jsonb("participants").notNull(),
+    /** Zufallswert (hex, 128 Bit) – bis zum Ziehen geheim, danach im Protokoll */
+    seed: text("seed").notNull(),
+    /** SHA-256 des Seeds (hex), vor dem Ziehen angezeigt */
+    seedHash: text("seed_hash").notNull(),
+    /** gezogene Reihenfolge der Vorgangsnummern (Rang 1 zuerst); NULL bis zum Ziehen */
+    drawOrder: jsonb("draw_order"),
+    /** anwesende Zeug:innen – nur Funktionen (z. B. „Stellv. Schulleitung, Elternvertretung“), keine Namen */
+    witnesses: text("witnesses"),
+    /** Begründung beim Verwerfen bzw. Neulosen nach dem Ziehen (Pflicht), Hinweis: keine Gesundheitsangaben */
+    reason: text("reason"),
+    /** Neulosen: Lauf, der ersetzt wurde */
+    replacesId: text("replaces_id").references((): AnyPgColumn => anmeldungLose.id, { onDelete: "set null" }),
+    preparedBy: text("prepared_by").references(() => users.id, { onDelete: "set null" }),
+    preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),
+    drawnBy: text("drawn_by").references(() => users.id, { onDelete: "set null" }),
+    drawnAt: timestamp("drawn_at", { withTimezone: true }),
+    appliedBy: text("applied_by").references(() => users.id, { onDelete: "set null" }),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    discardedBy: text("discarded_by").references(() => users.id, { onDelete: "set null" }),
+    discardedAt: timestamp("discarded_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("anmeldung_lose_seq_uq").on(t.verfahrenId, t.seq),
+    check("anmeldung_lose_places", sql`${t.places} >= 1`),
   ],
 );

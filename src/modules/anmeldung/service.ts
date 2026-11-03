@@ -722,6 +722,8 @@ export async function setAntragStatus(
         ...(decision ? { decidedAt: now, decidedBy: viewer?.userId ?? null } : {}),
         ...(decision && note ? { decisionNote: note } : {}),
         ...(to === "uebernommen" ? { transferredUserId: opts.transferredUserId!, transferredAt } : {}),
+        // LO-01: der Wartelisten-Rang gilt nur auf der Warteliste (Nachrücken, Ablehnung, Korrektur → weg)
+        ...(a.status === "warteliste" ? { waitlistRank: null } : {}),
         retentionFrom: retentionFromFor(to, { now, completedAt: v.completedAt, rejectKeepDays: v.rejectKeepDays, transferredAt }),
       })
       .where(and(eq(anmeldungAntraege.id, antragId), eq(anmeldungAntraege.status, a.status)))

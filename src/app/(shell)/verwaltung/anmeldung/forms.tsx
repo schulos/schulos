@@ -9,6 +9,7 @@ import {
   deleteSlotAction,
   moveSlotAction,
   noteAction,
+  prepareLotAction,
   removeWishAction,
   separateAction,
   spamAction,
@@ -350,6 +351,8 @@ export interface DecisionListRow {
   status: AntragStatus;
   documentsComplete: boolean;
   href: string;
+  /** LO-02: Rang auf der Warteliste aus einem übernommenen Los */
+  waitlistRank?: number | null;
 }
 
 /**
@@ -373,6 +376,8 @@ export function DecisionList({
   lateAdmission?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(decideAction.bind(null, verfahrenId, null), {});
+  // LO-02: Losgruppe aus derselben Auswahl (eigener Knopf, eigene Action – das Los entscheidet erst nach Ziehen und Übernahme)
+  const [lotState, lotAction, lotPending] = useActionState(prepareLotAction.bind(null, verfahrenId), {});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -417,6 +422,30 @@ export function DecisionList({
           <div className="basis-full">
             <DecisionResult state={state} />
           </div>
+          {!lateAdmission && (
+            <details className="basis-full rounded-lg border border-border bg-surface p-3" open={Boolean(lotState.error) || undefined}>
+              <summary className="min-h-6 cursor-pointer py-1 text-sm font-medium">Losverfahren: Losgruppe aus der Auswahl bilden</summary>
+              <div className="mt-3 flex flex-col gap-3">
+                <p className="text-sm text-muted">
+                  Nur für offene Anträge, die nach den übrigen Kriterien gleichrangig um die restlichen Plätze konkurrieren – diese Auswahl trifft
+                  die Schulleitung, SchulOS bewertet keine Kriterien. Im nächsten Schritt steht der Prüfwert (Seed-Hash) fest, bevor gelost wird.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <Field label="Plätze für die Losgruppe" className="w-48">
+                    <Input name="places" type="number" inputMode="numeric" min={1} step={1} />
+                  </Field>
+                  <Button type="submit" formAction={lotAction} size="sm" disabled={lotPending || selected.size < 2}>
+                    Losgruppe bilden ({selected.size})
+                  </Button>
+                </div>
+                {lotState.error && (
+                  <p role="alert" className="text-sm text-danger">
+                    {lotState.error}
+                  </p>
+                )}
+              </div>
+            </details>
+          )}
         </div>
       )}
       <Table>
@@ -472,7 +501,10 @@ export function DecisionList({
                 <span className="block text-muted">Wohnort: {r.place || "–"}</span>
               </td>
               <td>{r.documentsComplete ? "vollständig" : <span className="text-muted">offen</span>}</td>
-              <td>{ANTRAG_STATUS_LABELS[r.status]}</td>
+              <td>
+                {ANTRAG_STATUS_LABELS[r.status]}
+                {r.status === "warteliste" && r.waitlistRank ? <span className="block text-xs text-muted tabular-nums">Rang {r.waitlistRank}</span> : null}
+              </td>
             </tr>
           ))}
         </tbody>

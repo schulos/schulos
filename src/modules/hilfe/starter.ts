@@ -15,6 +15,9 @@ export const STARTER_SECTION = "Erste Schritte";
 /** INV-07: Bereich für die Seite zu Gebäude & Technik/Inventar */
 export const GEBAEUDE_SECTION = "Gebäude & Technik";
 export const GEBAEUDE_HELP_SLUG = "gebaeude-und-technik-inventar";
+/** LO-03: Bereich und Seite zum Losverfahren der Schulanmeldung */
+export const ANMELDUNG_SECTION = "Schulanmeldung";
+export const LOS_HELP_SLUG = "schulanmeldung-losverfahren-bei-anmeldeueberhang";
 /** GS-03: Seite zu den Fachraum-Prüfungen (Bereich Gebäude & Technik) */
 export const FACHRAUM_HELP_SLUG = "fachraum-pruefungen";
 /** CA-04: Starter-Seite zum Schul-Zertifikat (Verwaltung → System verlinkt sie, wenn es sie gibt) */
@@ -296,6 +299,45 @@ Auf der Geräteseite (Karte **Ausleihe**) eine Person suchen, Rückgabedatum und
 | Recht „einrichten“ (Verwaltung) | zusätzlich Kategorien, Prüfarten, endgültig löschen |
 
 Welche Gruppe welche Rechte hat, legt die Verwaltung unter **Verwaltung → Rechte & Module** fest.`,
+  },
+  {
+    // LO-03 (docs/LOSVERFAHREN.md): Losverfahren der Schulanmeldung – für das Personal (handeln darf nur `anmeldung.decide`)
+    slug: LOS_HELP_SLUG,
+    title: "Schulanmeldung: Losverfahren bei Anmeldeüberhang",
+    roles: STAFF_TARGET_ROLES,
+    section: ANMELDUNG_SECTION,
+    body: `Gibt es mehr Anmeldungen als Plätze und sind nach den übrigen Kriterien mehrere Kinder **gleichrangig**, kann die Schulleitung unter den verbleibenden Plätzen losen. SchulOS zieht das Los nachvollziehbar und protokolliert es – **welche** Kinder ins Los kommen, entscheidet die Schulleitung.
+
+> **Rechtlicher Hinweis (zu prüfen):** Ob und in welcher Reihenfolge Kriterien wie Geschwisterkinder, Schulweg oder ein ausgewogenes Verhältnis vor dem Los anzuwenden sind, regelt das Schulrecht des Landes (in NRW § 1 Abs. 2 APO-S I, für die Aufnahme § 46 SchulG NRW). Die Schule klärt das mit der Schulaufsicht bzw. dem Schulträger. SchulOS bewertet keine Kriterien und wählt nichts automatisch aus.
+
+## Ablauf
+
+1. **Losgruppe bilden:** **Verwaltung → Schulanmeldung → Verfahren → Entscheidung**. Die gleichrangigen **offenen** Anträge ankreuzen, unter „Losverfahren: Losgruppe aus der Auswahl bilden“ die Zahl der Plätze eintragen und **Losgruppe bilden**. Die Plätze müssen weniger sein als die ausgewählten Anträge.
+2. **Prüfwert zeigen:** Die Seite des Laufs zeigt den **Prüfwert** (SHA-256 des Zufallswerts). Er legt das Los fest, ohne es zu verraten. Den Prüfwert den anwesenden Zeug:innen zeigen oder ins Protokoll übernehmen – vorher **Protokoll drucken** geht auch.
+3. **Los ziehen:** Anwesende Zeug:innen nur mit ihrer **Funktion** eintragen (z. B. „Stellv. Schulleitung, Elternvertretung“, keine Namen) und **Los ziehen**. Jetzt erscheinen der Zufallswert (Seed) und die Rangliste.
+4. **Ergebnis übernehmen:** **Ergebnis übernehmen** setzt Rang 1 bis N auf „Aufgenommen“ und alle übrigen auf „Warteliste“ mit ihrem Rang. Die Eltern bekommen wie bei jeder ersten Entscheidung nur die Mail „Bescheid folgt per Post“. Der Wartelisten-Rang steht in der Entscheidungsliste und im Export (Spalte „Wartelisten-Rang“).
+5. **Protokoll für die Akte:** **Protokoll drucken** – mit Namen aus den Anträgen, Prüfwert, Seed, Rangliste und Unterschriftszeilen.
+
+## Fehler korrigieren
+
+- **Vor dem Ziehen:** Falsche Gruppe? **Lauf verwerfen** und neu bilden – es ist noch nichts gelost.
+- **Nach dem Ziehen, vor der Übernahme:** **Neu losen** nur mit Begründung. Der alte Lauf bleibt mit Seed, Reihenfolge und Begründung sichtbar; der neue Lauf hat dieselbe Gruppe und einen neuen Prüfwert. Für eine andere Gruppe den Lauf mit Begründung verwerfen und neu bilden.
+- **Nach der Übernahme** bleibt der Lauf, wie er ist; Korrekturen laufen über die normale Entscheidung je Antrag. Rückt ein Kind von der Warteliste nach, fällt sein Rang weg – die übrigen behalten ihre Zahl.
+
+## Nachrechnen
+
+Jede:r kann das Ergebnis mit eigenen Werkzeugen prüfen: SHA-256 des Seeds muss dem Prüfwert entsprechen; für jede Vorgangsnummer den Text „Seed:Nummer“ mit FNV-1a (32 Bit) hashen und aufsteigend sortieren (bei Gleichstand nach der Nummer) – das ist die Rangliste.
+
+## Wer darf was?
+
+| Wer | Losverfahren |
+|---|---|
+| Schulleitung (Recht „Über Anträge entscheiden“) | Losgruppe bilden, ziehen, übernehmen, neu losen, verwerfen |
+| Sekretariat (Recht „Anträge lesen“) | Läufe und Protokoll ansehen und drucken |
+| Alle anderen | nichts |
+
+Gespeichert werden nur Vorgangsnummern, Zufallswert, Rangliste und die Funktionen der Zeug:innen; das Protokoll wird mit dem Anmeldeverfahren gelöscht (ein Jahr nach dessen Abschluss).`,
+
   },
   {
     // GS-03 (docs/FACHRAUM-PRUEFUNGEN.md): Fachraum-Prüfungen Chemie/NW und Strahlenschutz Physik, zuständige Gruppe je Prüfart

@@ -77,3 +77,13 @@ export function parseFields(raw: unknown, kind: VerfahrenKind): VerfahrenFields 
   const r = raw as Record<string, unknown>;
   return Object.fromEntries(OPTIONAL_FIELDS.map((f) => [f, typeof r[f] === "boolean" ? r[f] : base[f]])) as VerfahrenFields;
 }
+
+/** LO-01: Stand eines Losverfahrens (Lauf) */
+export const LOS_STATUSES = ["vorbereitet", "gezogen", "uebernommen", "verworfen"] as const;
+export type LosStatus = (typeof LOS_STATUSES)[number];
+export const LOS_STATUS_LABELS: Record<LosStatus, string> = {
+  vorbereitet: "Vorbereitet (Seed-Hash steht fest)",
+  gezogen: "Gezogen",
+  uebernommen: "Übernommen",
+  verworfen: "Verworfen",
+};

@@ -16,6 +16,11 @@
 // zugeteilt“ – niemand bekommt denselben Kurs zweimal. Mindestgrößen (Schritt 3) zählen alle Plätze zusammen. Der Seed des
 // 1. Platzes ist der des Verfahrens (Ergebnisse mit einem Platz bleiben gleich), spätere Plätze losen mit „Seed#Platz“.
 
+import { lotOrder } from "@/core/los";
+
+// Losreihenfolge seit LO-01 in `src/core/los.ts` (auch für das Losverfahren der Schulanmeldung); hier weiter erreichbar.
+export { hash, lotOrder } from "@/core/los";
+
 export interface AllocOffer {
   id: string;
   title: string;
@@ -63,21 +68,6 @@ export interface AllocationResult {
   offers: OfferResult[];
   /** Protokoll in Sätzen (Ausfälle, Lose) */
   log: string[];
-}
-
-/** FNV-1a (32 Bit) – stabiler Hash für die Losreihenfolge. */
-export function hash(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
-}
-
-/** Losreihenfolge: kleinerer Hash zuerst, bei Gleichstand die ID. */
-export function lotOrder(seed: string, ids: readonly string[]): string[] {
-  return [...ids].sort((a, b) => hash(`${seed}:${a}`) - hash(`${seed}:${b}`) || (a < b ? -1 : a > b ? 1 : 0));
 }
 
 const free = (o: AllocOffer, n: number) => (o.maxSize == null ? Infinity : o.maxSize - n);
