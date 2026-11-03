@@ -7,6 +7,7 @@ import { formValues } from "@/core/form-values";
 import { moduleActions } from "@/core/modules/guard";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { MAX_MENUS, setDayMenus, setMealOrder } from "./essen";
 import { isWay, setDayWay, setLeft, setWayRule } from "./heimweg";
 import { GANZTAG_MARK_STATUS, type GanztagMarkStatus } from "./schema";
 import { createSeries, createSession, deleteSeries, deleteSession, setAllPresent, setListFeature, setMark, setOfferSettings, setSessionCancelled } from "./service";
@@ -182,4 +183,33 @@ export async function setLeftAction(sessionId: string, studentId: string, left: 
   }
   revalidatePath(`/ganztag/termin/${sessionId}`);
   return {};
+}
+
+/** GT-11: Menüs eines Tages speichern (nur „Ganztag verwalten“). */
+export async function setDayMenusAction(date: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    const n = await setDayMenus(
+      await getDb(),
+      perms,
+      date,
+      Array.from({ length: MAX_MENUS }, (_, i) => String(form.get(`m${i + 1}`) ?? "")),
+    );
+    revalidatePath("/ganztag", "layout");
+    return { ok: true, message: n === 0 ? "Gespeichert: kein Essen an diesem Tag." : n === 1 ? "Gespeichert: 1 Menü." : `Gespeichert: ${n} Menüs.` };
+  } catch (err) {
+    return fail(err, form);
+  }
+}
+
+/** GT-11: An- bzw. abmelden (`menu = null`) für einen Tag. */
+export async function setMealOrderAction(studentId: string, date: string, menu: number | null): Promise<ActionResult> {
+  const { perms } = await requireUser();
+  try {
+    await setMealOrder(await getDb(), perms, studentId, date, menu !== null && Number.isInteger(menu) ? menu : null);
+  } catch (err) {
+    return failText(err);
+  }
+  revalidatePath("/ganztag", "layout");
+  return { message: menu === null ? "Abgemeldet." : `Angemeldet: Menü ${menu}.` };
 }

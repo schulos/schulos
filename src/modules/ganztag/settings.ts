@@ -33,4 +33,19 @@ export const WAY_HOME_DEADLINE = defineSetting({
   default: "12",
 });
 
-export const GANZTAG_SETTINGS = [EDIT_DAYS, WAY_HOME_DEADLINE];
+/** GT-11 (Projektleitung 2026-11-03): Anmeldeschluss fürs Mittagessen (Vorgabe: am Werktag davor bis 12:00; für Montag am Freitag). */
+export const MEAL_DEADLINE = defineSetting({
+  key: "ganztag.meal_deadline",
+  label: "Anmeldeschluss Mittagessen",
+  help: "Bis wann Familien sich für einen Tag zum Mittagessen an- oder abmelden bzw. das Menü ändern können. Danach nur noch über „Ganztag verwalten“.",
+  options: [
+    { value: "tag-08", label: "am Tag selbst bis 8:00 Uhr" },
+    { value: "tag-09", label: "am Tag selbst bis 9:00 Uhr" },
+    { value: "vortag-12", label: "am Werktag davor bis 12:00 Uhr" },
+    { value: "vortag-14", label: "am Werktag davor bis 14:00 Uhr" },
+    { value: "zwei-12", label: "zwei Werktage vorher bis 12:00 Uhr" },
+  ],
+  default: "vortag-12",
+});
+
+export const GANZTAG_SETTINGS = [EDIT_DAYS, WAY_HOME_DEADLINE, MEAL_DEADLINE];

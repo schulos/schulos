@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BarChart3, Settings2, Users } from "lucide-react";
+import { BarChart3, Settings2, Users, Utensils } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
@@ -8,12 +8,14 @@ import { canEvaluate } from "@/modules/ganztag/auswertung";
 import { familyView } from "@/modules/ganztag/familie";
 import { leadsClass } from "@/modules/ganztag/klassenleitung";
 import { canManage, dateLabel, listOffers } from "@/modules/ganztag/service";
+import { canSeeCounts, familyMeals } from "@/modules/ganztag/essen";
 import { wayDeadline } from "@/modules/ganztag/heimweg";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { FamilyGanztag } from "./familie";
+import { FamilyMealsCard } from "./familie-essen";
 
 export const metadata: Metadata = { title: "Ganztag" };
 
@@ -24,7 +26,7 @@ export default async function GanztagPage() {
   // GT-05: Schüler:innen und Eltern sehen nur die eigenen Zeilen bzw. die ihres Kindes
   if (user.role === "schueler" || user.role === "eltern") {
     const self = user.role === "schueler";
-    const [children, deadline] = await Promise.all([familyView(db, perms), wayDeadline(db)]);
+    const [children, deadline, meals] = await Promise.all([familyView(db, perms), wayDeadline(db), familyMeals(db, perms)]);
     return (
       <main className="flex max-w-4xl flex-col gap-6">
         <PageHeader title="Ganztag" />
@@ -37,6 +39,10 @@ export default async function GanztagPage() {
         ) : (
           children.map((c) => <FamilyGanztag key={c.id} child={c} self={self} deadline={deadline} />)
         )}
+        {/* GT-11: Mittagessen – nur, wenn es einen Speiseplan für die nächsten Tage gibt */}
+        {meals.map((m) => (
+          <FamilyMealsCard key={m.id} child={m} self={self} />
+        ))}
       </main>
     );
   }
@@ -44,18 +50,26 @@ export default async function GanztagPage() {
   const manager = canManage(perms);
   const [offers, classLead] = await Promise.all([listOffers(db, perms), leadsClass(db, perms)]);
   const evaluate = canEvaluate(perms);
+  const meals = canSeeCounts(perms);
 
   return (
     <main className="flex max-w-4xl flex-col gap-6">
       <PageHeader
         title="Ganztag"
         actions={
-          (manager || evaluate || classLead) && (
+          (manager || evaluate || classLead || meals) && (
             <>
               {classLead && (
                 <Button asChild variant="secondary">
                   <Link href="/ganztag/klasse">
                     <Users aria-hidden /> Meine Klasse
+                  </Link>
+                </Button>
+              )}
+              {meals && (
+                <Button asChild variant="secondary">
+                  <Link href="/ganztag/essen">
+                    <Utensils aria-hidden /> Mittagessen
                   </Link>
                 </Button>
               )}

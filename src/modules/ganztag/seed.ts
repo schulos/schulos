@@ -1,8 +1,8 @@
 import { and, desc, eq, lt } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { ganztagGroupSettings, ganztagMarks, ganztagSeries, ganztagSessions, ganztagWayHomeRules, grants, groupFeatures, groupMembers, groups, schoolYears } from "@/core/db/schema";
+import { ganztagGroupSettings, ganztagMarks, ganztagMenus, ganztagSeries, ganztagSessions, ganztagWayHomeRules, grants, groupFeatures, groupMembers, groups, schoolYears } from "@/core/db/schema";
 import { loadSchoolCalendar } from "@/core/school/calendar";
-import { toBerlinDate } from "@/core/time";
+import { addDays, toBerlinDate, weekdayMon0 } from "@/core/time";
 import { LIST_FEATURE, seriesDates } from "./service";
 
 /**
@@ -30,6 +30,23 @@ export async function seedGanztag(db: Db, now = new Date()) {
     if (dates.length) await db.insert(ganztagSessions).values(dates.map((date) => ({ groupId: o.groupId, seriesId, date, startsAt: o.startsAt, endsAt: o.endsAt })));
   }
   await db.insert(grants).values({ permission: "ganztag.view_all", groupId: "g-schulleitung" }).onConflictDoNothing();
+
+  // GT-11: Speiseplan für die nächsten zwei Wochen (Mo–Fr), zwei nummerierte Menüs – nach Gericht benannt, nicht nach Kostform
+  const dishes = [
+    ["Spaghetti mit Tomatensoße", "Gemüsereis mit Joghurtdip"],
+    ["Hähnchen mit Kartoffeln", "Kartoffel-Gemüse-Auflauf"],
+    ["Linsensuppe mit Brot", "Pfannkuchen mit Apfelmus"],
+    ["Fischstäbchen mit Kartoffelpüree", "Gemüselasagne"],
+    ["Milchreis mit Kirschen", "Nudeln mit Brokkoli"],
+  ] as const;
+  const menuRows: { date: string; number: number; title: string }[] = [];
+  for (let i = 0; i < 14; i++) {
+    const date = addDays(toBerlinDate(now), i);
+    const wd = weekdayMon0(date);
+    if (wd > 4 || cal.dayOff(date)) continue;
+    dishes[wd]!.forEach((title, n) => menuRows.push({ date, number: n + 1, title }));
+  }
+  if (menuRows.length) await db.insert(ganztagMenus).values(menuRows).onConflictDoNothing();
 
   // ein erfasster Termin für die Demo: der letzte vor heute in der Robotik-AG
   const today = toBerlinDate(now);

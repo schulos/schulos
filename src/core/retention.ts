@@ -290,6 +290,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   hilfe_sections: "Handbuch: Bereiche (Titel, Reihenfolge) – keine Personen",
   ganztag_series: "Ganztag: Terminserien je Angebot (Wochentag, Zeit, gültig von/bis) – keine Personen",
   ganztag_group_settings: "Ganztag: Einstellungen je Angebot (verpflichtend, Benachrichtigung, Vorbelegung) – keine Personen",
+  ganztag_menus: "Ganztag: Speiseplan je Tag (Menünummer und Kurzbeschreibung) – keine Personen; wer gepflegt hat, steht nur im Audit-Log",
   buecherei_booklists: "Schulbuchausleihe: Hinweistext der Bücherliste je Jahrgang – keine Personen",
 };
 
