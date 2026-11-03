@@ -137,7 +137,7 @@ describe("VA-01…03: Veranstaltungen – Service", () => {
 
     // Sicht: anmeldende Person und Hausmeisterei ja, andere Lehrkraft/Schülerin nein
     expect(await getEvent(h.db, lea, id)).toBeNull();
-    expect((await getEvent(h.db, jana, id))!.can).toEqual({ approve: false, decide: false, answer: false, cancel: true });
+    expect((await getEvent(h.db, jana, id))!.can).toEqual({ approve: false, decide: false, answer: false, cancel: true, edit: true });
     expect((await getEvent(h.db, klaus, id))!.can).toMatchObject({ decide: true, cancel: true });
     expect((await getEvent(h.db, petra, id))!.can).toMatchObject({ approve: false, decide: false });
     await expect(confirmEvent(h.db, jana, id, { blockRooms: true, calendar: false })).rejects.toThrow(ForbiddenError);
@@ -197,7 +197,7 @@ describe("VA-01…03: Veranstaltungen – Service", () => {
     expect(second.conflicts.map((c) => c.kind).sort()).toEqual(["veranstaltung", "wartung"]);
     expect(await eventConflicts(h.db, { roomIds: [], from: new Date(), to: new Date() })).toEqual([]);
     const r = await confirmEvent(h.db, klaus, first.id, { blockRooms: true, calendar: false });
-    expect(r).toEqual({ blocks: 0, notified: 0 });
+    expect(r).toEqual({ blocks: 0, notified: 0, confirmed: 1, open: [] });
     expect(await fieldErrors(rejectEvent(h.db, klaus, second.id, ""))).toEqual({ text: "Text mit 3 bis 1000 Zeichen" });
     await rejectEvent(h.db, klaus, second.id, "Aula ist an dem Abend belegt");
     expect(await gongs(JANA)).toContain("Veranstaltung abgelehnt: Chorprobe");

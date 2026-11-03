@@ -92,14 +92,14 @@ export default defineModule({
     { table: "gebaeude_veranstaltung_sperren", purpose: "Raumsperren aus einer bestätigten Veranstaltung", categories: ["Raumsperre"], follows: "gebaeude_veranstaltungen" },
     {
       table: "gebaeude_veranstaltung_verlauf",
-      purpose: "Verlauf einer Veranstaltungsanmeldung (Freigabe, Bestätigung, Rückfrage, Antwort, Ablehnung, Absage)",
+      purpose: "Verlauf einer Veranstaltungsanmeldung (Freigabe, Bestätigung, Rückfrage, Antwort, Ablehnung, Absage, Änderung)",
       categories: ["Handelnde Person", "Schritt", "Text", "Zeitpunkt"],
       follows: "gebaeude_veranstaltungen",
     },
   ],
   processing: {
     title: "Mängel- und Störungsmeldungen (Gebäude & Technik)",
-    purpose: "Mängel und Störungen an Gebäude, Haustechnik und IT melden und beheben; Leihgeräte aus dem Inventar verleihen und zurücknehmen (INV-05); Veranstaltungen bei der Hausmeisterei anmelden (VA-01)",
+    purpose: "Mängel und Störungen an Gebäude, Haustechnik und IT melden und beheben; Leihgeräte aus dem Inventar verleihen und zurücknehmen (INV-05); Veranstaltungen bei der Hausmeisterei anmelden, ändern und als Serie planen (VA-01…07)",
     legalBasis:
       "Art. 6 Abs. 1 lit. e, Abs. 3 DSGVO i. V. m. § 79 SchulG NRW (Schulträger stellt und unterhält das Schulgebäude – zu prüfen) und § 120 SchulG NRW; für Lehrkräfte VO-DV II",
     subjects: ["Lehrkräfte", "Verwaltungspersonal", "weiteres Personal", "Schüler:innen (nur Leihgeräte)", "Eltern minderjähriger Entleihender (nur Erinnerungen)"],
@@ -111,6 +111,6 @@ export default defineModule({
       "Pflegende der Inventar-Kategorie (Ausleihe: Person, Gerät, Fristen)",
       "entleihende Person und bei Minderjährigen die Eltern (eigene Leihgeräte, Erinnerungen)",
     ],
-    note: "Fotos nur von Sachen, Metadaten (EXIF/GPS) werden beim Hochladen entfernt. Keine Auswertung je Person – Statistik nur je Kategorie/Monat. Anlagen und Prüfarten ohne Personenbezug; Prüfnachweise nennen die Firma statt einer Prüfer:in (Erfassung nur im Audit-Log), Protokoll-PDF und Bemerkung können aber Namen enthalten und werden nach der übernächsten Prüfung derselben Art (Vorgabe; als Moduleinstellung nach der dritt- bzw. fünftnächsten), frühestens nach einem Jahr, geleert; CSV-Exporte ohne Namen und Freitext. Wartungstermine nennen die anlegende Person (1 Jahr nach Termin gelöscht). Leihgeräte (INV-05): nur an Personen mit Konto; Person und Klasse sehen nur die Pflegenden der Kategorie und die Person selbst (Eltern lesend), alle anderen höchstens „verliehen bis …“; Erinnerungen (Benachrichtigung, optional Mail) nennen kein Gerät, nur „Meine Leihgeräte“ nach der Anmeldung; wer verliehen hat, steht nur im Audit-Log; Ausleihen werden 1 Jahr nach der Rückgabe gelöscht, der Leihvertrag ist nur Druck. Veranstaltungen (VA-01): anmeldende Person, Zeitraum, Räume, Personenzahl und Bedarf sehen die Person selbst, die Hausmeisterei/Verwaltung (`manage`/`view_all`) und bei eingeschalteter Freigabe die Schulleitung; „Heute im Haus“ und Schulkalender nennen nur Titel, Zeit und Ort; gelöscht 1 Jahr nach dem geplanten Ende.",
+    note: "Fotos nur von Sachen, Metadaten (EXIF/GPS) werden beim Hochladen entfernt. Keine Auswertung je Person – Statistik nur je Kategorie/Monat. Anlagen und Prüfarten ohne Personenbezug; Prüfnachweise nennen die Firma statt einer Prüfer:in (Erfassung nur im Audit-Log), Protokoll-PDF und Bemerkung können aber Namen enthalten und werden nach der übernächsten Prüfung derselben Art (Vorgabe; als Moduleinstellung nach der dritt- bzw. fünftnächsten), frühestens nach einem Jahr, geleert; CSV-Exporte ohne Namen und Freitext. Wartungstermine nennen die anlegende Person (1 Jahr nach Termin gelöscht). Leihgeräte (INV-05): nur an Personen mit Konto; Person und Klasse sehen nur die Pflegenden der Kategorie und die Person selbst (Eltern lesend), alle anderen höchstens „verliehen bis …“; Erinnerungen (Benachrichtigung, optional Mail) nennen kein Gerät, nur „Meine Leihgeräte“ nach der Anmeldung; wer verliehen hat, steht nur im Audit-Log; Ausleihen werden 1 Jahr nach der Rückgabe gelöscht, der Leihvertrag ist nur Druck. Veranstaltungen (VA-01): anmeldende Person, Zeitraum, Räume, Personenzahl und Bedarf sehen die Person selbst, die Hausmeisterei/Verwaltung (`manage`/`view_all`) und bei eingeschalteter Freigabe die Schulleitung; „Heute im Haus“ und Schulkalender nennen nur Titel, Zeit und Ort; gelöscht 1 Jahr nach dem geplanten Ende. Ändern (VA-05) nur durch die anmeldende Person – der Verlauf nennt die geänderten Angaben, nicht die alten Werte; Serien (VA-06) sind einzelne Termine mit eigener Löschfrist.",
   },
 });

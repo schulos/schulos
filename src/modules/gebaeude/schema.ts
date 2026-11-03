@@ -458,12 +458,18 @@ export const gebaeudeEvents = pgTable(
     details: text("details"),
     /** Eintrag im Schulkalender (optional bei Bestätigung) */
     calendarEventId: text("calendar_event_id").references(() => calendarEvents.id, { onDelete: "set null" }),
+    /** VA-06: Termine einer Serie teilen die ID (wöchentlich/alle 2 Wochen); ohne Serie leer */
+    seriesId: text("series_id"),
     /** Gong am Vortag ist raus (Job `gebaeude-veranstaltungen`) */
     remindedAt: timestamp("reminded_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("gebaeude_veranstaltungen_time_idx").on(t.teardownAt, t.setupAt), index("gebaeude_veranstaltungen_organizer_idx").on(t.organizerId)],
+  (t) => [
+    index("gebaeude_veranstaltungen_time_idx").on(t.teardownAt, t.setupAt),
+    index("gebaeude_veranstaltungen_organizer_idx").on(t.organizerId),
+    index("gebaeude_veranstaltungen_series_idx").on(t.seriesId),
+  ],
 );
 
 /** Räume einer Veranstaltung; die Raumsperre entsteht nur bei Überschneidung mit Unterricht (je Tag eine). */

@@ -17,7 +17,7 @@ export function EventStatusBadge({ status }: { status: EventStatus }) {
 }
 
 /** Eine Veranstaltung als Zeile (Übersicht, Wochenvorschau, eigene Anmeldungen). */
-export function EventItem({ e, showOrganizer = false }: { e: EventRow; showOrganizer?: boolean }) {
+export function EventItem({ e, showOrganizer = false }: { e: EventRow & { seriesMore?: number }; showOrganizer?: boolean }) {
   const extra = setupText(e);
   return (
     <Link
@@ -27,6 +27,7 @@ export function EventItem({ e, showOrganizer = false }: { e: EventRow; showOrgan
       <span className="flex flex-wrap items-center gap-1.5">
         <EventStatusBadge status={e.status} />
         <span className="text-xs text-muted tabular-nums">{e.span}</span>
+        {e.seriesId && <Badge tone="soft">{e.seriesMore ? `Serie · ${e.seriesMore === 1 ? "1 weiterer Termin" : `${e.seriesMore} weitere Termine`}` : "Serie"}</Badge>}
       </span>
       <span className="font-medium leading-snug">{e.title}</span>
       <span className="text-xs text-muted">
@@ -38,7 +39,7 @@ export function EventItem({ e, showOrganizer = false }: { e: EventRow; showOrgan
   );
 }
 
-export function EventList({ items, label, showOrganizer }: { items: EventRow[]; label: string; showOrganizer?: boolean }) {
+export function EventList({ items, label, showOrganizer }: { items: (EventRow & { seriesMore?: number })[]; label: string; showOrganizer?: boolean }) {
   return (
     <ul aria-label={label} className="flex flex-col gap-2">
       {items.map((e) => (

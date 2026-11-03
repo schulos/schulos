@@ -445,6 +445,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "gebaeude.event.reject": "Veranstaltung abgelehnt",
   "gebaeude.event.confirm": "Veranstaltung bestätigt",
   "gebaeude.event.cancel": "Veranstaltung abgesagt",
+  "gebaeude.event.update": "Veranstaltung geändert",
   "gebaeude.inventory.start": "Inventur gestartet",
   "gebaeude.inventory.close": "Inventur abgeschlossen",
   "gebaeude.inventory.delete": "Inventur gelöscht",
