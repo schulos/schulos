@@ -5,17 +5,21 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { addDays, toBerlinDate } from "@/core/time";
 import { createEventAction } from "@/modules/gebaeude/actions";
-import { EVENT_NEED_KEYS, EVENT_NEEDS, EVENT_SEATING, EVENT_SEATING_LABELS, EVENT_TEXT_MAX } from "@/modules/gebaeude/labels";
+import { EVENT_REPEAT_LABELS, EVENT_REPEATS, EVENT_SERIES_MAX } from "@/modules/gebaeude/labels";
 import { roomOptions } from "@/modules/gebaeude/pruefungen";
 import { canReport } from "@/modules/gebaeude/service";
 import { approvalRequired } from "@/modules/gebaeude/veranstaltungen";
 import { Card } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
 import { SpecForm, type FieldSpec } from "@/ui/spec-form";
+import { eventFields } from "../felder";
 
 export const metadata: Metadata = { title: "Veranstaltung anmelden" };
 
-/** Formular (VA-02): alle mit `gebaeude.report` – Zeitraum mit Auf-/Abbau, Räume oder Ort, Personenzahl, Bedarf. */
+/**
+ * Formular (VA-02): alle mit `gebaeude.report` – Zeitraum mit Auf-/Abbau, Räume oder Ort, Personenzahl, Bedarf. VA-06: optional als
+ * Serie (wöchentlich/alle 2 Wochen, bis Datum oder Anzahl, höchstens 26 Termine; Ferien und freie Tage übersprungen).
+ */
 export default async function NeueVeranstaltungPage() {
   const { perms } = await requireUser();
   if (!canReport(perms)) notFound();
@@ -23,24 +27,17 @@ export default async function NeueVeranstaltungPage() {
   const [rooms, approval] = await Promise.all([roomOptions(db), approvalRequired(db)]);
   const day = addDays(toBerlinDate(new Date()), 7);
   const fields: FieldSpec[] = [
-    { name: "title", label: "Was findet statt?", type: "text", required: true, maxLength: 120, wide: true, placeholder: "z. B. Elternabend Jahrgang 5" },
-    { name: "start", label: "Beginn", type: "datetime-local", required: true, defaultValue: `${day}T18:00` },
-    { name: "end", label: "Ende", type: "datetime-local", required: true, defaultValue: `${day}T20:00` },
-    { name: "setup", label: "Aufbau ab", type: "datetime-local", hint: "leer = ab Beginn" },
-    { name: "teardown", label: "Abbau bis", type: "datetime-local", hint: "leer = bis Ende" },
-    { name: "roomIds", label: "Räume", type: "multiselect", options: rooms, wide: true, hint: "mehrere mit Strg bzw. ⌘" },
-    { name: "location", label: "Ort ohne Raum", type: "text", maxLength: 120, placeholder: "z. B. Schulhof, Sportplatz" },
-    { name: "persons", label: "Erwartete Personen", type: "number", required: true, min: 1, max: 5000 },
-    { name: "seating", label: "Bestuhlung", type: "select", options: EVENT_SEATING.map((s) => ({ value: s, label: EVENT_SEATING_LABELS[s] })), defaultValue: "keine" },
-    ...EVENT_NEED_KEYS.map((k): FieldSpec => ({ name: k, label: EVENT_NEEDS[k], type: "checkbox", wide: true })),
+    ...eventFields(rooms, null, day),
     {
-      name: "details",
-      label: "Einzelheiten zum Bedarf",
-      type: "textarea",
-      maxLength: EVENT_TEXT_MAX,
-      wide: true,
-      hint: "z. B. Bühne, zwei Mikrofone, Tür zum Hof offen – bitte ohne Namen von Schüler:innen",
+      name: "repeat",
+      label: "Wiederholen",
+      type: "select",
+      options: EVENT_REPEATS.map((r) => ({ value: r, label: EVENT_REPEAT_LABELS[r] })),
+      defaultValue: "keine",
+      hint: "Ferien, Feiertage und freie Tage werden übersprungen",
     },
+    { name: "until", label: "Wiederholen bis", type: "date", hint: "letzter möglicher Tag – oder die Anzahl" },
+    { name: "count", label: "Anzahl der Termine", type: "number", min: 2, max: EVENT_SERIES_MAX, hint: `mit dem ersten, höchstens ${EVENT_SERIES_MAX}` },
   ];
   return (
     <main className="flex flex-col gap-6">

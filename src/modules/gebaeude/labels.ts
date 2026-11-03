@@ -248,7 +248,7 @@ export const EVENT_OPEN_STATUSES: readonly EventStatus[] = ["freigabe", "angemel
 /** Findet statt bzw. kann stattfinden – zählt für „Heute im Haus“, Wochenvorschau und Konflikte. */
 export const EVENT_ACTIVE_STATUSES: readonly EventStatus[] = ["freigabe", "angemeldet", "rueckfrage", "bestaetigt"];
 
-export const EVENT_HISTORY_KINDS = ["angemeldet", "freigegeben", "bestaetigt", "rueckfrage", "antwort", "abgelehnt", "abgesagt"] as const;
+export const EVENT_HISTORY_KINDS = ["angemeldet", "freigegeben", "bestaetigt", "rueckfrage", "antwort", "abgelehnt", "abgesagt", "geaendert"] as const;
 export type EventHistoryKind = (typeof EVENT_HISTORY_KINDS)[number];
 
 export const EVENT_HISTORY_LABELS: Record<EventHistoryKind, string> = {
@@ -259,6 +259,7 @@ export const EVENT_HISTORY_LABELS: Record<EventHistoryKind, string> = {
   antwort: "Antwort",
   abgelehnt: "abgelehnt",
   abgesagt: "abgesagt",
+  geaendert: "geändert",
 };
 
 export const EVENT_SEATING = ["keine", "reihen", "tische", "tafel", "absprache"] as const;
@@ -286,3 +287,14 @@ export const EVENT_MAX_DAYS = 7;
 export const EVENT_MAX_ROOMS = 20;
 export const EVENT_MAX_PERSONS = 5000;
 export const EVENT_TEXT_MAX = 1000;
+
+/** VA-06: Serien wöchentlich oder alle 2 Wochen, bis Datum oder höchstens 26 Termine (Projektleitung 2026-11-03). */
+export const EVENT_REPEATS = ["keine", "woechentlich", "zweiwoechentlich"] as const;
+export type EventRepeat = (typeof EVENT_REPEATS)[number];
+export const EVENT_REPEAT_LABELS: Record<EventRepeat, string> = { keine: "nicht wiederholen", woechentlich: "wöchentlich", zweiwoechentlich: "alle 2 Wochen" };
+export const EVENT_SERIES_MAX = 26;
+
+/** VA-06: Geltung einer Änderung/Absage in einer Serie. */
+export const EVENT_SCOPES = ["einzeln", "folgende"] as const;
+export type EventScope = (typeof EVENT_SCOPES)[number];
+export const EVENT_SCOPE_LABELS: Record<EventScope, string> = { einzeln: "nur dieser Termin", folgende: "dieser und alle folgenden Termine" };

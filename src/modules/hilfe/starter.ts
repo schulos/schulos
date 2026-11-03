@@ -408,6 +408,23 @@ Die Hausmeisterei und die Schulleitung sehen weiterhin alle Prüfungen; Prüflis
 
 Unter **Meine Veranstaltungen** steht der Stand. Fragt die Hausmeisterei nach (**Rückfrage**), kommt eine Benachrichtigung; die Antwort geht über **Rückfrage beantworten** zurück. Absagen geht bis zum Ende der Veranstaltung über **Veranstaltung absagen**.
 
+## Ändern
+
+Bis der Aufbau beginnt, ändert die anmeldende Person ihre Veranstaltung über **Bearbeiten** auf der Seite der Veranstaltung.
+
+- **Zeit oder Räume** geändert: Eine schon bestätigte Veranstaltung geht zurück auf **Angemeldet** – Raumsperren und Schulkalender-Eintrag fallen weg, die Hausmeisterei bestätigt neu. Ist die Freigabe durch die Schulleitung eingeschaltet, geht sie bei geänderter Zeit oder **zusätzlichen** Räumen erneut zur Freigabe (weniger Räume nicht).
+- **Titel, Ort ohne Raum, Personenzahl, Bestuhlung, Bedarf, Einzelheiten** geändert: Die Bestätigung bleibt, die Hausmeisterei bekommt eine Benachrichtigung.
+
+Der Verlauf zeigt jede Änderung mit den geänderten Angaben.
+
+## Wiederkehrende Termine (Serie)
+
+Für eine Chorprobe, AG oder einen Elternsprechtag in mehreren Wochen beim Anmelden **Wiederholen** wählen: **wöchentlich** oder **alle 2 Wochen**, dazu **Wiederholen bis** (letzter möglicher Tag) oder die **Anzahl der Termine** – höchstens 26. Ferien, Feiertage und freie Tage aus dem Schulkalender überspringt SchulOS und nennt sie in der Rückmeldung und im Verlauf; der gewählte erste Tag bleibt immer.
+
+- Die Hausmeisterei bestätigt **alle offenen Termine der Serie** in einem Schritt. Termine mit einem Konflikt (Wartung, Raumsperre, Buchung, andere Veranstaltung) bleiben einzeln offen und werden genannt.
+- **Bearbeiten** und **Absagen** gelten wahlweise für **nur diesen Termin** oder **diesen und alle folgenden**. Bei „folgende“ verschiebt eine geänderte Uhrzeit oder ein anderer Tag alle späteren Termine um denselben Abstand.
+- In den Listen steht eine Serie als eine Zeile mit „Serie · … weitere Termine“; die Seite eines Termins zeigt alle Termine der Serie.
+
 ## Bestätigen (Hausmeisterei)
 
 - **Gebäude & Technik → Veranstaltungen** zeigt **Zu bestätigen**, die **Wochenvorschau** (heute und die nächsten sechs Tage) und spätere bestätigte Veranstaltungen. „Heute im Haus“ auf der Startseite nennt die Veranstaltungen des Tages.
@@ -415,6 +432,7 @@ Unter **Meine Veranstaltungen** steht der Stand. Fragt die Hausmeisterei nach (*
 - **Rückfrage senden** oder **Ablehnen** mit Begründung.
 - Am Vortag (ab Mittag) erinnert SchulOS die Hausmeisterei und die anmeldende Person mit „Morgen im Haus: …“.
 - Wird eine bestätigte Veranstaltung abgesagt, fallen Raumsperren und Kalendereintrag wieder weg.
+- Im **Vertretungsplan**, auf dem Monitor und im Druck steht eine Raumsperre durch eine Veranstaltung als Hinweiszeile „Raum 2.14 gesperrt (Veranstaltung), 3.–4. Std.“ – ohne Titel. Die Stundenplanung bekommt bei der Bestätigung eine gebündelte Benachrichtigung mit Link auf die betroffenen Stunden.
 
 ## Freigabe durch die Schulleitung (optional)
 
@@ -424,8 +442,8 @@ Unter **Verwaltung → Rechte & Module → Gebäude & Technik** lässt sich **Ve
 
 | Wer | Veranstaltungen |
 |---|---|
-| Lehrkräfte und Personal (Recht „Mängel melden“) | anmelden, eigene sehen, Rückfragen beantworten, absagen |
-| Hausmeisterei (Recht „Meldungen bearbeiten“) | alle sehen, bestätigen, zurückfragen, ablehnen, absagen |
+| Lehrkräfte und Personal (Recht „Mängel melden“) | anmelden (auch als Serie), eigene sehen, bearbeiten, Rückfragen beantworten, absagen |
+| Hausmeisterei (Recht „Meldungen bearbeiten“) | alle sehen, bestätigen (auch die ganze Serie), zurückfragen, ablehnen, absagen |
 | Schulleitung (Recht „Veranstaltungen freigeben“) | alle sehen; freigeben oder ablehnen, wenn die Freigabe eingeschaltet ist |
 
 Anmeldungen werden ein Jahr nach dem geplanten Ende gelöscht.`,

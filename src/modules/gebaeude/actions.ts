@@ -37,8 +37,8 @@ import {
 } from "./pruefungen";
 import { addComment, addPhotos, assignTicket, blockRoomFromTicket, changeStatus, createTicket, endTicketBlock, setResponsibility } from "./service";
 import { createMaintenance, deleteMaintenance } from "./wartung";
-import { EVENT_NEED_KEYS } from "./labels";
-import { answerEvent, approveEvent, askEvent, cancelEvent, confirmEvent, createEvent, rejectEvent } from "./veranstaltungen";
+import { EVENT_NEED_KEYS, type EventScope } from "./labels";
+import { answerEvent, approveEvent, askEvent, cancelEvent, confirmEvent, createEvent, rejectEvent, updateEvent, type EventInput } from "./veranstaltungen";
 
 const { requireUser } = moduleActions("gebaeude");
 
@@ -674,26 +674,35 @@ export async function cancelLoanAction(loanId: string, _prev: FormState, form: F
   return { ok: true };
 }
 
-// ---------------------------------------------------------------- Veranstaltungen (VA-01…03)
+// ---------------------------------------------------------------- Veranstaltungen (VA-01…07)
 
-/** Veranstaltung anmelden (`gebaeude.report`); danach zur Detailseite mit Konflikthinweisen. */
+/** Formularfelder einer Veranstaltung (Anmelden und Bearbeiten). */
+function eventInput(form: FormData): EventInput {
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  return {
+    title: str("title"),
+    start: str("start"),
+    end: str("end"),
+    setup: str("setup") || null,
+    teardown: str("teardown") || null,
+    roomIds: form.getAll("roomIds").map(String),
+    location: str("location") || null,
+    persons: str("persons"),
+    seating: str("seating") || "keine",
+    needs: Object.fromEntries(EVENT_NEED_KEYS.map((k) => [k, form.get(k) === "on"])),
+    details: str("details") || null,
+  };
+}
+
+/** Veranstaltung anmelden (`gebaeude.report`), VA-06 auch als Serie; danach zur Detailseite mit Konflikthinweisen. */
 export async function createEventAction(_prev: FormState, form: FormData): Promise<FormState> {
   const { perms } = await requireUser();
   const str = (k: string) => String(form.get(k) ?? "").trim();
   let id: string;
   try {
     ({ id } = await createEvent(await getDb(), perms, {
-      title: str("title"),
-      start: str("start"),
-      end: str("end"),
-      setup: str("setup") || null,
-      teardown: str("teardown") || null,
-      roomIds: form.getAll("roomIds").map(String),
-      location: str("location") || null,
-      persons: str("persons"),
-      seating: str("seating") || "keine",
-      needs: Object.fromEntries(EVENT_NEED_KEYS.map((k) => [k, form.get(k) === "on"])),
-      details: str("details") || null,
+      ...eventInput(form),
+      repeat: { every: str("repeat") || "keine", until: str("until") || null, count: str("count") || null },
     }));
   } catch (err) {
     return fail(err, form);
@@ -702,26 +711,46 @@ export async function createEventAction(_prev: FormState, form: FormData): Promi
   redirect(`/gebaeude/veranstaltungen/${encodeURIComponent(id)}?neu=1`);
 }
 
+/** VA-05: Veranstaltung bearbeiten (nur die anmeldende Person); VA-06 „nur dieser“ bzw. „dieser und alle folgenden“. */
+export async function updateEventAction(id: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const scope: EventScope = form.get("scope") === "folgende" ? "folgende" : "einzeln";
+  let r: Awaited<ReturnType<typeof updateEvent>>;
+  try {
+    r = await updateEvent(await getDb(), perms, id, eventInput(form), scope);
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/", "layout");
+  const hint = r.reapprove ? "freigabe" : r.reconfirm ? "bestaetigen" : "gespeichert";
+  redirect(`/gebaeude/veranstaltungen/${encodeURIComponent(id)}?geaendert=${hint}&termine=${r.changed}`);
+}
+
 type EventStep = "freigeben" | "bestaetigen" | "rueckfrage" | "antworten" | "ablehnen" | "absagen";
 
 /** Ein Schritt an einer Veranstaltung (Rechte prüft der Service je Schritt). */
 export async function eventStepAction(id: string, step: EventStep, _prev: FormState, form: FormData): Promise<FormState> {
   const { perms } = await requireUser();
   const text = String(form.get("text") ?? "");
+  const scope = String(form.get("scope") ?? "");
   const db = await getDb();
   let result: string | undefined;
   try {
-    if (step === "freigeben") await approveEvent(db, perms, id);
-    else if (step === "rueckfrage") await askEvent(db, perms, id, text);
+    if (step === "freigeben") {
+      const n = await approveEvent(db, perms, id, scope === "serie" ? "serie" : "einzeln");
+      if (n > 1) result = `${n} Termine freigegeben.`;
+    } else if (step === "rueckfrage") await askEvent(db, perms, id, text);
     else if (step === "antworten") await answerEvent(db, perms, id, text);
     else if (step === "ablehnen") await rejectEvent(db, perms, id, text);
-    else if (step === "absagen") await cancelEvent(db, perms, id, text || null);
-    else {
+    else if (step === "absagen") {
+      const n = await cancelEvent(db, perms, id, text || null, new Date(), scope === "folgende" ? "folgende" : "einzeln");
+      if (n > 1) result = `${n} Termine abgesagt.`;
+    } else {
       const calendar = form.get("calendar") === "on" && (await moduleOn("kalender"));
-      const r = await confirmEvent(db, perms, id, { blockRooms: form.get("blockRooms") === "on", calendar, note: text || null });
-      result = r.blocks
-        ? `Bestätigt – ${r.blocks === 1 ? "1 Raumsperre" : `${r.blocks} Raumsperren`} angelegt${r.notified ? `, ${r.notified === 1 ? "1 Lehrkraft" : `${r.notified} Lehrkräfte`} benachrichtigt` : ""}.`
-        : "Bestätigt.";
+      const r = await confirmEvent(db, perms, id, { blockRooms: form.get("blockRooms") === "on", calendar, note: text || null, scope: scope === "serie" ? "serie" : "einzeln" });
+      const blocks = r.blocks ? ` – ${r.blocks === 1 ? "1 Raumsperre" : `${r.blocks} Raumsperren`} angelegt${r.notified ? `, ${r.notified === 1 ? "1 Lehrkraft" : `${r.notified} Lehrkräfte`} benachrichtigt` : ""}` : "";
+      const open = r.open.length ? ` ${r.open.length === 1 ? "1 Termin bleibt" : `${r.open.length} Termine bleiben`} wegen eines Konflikts offen: ${r.open.join(", ")}.` : "";
+      result = scope === "serie" ? `${r.confirmed === 1 ? "1 Termin" : `${r.confirmed} Termine`} bestätigt${blocks}.${open}` : `Bestätigt${blocks}.`;
     }
   } catch (err) {
     return fail(err, form);

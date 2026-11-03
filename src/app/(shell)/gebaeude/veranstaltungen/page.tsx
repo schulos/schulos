@@ -5,7 +5,7 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { canConfigure } from "@/modules/gebaeude/pruefungen";
 import { canReport, canViewAll } from "@/modules/gebaeude/service";
-import { canSeeAllEvents, canUseEvents, dayHeading, eventOverview, myEvents } from "@/modules/gebaeude/veranstaltungen";
+import { canSeeAllEvents, canUseEvents, collapseSeries, dayHeading, eventOverview, myEvents } from "@/modules/gebaeude/veranstaltungen";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
@@ -33,8 +33,10 @@ export default async function VeranstaltungenPage({ searchParams }: { searchPara
 
   if (!canSeeAllEvents(perms) || sp.ansicht === "meine") {
     const own = await myEvents(db, perms, now);
-    const running = own.filter((e) => e.teardownAt > now && e.status !== "abgelehnt" && e.status !== "abgesagt");
-    const done = own.filter((e) => !running.includes(e));
+    const active = own.filter((e) => e.teardownAt > now && e.status !== "abgelehnt" && e.status !== "abgesagt");
+    // VA-06: Serien als eine Zeile (frühester offener Termin, Zahl der weiteren)
+    const running = collapseSeries(active);
+    const done = own.filter((e) => !active.includes(e));
     return (
       <main className="flex flex-col gap-6">
         <PageHeader eyebrow="Gebäude & Technik" title="Meine Veranstaltungen" actions={anmelden} />
