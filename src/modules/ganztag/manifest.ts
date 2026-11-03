@@ -8,7 +8,7 @@ import { GANZTAG_SETTINGS } from "./settings";
 export default defineModule({
   id: "ganztag",
   name: "Ganztag",
-  description: "Anwesenheitslisten für AGs, Förderkurse und Ganztagsangebote – Termine mit Ferien, Ausfall, Erfassung per Klick",
+  description: "Anwesenheitslisten für AGs, Förderkurse und Ganztagsangebote – Termine mit Ferien, Ausfall, Erfassung per Klick, Heimweg",
   icon: "UserCheck",
   section: "organisation",
   order: 27,
@@ -41,10 +41,24 @@ export default defineModule({
       categories: ["Schüler:in", "Status", "Minuten verspätet", "entschuldigt ja/nein/offen", "Herkunft", "erfasst von und am"],
       follows: "ganztag_sessions",
     },
+    {
+      table: "ganztag_way_home_rules",
+      purpose: "Heimweg je Angebot (Aufsicht: geht allein, wird abgeholt oder fährt mit dem Bus) – ohne Namen Abholberechtigter",
+      categories: ["Schüler:in", "Angebot", "Art des Heimwegs", "geändert von und am"],
+      class: "LK-SJ",
+      start: "updated_at",
+      note: "zum Ende des Schuljahres der letzten Änderung; geht mit dem Konto der Schüler:in",
+    },
+    {
+      table: "ganztag_departures",
+      purpose: "Tagesänderung des Heimwegs und Uhrzeit „gegangen“ je Termin (Aufsicht)",
+      categories: ["Schüler:in", "Art des Heimwegs (Tagesänderung)", "geändert von und am", "gegangen um", "vermerkt von"],
+      follows: "ganztag_sessions",
+    },
   ],
   processing: {
     title: "Anwesenheit in Ganztags- und AG-Angeboten",
-    purpose: "Aufsicht und Organisation im Ganztag: wer an einem Termin da sein müsste und wer da war; Ausfall an Teilnehmende und Eltern melden",
+    purpose: "Aufsicht und Organisation im Ganztag: wer an einem Termin da sein müsste und wer da war, wie die Kinder nach Hause kommen und wann sie gegangen sind; Ausfall an Teilnehmende und Eltern melden",
     // GANZTAG.md „Datenschutz“: Rechtsgrundlage und Einordnung als Schulversäumnis sind schulform- und länderabhängig
     subjects: ["Schüler:innen (Teilnehmende)", "Leitung der Angebote"],
     recipients: [
@@ -54,6 +68,6 @@ export default defineModule({
       "Schüler:in selbst; Eltern minderjähriger Kinder bzw. eigenständiger Schüler:innen mit Einwilligung (nur die Zeilen des eigenen Kindes, Hinweis auf einen Ausfall)",
       "Personen mit „Ganztag auswerten“ (nur Zahlen je Angebot und Monat, ohne Namen)",
     ],
-    note: "Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, kein Gesundheitsbezug. Aus den Abwesenheiten wird nur gelesen, ob eine Krankmeldung, Beurlaubung oder Entscheidung vorliegt (Vorbelegung „fehlt (entschuldigt)“, abschaltbar je Angebot) – nie der Grund. Keine Schreibverbindung ins Klassenbuch: bei verpflichtenden Angeboten nur ein Hinweis an die Klassenleitung. Listen starten leer. Rechtsgrundlage und die Frage, ob Fehlen im Ganztag als Schulversäumnis zählt: schulform- und länderabhängig, zu prüfen.",
+    note: "Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, kein Gesundheitsbezug. Aus den Abwesenheiten wird nur gelesen, ob eine Krankmeldung, Beurlaubung oder Entscheidung vorliegt (Vorbelegung „fehlt (entschuldigt)“, abschaltbar je Angebot) – nie der Grund. Keine Schreibverbindung ins Klassenbuch: bei verpflichtenden Angeboten nur ein Hinweis an die Klassenleitung. Heimweg (GT-09/GT-10): nur die Art der Regel (geht allein / wird abgeholt / Bus) und die Uhrzeit „gegangen“ – keine Namen oder Kontaktdaten Abholberechtigter; Eltern ändern den Heimweg für den Tag bis zur Frist, die Leitung bekommt dazu einen Gong. Listen starten leer. Rechtsgrundlage und die Frage, ob Fehlen im Ganztag als Schulversäumnis zählt: schulform- und länderabhängig, zu prüfen.",
   },
 });

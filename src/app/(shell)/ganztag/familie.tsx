@@ -1,12 +1,13 @@
 // GT-05: Ganztag aus Sicht der Familie – nur die eigenen Zeilen (bzw. die des Kindes), keine anderen Teilnehmenden.
 import type { FamilyChild } from "@/modules/ganztag/familie";
-import { EXCUSED_LABEL, MARK_LABEL as STATUS_LABEL, MARK_TONE as STATUS_TONE } from "@/modules/ganztag/labels";
+import { EXCUSED_LABEL, MARK_LABEL as STATUS_LABEL, MARK_TONE as STATUS_TONE, WAY_LABEL } from "@/modules/ganztag/labels";
 import { dateLabel } from "@/modules/ganztag/service";
 import { Badge } from "@schulos/ui/badge";
 import { Card } from "@schulos/ui/card";
 import { EmptyState } from "@schulos/ui/misc";
+import { WaySelect } from "./heimweg-select";
 
-export function FamilyGanztag({ child, self }: { child: FamilyChild; self: boolean }) {
+export function FamilyGanztag({ child, self, deadline }: { child: FamilyChild; self: boolean; deadline: string }) {
   const id = `ganztag-${child.id}`;
   return (
     <section aria-labelledby={id} className="flex flex-col gap-3">
@@ -29,6 +30,42 @@ export function FamilyGanztag({ child, self }: { child: FamilyChild; self: boole
                     fällt aus: {dateLabel(c.date)}, {c.startsAt} Uhr
                   </Badge>
                 ))}
+                {/* GT-09: Heimweg – nur die Art, keine Namen Abholberechtigter */}
+                <div className="flex flex-col gap-2 border-t border-border pt-2">
+                  <span className="text-sm font-medium">Heimweg</span>
+                  {child.mayAct ? (
+                    <WaySelect label={`Heimweg nach ${o.name}`} studentId={child.id} groupId={o.id} value={o.way} emptyLabel="keine Angabe" />
+                  ) : (
+                    <span className="text-sm">{o.way ? WAY_LABEL[o.way] : "keine Angabe"}</span>
+                  )}
+                  {o.days.length > 0 && (
+                    <ul className="flex flex-col gap-2" aria-label={`Heimweg an den nächsten Terminen: ${o.name}`}>
+                      {o.days.map((d) => (
+                        <li key={d.sessionId} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="text-sm">
+                            {dateLabel(d.date)}, {d.startsAt} Uhr{d.leftAt && ` · gegangen ${d.leftAt} Uhr`}
+                          </span>
+                          {child.mayAct && d.open ? (
+                            <WaySelect
+                              label={`Heimweg am ${dateLabel(d.date)}: ${o.name}`}
+                              studentId={child.id}
+                              sessionId={d.sessionId}
+                              value={d.way}
+                              emptyLabel={`wie immer${o.way ? ` (${WAY_LABEL[o.way]})` : ""}`}
+                            />
+                          ) : (
+                            <span className="text-sm text-muted">{d.way ? `geändert: ${WAY_LABEL[d.way]}` : "wie immer"}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {child.mayAct && (
+                    <p className="text-xs text-muted">
+                      Ändern für denselben Tag bis {deadline} Uhr, die Leitung bekommt einen Hinweis. Wer abholt, wird nicht in SchulOS eingetragen – bitte direkt mit der Leitung klären.
+                    </p>
+                  )}
+                </div>
               </Card>
             </li>
           ))}

@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { setAllPresentAction, setMarkAction } from "@/modules/ganztag/actions";
+import { setAllPresentAction, setLeftAction, setMarkAction } from "@/modules/ganztag/actions";
+import type { DepartureInfo } from "@/modules/ganztag/heimweg";
+import { WAY_LABEL } from "@/modules/ganztag/labels";
 import type { ListRow } from "@/modules/ganztag/service";
+import { Badge } from "@schulos/ui/badge";
 import { cn } from "@schulos/ui/cn";
 import { Select } from "@schulos/ui/field";
 
@@ -20,7 +23,20 @@ const MINUTES = [5, 10, 15, 20, 30, 45, 60];
  * Anwesenheitsliste (GT-03): je Zeile ein Klick auf anwesend / fehlt / verspätet, erneuter Klick leert die Zeile. Die Liste startet
  * leer; „alle anwesend“ ist ein Schalter für alle Zeilen ohne eigene Markierung.
  */
-export function AttendanceList({ sessionId, rows, allPresent, editable }: { sessionId: string; rows: ListRow[]; allPresent: boolean; editable: boolean }) {
+export function AttendanceList({
+  sessionId,
+  rows,
+  departures,
+  allPresent,
+  editable,
+}: {
+  sessionId: string;
+  rows: ListRow[];
+  /** GT-10: Heimweg und „gegangen“ je Schüler:in */
+  departures: Record<string, DepartureInfo>;
+  allPresent: boolean;
+  editable: boolean;
+}) {
   const fromRows = (list: ListRow[]) => new Map(list.map((r) => [r.studentId, { status: r.status, minutes: r.minutesLate }]));
   const [marks, setMarks] = useState(() => fromRows(rows));
   const [all, setAll] = useState(allPresent);
@@ -43,6 +59,13 @@ export function AttendanceList({ sessionId, rows, allPresent, editable }: { sess
         setError(r.error);
         setMarks((m) => new Map(m).set(studentId, before ?? { status: null, minutes: null }));
       } else setError(null);
+    });
+  }
+
+  function toggleLeft(studentId: string, left: boolean) {
+    start(async () => {
+      const r = await setLeftAction(sessionId, studentId, left);
+      setError(r.error ?? null);
     });
   }
 
@@ -72,6 +95,7 @@ export function AttendanceList({ sessionId, rows, allPresent, editable }: { sess
       <ul className="flex flex-col gap-2">
         {rows.map((r) => {
           const m = marks.get(r.studentId) ?? { status: null, minutes: null };
+          const dep = departures[r.studentId];
           return (
             <li key={r.studentId} className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 sm:flex-row sm:items-center sm:justify-between">
               <span className="flex min-w-0 flex-col">
@@ -82,6 +106,11 @@ export function AttendanceList({ sessionId, rows, allPresent, editable }: { sess
                   {/* GT-04: nur die Quelle aus den Abwesenheiten, nie der Grund */}
                   {m.status === "fehlt" && r.status === "fehlt" && r.excused === "ja" && (r.source === "abwesenheiten" ? " · entschuldigt (vorbelegt aus den Abwesenheiten)" : " · entschuldigt (Abwesenheiten)")}
                   {m.status === "fehlt" && r.status === "fehlt" && r.excused === "nein" && " · nicht entschuldigt (Abwesenheiten)"}
+                </span>
+                {/* GT-10: nur die Art des Heimwegs, keine Namen Abholberechtigter */}
+                <span className="mt-1 flex flex-wrap items-center gap-1.5 text-sm" aria-label={`Heimweg: ${r.name}`}>
+                  <span className="text-muted">Heimweg:</span> {dep?.way ? WAY_LABEL[dep.way] : "keine Angabe"}
+                  {dep?.changed && <Badge tone="warn">für diesen Tag geändert</Badge>}
                 </span>
               </span>
               <span className="flex flex-wrap items-center gap-1.5">
@@ -120,6 +149,22 @@ export function AttendanceList({ sessionId, rows, allPresent, editable }: { sess
                       </option>
                     ))}
                   </Select>
+                )}
+                {/* GT-10: „gegangen“ mit Uhrzeit – für anwesende bzw. verspätete Kinder */}
+                {(m.status === "anwesend" || m.status === "verspaetet" || dep?.leftAt) && (
+                  <button
+                    type="button"
+                    aria-pressed={!!dep?.leftAt}
+                    aria-label={dep?.leftAt ? `gegangen ${dep.leftAt}: ${r.name} (zurücknehmen)` : `gegangen: ${r.name}`}
+                    disabled={!editable || pending}
+                    onClick={() => toggleLeft(r.studentId, !dep?.leftAt)}
+                    className={cn(
+                      "inline-flex min-h-11 items-center rounded-xl border border-border bg-surface px-3 text-sm font-medium transition disabled:opacity-50",
+                      dep?.leftAt ? "border-accent bg-accent-soft text-accent-ink" : "text-ink hover:bg-surface-2",
+                    )}
+                  >
+                    {dep?.leftAt ? `gegangen ${dep.leftAt}` : "gegangen"}
+                  </button>
                 )}
               </span>
             </li>

@@ -8,6 +8,7 @@ import { canEvaluate } from "@/modules/ganztag/auswertung";
 import { familyView } from "@/modules/ganztag/familie";
 import { leadsClass } from "@/modules/ganztag/klassenleitung";
 import { canManage, dateLabel, listOffers } from "@/modules/ganztag/service";
+import { wayDeadline } from "@/modules/ganztag/heimweg";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Card } from "@schulos/ui/card";
@@ -23,7 +24,7 @@ export default async function GanztagPage() {
   // GT-05: Schüler:innen und Eltern sehen nur die eigenen Zeilen bzw. die ihres Kindes
   if (user.role === "schueler" || user.role === "eltern") {
     const self = user.role === "schueler";
-    const children = await familyView(db, perms);
+    const [children, deadline] = await Promise.all([familyView(db, perms), wayDeadline(db)]);
     return (
       <main className="flex max-w-4xl flex-col gap-6">
         <PageHeader title="Ganztag" />
@@ -34,7 +35,7 @@ export default async function GanztagPage() {
         {children.length === 0 ? (
           <EmptyState title="Keine Kinder zu sehen">Volljährige, eigenständige Schüler:innen sehen ihre Anwesenheit selbst – es sei denn, sie haben eingewilligt, dass ihre Eltern weiter informiert werden.</EmptyState>
         ) : (
-          children.map((c) => <FamilyGanztag key={c.id} child={c} self={self} />)
+          children.map((c) => <FamilyGanztag key={c.id} child={c} self={self} deadline={deadline} />)
         )}
       </main>
     );

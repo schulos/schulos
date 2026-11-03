@@ -155,3 +155,27 @@ steht im BACKLOG (zuletzt, nach den Veranstaltungs-Folgen).
   Angebotsende, Verpflichtung zur Vertraulichkeit bei der Schule). Zugang ohne Konto bleibt ausgeschlossen, die Papierliste bleibt
   Fallback. Entscheidung 9 oben ist damit aufgehoben.
 - **Datenschutz:** Fragen an die DSB stehen in DSB-FRAGEN §21 (Erweiterung Runde 14); Tabelle/Vorgaben und VVT zieht GT-14 nach.
+
+## Umgesetzt (GT-09/GT-10) – Heimweg
+
+Stand 2026-11-03, Migration 0135 (`ganztag_way_home_rules`, `ganztag_departures`, Enum `ganztag_way_home`).
+
+- **Regel je Angebot und Kind** (`ganztag_way_home_rules`): nur die Art – „geht allein“, „wird abgeholt“, „fährt mit dem Bus“. Kein
+  Freitext, keine Namen oder Kontaktdaten Abholberechtigter (die Datenbank kennt nur diese drei Werte). Setzen dürfen die Eltern
+  minderjähriger Kinder (`childrenOf(…, "act")`), eigenständige Schüler:innen für sich selbst, die Leitung des Angebots und „Ganztag
+  verwalten“ (z. B. nach dem Anmeldebogen; Karte „Heimweg“ auf der Angebotsseite). Ändert die Familie, bekommt die Leitung einen Gong.
+  Minderjährige Schüler:innen sehen ihren Heimweg nur.
+- **Tagesänderung je Termin** (`ganztag_departures.way`): in der Familienansicht für die Termine der nächsten 7 Tage („wie immer“ oder
+  eine andere Art). Für spätere Tage jederzeit, am Tag selbst bis zur Frist `ganztag.way_home_deadline` (Vorgabe 12:00, 10–14 Uhr
+  einstellbar, DSB-FRAGEN §21); danach „bitte direkt bei der Leitung melden“. Gong an die Leitung („Heimweg heute geändert: <Name>“,
+  Angebot, Uhrzeit, neue Art). Leitung und „Ganztag verwalten“ können den Tag bis zum Ende des Termintags ändern (Anruf), ohne Gong.
+  Bei ausgefallenen Terminen nicht.
+- **Liste der Leitung (GT-10):** je Zeile „Heimweg: …“ (Regel bzw. Tagesänderung mit Hinweis „für diesen Tag geändert“) und für
+  anwesende bzw. verspätete Kinder der Knopf „gegangen“ – gespeichert wird die Uhrzeit (`left_at`), erneuter Klick nimmt es zurück.
+  Gleiches Erfassungsfenster wie die Liste (ab dem Termintag, Leitung bis `ganztag.edit_days`). Die Familie sieht „gegangen <Uhrzeit>“
+  an den Terminen der nächsten Tage.
+- **Datenschutz:** Regeln `LK-SJ` ab der letzten Änderung (zum Ende dieses Schuljahres), Tagesänderung und „gegangen“ folgen dem
+  Termin; beides geht mit dem Konto der Schüler:in, „geändert von“/„vermerkt von“ werden bei der Kontolöschung geleert. Auskunft:
+  Schüler:in ihre Zeilen, handelnde Personen nur Angebot bzw. Termin. Audit: „Heimweg geändert“, „Heimweg für einen Termin geändert“,
+  „gegangen vermerkt/zurückgenommen“. Abholberechtigungen (wer abholen darf) klärt die Schule außerhalb von SchulOS.
+- Tests: `heimweg.test.ts`, `heimweg.migration.test.ts`, E2E `e2e/ganztag-heimweg.spec.ts` (Mutter, Leitung, Lea 360 px dunkel).

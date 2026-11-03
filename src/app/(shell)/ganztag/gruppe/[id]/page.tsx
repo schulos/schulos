@@ -5,10 +5,12 @@ import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
 import { toBerlinDate } from "@/core/time";
+import { wayRuleList } from "@/modules/ganztag/heimweg";
 import { canManage, dateLabel, getOffer, WEEKDAYS, type SessionRow } from "@/modules/ganztag/service";
 import { Badge } from "@schulos/ui/badge";
 import { Card } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
+import { WaySelect } from "../../heimweg-select";
 import { DeleteSeries, OfferSettingsForm, SeriesForm, SessionActions, SessionForm } from "./forms";
 
 export const metadata: Metadata = { title: "Ganztag: Angebot" };
@@ -51,8 +53,10 @@ function SessionList({ items, label, manager }: { items: SessionRow[]; label: st
 export default async function GruppePage({ params }: { params: Promise<{ id: string }> }) {
   const { perms } = await requireUser();
   const { id } = await params;
-  const offer = await getOffer(await getDb(), perms, decodeURIComponent(id));
+  const db = await getDb();
+  const offer = await getOffer(db, perms, decodeURIComponent(id));
   if (!offer) notFound();
+  const ways = (await wayRuleList(db, perms, offer.group.id)) ?? [];
   const today = toBerlinDate(new Date());
   const manager = canManage(perms);
   const upcoming = offer.sessions.filter((s) => s.date >= today);
@@ -76,6 +80,23 @@ export default async function GruppePage({ params }: { params: Promise<{ id: str
         <Card className="gap-3">
           <h2 className="text-lg font-semibold">Vergangene Termine</h2>
           <SessionList items={past.slice(0, 10)} label="Vergangene Termine" manager={manager} />
+        </Card>
+      )}
+
+      {ways.length > 0 && (
+        <Card className="gap-3">
+          <h2 className="text-lg font-semibold">Heimweg</h2>
+          <p className="text-sm text-muted">
+            Nur die Art des Heimwegs – wer abholt, wird nicht eingetragen. Eltern können die Regel und den Heimweg für einen Tag selbst ändern (am Tag selbst bis zur Frist).
+          </p>
+          <ul className="flex flex-col gap-2" aria-label="Heimweg der Teilnehmenden">
+            {ways.map((w) => (
+              <li key={w.studentId} className="flex flex-col gap-1 rounded-xl border border-border p-3 sm:flex-row sm:items-center sm:justify-between">
+                <span className="font-medium">{w.name}</span>
+                <WaySelect label={`Heimweg: ${w.name}`} studentId={w.studentId} groupId={offer.group.id} value={w.way} emptyLabel="keine Angabe" />
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 

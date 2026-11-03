@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
+import { departuresOf } from "@/modules/ganztag/heimweg";
 import { dateLabel, getSessionList } from "@/modules/ganztag/service";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -21,9 +22,12 @@ const STATE_TEXT = {
 export default async function TerminPage({ params }: { params: Promise<{ id: string }> }) {
   const { perms } = await requireUser();
   const { id } = await params;
-  const list = await getSessionList(await getDb(), perms, decodeURIComponent(id));
+  const db = await getDb();
+  const list = await getSessionList(db, perms, decodeURIComponent(id));
   if (!list) notFound();
   const { session, group, counts } = list;
+  // GT-10: Heimweg (Regel bzw. Tagesänderung) und „gegangen“ je Zeile
+  const departures = Object.fromEntries(await departuresOf(db, { id: session.id, groupId: group.id }, list.rows.map((r) => r.studentId)));
 
   return (
     <main className="flex max-w-3xl flex-col gap-5">
@@ -43,11 +47,12 @@ export default async function TerminPage({ params }: { params: Promise<{ id: str
       {list.rows.length === 0 ? (
         <p className="text-muted">Die Gruppe hat noch keine Teilnehmenden.</p>
       ) : (
-        <AttendanceList sessionId={session.id} rows={list.rows} allPresent={session.allPresent} editable={list.state === "offen"} />
+        <AttendanceList sessionId={session.id} rows={list.rows} departures={departures} allPresent={session.allPresent} editable={list.state === "offen"} />
       )}
       <p className="text-xs text-muted">
         Nur anwesend, fehlt oder verspätet – keine Gründe eintragen. Entschuldigungen laufen über die Abwesenheiten; liegt dort eine Krankmeldung oder Beurlaubung
         vor, steht „entschuldigt“ an der Zeile.
+        {" "}Heimweg: nur die Art (allein, abgeholt, Bus) – wer abholt, steht nicht in SchulOS; „gegangen“ speichert die Uhrzeit.
         {list.mandatory && " Verpflichtendes Angebot: unentschuldigtes Fehlen geht abends als Hinweis an die Klassenleitung (kein Eintrag ins Klassenbuch)."}
       </p>
     </main>

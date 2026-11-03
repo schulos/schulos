@@ -7,6 +7,7 @@ import { formValues } from "@/core/form-values";
 import { moduleActions } from "@/core/modules/guard";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
+import { isWay, setDayWay, setLeft, setWayRule } from "./heimweg";
 import { GANZTAG_MARK_STATUS, type GanztagMarkStatus } from "./schema";
 import { createSeries, createSession, deleteSeries, deleteSession, setAllPresent, setListFeature, setMark, setOfferSettings, setSessionCancelled } from "./service";
 
@@ -145,4 +146,40 @@ export async function setOfferSettingsAction(groupId: string, _prev: FormState, 
   }
   revalidatePath(`/ganztag/gruppe/${groupId}`);
   return { ok: true, message: "Einstellungen gespeichert." };
+}
+
+/** GT-09: Heimwegregel je Angebot (Familie, Leitung oder „Ganztag verwalten“; `null` = keine Angabe). */
+export async function setWayRuleAction(groupId: string, studentId: string, way: string | null): Promise<ActionResult> {
+  const { perms } = await requireUser();
+  try {
+    await setWayRule(await getDb(), perms, groupId, studentId, way && isWay(way) ? way : null);
+  } catch (err) {
+    return failText(err);
+  }
+  revalidatePath("/ganztag", "layout");
+  return { message: "Heimweg gespeichert." };
+}
+
+/** GT-09: Tagesänderung für einen Termin (`null` = wie immer). */
+export async function setDayWayAction(sessionId: string, studentId: string, way: string | null): Promise<ActionResult> {
+  const { perms } = await requireUser();
+  try {
+    await setDayWay(await getDb(), perms, sessionId, studentId, way && isWay(way) ? way : null);
+  } catch (err) {
+    return failText(err);
+  }
+  revalidatePath("/ganztag", "layout");
+  return { message: "Heimweg für den Tag gespeichert." };
+}
+
+/** GT-10: „gegangen“ vermerken bzw. zurücknehmen (Leitung). */
+export async function setLeftAction(sessionId: string, studentId: string, left: boolean): Promise<ActionResult> {
+  const { perms } = await requireUser();
+  try {
+    await setLeft(await getDb(), perms, sessionId, studentId, left);
+  } catch (err) {
+    return failText(err);
+  }
+  revalidatePath(`/ganztag/termin/${sessionId}`);
+  return {};
 }
