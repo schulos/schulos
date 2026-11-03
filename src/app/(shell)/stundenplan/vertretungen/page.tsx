@@ -214,7 +214,7 @@ export default async function VertretungsplanPage() {
     myGroups(user.id, user.role),
     hasPermission(perms, "stundenplan.substitute") ? draftDays(db, days) : Promise.resolve(new Set<string>()),
     // VT-02: Tagesmitteilungen – „nur Beschäftigte“ sehen nur Beschäftigte
-    dayNotesOn(db, days, { staff }),
+    dayNotesOn(db, days, { staff, roomBlocks: true }),
     user.role === "lehrkraft" ? ownSubstitutions(db, user.id, days, marker.since) : Promise.resolve([]),
     acknowledgeEnabled(db),
   ]);

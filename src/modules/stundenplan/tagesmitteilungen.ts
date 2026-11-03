@@ -9,6 +9,7 @@ import { isCalendarDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { DAY_NOTE_AUDIENCES, INTERNAL_NOTE_MAX, type DayNoteAudience } from "./schema";
 import { draftDays } from "./freigabe";
+import { listRoomBlocks } from "./raumsperren";
 
 export const DAY_NOTE_AUDIENCE_LABELS: Record<DayNoteAudience, string> = { alle: "alle", beschaeftigte: "nur Beschäftigte" };
 
@@ -25,6 +26,22 @@ export interface DayNote {
   audience: DayNoteAudience;
   /** Tag ist noch Entwurf (nur mit `drafts: true` enthalten) */
   draft: boolean;
+  /** VA-04: abgeleitete Zeile aus einer Raumsperre (nicht in `timetable_day_notes`, nicht bearbeitbar) */
+  derived?: boolean;
+}
+
+/** Rein: „3.–4. Std.“, „3. Std.“, ganztägig → „ganztägig“. */
+export function periodsText(from: number | null, to: number | null): string {
+  if (from === null || to === null) return "ganztägig";
+  return from === to ? `${from}. Std.` : `${from}.–${to}. Std.`;
+}
+
+/**
+ * VA-04: Hinweiszeile zu einer Raumsperre durch eine Veranstaltung – „Raum 2.14 gesperrt (Veranstaltung), 3.–4. Std.“. Bewusst ohne
+ * den Veranstaltungstitel (die Notiz der Sperre bleibt intern bei Hausmeisterei und Planung).
+ */
+export function roomBlockNoteText(b: { roomId: string; fromPeriod: number | null; toPeriod: number | null }): string {
+  return `Raum ${b.roomId} gesperrt (Veranstaltung), ${periodsText(b.fromPeriod, b.toPeriod)}`;
 }
 
 /** Tagesmitteilung anlegen (`id` leer) oder ändern. */
@@ -61,8 +78,9 @@ export async function deleteDayNote(db: Db, actorId: string, id: string): Promis
 
 /**
  * Tagesmitteilungen der Tage: `staff` = auch „nur Beschäftigte“; Entwurfstage nur mit `drafts: true` (Vertretungsplanung).
+ * `roomBlocks` (VA-04, Vertretungsplan/Monitor/Druck): dazu je Raumsperre „Veranstaltung“ eine abgeleitete Zeile, nach den Mitteilungen.
  */
-export async function dayNotesOn(db: Db, dates: readonly string[], opts: { drafts?: boolean; staff?: boolean } = {}): Promise<DayNote[]> {
+export async function dayNotesOn(db: Db, dates: readonly string[], opts: { drafts?: boolean; staff?: boolean; roomBlocks?: boolean } = {}): Promise<DayNote[]> {
   if (!dates.length) return [];
   const drafts = await draftDays(db, [...dates]);
   const visible = opts.drafts ? [...dates] : dates.filter((d) => !drafts.has(d));
@@ -72,5 +90,15 @@ export async function dayNotesOn(db: Db, dates: readonly string[], opts: { draft
     .from(timetableDayNotes)
     .where(and(inArray(timetableDayNotes.date, visible), opts.staff ? undefined : eq(timetableDayNotes.audience, "alle")))
     .orderBy(asc(timetableDayNotes.date), asc(timetableDayNotes.sortOrder), asc(timetableDayNotes.createdAt));
-  return rows.map((r) => ({ id: r.id, date: r.date, body: r.body, audience: r.audience, draft: drafts.has(r.date) }));
+  const notes: DayNote[] = rows.map((r) => ({ id: r.id, date: r.date, body: r.body, audience: r.audience, draft: drafts.has(r.date) }));
+  if (opts.roomBlocks) {
+    const blocks = (await listRoomBlocks(db, visible.reduce((a, b) => (a < b ? a : b)))).filter((b) => b.reason === "veranstaltung");
+    for (const date of [...visible].sort()) {
+      for (const b of blocks.filter((x) => x.startsOn <= date && x.endsOn >= date)) {
+        notes.push({ id: `block-${b.id}-${date}`, date, body: roomBlockNoteText(b), audience: "alle", draft: drafts.has(date), derived: true });
+      }
+    }
+    notes.sort((a, b) => a.date.localeCompare(b.date) || Number(Boolean(a.derived)) - Number(Boolean(b.derived)));
+  }
+  return notes;
 }

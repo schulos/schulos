@@ -155,7 +155,7 @@ export async function monitorData(db: Db, screen: Pick<MonitorScreen, "profile">
       .leftJoin(newsTargets, eq(newsTargets.postId, newsPosts.id))
       .where(and(eq(newsPosts.onMonitor, true), lte(newsPosts.publishedAt, now), or(isNull(newsPosts.expiresAt), gt(newsPosts.expiresAt, now))))
       .orderBy(desc(newsPosts.pinned), desc(newsPosts.publishedAt)),
-    dayNotesOn(db, days, { staff: staffRoom }),
+    dayNotesOn(db, days, { staff: staffRoom, roomBlocks: true }),
   ]);
   // Laufband: Beiträge an alle (keine Zielgruppe); im Lehrerzimmer auch Beiträge, die sich an Lehrkräfte richten
   const ticker = new Map<string, { title: string; ok: boolean }>();

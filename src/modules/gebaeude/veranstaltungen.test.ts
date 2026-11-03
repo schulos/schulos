@@ -43,6 +43,7 @@ const KLAUS = "u-klaus.berger"; // Hausmeisterei: manage über die Gruppe
 const JANA = "u-jana.brandt"; // Lehrkraft: report
 const PETRA = "u-petra.lindner"; // Schulleitung: event_approve über die Gruppe
 const LEA = "u-lea.schaefer"; // Schülerin: kein report
+const FRANK = "u-frank.schulte"; // Gruppe Stundenplanung: stundenplan.substitute
 
 async function fieldErrors(p: Promise<unknown>): Promise<Record<string, string>> {
   try {
@@ -99,7 +100,7 @@ describe("VA-01…03: Veranstaltungen – Service", () => {
   beforeAll(async () => {
     h = await createSeededTestDb();
     const today = toBerlinDate(new Date());
-    const slots = (await listSlots(h.db, { kind: "room", id: "106" }, addDays(today, 2), addDays(today, 23))).filter((s) => s.teacherId && s.teacherId !== KLAUS && s.teacherId !== JANA && !s.change);
+    const slots = (await listSlots(h.db, { kind: "room", id: "106" }, addDays(today, 2), addDays(today, 23))).filter((s) => s.teacherId && s.teacherId !== KLAUS && s.teacherId !== JANA && s.teacherId !== FRANK && !s.change);
     const s = slots[0]!;
     lesson = { date: s.date, start: `${s.date}T${s.startsAt.slice(0, 5)}`, end: `${s.date}T${s.endsAt.slice(0, 5)}`, teacherId: s.teacherId!, periodNr: s.periodNr };
     sunday = addDays(today, 7 + (6 - weekdayMon0(addDays(today, 7))));
@@ -155,6 +156,9 @@ describe("VA-01…03: Veranstaltungen – Service", () => {
     const r = await confirmEvent(h.db, klaus, id, { blockRooms: true, calendar: true, note: "Schlüssel liegt bereit" });
     expect(r.blocks).toBe(1);
     expect(await gongs(lesson.teacherId)).toContain("Raum 106 gesperrt: Veranstaltung Theaterprobe");
+    // VA-04: die Stundenplanung bekommt einen gebündelten Gong mit Link auf den betroffenen Tag
+    const planGong = await h.db.select({ title: notifications.title, body: notifications.body, href: notifications.href }).from(notifications).where(and(eq(notifications.userId, FRANK), eq(notifications.title, "Veranstaltung Theaterprobe: 1 Raumsperre")));
+    expect(planGong).toEqual([{ title: "Veranstaltung Theaterprobe: 1 Raumsperre", body: expect.stringContaining(`Raum 106, ${lesson.periodNr}. Std.`), href: `/planung/vertretungen?datum=${lesson.date}` }]);
     const blocks = await h.db.select().from(timetableRoomBlocks).where(and(eq(timetableRoomBlocks.roomId, "106"), eq(timetableRoomBlocks.note, "Theaterprobe")));
     expect(blocks).toEqual([expect.objectContaining({ startsOn: lesson.date, endsOn: lesson.date, fromPeriod: lesson.periodNr, toPeriod: lesson.periodNr, reason: "veranstaltung" })]);
     const d = (await getEvent(h.db, klaus, id))!;
