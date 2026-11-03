@@ -3,6 +3,8 @@
 // ohne Kopfzeile (Name;Kategorie;Raum;Inventarnummer;letzte Prüfung;Menge;Hersteller;Modell;Seriennummer) gelten weiter.
 // Format und Regeln: docs/INVENTAR.md „Umgesetzt (INV-06)“. Kein Personenbezug; Freitext (Notiz, Ausmusterungsgrund) geht nicht
 // mit, weil er Namen enthalten kann (wie bei den anderen Gebäude-Exporten). Zellen gegen Formeln entschärft (`toCsv`).
+// INV-08: Spalten für den Wartungs-/Servicevertrag (Partner, Vertragsende, Kündigungsfrist); die Vertragsnotiz ist Freitext und
+// geht wie die Notiz nicht mit.
 import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { audit } from "@/core/audit";
 import { csvBytes, detectSeparator, splitCsvLine, type CsvEncoding } from "@/core/csv";
@@ -13,7 +15,7 @@ import { ValidationError } from "@/modules/verwaltung/users";
 import { canSeeInventory, ensureCategories, inventoryNoFormat, maintainableCategories, nextInventoryNo } from "./inventar";
 import { matchCategory } from "./kategorien";
 import { ASSET_CONDITIONS, parsePriceCents, type AssetCondition } from "./labels";
-import { listAssets, listInspectionTypes, parseDay, planDue, takeOverInspection, type AssetFilter } from "./pruefungen";
+import { MAX_NOTICE_MONTHS, listAssets, listInspectionTypes, parseDay, planDue, takeOverInspection, type AssetFilter } from "./pruefungen";
 
 export const MAX_ASSET_CSV_BYTES = 512 * 1024;
 export const MAX_ASSET_CSV_ROWS = 2000;
@@ -37,6 +39,9 @@ export const CSV_FIELDS = [
   "financing",
   "boundUntil",
   "warrantyUntil",
+  "servicePartner",
+  "serviceEnd",
+  "serviceNoticeMonths",
   "lastInspected",
   "nextDue",
   "retiredOn",
@@ -62,6 +67,9 @@ export const CSV_COLUMNS: Record<CsvField, { header: string; aliases: readonly s
   financing: { header: "Finanzierung", aliases: ["foerderung", "foerderprogramm", "finanzierungsquelle", "mittel"] },
   boundUntil: { header: "Zweckbindung bis", aliases: ["zweckbindung", "bindefrist", "zweckbindungsfrist"] },
   warrantyUntil: { header: "Garantie bis", aliases: ["garantie", "gewaehrleistung bis", "garantieende"] },
+  servicePartner: { header: "Wartungspartner", aliases: ["servicepartner", "wartungsfirma", "servicefirma", "wartungsvertrag", "servicevertrag"] },
+  serviceEnd: { header: "Vertragsende", aliases: ["vertrag bis", "wartungsvertrag bis", "servicevertrag bis", "laufzeit bis"] },
+  serviceNoticeMonths: { header: "Kündigungsfrist (Monate)", aliases: ["kuendigungsfrist", "kuendigungsfrist monate", "kuendigungsfrist in monaten"] },
   lastInspected: { header: "Letzte Prüfung", aliases: ["letzte pruefung"] },
   nextDue: { header: "Nächste Prüfung", aliases: ["naechste pruefung"], exportOnly: true },
   retiredOn: { header: "Ausgemustert am", aliases: ["ausgemustert", "ausmusterung", "ausmusterungsdatum"] },
@@ -142,6 +150,9 @@ export interface AssetCsvRow {
   financing: string | null;
   boundUntil: string | null;
   warrantyUntil: string | null;
+  servicePartner: string | null;
+  serviceEnd: string | null;
+  serviceNoticeMonths: number | null;
   retiredOn: string | null;
 }
 
@@ -193,12 +204,13 @@ export function parseAssetCsv(
     const name = rec.name ?? "";
     const inventoryNo = rec.inventoryNo || null;
     const fail = (message: string) => errors.push({ line, message, name, inventoryNo });
-    const day = (f: "lastInspected" | "acquiredOn" | "boundUntil" | "warrantyUntil" | "retiredOn") => (rec[f] ? parseDay(rec[f]) : null);
+    const day = (f: "lastInspected" | "acquiredOn" | "boundUntil" | "warrantyUntil" | "serviceEnd" | "retiredOn") => (rec[f] ? parseDay(rec[f]) : null);
+    const notice = rec.serviceNoticeMonths ? Number(rec.serviceNoticeMonths) : null;
     const category = matchCategory(rec.category ?? "", categories);
     const quantity = rec.quantity ? Number(rec.quantity) : null;
     const condition = parseCondition(rec.condition ?? "");
     const priceCents = parsePriceCents(rec.price);
-    const badDay = (["lastInspected", "acquiredOn", "boundUntil", "warrantyUntil", "retiredOn"] as const).find((f) => rec[f] && !day(f));
+    const badDay = (["lastInspected", "acquiredOn", "boundUntil", "warrantyUntil", "serviceEnd", "retiredOn"] as const).find((f) => rec[f] && !day(f));
     if (name.length < 2) fail("Name fehlt");
     else if (name.length > 120) fail("Name zu lang (höchstens 120 Zeichen)");
     else if (!category) fail(`Kategorie „${rec.category ?? ""}“ unbekannt`);
@@ -207,6 +219,8 @@ export function parseAssetCsv(
     else if (quantity !== null && (!Number.isInteger(quantity) || quantity < 1 || quantity > 9999)) fail(`Menge „${rec.quantity}“ nicht lesbar (1 bis 9999)`);
     else if (condition === undefined) fail(`Zustand „${rec.condition}“ unbekannt (neu, gut, gebraucht, defekt)`);
     else if (Number.isNaN(priceCents) || (priceCents !== null && priceCents > 99_999_999_00)) fail(`Preis „${rec.price}“ nicht lesbar (z. B. 1234,56)`);
+    else if (notice !== null && (!Number.isInteger(notice) || notice < 0 || notice > MAX_NOTICE_MONTHS))
+      fail(`Kündigungsfrist „${rec.serviceNoticeMonths}“ nicht lesbar (0 bis ${MAX_NOTICE_MONTHS} Monate)`);
     else
       rows.push({
         line,
@@ -228,6 +242,9 @@ export function parseAssetCsv(
         financing: cut(rec.financing, 120),
         boundUntil: day("boundUntil"),
         warrantyUntil: day("warrantyUntil"),
+        servicePartner: cut(rec.servicePartner, 120),
+        serviceEnd: day("serviceEnd"),
+        serviceNoticeMonths: notice || null,
         retiredOn: day("retiredOn"),
       });
   });
@@ -292,6 +309,9 @@ const FIELD_LABELS: Partial<Record<keyof AssetPatch, string>> = {
   financing: "Finanzierung",
   boundUntil: "Zweckbindung",
   warrantyUntil: "Garantie",
+  servicePartner: "Wartungspartner",
+  serviceEnd: "Vertragsende",
+  serviceNoticeMonths: "Kündigungsfrist",
 };
 
 /**
@@ -380,6 +400,7 @@ export async function planAssetImport(db: Db, viewer: PermissionSet, text: strin
       if (seen.has(r.inventoryNo)) notes.push(`Inventarnummer „${r.inventoryNo}“ doppelt`);
       seen.add(r.inventoryNo);
     }
+    if (r.serviceNoticeMonths && !r.serviceEnd && !old?.serviceEnd) notes.push("Kündigungsfrist ohne Vertragsende");
     if (notes.length) continue;
 
     // nur gefüllte Zellen schreiben
@@ -402,6 +423,9 @@ export async function planAssetImport(db: Db, viewer: PermissionSet, text: strin
     set("financing", r.financing);
     set("boundUntil", r.boundUntil);
     set("warrantyUntil", r.warrantyUntil);
+    set("servicePartner", r.servicePartner);
+    set("serviceEnd", r.serviceEnd);
+    set("serviceNoticeMonths", r.serviceNoticeMonths);
     // Etage aus einem anderen Gebäude als bisher → Etage leeren, damit beides zusammenpasst
     if (old && buildingId && !floorId && old.floorId && old.buildingId !== buildingId) patch.floorId = null;
     const takesInspection = !!r.lastInspected && typed.has(r.categoryId);
@@ -560,6 +584,12 @@ export async function assetListCsv(db: Db, viewer: PermissionSet, filter: AssetF
         return de(a.boundUntil);
       case "warrantyUntil":
         return de(a.warrantyUntil);
+      case "servicePartner":
+        return a.servicePartner;
+      case "serviceEnd":
+        return de(a.serviceEnd);
+      case "serviceNoticeMonths":
+        return a.serviceNoticeMonths;
       case "lastInspected":
         return de(last.get(a.id) ?? null);
       case "nextDue":

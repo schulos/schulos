@@ -139,6 +139,8 @@ export const gebaeudeAssetCategories = pgTable(
     responsibleGroupId: text("responsible_group_id").references(() => groups.id, { onDelete: "set null" }),
     sortOrder: integer("sort_order").notNull().default(0),
     active: boolean("active").notNull().default(true),
+    /** INV-10: Nutzungsdauer in Jahren als Richtwert für den Ersatzbedarf (keine Abschreibung, kein Restwert); null = kein Richtwert */
+    lifetimeYears: integer("lifetime_years"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("gebaeude_asset_categories_key_uq").on(t.key)],
@@ -187,6 +189,14 @@ export const gebaeudeAssets = pgTable(
     retiredOn: date("retired_on"),
     retiredReason: text("retired_reason"),
     note: text("note"),
+    /** INV-08: Wartungs-/Servicevertrag am Gerät – Partner ist eine Firma (bewusst kein Feld für Ansprechpersonen) */
+    servicePartner: text("service_partner"),
+    /** Vertragsende (bzw. nächstes Ende bei Verlängerung) */
+    serviceEnd: date("service_end"),
+    /** Kündigungsfrist in Monaten vor dem Vertragsende (null/0 = keine) */
+    serviceNoticeMonths: integer("service_notice_months"),
+    /** Sachangaben zum Vertrag (Leistung, Vertragsnummer) – keine Namen */
+    serviceNote: text("service_note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("gebaeude_assets_category_idx").on(t.categoryId), index("gebaeude_assets_room_idx").on(t.roomId)],

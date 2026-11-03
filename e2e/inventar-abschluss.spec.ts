@@ -53,7 +53,7 @@ test("INV-06: Export und Import im Schulträgerformat (Vorschau, Spaltenzuordnun
   expect(dl.suggestedFilename()).toMatch(/^gebaeude-inventar-\d{4}-\d{2}-\d{2}\.csv$/);
   const exported = (await readFile((await dl.path())!, "utf8")).replace(/^﻿/, "");
   expect(exported.split("\r\n")[0]).toBe(
-    "Inventarnummer;Bezeichnung;Kategorie;Hersteller;Modell;Seriennummer;Menge;Zustand;Gebäude;Etage;Raum;Anschaffungsdatum;Preis (EUR);Lieferant;Finanzierung;Zweckbindung bis;Garantie bis;Letzte Prüfung;Nächste Prüfung;Ausgemustert am",
+    "Inventarnummer;Bezeichnung;Kategorie;Hersteller;Modell;Seriennummer;Menge;Zustand;Gebäude;Etage;Raum;Anschaffungsdatum;Preis (EUR);Lieferant;Finanzierung;Zweckbindung bis;Garantie bis;Wartungspartner;Vertragsende;Kündigungsfrist (Monate);Letzte Prüfung;Nächste Prüfung;Ausgemustert am",
   );
   expect(exported).toContain("IT-0001;Tablet-Koffer 7. Jahrgang (16 Geräte);");
 

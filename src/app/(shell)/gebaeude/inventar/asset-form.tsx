@@ -1,5 +1,5 @@
 // INV-01: Felder des Inventar-Formulars (Anlegen und Ändern) als Daten für `SpecForm`.
-import type { AssetRow } from "@/modules/gebaeude/pruefungen";
+import { MAX_NOTICE_MONTHS, type AssetRow } from "@/modules/gebaeude/pruefungen";
 import { ASSET_CONDITIONS, CONDITION_LABELS } from "@/modules/gebaeude/labels";
 import type { FieldSpec } from "@/ui/spec-form";
 
@@ -33,6 +33,11 @@ export function assetFields(o: AssetFormOptions, a?: AssetRow): FieldSpec[] {
     { name: "financing", label: "Finanzierung/Förderung", type: "text", maxLength: 120, defaultValue: a?.financing ?? "", hint: "z. B. Schulträger, Förderprogramm" },
     { name: "boundUntil", label: "Zweckbindung bis", type: "date", defaultValue: a?.boundUntil ?? "" },
     { name: "warrantyUntil", label: "Garantie bis", type: "date", defaultValue: a?.warrantyUntil ?? "" },
+    // INV-08: Wartungs-/Servicevertrag am Gerät (Firma, kein Feld für Ansprechpersonen)
+    { name: "servicePartner", label: "Wartungspartner (Firma)", type: "text", maxLength: 120, defaultValue: a?.servicePartner ?? "", hint: "Wartungs- oder Servicevertrag, z. B. Aufzugsfirma" },
+    { name: "serviceEnd", label: "Vertragsende", type: "date", defaultValue: a?.serviceEnd ?? "" },
+    { name: "serviceNoticeMonths", label: "Kündigungsfrist (Monate)", type: "number", min: 0, max: MAX_NOTICE_MONTHS, defaultValue: a?.serviceNoticeMonths ? String(a.serviceNoticeMonths) : "", hint: "vor dem Vertragsende; leer = keine" },
+    { name: "serviceNote", label: "Vertragsnotiz", type: "textarea", maxLength: 300, wide: true, defaultValue: a?.serviceNote ?? "", hint: "Leistung, Vertragsnummer – keine Namen oder Telefonnummern von Personen" },
     { name: "note", label: "Notiz", type: "textarea", maxLength: 500, wide: true, defaultValue: a?.note ?? "", hint: "Sachangaben – keine Namen oder Angaben zu Personen" },
   ];
 }
