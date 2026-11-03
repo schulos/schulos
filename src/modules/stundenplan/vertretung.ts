@@ -24,6 +24,7 @@ import { absenceCovers, absencesBetween, absentGroups, absentTeachers } from "./
 import { changedSince, deletedEntries, recordSubstitutionChanges, snapshotOf, type ChangeEntry } from "./vertretung-historie";
 import type { ChangeMarker } from "./display";
 import { hasPermission, type PermissionSet } from "@/core/permissions";
+import type { RoomBlockReason } from "@/core/db/schema";
 import { blockLabel, roomBlockAt } from "./raumsperren";
 import { lessonActiveOn } from "./service";
 import { dayChanges } from "./vertretung-gong";
@@ -73,13 +74,21 @@ const GROUP_REASON: Partial<Record<TimetableAbsenceReason, SubstitutionReason>> 
   pruefung: "pruefung",
 };
 
+/** VA-04: Grund einer Raumsperre → öffentliche Kategorie – „Veranstaltung“ bleibt „Veranstaltung“, alles andere „Raum gesperrt“. */
+export function blockReasonToSubstitution(reason: RoomBlockReason): SubstitutionReason {
+  return reason === "veranstaltung" ? "veranstaltung" : "raum_gesperrt";
+}
+
 /**
  * VT-01 (F-10-8): Vorgabe der Grund-Kategorie für eine Stunde an einem Tag. Fehlt die Lehrkraft (gleich aus welchem Grund) →
- * immer „Lehrkraft abwesend“; fehlt die Gruppe → ihr Grund 1:1 (sonst „sonstiges“); ist der Raum gesperrt → „Raum gesperrt“
- * (bei Raumänderung und Verlegung zuerst). Sonst `null` (ohne Angabe).
+ * immer „Lehrkraft abwesend“; fehlt die Gruppe → ihr Grund 1:1 (sonst „sonstiges“); ist der Raum gesperrt → „Raum gesperrt“ (VA-04: bei einer
+ * Veranstaltungssperre „Veranstaltung“) (bei Raumänderung und Verlegung zuerst). Sonst `null` (ohne Angabe).
  */
 export async function defaultReason(db: Db, l: Pick<TimetableLesson, "teacherId" | "groupId" | "roomId" | "periodNr">, date: string, kind: SubstitutionKind): Promise<SubstitutionReason | null> {
-  const blocked = async () => (l.roomId && (await roomBlockAt(db, l.roomId, date, l.periodNr)) ? ("raum_gesperrt" as const) : null);
+  const blocked = async () => {
+    const b = l.roomId ? await roomBlockAt(db, l.roomId, date, l.periodNr) : null;
+    return b ? blockReasonToSubstitution(b.reason) : null;
+  };
   if (kind === "room" || kind === "move") {
     const r = await blocked();
     if (r) return r;

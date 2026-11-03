@@ -74,7 +74,7 @@ export default async function VertretungsplanDruckPage() {
   const db = await getDb();
   const today = toBerlinDate(new Date());
   const days = planDays(today, await loadSchoolCalendar(db));
-  const [entries, notes] = await Promise.all([substitutionsOn(db, days), dayNotesOn(db, days, { staff: isStaffRole(user.role) })]);
+  const [entries, notes] = await Promise.all([substitutionsOn(db, days), dayNotesOn(db, days, { staff: isStaffRole(user.role), roomBlocks: true })]);
   const sorted = [...entries].sort(
     (a, b) => (a.gradeLevel ?? 99) - (b.gradeLevel ?? 99) || a.groupName.localeCompare(b.groupName, "de", { numeric: true }) || a.periodNr - b.periodNr,
   );

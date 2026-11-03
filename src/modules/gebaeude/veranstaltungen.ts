@@ -29,6 +29,7 @@ import { ForbiddenError, hasPermission, usersWithPermission, type PermissionSet 
 import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { getModule } from "@/modules";
 import { blockLabel, createRoomBlock, deleteRoomBlock, teachersInRooms } from "@/modules/stundenplan/raumsperren";
+import { periodsText } from "@/modules/stundenplan/tagesmitteilungen";
 import { listSlots } from "@/modules/stundenplan/service";
 import { ValidationError } from "@/modules/verwaltung/users";
 import {
@@ -449,8 +450,18 @@ export async function confirmEvent(db: Db, viewer: PermissionSet, id: string, op
     }
     if (overlaps.length) {
       const blocked = [...new Set(overlaps.map((o) => o.roomId))];
-      const teachers = (await teachersInRooms(db, blocked, e.setupAt, e.teardownAt)).filter((u) => u !== viewer.userId);
-      notified = await notify(db, teachers, {
+      // VA-04: ein gebündelter Gong an die Stundenplanung (Recht `stundenplan.substitute`) mit Link auf den ersten betroffenen Tag
+      const planners = (await usersWithPermission(db, "stundenplan.substitute")).filter((u) => u !== viewer.userId);
+      const first = [...overlaps].sort((a, b) => a.date.localeCompare(b.date))[0]!;
+      const lines = overlaps.map((o) => `${dayHeading(o.date)}: Raum ${o.roomId}, ${periodsText(o.periods[0]!, o.periods.at(-1)!)}`);
+      notified += await notify(db, planners, {
+        moduleId: MODULE,
+        title: `Veranstaltung ${e.title}: ${overlaps.length === 1 ? "1 Raumsperre" : `${overlaps.length} Raumsperren`}`,
+        body: `${lines.slice(0, 4).join("; ")}${lines.length > 4 ? `; … (${lines.length - 4} weitere)` : ""} – Vertretungen prüfen`,
+        href: `/planung/vertretungen?datum=${first.date}`,
+      });
+      const teachers = (await teachersInRooms(db, blocked, e.setupAt, e.teardownAt)).filter((u) => u !== viewer.userId && !planners.includes(u));
+      notified += await notify(db, teachers, {
         moduleId: MODULE,
         title: `Raum ${blocked.join(", ")} gesperrt: Veranstaltung ${e.title}`,
         body: `${eventSpan(e.setupAt, e.teardownAt)} – bitte Vertretungsplan beachten`,

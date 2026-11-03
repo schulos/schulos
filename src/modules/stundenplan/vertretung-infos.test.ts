@@ -33,8 +33,8 @@ import { materialsFor, saveMaterial } from "./selbstmeldung";
 import { listSlots } from "./service";
 import { SUBSTITUTION_ACK } from "./settings";
 import { DELETED_TEACHER } from "./solverlauf-konto";
-import { dayNotesOn, deleteDayNote, saveDayNote } from "./tagesmitteilungen";
-import { acknowledgeSubstitution, defaultReason, deleteSubstitution, lessonSubstitution, ownSubstitutions, publishDay, saveSubstitution, substitutionsOn } from "./vertretung";
+import { dayNotesOn, deleteDayNote, periodsText, roomBlockNoteText, saveDayNote } from "./tagesmitteilungen";
+import { acknowledgeSubstitution, blockReasonToSubstitution, defaultReason, deleteSubstitution, lessonSubstitution, ownSubstitutions, publishDay, saveSubstitution, substitutionsOn } from "./vertretung";
 import { changedFields, snapshotOf, substitutionHistory } from "./vertretung-historie";
 
 const MO = "2026-10-05";
@@ -306,6 +306,38 @@ describe("VT-01 Vertretung mehr Infos", () => {
     expect((await materialsFor(h.db, await p(BRA), [{ lessonId: ids["7b-5"]!, date: MO }])).get(key)?.text).toBe("Buch S. 36");
     expect((await materialsFor(h.db, await p(LEA), [{ lessonId: ids["7b-5"]!, date: MO }])).has(key)).toBe(true);
     expect((await materialsFor(h.db, await p(RIC), [{ lessonId: ids["7b-5"]!, date: MO }])).has(key)).toBe(false);
+  });
+
+  it("VA-04: Raumsperre „Veranstaltung“ → Grund „Veranstaltung“ (sonst „Raum gesperrt“), Hinweiszeile ohne Titel in den Tagesmitteilungen", async () => {
+    expect(blockReasonToSubstitution("veranstaltung")).toBe("veranstaltung");
+    expect(blockReasonToSubstitution("renovierung")).toBe("raum_gesperrt");
+    expect(periodsText(3, 4)).toBe("3.–4. Std.");
+    expect(periodsText(2, 2)).toBe("2. Std.");
+    expect(periodsText(null, null)).toBe("ganztägig");
+    expect(roomBlockNoteText({ roomId: "2.14", fromPeriod: 3, toPeriod: 4 })).toBe("Raum 2.14 gesperrt (Veranstaltung), 3.–4. Std.");
+
+    await createRoomBlock(h.db, "u-admin", { roomId: "106", startsOn: MO, endsOn: MO, fromPeriod: 3, toPeriod: 4, reason: "veranstaltung", note: "Geheimer Titel" });
+    await createRoomBlock(h.db, "u-admin", { roomId: "105", startsOn: MO, endsOn: MO, fromPeriod: 1, toPeriod: 1, reason: "renovierung", note: null });
+    // Vorgabe auch ohne Raumänderung: Stunde im gesperrten Raum, Lehrkraft und Gruppe anwesend
+    expect(await defaultReason(h.db, { teacherId: RIC, groupId: "g-7b", roomId: "106", periodNr: 3 }, MO, "cancel")).toBe("veranstaltung");
+    await save(ids["7b-3"]!, "room", { roomId: "105" });
+    expect((await row(ids["7b-3"]!)).reason).toBe("veranstaltung");
+    await save(ids["7a-1"]!, "room", { roomId: "107" });
+    expect((await row(ids["7a-1"]!)).reason).toBe("raum_gesperrt");
+
+    // Hinweiszeile nur mit `roomBlocks`, nur für „Veranstaltung“, nie mit dem Titel
+    const plain = await dayNotesOn(h.db, [MO], { drafts: true, staff: true });
+    expect(plain).toEqual([]);
+    await publishDay(h.db, "u-admin", MO);
+    await saveDayNote(h.db, PLANUNG, null, { date: MO, body: "Schulversammlung", audience: "alle" });
+    const notes = await dayNotesOn(h.db, [MO, MO2], { roomBlocks: true });
+    expect(notes.map((n) => n.body)).toEqual(["Schulversammlung", "Raum 106 gesperrt (Veranstaltung), 3.–4. Std."]);
+    expect(notes[1]).toMatchObject({ derived: true, audience: "alle" });
+    expect(JSON.stringify(notes)).not.toContain("Geheimer Titel");
+    expect(await dayNotesOn(h.db, [MO])).toHaveLength(1);
+    // Monitor trägt dieselbe Zeile
+    const foyer = await monitorData(h.db, { profile: "foyer" }, new Date("2026-10-05T06:00:00Z"));
+    expect(foyer.days.flatMap((d) => d.notes)).toContain("Raum 106 gesperrt (Veranstaltung), 3.–4. Std.");
   });
 
   it("Tagesmitteilungen folgen der Tagesfreigabe und der Zielgruppe", async () => {
