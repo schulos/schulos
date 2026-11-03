@@ -31,11 +31,11 @@ export async function createOpenVerfahren(page: Page, name: string, day: string,
 }
 
 /** Link aus der neuesten Mail an `to` (/dev/mail, als admin), danach abgemeldet. */
-export async function linkFromDevMail(page: Page, to: string, pathPrefix: string): Promise<string> {
+export async function linkFromDevMail(page: Page, to: string, pathPrefix: string, nth = 0): Promise<string> {
   await logoutForSwitch(page);
   await login(page, "admin");
   await page.goto("/dev/mail");
-  const mail = page.getByRole("listitem").filter({ has: page.getByTestId("mail-to").getByText(to, { exact: true }) }).filter({ hasText: pathPrefix }).first();
+  const mail = page.getByRole("listitem").filter({ has: page.getByTestId("mail-to").getByText(to, { exact: true }) }).filter({ hasText: pathPrefix }).nth(nth);
   const text = await mail.getByTestId("mail-text").innerText();
   const url = text.split(/\s+/).find((w) => w.includes(pathPrefix));
   expect(url, `Link ${pathPrefix} in der Mail`).toBeTruthy();
@@ -54,14 +54,14 @@ export interface Familie {
  * Öffentliches Formular ohne Anmeldung ausfüllen und absenden (alle Schritte). Wartet die Mindestdauer des Formulars ab.
  * `ip` simuliert die Client-Adresse (X-Forwarded-For wie von Caddy) – jeder Test hat so sein eigenes Kontingent.
  */
-export async function fillAnmeldung(page: Page, verfahrenId: string, f: Familie, opts: { ip: string; hints?: string; early?: boolean; error?: RegExp; parent2?: { name: string; email: string } } = { ip: "198.51.100.1" }) {
+export async function fillAnmeldung(page: Page, verfahrenId: string, f: Familie, opts: { ip: string; hints?: string; early?: boolean; error?: RegExp; parent2?: { name: string; email: string }; birth?: string } = { ip: "198.51.100.1" }) {
   await page.setExtraHTTPHeaders({ "x-forwarded-for": opts.ip });
   const loaded = Date.now();
   await page.goto(`/anmeldung/${verfahrenId}`);
   const form = page.getByRole("form", { name: "Anmeldung" });
   await form.getByLabel("Vorname", { exact: true }).fill(f.first);
   await form.getByLabel("Nachname", { exact: true }).fill(f.last);
-  await form.getByLabel("Geburtsdatum", { exact: true }).fill("2015-03-14");
+  await form.getByLabel("Geburtsdatum", { exact: true }).fill(opts.birth ?? "2015-03-14");
   await form.getByLabel("Grundschule", { exact: true }).fill("GS Am Park");
   await form.getByRole("button", { name: "Weiter" }).click();
   await expect(page.getByRole("heading", { name: "Angaben zu den Eltern" })).toBeVisible();
