@@ -904,6 +904,13 @@
       "when": 1793655397567,
       "tag": "0128_inv_05_ausleihe",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1793667857205,
+      "tag": "0130_lo_01_losverfahren",
+      "breakpoints": true
     }
   ]
 }

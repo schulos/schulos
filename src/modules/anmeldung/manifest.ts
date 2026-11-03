@@ -47,6 +47,7 @@ export default defineModule({
         "Vorgelegte Unterlagen (nur ja/nein)",
         "Entscheidung, interne Notiz",
         "Klassenbildung: Familie „getrennt“ (ja/nein)",
+        "Wartelisten-Rang aus einem Losverfahren (LO-01)",
       ],
       class: "LK-90",
       start: "retention_from",
@@ -64,6 +65,18 @@ export default defineModule({
       categories: ["Antrag und Partner-Antrag", "Art des Wunsches (ohne Begründung)", "Erfassende Person", "Zeitpunkt"],
       follows: "anmeldung_antraege",
     },
+    {
+      table: "anmeldung_lose",
+      purpose: "Losverfahren bei Anmeldeüberhang (LO-01): nachrechenbares Protokoll für Widerspruch und Klage",
+      categories: [
+        "Teilnehmende nur als Antrags-ID und Vorgangsnummer (keine Namen)",
+        "Plätze, Seed, Seed-Hash, gezogene Reihenfolge",
+        "Zeug:innen nur als Funktionen",
+        "Begründung beim Verwerfen bzw. Neulosen",
+        "Vorbereitet/gezogen/übernommen/verworfen von und am",
+      ],
+      follows: "anmeldung_verfahren",
+    },
   ],
   processing: {
     title: "Schulanmeldung (Vormerkung mit Gesprächstermin)",
@@ -72,6 +85,6 @@ export default defineModule({
       "Art. 6 Abs. 1 lit. e, Abs. 3 DSGVO i. V. m. § 120 Abs. 1, 5 SchulG NRW und VO-DV I (Aufnahmedaten); Aufnahme nach § 46 SchulG NRW durch die Schulleitung (zu prüfen)",
     subjects: ["Kinder, die angemeldet werden (noch keine Schüler:innen)", "Eltern bzw. Sorgeberechtigte"],
     recipients: ["Sekretariat", "Schulleitung (Entscheidung)", "Eltern (eigener Vorgang über den Bearbeitungslink)"],
-    note: "Online nur, was Terminvergabe und Gespräch brauchen – keine Religionszugehörigkeit, kein Förderbedarf, keine Gesundheitsdaten, keine Noten, keine Uploads (Unterlagen werden im Original vorgelegt). Die rechtlich maßgebliche Aufnahme läuft weiter über Papier bzw. die Schulverwaltungssoftware. Keine automatische Auswahl. Klassenbildung (KB-01…03): der Schritt „Neuaufnahmen“ schlägt aus Grundschule, Familie (gleiche E-Mail, Häkchen „getrennt“) und internen Klassenwünschen (zusammen/nicht zusammen, höchstens 2 je Kind, ohne Begründung, vom Sekretariat aus Aufnahmegespräch oder Grundschulbogen erfasst; Eltern sehen sie nicht, die Auskunft nennt das Partnerkind nicht) eine Verteilung auf die neuen Klassen vor – nur ein Vorschlag im Browser, nicht gespeichert; kein Geschlecht, keine weiteren Merkmale. Mails gehen nur an Elternteil 1; die Adresse des zweiten Elternteils (optional, Q5-23) wird erst bei der Übernahme für dessen Elternkonto genutzt.",
+    note: "Online nur, was Terminvergabe und Gespräch brauchen – keine Religionszugehörigkeit, kein Förderbedarf, keine Gesundheitsdaten, keine Noten, keine Uploads (Unterlagen werden im Original vorgelegt). Die rechtlich maßgebliche Aufnahme läuft weiter über Papier bzw. die Schulverwaltungssoftware. Keine automatische Auswahl. Losverfahren (LO-01…03): die Schulleitung bildet aus gleichrangigen offenen Anträgen selbst eine Losgruppe für N Plätze; SchulOS bewertet keine Kriterien, zieht nur die Reihenfolge (Seed-Hash vorab, nachrechenbar) und übernimmt das Ergebnis erst auf Klick; das Protokoll speichert nur Vorgangsnummern, Seed und Zeug:innen-Funktionen und folgt dem Verfahren (LK-ENDE-1J). Klassenbildung (KB-01…03): der Schritt „Neuaufnahmen“ schlägt aus Grundschule, Familie (gleiche E-Mail, Häkchen „getrennt“) und internen Klassenwünschen (zusammen/nicht zusammen, höchstens 2 je Kind, ohne Begründung, vom Sekretariat aus Aufnahmegespräch oder Grundschulbogen erfasst; Eltern sehen sie nicht, die Auskunft nennt das Partnerkind nicht) eine Verteilung auf die neuen Klassen vor – nur ein Vorschlag im Browser, nicht gespeichert; kein Geschlecht, keine weiteren Merkmale. Mails gehen nur an Elternteil 1; die Adresse des zweiten Elternteils (optional, Q5-23) wird erst bei der Übernahme für dessen Elternkonto genutzt.",
   },
 });

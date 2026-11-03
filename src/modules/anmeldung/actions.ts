@@ -13,6 +13,7 @@ import { decide, DECISIONS, markSpamSuspect, rejectAsSpam, unmarkSpamSuspect, ty
 import { anmeldungKatalog } from "./katalog";
 import { addKlassenwunsch, removeKlassenwunsch, setFamilySeparate } from "./klassenwuensche";
 import { OPTIONAL_FIELDS } from "./labels";
+import { applyLot, discardLot, drawLot, prepareLot, repeatLot } from "./los";
 import { addNote, moveSlot } from "./sekretariat";
 import {
   addSlots,
@@ -224,8 +225,8 @@ function readDecision(form: FormData): Decision | null {
 }
 
 /**
- * Entscheidung für die ausgewählten Anträge (Liste) bzw. einen Antrag (`antragId` gebunden). Kein Losen, keine Automatik –
- * jede Auswahl trifft ein Mensch (Q-34). Eltern bekommen nach der ersten Entscheidung nur „Bescheid folgt per Post“ (Q-35).
+ * Entscheidung für die ausgewählten Anträge (Liste) bzw. einen Antrag (`antragId` gebunden). Keine Automatik – jede Auswahl
+ * trifft ein Mensch (Q-34); gelost wird nur über das eigene Losverfahren (LO-01, `prepareLotAction` ff.). Eltern bekommen nach der ersten Entscheidung nur „Bescheid folgt per Post“ (Q-35).
  */
 export async function decideAction(
   verfahrenId: string,
@@ -279,4 +280,64 @@ export async function spamAction(verfahrenId: string, _prev: FormState, form: Fo
   } catch (err) {
     return fail(err);
   }
+}
+
+// ---------------------------------------------------------------- Losverfahren (LO-01/LO-02)
+
+const lotPath = (verfahrenId: string, lotId: string) => `${base}/${verfahrenId}/los/${lotId}`;
+
+/** Losgruppe aus der Auswahl der Entscheidungsliste bilden → Seite des Laufs mit Seed-Hash. Rechte prüft der Service. */
+export async function prepareLotAction(verfahrenId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  let id: string;
+  try {
+    const lot = await prepareLot(await getDb(), perms, verfahrenId, { antragIds: form.getAll("antrag").map(String), places: String(form.get("places") ?? "") });
+    id = lot.id;
+  } catch (err) {
+    return fail(err);
+  }
+  revalidatePath(`${base}/${verfahrenId}`, "layout");
+  redirect(lotPath(verfahrenId, id));
+}
+
+export async function drawLotAction(verfahrenId: string, lotId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await drawLot(await getDb(), perms, lotId, { witnesses: String(form.get("witnesses") ?? "") });
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath(`${base}/${verfahrenId}`, "layout");
+  return { ok: true };
+}
+
+export type ApplyLotState = FormState & { admitted?: number; waitlisted?: number; mails?: number };
+
+export async function applyLotAction(verfahrenId: string, lotId: string): Promise<ApplyLotState> {
+  const { perms } = await requireUser();
+  const db = await getDb();
+  try {
+    const r = await applyLot(db, perms, lotId, { school: (await readSchoolSettings(db)).name });
+    revalidatePath(`${base}/${verfahrenId}`, "layout");
+    return { ok: true, ...r };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Verwerfen (vor dem Ziehen ohne, danach nur mit Begründung) bzw. neu losen (`op=neu`, nur nach dem Ziehen, mit Begründung). */
+export async function discardLotAction(verfahrenId: string, lotId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const db = await getDb();
+  const reason = String(form.get("reason") ?? "") || null;
+  let next: string | null = null;
+  try {
+    if (form.get("op") === "neu") next = (await repeatLot(db, perms, lotId, reason)).id;
+    else await discardLot(db, perms, lotId, reason);
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath(`${base}/${verfahrenId}`, "layout");
+  if (next) redirect(lotPath(verfahrenId, next));
+  return { ok: true };
 }

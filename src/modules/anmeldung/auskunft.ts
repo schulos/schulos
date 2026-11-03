@@ -23,7 +23,8 @@ import { anmeldungAntraege, anmeldungEreignisse, anmeldungKlassenwuensche, anmel
 import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
 import type { StateCode } from "@/core/school/catalog";
 import { anmeldungKatalog } from "./katalog";
-import { ANTRAG_STATUS_LABELS, VERFAHREN_KIND_LABELS, type AntragStatus } from "./labels";
+import { ANTRAG_STATUS_LABELS, LOS_STATUS_LABELS, VERFAHREN_KIND_LABELS, type AntragStatus } from "./labels";
+import { lotsOfAntrag } from "./los";
 import { antragNumber, canManage, LK90_DAYS } from "./service";
 
 /** Auskunft geben darf, wer Anträge bearbeitet (Sekretariat) oder die Datenschutz-Aufgaben hat */
@@ -225,6 +226,9 @@ export async function antragAuskunft(
         })),
         familieGetrennt: a.familySeparate,
       },
+      // LO-01: Teilnahme an Losverfahren (Lauf, Stand, gezogener Rang) und Wartelisten-Rang – ohne andere Teilnehmende
+      losverfahren: (await lotsOfAntrag(db, v.id, antragId)).map((l) => ({ lauf: l.seq, stand: LOS_STATUS_LABELS[l.status], rang: l.rank, teilnehmende: l.total })),
+      wartelistenRang: a.status === "warteliste" ? a.waitlistRank : null,
       uebernommenAm: iso(a.transferredAt),
       loeschung,
     },

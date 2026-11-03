@@ -260,8 +260,8 @@ describe("HB-05/06/07: Handbuch (Demo-Schule)", () => {
 
   it("Starter-Seiten: Adressen stimmen mit den Titeln, idempotent angelegt, sichtbar für die Zielgruppen, Eigenseiten bleiben Personal", async () => {
     for (const s of STARTER_PAGES) expect(s.slug).toBe(slugify(s.title));
-    // wenige Vorlagen: acht „Erste Schritte“ (HB-07, CA-04) und die Seite zu Gebäude & Technik (INV-07)
-    expect(STARTER_PAGES.length).toBeLessThanOrEqual(9);
+    // wenige Vorlagen: acht „Erste Schritte“ (HB-07, CA-04), Gebäude & Technik (INV-07) und Losverfahren (LO-03)
+    expect(STARTER_PAGES.length).toBeLessThanOrEqual(10);
     // jede Starter-Seite, auf die die kontextbezogene Hilfe zeigt, gibt es
     const slugs = new Set(STARTER_PAGES.map((s) => s.slug));
     for (const slug of [...Object.values(CONTEXT_PAGES), ...Object.values(FIRST_STEPS)]) expect(slugs.has(slug!)).toBe(true);
@@ -294,7 +294,7 @@ describe("HB-05/06/07: Handbuch (Demo-Schule)", () => {
       ["erste-schritte-fuer-schuelerinnen-und-schueler", "krankmeldung", "kurswahl", "passwort-vergessen", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort(),
     );
     expect(await visible("u-jana.brandt")).toEqual(
-      ["erste-schritte-fuer-lehrkraefte-und-personal", "gebaeude-und-technik-inventar", "passwort-vergessen", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort(),
+      ["erste-schritte-fuer-lehrkraefte-und-personal", "gebaeude-und-technik-inventar", "passwort-vergessen", "schulanmeldung-losverfahren-bei-anmeldeueberhang", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort(),
     );
     // eigene Seiten: Vorgabe Personal – im Formular, hier die Konstante
     expect(STAFF_TARGET_ROLES).not.toContain("eltern");

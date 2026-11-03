@@ -1,6 +1,6 @@
 // Schulanmeldung – Entscheidung und Export (P4-37). Die Schulleitung entscheidet einzeln oder für eine Auswahl
 // (aufgenommen / Warteliste / abgelehnt); Kapazität, Geschwister und Wohnort sind nur Information – SchulOS wählt nicht
-// automatisch aus und lost nicht (Q-34). Eltern bekommen nach der ersten Entscheidung nur „Bescheid folgt per Post“ (Q-35).
+// automatisch aus (Q-34). Ein Los zieht SchulOS nur auf ausdrücklichen Auftrag für eine Losgruppe der Schulleitung (LO-01, `los.ts`). Eltern bekommen nach der ersten Entscheidung nur „Bescheid folgt per Post“ (Q-35).
 // Exporte: CSV für die Schulverwaltungssoftware (Spalten wählbar, UTF-8 oder Windows-1252) und Serienbrief-CSV für die
 // Bescheide; beides im Audit-Log (ohne Personendaten).
 import { and, asc, eq, inArray } from "drizzle-orm";
@@ -59,6 +59,8 @@ export interface DecisionRow {
   spam: boolean;
   /** P4-78b: vom Sekretariat als Spam-Verdacht markiert */
   spamSuspect: boolean;
+  /** LO-01: Rang auf der Warteliste aus einem übernommenen Losverfahren */
+  waitlistRank: number | null;
 }
 
 /** Bestätigte Anträge eines Verfahrens zur Entscheidung (ohne unbestätigte und zurückgezogene), deutsch nach Namen sortiert. */
@@ -89,6 +91,7 @@ export async function decisionList(db: Db, viewer: PermissionSet, verfahrenId: s
         decidedAt: a.decidedAt,
         spam: a.rejectedAsSpam,
         spamSuspect: a.spamSuspectedAt !== null,
+        waitlistRank: a.status === "warteliste" ? a.waitlistRank : null,
       };
     }),
     capacity: await capacitySummary(db, verfahrenId),
@@ -287,6 +290,7 @@ export const EXPORT_COLUMNS = [
   { key: "email2", label: "E-Mail Elternteil 2" },
   { key: "termin", label: "Gesprächstermin" },
   { key: "entschieden_am", label: "Entschieden am" },
+  { key: "warteliste_rang", label: "Wartelisten-Rang" },
 ] as const;
 export type ExportColumn = (typeof EXPORT_COLUMNS)[number]["key"];
 
@@ -396,6 +400,8 @@ export async function exportSvsCsv(db: Db, viewer: PermissionSet, verfahrenId: s
         return slot ? dtFmt.format(slot) : "";
       case "entschieden_am":
         return a.decidedAt ? dayFmt.format(a.decidedAt) : "";
+      case "warteliste_rang":
+        return a.status === "warteliste" && a.waitlistRank ? String(a.waitlistRank) : "";
     }
   };
   const header = columns.map((k) => EXPORT_COLUMNS.find((c) => c.key === k)!.label);
