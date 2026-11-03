@@ -1,0 +1,16 @@
+{
+  "minVersion": "0.5.0",
+  "betaDays": 14,
+  "changes": [
+    { "kind": "neu", "text": "Inventar: Geräte mit Kategorien, Inventarnummern und Etiketten. Ein Scan öffnet die Geräteseite mit Fotos, Verlauf und Mängelmeldung; dazu Inventur je Raum mit Protokoll, Ausleihe mit Erinnerung und Leihvertrag sowie eine Liste für den Schulträger" },
+    { "kind": "neu", "text": "Betriebsmonitoring: Die Verwaltung sieht auf einer Karte, ob Dienste, Speicher, Sicherung und Zertifikate in Ordnung sind, dazu Zähler für Anfragen und Fehler – ohne IP-Adressen. Das Betriebsprotokoll wird höchstens 48 Stunden aufbewahrt" },
+    { "kind": "neu", "text": "Schul-Zertifikat: Das Zertifikat der Schule lässt sich mit Anleitung herunterladen, ein Wechsel wird angekündigt. Wer SchulOS per IP-Adresse aufruft, bekommt einen Hinweis. Optional: echtes Let's-Encrypt-Zertifikat per DNS-Prüfung, auch wenn der Server nur im Schulnetz steht" },
+    { "kind": "neu", "text": "Klassenbildung für die Neuaufnahmen: SchulOS schlägt eine Verteilung auf die Klassen vor und begründet sie je Kind. Wünsche „zusammen“ oder „nicht zusammen“ lassen sich im Vorgang erfassen, Geschwister bleiben zusammen, wenn nichts anderes angekreuzt ist. Einzelne Kinder lassen sich festpinnen" },
+    { "kind": "neu", "text": "Losverfahren bei mehr Anmeldungen als Plätzen: nachvollziehbar mit vorab veröffentlichtem Prüfwert, Übernahme des Ergebnisses, Rang auf der Warteliste und Protokoll" },
+    { "kind": "neu", "text": "Fachraum-Prüfungen: Vorlagen für Chemie, Naturwissenschaften und Strahlenschutz (Abzüge, Notduschen, Sicherheitsschränke und mehr). Für jede Prüfart lässt sich eine zuständige Gruppe festlegen, etwa die Fachschaft; sie bekommt die Erinnerungen und darf die Prüfungen eintragen" },
+    { "kind": "neu", "text": "Veranstaltungen bei der Hausmeisterei anmelden: Zeitraum mit Auf- und Abbau, Räume, Personenzahl und Bedarf wie Bestuhlung oder Technik. Die Hausmeisterei bestätigt oder fragt nach und sieht „Heute im Haus“ samt Wochenvorschau; auf Wunsch gibt die Schulleitung frei" },
+    { "kind": "sicherheit", "text": "Die Schlüssel des Schul-Zertifikats und des Webservers sind jetzt in Sicherung und Wiederherstellung enthalten" },
+    { "kind": "sicherheit", "text": "Datenschutz: Ausleihen, Klassenwünsche und Veranstaltungen sind in Auskunft, Löschfristen und Verzeichnis der Verarbeitungstätigkeiten berücksichtigt; Fragen an die Datenschutzbeauftragte zu Web-Push und Beobachtungsnotizen ergänzt" },
+    { "kind": "verbessert", "text": "Neue Handbuch-Startseiten für Inventar, Klassenbildung, Losverfahren, Fachraum-Prüfungen und Veranstaltungen; aktualisierte Abhängigkeiten" }
+  ]
+}
