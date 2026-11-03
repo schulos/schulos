@@ -572,7 +572,7 @@ export async function getSessionList(db: Db, viewer: PermissionSet, sessionId: s
   };
 }
 
-async function requireRecordable(db: Db, viewer: PermissionSet, sessionId: string, now: Date) {
+export async function requireRecordable(db: Db, viewer: PermissionSet, sessionId: string, now: Date) {
   const s = await loadSession(db, sessionId);
   if (!s) throw new ValidationError({ sessionId: "Termin nicht gefunden" });
   await requireOffer(db, viewer, s.groupId);

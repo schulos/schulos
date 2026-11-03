@@ -123,5 +123,54 @@ export const ganztagMarks = pgTable(
   ],
 );
 
+/**
+ * GT-09 (Projektleitung 2026-11-03): Heimweg nur als *Art* der Regel – keine Namen oder Kontaktdaten Abholberechtigter
+ * (keine Daten Dritter in SchulOS).
+ */
+export const GANZTAG_WAY_HOME = ["allein", "abgeholt", "bus"] as const;
+export type GanztagWayHome = (typeof GANZTAG_WAY_HOME)[number];
+export const ganztagWayHomeEnum = pgEnum("ganztag_way_home", GANZTAG_WAY_HOME);
+
+/** Heimwegregel je Angebot und Teilnehmende:r (setzen Eltern bzw. eigenständige Schüler:innen, Leitung oder Verwaltung). */
+export const ganztagWayHomeRules = pgTable(
+  "ganztag_way_home_rules",
+  {
+    groupId: text("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    way: ganztagWayHomeEnum("way").notNull(),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.studentId] }), index("ganztag_way_home_rules_student_idx").on(t.studentId)],
+);
+
+/**
+ * GT-09/GT-10: je Termin und Teilnehmende:r die Tagesänderung des Heimwegs (Eltern bis zur Frist) und „gegangen“ mit Uhrzeit
+ * (Leitung). Folgt dem Termin (Löschung zum Schuljahresende).
+ */
+export const ganztagDepartures = pgTable(
+  "ganztag_departures",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => ganztagSessions.id, { onDelete: "cascade" }),
+    studentId: text("student_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Tagesänderung (null = es gilt die Regel) */
+    way: ganztagWayHomeEnum("way"),
+    changedBy: text("changed_by").references(() => users.id, { onDelete: "set null" }),
+    changedAt: timestamp("changed_at", { withTimezone: true }),
+    /** „gegangen“ – Uhrzeit, zu der die Leitung den Abgang vermerkt hat */
+    leftAt: timestamp("left_at", { withTimezone: true }),
+    leftBy: text("left_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [primaryKey({ columns: [t.sessionId, t.studentId] }), index("ganztag_departures_student_idx").on(t.studentId)],
+);
+
 export type GanztagSession = typeof ganztagSessions.$inferSelect;
 export type GanztagSeries = typeof ganztagSeries.$inferSelect;

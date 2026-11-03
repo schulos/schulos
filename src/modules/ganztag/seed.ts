@@ -1,6 +1,6 @@
 import { and, desc, eq, lt } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { ganztagGroupSettings, ganztagMarks, ganztagSeries, ganztagSessions, grants, groupFeatures, groupMembers, groups, schoolYears } from "@/core/db/schema";
+import { ganztagGroupSettings, ganztagMarks, ganztagSeries, ganztagSessions, ganztagWayHomeRules, grants, groupFeatures, groupMembers, groups, schoolYears } from "@/core/db/schema";
 import { loadSchoolCalendar } from "@/core/school/calendar";
 import { toBerlinDate } from "@/core/time";
 import { LIST_FEATURE, seriesDates } from "./service";
@@ -47,6 +47,12 @@ export async function seedGanztag(db: Db, now = new Date()) {
     .orderBy(groupMembers.userId);
   const [leader] = await db.select({ id: groupMembers.userId }).from(groupMembers).where(and(eq(groupMembers.groupId, "g-ag-robotik"), eq(groupMembers.role, "leader")));
   if (kids.length === 0) return;
+  // GT-09: Heimweg für die ersten Kinder der Robotik-AG (nur die Art, keine Namen Abholberechtigter)
+  const ways = ["allein", "abgeholt", "bus"] as const;
+  await db
+    .insert(ganztagWayHomeRules)
+    .values(kids.slice(0, 3).map((k, i) => ({ groupId: "g-ag-robotik", studentId: k.id, way: ways[i]!, updatedBy: leader?.id ?? null })))
+    .onConflictDoNothing();
   const recordedAt = new Date(`${last.date}T14:30:00Z`);
   await db.insert(ganztagMarks).values(
     kids.map((k, i) => ({

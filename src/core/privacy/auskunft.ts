@@ -106,6 +106,9 @@ export const ACTOR_KEEP: Record<string, string[] | ((row: Record<string, unknown
   // Ganztag (GT-03): wer eine Liste bzw. Zeile erfasst hat – mit Termin, ohne die Schüler:in und ohne Status
   ganztag_sessions: ["group_id", "date", "starts_at"],
   ganztag_marks: ["session_id"],
+  // Ganztag (GT-09/GT-10): wer einen Heimweg geändert bzw. „gegangen“ vermerkt hat – mit Angebot bzw. Termin, ohne die Schüler:in
+  ganztag_way_home_rules: ["group_id"],
+  ganztag_departures: ["session_id"],
   gebaeude_ticket_events: (row) => ["ticket_id", "kind", "status_from", "status_to", ...(row.kind === "zuweisung" ? [] : ["text"])],
 };
 
