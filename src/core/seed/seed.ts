@@ -376,6 +376,8 @@ export async function seedDemoSchool(
     { permission: "stundenplan.forecast_view", groupId: "g-schulleitung" },
     // SP3-03 (F-10-3): Schulleitung prüft Planentwürfe und gibt sie frei (Migration 0112 auf Bestandsinstallationen)
     { permission: "stundenplan.review", groupId: "g-schulleitung" },
+    // VA-01: Veranstaltungen freigeben, wenn die Schulleitungs-Freigabe eingeschaltet ist (Migration 0131 auf Bestandsinstallationen)
+    { permission: "gebaeude.event_approve", groupId: "g-schulleitung" },
   ]);
   // Rechte der Funktionsgruppe (Migration 0088 legt sie schon an, nach demo-reset fehlen sie)
   await db

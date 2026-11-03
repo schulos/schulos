@@ -88,4 +88,16 @@ export const DEADLINE_DAYS = defineSetting({
   default: "60",
 });
 
-export const GEBAEUDE_SETTINGS = [REPORT_KEEP, INVENTORY_NO_FORMAT, LABEL_FORMAT_DEFAULT, LOAN_DAYS, LOAN_REMIND_DAYS, LOAN_MAIL, DEADLINE_DAYS];
+/** VA-01: Veranstaltungsanmeldungen erst von der Schulleitung freigeben lassen (Recht `gebaeude.event_approve`), Vorgabe aus. */
+export const EVENT_APPROVAL = defineSetting({
+  key: "gebaeude.event_approval",
+  label: "Veranstaltungen: Freigabe durch die Schulleitung",
+  help: "Eingeschaltet geht eine Veranstaltungsanmeldung zuerst an alle mit dem Recht „Veranstaltungen freigeben“ (Gruppe Schulleitung) und erst nach der Freigabe an die Hausmeisterei.",
+  options: [
+    { value: "0", label: "aus – direkt an die Hausmeisterei" },
+    { value: "1", label: "an – erst Freigabe durch die Schulleitung" },
+  ],
+  default: "0",
+});
+
+export const GEBAEUDE_SETTINGS = [REPORT_KEEP, INVENTORY_NO_FORMAT, LABEL_FORMAT_DEFAULT, LOAN_DAYS, LOAN_REMIND_DAYS, LOAN_MAIL, DEADLINE_DAYS, EVENT_APPROVAL];

@@ -22,6 +22,8 @@ export const LOS_HELP_SLUG = "schulanmeldung-losverfahren-bei-anmeldeueberhang";
 export const KLASSENBILDUNG_HELP_SLUG = "schulanmeldung-klassenbildung-fuer-die-neuaufnahmen";
 /** GS-03: Seite zu den Fachraum-Prüfungen (Bereich Gebäude & Technik) */
 export const FACHRAUM_HELP_SLUG = "fachraum-pruefungen";
+/** VA-03: Seite zur Veranstaltungsanmeldung (Bereich Gebäude & Technik) */
+export const VERANSTALTUNG_HELP_SLUG = "veranstaltung-bei-der-hausmeisterei-anmelden";
 /** CA-04: Starter-Seite zum Schul-Zertifikat (Verwaltung → System verlinkt sie, wenn es sie gibt) */
 export const ROOT_CA_HELP_SLUG = "schul-zertifikat-installieren";
 
@@ -379,6 +381,46 @@ Biologie (Biostoffe) folgt später. Ein **Chemikalienkataster** führt SchulOS n
 - Erinnerungen kommen als Benachrichtigung: bald fällige einmal je Woche, überfällige täglich. Ist niemand (mehr) in der Gruppe, gehen sie an die Hausmeisterei.
 
 Die Hausmeisterei und die Schulleitung sehen weiterhin alle Prüfungen; Prüfliste und CSV für den Schulträger gibt es dort.`,
+  },
+  {
+    // VA-03: Veranstaltungsanmeldung an die Hausmeisterei (Aula, Sporthalle, Aufbau, Schließzeiten)
+    slug: VERANSTALTUNG_HELP_SLUG,
+    title: "Veranstaltung bei der Hausmeisterei anmelden",
+    roles: STAFF_TARGET_ROLES,
+    section: GEBAEUDE_SECTION,
+    body: `Elternabend in der Aula, Sportfest, Theateraufführung: Über **Gebäude & Technik → Veranstaltung anmelden** erfährt die Hausmeisterei rechtzeitig, wann was in welchen Räumen gebraucht wird – statt per Zettel im Fach.
+
+## Anmelden (Lehrkräfte und Personal)
+
+1. **Gebäude & Technik → Veranstaltung anmelden**.
+2. **Beginn** und **Ende** eintragen, bei Bedarf **Aufbau ab** und **Abbau bis** (z. B. Stühle stellen ab 16 Uhr).
+3. **Räume** wählen (mehrere mit Strg bzw. ⌘) oder einen **Ort ohne Raum** angeben (Schulhof, Sportplatz).
+4. **Erwartete Personen**, **Bestuhlung** und den **Bedarf** ankreuzen: Technik, Auf- und Abschließen außerhalb der Öffnungszeiten, Heizung/Lüftung, Reinigung danach. Einzelheiten ins Textfeld – bitte ohne Namen von Schüler:innen.
+5. **Anmelden**. Die Seite der Veranstaltung zeigt gleich, ob in den Räumen zu der Zeit Unterricht, eine Wartung, eine Raumsperre, eine Buchung oder eine andere Veranstaltung liegt.
+
+Unter **Meine Veranstaltungen** steht der Stand. Fragt die Hausmeisterei nach (**Rückfrage**), kommt eine Benachrichtigung; die Antwort geht über **Rückfrage beantworten** zurück. Absagen geht bis zum Ende der Veranstaltung über **Veranstaltung absagen**.
+
+## Bestätigen (Hausmeisterei)
+
+- **Gebäude & Technik → Veranstaltungen** zeigt **Zu bestätigen**, die **Wochenvorschau** (heute und die nächsten sechs Tage) und spätere bestätigte Veranstaltungen. „Heute im Haus“ auf der Startseite nennt die Veranstaltungen des Tages.
+- **Bestätigen**: Mit **Räume sperren, wo Unterricht betroffen ist** sperrt SchulOS nur die Stunden, in denen in dem Raum wirklich Unterricht liegt – die Vertretungsplanung sieht die Sperre, die betroffenen Lehrkräfte bekommen eine Benachrichtigung. Ohne Unterricht wird nichts gesperrt; Wartung, Buchungen und andere Veranstaltungen sind nur ein Hinweis. **Im Schulkalender eintragen** legt einen Termin für alle an.
+- **Rückfrage senden** oder **Ablehnen** mit Begründung.
+- Am Vortag (ab Mittag) erinnert SchulOS die Hausmeisterei und die anmeldende Person mit „Morgen im Haus: …“.
+- Wird eine bestätigte Veranstaltung abgesagt, fallen Raumsperren und Kalendereintrag wieder weg.
+
+## Freigabe durch die Schulleitung (optional)
+
+Unter **Verwaltung → Rechte & Module → Gebäude & Technik** lässt sich **Veranstaltungen: Freigabe durch die Schulleitung** einschalten (Vorgabe: aus). Dann geht jede Anmeldung zuerst an alle mit dem Recht **Veranstaltungen freigeben** (Gruppe Schulleitung) und erst nach der Freigabe an die Hausmeisterei.
+
+## Wer darf was?
+
+| Wer | Veranstaltungen |
+|---|---|
+| Lehrkräfte und Personal (Recht „Mängel melden“) | anmelden, eigene sehen, Rückfragen beantworten, absagen |
+| Hausmeisterei (Recht „Meldungen bearbeiten“) | alle sehen, bestätigen, zurückfragen, ablehnen, absagen |
+| Schulleitung (Recht „Veranstaltungen freigeben“) | alle sehen; freigeben oder ablehnen, wenn die Freigabe eingeschaltet ist |
+
+Anmeldungen werden ein Jahr nach dem geplanten Ende gelöscht.`,
   },
   {
     // KB-04 (docs/KLASSENBILDUNG.md): Klassenbildung im Schuljahreswechsel – für das Personal (Verwaltung/Schulleitung)

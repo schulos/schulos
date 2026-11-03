@@ -10,6 +10,7 @@ import { Button } from "@schulos/ui/button";
 import { Field, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
 import { canConfigure, responsibleInspectionTypes } from "@/modules/gebaeude/pruefungen";
+import { canSeeAllEvents } from "@/modules/gebaeude/veranstaltungen";
 import { GebaeudeNav, TicketItem } from "./ui";
 
 export const metadata: Metadata = { title: "Gebäude & Technik" };
@@ -55,6 +56,19 @@ export default async function GebaeudePage({ searchParams }: { searchParams: Pro
           <Link href="/gebaeude" className="text-sm font-medium text-accent-ink hover:underline">
             Zur Übersicht aller Meldungen
           </Link>
+        )}
+        {/* VA-02: Veranstaltungen anmelden (alle mit „melden“) bzw. freigeben (Schulleitung) */}
+        {(report || canSeeAllEvents(perms)) && (
+          <p className="text-sm">
+            <Link href={report ? "/gebaeude/veranstaltungen/neu" : "/gebaeude/veranstaltungen"} className="flex min-h-6 items-center font-medium text-accent-ink hover:underline">
+              {report ? "Veranstaltung anmelden (Aula, Sporthalle, Aufbau, Schließzeiten)" : "Veranstaltungen"}
+            </Link>
+            {report && (
+              <Link href="/gebaeude/veranstaltungen" className="flex min-h-6 items-center font-medium text-accent-ink hover:underline">
+                {canSeeAllEvents(perms) ? "Veranstaltungen" : "Meine Veranstaltungen"}
+              </Link>
+            )}
+          </p>
         )}
         {/* GS-02: zuständige Gruppe einer Prüfart (z. B. Fachschaft Chemie) ohne „alles lesen“ */}
         {ownChecks && (

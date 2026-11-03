@@ -14,6 +14,7 @@ import { safeMailConfig } from "@schulos/server/mail";
 import { MODULES } from "@/modules";
 import { runInspectionReminders } from "@/modules/gebaeude/pruefungen";
 import { runLoanReminders } from "@/modules/gebaeude/leihe";
+import { runEventReminders } from "@/modules/gebaeude/veranstaltungen";
 import { purgeUnconfirmed } from "@/modules/anmeldung/public";
 import { runGapReminders } from "@/modules/klassenbuch/luecken";
 import { runPrefWindowReminders } from "@/modules/stundenplan/zeitwunsch-fenster";
@@ -199,6 +200,18 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
       const m = MODULES.find((x) => x.id === "gebaeude");
       if (!m || !isEnabled(m, await loadModuleStates(db))) return;
       return runLoanReminders(db, toBerlinDate(now), { mail: mailAvailable(), school: (await readSchoolSettings(db)).name }, now);
+    },
+  },
+  {
+    // VA-02: Gong am Vortag einer Veranstaltung (Aufbau beginnt morgen) an die Hausmeisterei und die anmeldende Person – je Veranstaltung einmal
+    name: "gebaeude-veranstaltungen",
+    at: "12:00",
+    until: "20:00",
+    ttlMs: 10 * 60_000,
+    run: async (db, now) => {
+      const m = MODULES.find((x) => x.id === "gebaeude");
+      if (!m || !isEnabled(m, await loadModuleStates(db))) return;
+      return runEventReminders(db, now);
     },
   },
 ];

@@ -52,6 +52,7 @@ const SECTIONS = [
   { key: "meldungen", href: "/gebaeude", label: "Meldungen" },
   { key: "pruefungen", href: "/gebaeude/pruefungen", label: "Prüfungen" },
   { key: "inventar", href: "/gebaeude/inventar", label: "Inventar" },
+  { key: "veranstaltungen", href: "/gebaeude/veranstaltungen", label: "Veranstaltungen" },
   { key: "wartung", href: "/gebaeude/wartung", label: "Wartung" },
   { key: "statistik", href: "/gebaeude/statistik", label: "Statistik" },
   { key: "pruefarten", href: "/gebaeude/pruefarten", label: "Prüfarten" },

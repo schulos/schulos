@@ -37,6 +37,8 @@ import {
 } from "./pruefungen";
 import { addComment, addPhotos, assignTicket, blockRoomFromTicket, changeStatus, createTicket, endTicketBlock, setResponsibility } from "./service";
 import { createMaintenance, deleteMaintenance } from "./wartung";
+import { EVENT_NEED_KEYS } from "./labels";
+import { answerEvent, approveEvent, askEvent, cancelEvent, confirmEvent, createEvent, rejectEvent } from "./veranstaltungen";
 
 const { requireUser } = moduleActions("gebaeude");
 
@@ -665,4 +667,60 @@ export async function cancelLoanAction(loanId: string, _prev: FormState, form: F
   }
   revalidatePath("/gebaeude/leihen");
   return { ok: true };
+}
+
+// ---------------------------------------------------------------- Veranstaltungen (VA-01…03)
+
+/** Veranstaltung anmelden (`gebaeude.report`); danach zur Detailseite mit Konflikthinweisen. */
+export async function createEventAction(_prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const str = (k: string) => String(form.get(k) ?? "").trim();
+  let id: string;
+  try {
+    ({ id } = await createEvent(await getDb(), perms, {
+      title: str("title"),
+      start: str("start"),
+      end: str("end"),
+      setup: str("setup") || null,
+      teardown: str("teardown") || null,
+      roomIds: form.getAll("roomIds").map(String),
+      location: str("location") || null,
+      persons: str("persons"),
+      seating: str("seating") || "keine",
+      needs: Object.fromEntries(EVENT_NEED_KEYS.map((k) => [k, form.get(k) === "on"])),
+      details: str("details") || null,
+    }));
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/", "layout");
+  redirect(`/gebaeude/veranstaltungen/${encodeURIComponent(id)}?neu=1`);
+}
+
+type EventStep = "freigeben" | "bestaetigen" | "rueckfrage" | "antworten" | "ablehnen" | "absagen";
+
+/** Ein Schritt an einer Veranstaltung (Rechte prüft der Service je Schritt). */
+export async function eventStepAction(id: string, step: EventStep, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  const text = String(form.get("text") ?? "");
+  const db = await getDb();
+  let result: string | undefined;
+  try {
+    if (step === "freigeben") await approveEvent(db, perms, id);
+    else if (step === "rueckfrage") await askEvent(db, perms, id, text);
+    else if (step === "antworten") await answerEvent(db, perms, id, text);
+    else if (step === "ablehnen") await rejectEvent(db, perms, id, text);
+    else if (step === "absagen") await cancelEvent(db, perms, id, text || null);
+    else {
+      const calendar = form.get("calendar") === "on" && (await moduleOn("kalender"));
+      const r = await confirmEvent(db, perms, id, { blockRooms: form.get("blockRooms") === "on", calendar, note: text || null });
+      result = r.blocks
+        ? `Bestätigt – ${r.blocks === 1 ? "1 Raumsperre" : `${r.blocks} Raumsperren`} angelegt${r.notified ? `, ${r.notified === 1 ? "1 Lehrkraft" : `${r.notified} Lehrkräfte`} benachrichtigt` : ""}.`
+        : "Bestätigt.";
+    }
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, values: result ? { result } : undefined };
 }

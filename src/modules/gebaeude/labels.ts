@@ -224,3 +224,65 @@ export function loanState(l: { dueOn: string; returnedAt: Date | null }, today: 
   if (l.returnedAt) return "zurueck";
   return l.dueOn < today ? "ueberfaellig" : "offen";
 }
+
+// ---------------------------------------------------------------- Veranstaltungen (VA-01, P4-75)
+
+/**
+ * Stand einer Veranstaltungsanmeldung. „freigabe“ nur mit eingeschalteter Schulleitungs-Freigabe (Moduleinstellung); danach
+ * „angemeldet“ bei der Hausmeisterei, die bestätigt, zurückfragt oder ablehnt. Absagen kann die anmeldende Person oder die Hausmeisterei.
+ */
+export const EVENT_STATUSES = ["freigabe", "angemeldet", "rueckfrage", "bestaetigt", "abgelehnt", "abgesagt"] as const;
+export type EventStatus = (typeof EVENT_STATUSES)[number];
+
+export const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
+  freigabe: "Wartet auf Freigabe",
+  angemeldet: "Angemeldet",
+  rueckfrage: "Rückfrage",
+  bestaetigt: "Bestätigt",
+  abgelehnt: "Abgelehnt",
+  abgesagt: "Abgesagt",
+};
+
+/** Noch nicht entschieden (Hausmeisterei bzw. Schulleitung muss handeln, bei Rückfrage die anmeldende Person). */
+export const EVENT_OPEN_STATUSES: readonly EventStatus[] = ["freigabe", "angemeldet", "rueckfrage"];
+/** Findet statt bzw. kann stattfinden – zählt für „Heute im Haus“, Wochenvorschau und Konflikte. */
+export const EVENT_ACTIVE_STATUSES: readonly EventStatus[] = ["freigabe", "angemeldet", "rueckfrage", "bestaetigt"];
+
+export const EVENT_HISTORY_KINDS = ["angemeldet", "freigegeben", "bestaetigt", "rueckfrage", "antwort", "abgelehnt", "abgesagt"] as const;
+export type EventHistoryKind = (typeof EVENT_HISTORY_KINDS)[number];
+
+export const EVENT_HISTORY_LABELS: Record<EventHistoryKind, string> = {
+  angemeldet: "angemeldet",
+  freigegeben: "von der Schulleitung freigegeben",
+  bestaetigt: "bestätigt",
+  rueckfrage: "Rückfrage",
+  antwort: "Antwort",
+  abgelehnt: "abgelehnt",
+  abgesagt: "abgesagt",
+};
+
+export const EVENT_SEATING = ["keine", "reihen", "tische", "tafel", "absprache"] as const;
+export type EventSeating = (typeof EVENT_SEATING)[number];
+export const EVENT_SEATING_LABELS: Record<EventSeating, string> = {
+  keine: "keine Bestuhlung",
+  reihen: "Stuhlreihen",
+  tische: "Tischgruppen",
+  tafel: "lange Tafel",
+  absprache: "nach Absprache",
+};
+
+/** Bedarf als Ja/Nein (neben Bestuhlung und Freitext): Feld → Beschriftung. */
+export const EVENT_NEEDS = {
+  needsTech: "Technik (Beamer, Ton, Mikrofon)",
+  needsLocking: "Auf- und Abschließen außerhalb der Öffnungszeiten",
+  needsHeating: "Heizung/Lüftung anpassen",
+  needsCleaning: "Reinigung danach",
+} as const;
+export type EventNeed = keyof typeof EVENT_NEEDS;
+export const EVENT_NEED_KEYS = Object.keys(EVENT_NEEDS) as EventNeed[];
+
+/** Höchstens so viele Tage (Aufbau bis Abbau) – länger ist eher eine Raumsperre. */
+export const EVENT_MAX_DAYS = 7;
+export const EVENT_MAX_ROOMS = 20;
+export const EVENT_MAX_PERSONS = 5000;
+export const EVENT_TEXT_MAX = 1000;
