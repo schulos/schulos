@@ -112,7 +112,10 @@ export async function createRoom(db: Db, actorId: string, input: RoomInput): Pro
 /** Ändert einen Raum; ein neues Kürzel wird in Stundenplan, Vertretungen, Klausuren und Buchungen mitgezogen. */
 export async function updateRoom(db: Db, actorId: string, id: string, input: RoomInput): Promise<string> {
   const values = await validate(db, input, id);
-  await db.update(rooms).set(values).where(eq(rooms.id, id));
+  // RS-13: der Punkt auf dem Grundriss gilt nur für die bisherige Etage – bei einem Etagenwechsel leeren
+  const [old] = await db.select({ floorId: rooms.floorId }).from(rooms).where(eq(rooms.id, id));
+  const point = old && old.floorId !== values.floorId ? { planX: null, planY: null } : {};
+  await db.update(rooms).set({ ...values, ...point }).where(eq(rooms.id, id));
   await audit(db, actorId, "verwaltung.room.update", values.id, { renamedFrom: values.id !== id ? id : undefined });
   return values.id;
 }

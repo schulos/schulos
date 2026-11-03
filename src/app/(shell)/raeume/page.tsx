@@ -6,8 +6,10 @@ import { getDb } from "@/core/db/client";
 import { ROOM_KIND_LABELS } from "@/core/labels";
 import { roomHref } from "@/core/room-href";
 import { placeOptions } from "@/modules/verwaltung/gebaeude-etagen";
+import { floorPlansFor } from "@/modules/verwaltung/grundriss";
 import { roomDirectory } from "@/modules/verwaltung/raumsteckbrief";
 import { canPrintDoorSigns } from "@/modules/verwaltung/tuer-qr";
+import { FloorPlan } from "@/ui/grundriss";
 import { roomPhotoSrc } from "@/ui/raum-steckbrief";
 import { Button } from "@schulos/ui/button";
 import { Input, Select } from "@schulos/ui/field";
@@ -20,6 +22,7 @@ type Room = Awaited<ReturnType<typeof roomDirectory>>[number];
 /**
  * RS-02/RS-10: Raumliste und Raumfinder für alle Angemeldeten – nur Stammdaten ohne Belegung, je Raum ein Link auf den
  * Steckbrief, mit Titelbild (RS-04). Gruppiert und filterbar nach Gebäude und Etage (Stammdaten, Reihenfolge der Verwaltung).
+ * RS-13: je Etage mit Plan ein aufklappbarer Grundriss (offen, wenn nach der Etage gefiltert ist) – Ergänzung zur Liste.
  */
 export default async function RaeumeListePage({ searchParams }: { searchParams: Promise<{ q?: string; gebaeude?: string; etage?: string }> }) {
   const { perms } = await requireUser();
@@ -45,6 +48,8 @@ export default async function RaeumeListePage({ searchParams }: { searchParams: 
     if (!f) g.floors.push((f = { key: fKey, floor: r.floor, rooms: [] }));
     f.rooms.push(r);
   }
+  // RS-13: Grundrisse der angezeigten Etagen (nur mit Plan und Sicht laut Moduleinstellung); die Liste bleibt Hauptansicht
+  const plans = await floorPlansFor(db, perms, groups.flatMap((g) => g.floors.flatMap((f) => (f.key === "-" ? [] : [f.key]))));
   const filtered = Boolean(sp.q?.trim() || building || floor);
   return (
     <main className="flex flex-col gap-6">
@@ -110,6 +115,14 @@ export default async function RaeumeListePage({ searchParams }: { searchParams: 
             {g.floors.map((f) => (
               <div key={f.key} className="flex flex-col gap-2">
                 {f.floor && <h3 className="text-sm font-semibold">{f.floor}</h3>}
+                {plans.has(f.key) && (
+                  <details open={floor?.id === f.key} className="rounded-card border border-border bg-surface p-3 [&[open]>summary]:mb-3">
+                    <summary className="cursor-pointer text-sm font-medium text-accent-ink">
+                      Grundriss {g.building} · {f.floor}
+                    </summary>
+                    <FloorPlan plan={plans.get(f.key)!} rooms={plans.get(f.key)!.rooms} />
+                  </details>
+                )}
                 <ul aria-label={f.floor ? `${g.building}, ${f.floor}` : g.building} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {f.rooms.map((r) => (
                     <li key={r.id}>

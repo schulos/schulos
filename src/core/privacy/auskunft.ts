@@ -126,6 +126,9 @@ export const EXPORT_FILES: { table: string; key: string; name: string; via: stri
   // RS-04: Raumfotos zeigen Räume, keine Personen, und tragen keinen Personenbezug – nie Teil einer Auskunft
   { table: "room_photos", key: "storage_key", name: "mime", via: [] },
   { table: "room_photos", key: "thumb_key", name: "mime", via: [] },
+  // RS-13: Grundrisse zeigen Gebäude, keine Personen (Hinweis am Upload) – Stammdaten ohne Personenbezug, nie Teil einer Auskunft
+  { table: "building_floors", key: "plan_key", name: "plan_mime", via: [] },
+  { table: "building_floors", key: "plan_thumb_key", name: "plan_mime", via: [] },
   // INV-03: Fotos von Inventar zeigen Sachen und tragen keinen Personenbezug (wer hochgeladen hat, steht nur im Audit-Log)
   { table: "gebaeude_asset_photos", key: "storage_key", name: "mime", via: [] },
   { table: "gebaeude_asset_photos", key: "thumb_key", name: "mime", via: [] },
