@@ -44,6 +44,8 @@ export const EXPORT_NOT_PERSONAL: Record<string, string> = {
   umfragen_targets: "Zielgruppen einer Umfrage (Rollen und Gruppen, keine Personen)",
   hilfe_targets: "Zielgruppen einer Handbuchseite (Rollen und Gruppen, keine Personen)",
   gebaeude_maintenance_rooms: "Räume eines Wartungstermins (keine Personen)",
+  gebaeude_veranstaltung_raeume: "Räume einer Veranstaltung (keine Personen; die Räume stehen im lesbaren Teil „veranstaltungen“)",
+  gebaeude_veranstaltung_sperren: "Raumsperren aus einer bestätigten Veranstaltung (keine Personen)",
   gebaeude_inspections:
     "Prüfnachweise ohne Verweis auf ein Konto; Protokoll-PDF und Bemerkung können Namen der prüfenden Person (Firma, kein Konto) enthalten und werden nach der übernächsten Prüfung geleert (G4-01)",
   kurswahl_verfahren: "Wahlverfahren (Zielgruppe, Zeitraum) ohne Personen; eigene Wahlen stehen in der Auskunft",

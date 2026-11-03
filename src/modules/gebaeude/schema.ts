@@ -7,6 +7,9 @@ import { calendarEvents } from "../kalender/schema";
 import { timetableRoomBlocks } from "../stundenplan/schema";
 import {
   ASSET_CONDITIONS,
+  EVENT_HISTORY_KINDS,
+  EVENT_SEATING,
+  EVENT_STATUSES,
   INSPECTION_RESPONSIBLES,
   INSPECTION_RESULTS,
   INSPECTION_TARGETS,
@@ -407,6 +410,99 @@ export const gebaeudeMaintenanceRooms = pgTable(
   },
   (t) => [primaryKey({ columns: [t.maintenanceId, t.roomId] })],
 );
+
+// ---------------------------------------------------------------- Veranstaltungen (VA-01, P4-75)
+
+export const gebaeudeEventStatusEnum = pgEnum("gebaeude_event_status", EVENT_STATUSES);
+export const gebaeudeEventHistoryKindEnum = pgEnum("gebaeude_event_history_kind", EVENT_HISTORY_KINDS);
+export const gebaeudeEventSeatingEnum = pgEnum("gebaeude_event_seating", EVENT_SEATING);
+
+/**
+ * Veranstaltungsanmeldung an die Hausmeisterei (Aula, Sporthalle, Schulhof …): Zeitraum mit Auf-/Abbau, Räume, Personenzahl,
+ * Bedarf. Eigene Tabelle statt Ticket-Kategorie (Projektleitung 2026-11-02). Löschfrist LK-ENDE-1J ab Veranstaltungsende.
+ */
+export const gebaeudeEvents = pgTable(
+  "gebaeude_veranstaltungen",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    title: text("title").notNull(),
+    organizerId: text("organizer_id").references(() => users.id, { onDelete: "set null" }),
+    status: gebaeudeEventStatusEnum("status").notNull().default("angemeldet"),
+    /** Veranstaltung selbst */
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    /** Aufbau ab bzw. Abbau bis (ohne Auf-/Abbau = Beginn bzw. Ende) – Belegung der Räume */
+    setupAt: timestamp("setup_at", { withTimezone: true }).notNull(),
+    teardownAt: timestamp("teardown_at", { withTimezone: true }).notNull(),
+    /** Ort ohne Raum, z. B. „Schulhof“ */
+    location: text("location"),
+    persons: integer("persons").notNull(),
+    seating: gebaeudeEventSeatingEnum("seating").notNull().default("keine"),
+    needsTech: boolean("needs_tech").notNull().default(false),
+    needsLocking: boolean("needs_locking").notNull().default(false),
+    needsHeating: boolean("needs_heating").notNull().default(false),
+    needsCleaning: boolean("needs_cleaning").notNull().default(false),
+    /** Einzelheiten zum Bedarf (Sache, ohne Namen) */
+    details: text("details"),
+    /** Eintrag im Schulkalender (optional bei Bestätigung) */
+    calendarEventId: text("calendar_event_id").references(() => calendarEvents.id, { onDelete: "set null" }),
+    /** Gong am Vortag ist raus (Job `gebaeude-veranstaltungen`) */
+    remindedAt: timestamp("reminded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gebaeude_veranstaltungen_time_idx").on(t.teardownAt, t.setupAt), index("gebaeude_veranstaltungen_organizer_idx").on(t.organizerId)],
+);
+
+/** Räume einer Veranstaltung; die Raumsperre entsteht nur bei Überschneidung mit Unterricht (je Tag eine). */
+export const gebaeudeEventRooms = pgTable(
+  "gebaeude_veranstaltung_raeume",
+  {
+    eventId: text("event_id")
+      .notNull()
+      .references(() => gebaeudeEvents.id, { onDelete: "cascade" }),
+    roomId: text("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade", onUpdate: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.eventId, t.roomId] }), index("gebaeude_veranstaltung_raeume_room_idx").on(t.roomId)],
+);
+
+/** Raumsperren, die eine Bestätigung angelegt hat (je Raum und Tag mit Unterricht) – fallen beim Absagen mit weg. */
+export const gebaeudeEventBlocks = pgTable(
+  "gebaeude_veranstaltung_sperren",
+  {
+    eventId: text("event_id")
+      .notNull()
+      .references(() => gebaeudeEvents.id, { onDelete: "cascade" }),
+    roomBlockId: text("room_block_id")
+      .notNull()
+      .references(() => timetableRoomBlocks.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.eventId, t.roomBlockId] })],
+);
+
+/** Verlauf: Anmeldung, Freigabe, Bestätigung, Rückfrage/Antwort, Ablehnung, Absage – mit Text. */
+export const gebaeudeEventHistory = pgTable(
+  "gebaeude_veranstaltung_verlauf",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => gebaeudeEvents.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    kind: gebaeudeEventHistoryKindEnum("kind").notNull(),
+    text: text("text"),
+  },
+  (t) => [index("gebaeude_veranstaltung_verlauf_event_idx").on(t.eventId)],
+);
+
+export type GebaeudeEvent = typeof gebaeudeEvents.$inferSelect;
 
 export type GebaeudeAsset = typeof gebaeudeAssets.$inferSelect;
 export type GebaeudeAssetPhoto = typeof gebaeudeAssetPhotos.$inferSelect;

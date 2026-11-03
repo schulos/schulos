@@ -11,6 +11,8 @@ import { OVERDUE_DAYS, myOpenTickets, openSummary, overdueTickets, placeLabel } 
 import { todayInHouse } from "./heute";
 import { formatLoanDay, myLoans } from "./leihe";
 import { blockLabel } from "@/modules/stundenplan/raumsperren";
+import { EVENT_STATUS_LABELS } from "./labels";
+import { eventPlace, openEventCount, setupText } from "./veranstaltungen";
 
 /** Für Melder:innen: eigene offene Meldungen mit Status. */
 async function MeineMeldungen({ current }: { current: CurrentUser }) {
@@ -44,7 +46,12 @@ async function MeineMeldungen({ current }: { current: CurrentUser }) {
 /** Für die Bearbeitung: offene Meldungen je Status, Gefahr und überfällige (länger als 14 Tage offen). */
 async function Offen({ current }: { current: CurrentUser }) {
   const db = await getDb();
-  const [summary, overdue, checks] = await Promise.all([openSummary(db), overdueTickets(db, current.perms), inspectionSummary(db, current.perms, toBerlinDate(new Date()))]);
+  const [summary, overdue, checks, events] = await Promise.all([
+    openSummary(db),
+    overdueTickets(db, current.perms),
+    inspectionSummary(db, current.perms, toBerlinDate(new Date())),
+    openEventCount(db),
+  ]);
   return (
     <Card>
       <CardHeader title="Gebäude & Technik: offen" action={{ href: "/gebaeude", label: "Zum Board" }} />
@@ -64,6 +71,11 @@ async function Offen({ current }: { current: CurrentUser }) {
       {(checks.overdue > 0 || checks.due > 0) && (
         <Link href={checks.overdue ? "/gebaeude/pruefungen?stand=ueberfaellig" : "/gebaeude/pruefungen?stand=faellig"} className="text-sm font-semibold hover:underline">
           Prüfungen: {[checks.overdue ? `${checks.overdue} überfällig` : null, checks.due ? `${checks.due} bald fällig` : null].filter(Boolean).join(", ")}
+        </Link>
+      )}
+      {events > 0 && (
+        <Link href="/gebaeude/veranstaltungen" className="text-sm font-semibold hover:underline">
+          Veranstaltungen: {events === 1 ? "1 Anmeldung" : `${events} Anmeldungen`} zu bestätigen
         </Link>
       )}
       <div className="flex flex-col gap-1.5">
@@ -92,14 +104,37 @@ async function HeuteImHaus({ current }: { current: CurrentUser }) {
   const db = await getDb();
   const now = new Date();
   const data = await todayInHouse(db, current.perms, now);
-  const empty = !data.bookings.length && !data.maintenance.length && !data.blocks.length;
+  const empty = !data.bookings.length && !data.maintenance.length && !data.blocks.length && !data.events.length;
   return (
     <Card aria-label="Heute im Haus">
       <CardHeader title="Heute im Haus" action={data.bookingsVisible ? { href: "/buchungen", label: "Buchungen" } : undefined} />
       {empty ? (
-        <p className="text-sm text-muted">Heute keine Buchungen, Wartungen oder Sperrungen.</p>
+        <p className="text-sm text-muted">Heute keine Veranstaltungen, Buchungen, Wartungen oder Sperrungen.</p>
       ) : (
         <div className="flex flex-col gap-3 text-sm">
+          {data.events.length > 0 && (
+            <section aria-label="Veranstaltungen" className="flex flex-col gap-1">
+              <h3 className="text-xs font-semibold tracking-wide text-muted uppercase">Veranstaltungen</h3>
+              <ul className="flex flex-col gap-0.5">
+                {data.events.map((e) => {
+                  const extra = setupText(e);
+                  return (
+                    <li key={e.id}>
+                      <Link href={`/gebaeude/veranstaltungen/${e.id}`} className="hover:underline">
+                        <span className="font-medium">{e.title}</span>
+                        <span className="text-muted">
+                          {" "}
+                          · {e.span} · {eventPlace(e)}
+                          {extra ? ` · ${extra}` : ""}
+                          {e.status !== "bestaetigt" ? ` · ${EVENT_STATUS_LABELS[e.status]}` : ""}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
           {data.bookings.length > 0 && (
             <section aria-label="Raumbuchungen" className="flex flex-col gap-1">
               <h3 className="text-xs font-semibold tracking-wide text-muted uppercase">Raumbuchungen</h3>
@@ -153,6 +188,9 @@ async function HeuteImHaus({ current }: { current: CurrentUser }) {
           )}
         </div>
       )}
+      <Link href="/gebaeude/veranstaltungen" className="flex min-h-6 items-center text-sm font-medium text-accent-ink hover:underline">
+        Veranstaltungen: Wochenvorschau
+      </Link>
     </Card>
   );
 }

@@ -144,7 +144,7 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     schulos: "Leert Protokoll-PDF und Bemerkung älterer Prüfungen; Termin, Ergebnis und Firma bleiben als Nachweis.",
     vorgabe: "Letzte 2 Protokolle, frühestens ein Jahr nach der Prüfung.",
     schule: "Klärt mit dem Schulträger die Nachweispflicht und wählt 2, 3 oder 5 Protokolle.",
-    settings: ["gebaeude.report_keep", "gebaeude.inventory_no_format", "gebaeude.label_format", "gebaeude.deadline_days"],
+    settings: ["gebaeude.report_keep", "gebaeude.inventory_no_format", "gebaeude.label_format", "gebaeude.deadline_days", "gebaeude.event_approval"],
     where: { label: "Verwaltung → Rechte & Module → Gebäude & Technik", href: "/verwaltung/rechte" },
   },
   {

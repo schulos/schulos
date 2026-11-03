@@ -9,11 +9,13 @@ export default defineModule({
   section: "organisation",
   order: 45,
   permissions: {
-    "gebaeude.report": "Mängel und Störungen melden, eigene Meldungen verfolgen",
-    "gebaeude.manage": "Meldungen bearbeiten (annehmen, zuweisen, Status, Raum sperren), Prüfungen erfassen, Wartungstermine",
+    "gebaeude.report": "Mängel und Störungen melden, Veranstaltungen bei der Hausmeisterei anmelden, eigene Meldungen und Anmeldungen verfolgen",
+    "gebaeude.manage": "Meldungen bearbeiten (annehmen, zuweisen, Status, Raum sperren), Prüfungen erfassen, Wartungstermine, Veranstaltungen bestätigen/zurückfragen/ablehnen",
     "gebaeude.inventory": "Inventar pflegen (anlegen, ändern, ausmustern, CSV-Import und -Export), Etiketten drucken, Inventur durchführen – alle Kategorien",
     "gebaeude.configure": "Prüfarten, Inventar-Kategorien (Präfix, Prüfpflicht, verantwortliche Gruppe) und Zuständigkeiten je Meldungskategorie festlegen; schließt das Inventar-Recht ein",
-    "gebaeude.view_all": "Alle Meldungen, Prüfungen, Wartungstermine und das Inventar lesen (auch als CSV)",
+    "gebaeude.view_all": "Alle Meldungen, Prüfungen, Wartungstermine, Veranstaltungen und das Inventar lesen (auch als CSV)",
+    // VA-01: nur wirksam, wenn die Moduleinstellung „Freigabe durch die Schulleitung“ an ist; Migration 0131 gibt es der Gruppe Schulleitung
+    "gebaeude.event_approve": "Veranstaltungsanmeldungen freigeben oder ablehnen, bevor sie an die Hausmeisterei gehen (Schulleitung, nur mit eingeschalteter Freigabe)",
   },
   // Schüler:innen melden per Vorgabe nicht (Q-21) – die Schule kann es z. B. der SV-Gruppe geben.
   // Die Hausmeisterei bekommt „manage“ und „inventory“ über ihre Gruppe (Rechte über Gruppen), nicht über die Rolle; eine
@@ -77,10 +79,27 @@ export default defineModule({
       start: "returned_at",
       note: "Ende = Rückgabe gebucht; offene Ausleihen bleiben; der Leihvertrag wird nur gedruckt, nicht gespeichert",
     },
+    {
+      // VA-01: Veranstaltungsanmeldung an die Hausmeisterei – auch abgelehnte/abgesagte laufen bis 1 Jahr nach dem geplanten Ende
+      table: "gebaeude_veranstaltungen",
+      purpose: "Veranstaltungen bei der Hausmeisterei anmelden (Aufbau, Räume, Bestuhlung, Technik, Schließzeiten) und bestätigen",
+      categories: ["Anmeldende Person", "Titel", "Zeitraum mit Auf-/Abbau", "Ort/Räume", "Personenzahl", "Bedarf", "Status"],
+      class: "LK-ENDE-1J",
+      start: "ends_at",
+      note: "Ende = geplantes Ende der Veranstaltung (auch bei Ablehnung oder Absage)",
+    },
+    { table: "gebaeude_veranstaltung_raeume", purpose: "Räume einer Veranstaltung", categories: ["Raum"], follows: "gebaeude_veranstaltungen" },
+    { table: "gebaeude_veranstaltung_sperren", purpose: "Raumsperren aus einer bestätigten Veranstaltung", categories: ["Raumsperre"], follows: "gebaeude_veranstaltungen" },
+    {
+      table: "gebaeude_veranstaltung_verlauf",
+      purpose: "Verlauf einer Veranstaltungsanmeldung (Freigabe, Bestätigung, Rückfrage, Antwort, Ablehnung, Absage)",
+      categories: ["Handelnde Person", "Schritt", "Text", "Zeitpunkt"],
+      follows: "gebaeude_veranstaltungen",
+    },
   ],
   processing: {
     title: "Mängel- und Störungsmeldungen (Gebäude & Technik)",
-    purpose: "Mängel und Störungen an Gebäude, Haustechnik und IT melden und beheben; Leihgeräte aus dem Inventar verleihen und zurücknehmen (INV-05)",
+    purpose: "Mängel und Störungen an Gebäude, Haustechnik und IT melden und beheben; Leihgeräte aus dem Inventar verleihen und zurücknehmen (INV-05); Veranstaltungen bei der Hausmeisterei anmelden (VA-01)",
     legalBasis:
       "Art. 6 Abs. 1 lit. e, Abs. 3 DSGVO i. V. m. § 79 SchulG NRW (Schulträger stellt und unterhält das Schulgebäude – zu prüfen) und § 120 SchulG NRW; für Lehrkräfte VO-DV II",
     subjects: ["Lehrkräfte", "Verwaltungspersonal", "weiteres Personal", "Schüler:innen (nur Leihgeräte)", "Eltern minderjähriger Entleihender (nur Erinnerungen)"],
@@ -88,9 +107,10 @@ export default defineModule({
       "Hausmeisterei/IT (Zuständigkeitsgruppe)",
       "Schulleitung",
       "meldende Person (Status der eigenen Meldung)",
+      "anmeldende Person (Stand der eigenen Veranstaltung); Schulleitung bei eingeschalteter Freigabe",
       "Pflegende der Inventar-Kategorie (Ausleihe: Person, Gerät, Fristen)",
       "entleihende Person und bei Minderjährigen die Eltern (eigene Leihgeräte, Erinnerungen)",
     ],
-    note: "Fotos nur von Sachen, Metadaten (EXIF/GPS) werden beim Hochladen entfernt. Keine Auswertung je Person – Statistik nur je Kategorie/Monat. Anlagen und Prüfarten ohne Personenbezug; Prüfnachweise nennen die Firma statt einer Prüfer:in (Erfassung nur im Audit-Log), Protokoll-PDF und Bemerkung können aber Namen enthalten und werden nach der übernächsten Prüfung derselben Art (Vorgabe; als Moduleinstellung nach der dritt- bzw. fünftnächsten), frühestens nach einem Jahr, geleert; CSV-Exporte ohne Namen und Freitext. Wartungstermine nennen die anlegende Person (1 Jahr nach Termin gelöscht). Leihgeräte (INV-05): nur an Personen mit Konto; Person und Klasse sehen nur die Pflegenden der Kategorie und die Person selbst (Eltern lesend), alle anderen höchstens „verliehen bis …“; Erinnerungen (Benachrichtigung, optional Mail) nennen kein Gerät, nur „Meine Leihgeräte“ nach der Anmeldung; wer verliehen hat, steht nur im Audit-Log; Ausleihen werden 1 Jahr nach der Rückgabe gelöscht, der Leihvertrag ist nur Druck.",
+    note: "Fotos nur von Sachen, Metadaten (EXIF/GPS) werden beim Hochladen entfernt. Keine Auswertung je Person – Statistik nur je Kategorie/Monat. Anlagen und Prüfarten ohne Personenbezug; Prüfnachweise nennen die Firma statt einer Prüfer:in (Erfassung nur im Audit-Log), Protokoll-PDF und Bemerkung können aber Namen enthalten und werden nach der übernächsten Prüfung derselben Art (Vorgabe; als Moduleinstellung nach der dritt- bzw. fünftnächsten), frühestens nach einem Jahr, geleert; CSV-Exporte ohne Namen und Freitext. Wartungstermine nennen die anlegende Person (1 Jahr nach Termin gelöscht). Leihgeräte (INV-05): nur an Personen mit Konto; Person und Klasse sehen nur die Pflegenden der Kategorie und die Person selbst (Eltern lesend), alle anderen höchstens „verliehen bis …“; Erinnerungen (Benachrichtigung, optional Mail) nennen kein Gerät, nur „Meine Leihgeräte“ nach der Anmeldung; wer verliehen hat, steht nur im Audit-Log; Ausleihen werden 1 Jahr nach der Rückgabe gelöscht, der Leihvertrag ist nur Druck. Veranstaltungen (VA-01): anmeldende Person, Zeitraum, Räume, Personenzahl und Bedarf sehen die Person selbst, die Hausmeisterei/Verwaltung (`manage`/`view_all`) und bei eingeschalteter Freigabe die Schulleitung; „Heute im Haus“ und Schulkalender nennen nur Titel, Zeit und Ort; gelöscht 1 Jahr nach dem geplanten Ende.",
   },
 });
