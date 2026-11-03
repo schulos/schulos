@@ -684,6 +684,20 @@ Schüler:in ist (Erforderlichkeit für das Aufnahmeverfahren, § 46 SchulG). Lei
   Löschung zum Schuljahresende für Rückfragen zur Aufsicht? Darf der Hinweis an die Klassenleitung die Namen der Kinder nennen
   (Gong im Konto der Klassenleitung, geht mit ihm)? Ist eine Auswertung je Angebot bei sehr kleinen Gruppen noch „ohne Namen“?
 - **Vorschlag:** Vorgaben übernehmen; die Liste nur für Angebote einschalten, für die die Schule die Aufsicht trägt.
+- **Erweiterung (Runde 14, freigegeben 2026-11-03, noch nicht gebaut – GT-09…GT-14):** Abholung/Heimweg, Mittagessen und befristete
+  Konten externer Anbieter. Die Tabelle oben wird mit GT-14 an den gebauten Stand angeglichen; bis dahin gilt die Aussage „keine
+  Konten für Externe“ nur für den heutigen Stand.
+  - **Heimweg:** SchulOS speichert nur die Art der Regel (geht allein / wird abgeholt / Bus) und die Uhrzeit „gegangen“, keine Namen
+    oder Kontaktdaten Abholberechtigter. Genügt das, und ist die Löschung zum Schuljahresende (LK-SJ) für Rückfragen zur Aufsicht
+    ausreichend? Darf die Änderung „heute holt jemand ab“ ohne Namen bis 12:00 durch die Eltern erfolgen?
+  - **Mittagessen:** Erfasst werden nur Anmeldung/Abmeldung je Tag und die Menünummer, keine Allergien, Unverträglichkeiten oder
+    Kostformen, keine Abrechnung. Kann die Menüwahl (Menü 1/2/…) als Bestellung ohne Rückschluss auf Gesundheit, Religion oder
+    Weltanschauung (Art. 9) gelten, solange die Menüs nicht nach Kostform benannt sind? Wie soll die Schule Allergien außerhalb von
+    SchulOS klären (Hinweistext „direkt mit Ganztagsleitung/Küche klären“)?
+  - **Externe Anbieter:** Befristete Konten der Rolle `personal` als Gruppenleitung (2FA, nur die eigene Gruppe, Ablauf zum
+    Angebotsende). Welche Vereinbarung braucht die Schule (Verpflichtung zur Vertraulichkeit, ggf. Auftragsverarbeitung bzw.
+    gemeinsame Verantwortung), wenn Mitarbeitende eines Anbieters Anwesenheitslisten führen? Genügt die Befristung, oder soll die
+    Schule zusätzlich die Namen der Kinder je Angebot für Externe einschränken?
 
 ## 22. Raumsteckbrief: Raumdaten, Fotos und Raumverantwortliche
 

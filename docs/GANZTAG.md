@@ -25,8 +25,8 @@ sehen Teilnahme und Fehlzeiten ihres Kindes, die Verwaltung bekommt Auswertungen
 - **Kurswahl:** Häkchen bei der Übernahme einer Wahl der Art `ag`, das die Liste für die entstehenden Gruppen einschaltet.
 
 **Später, einzeln freigeben:** Mittagessen, Abholung und Heimweg, Wartelisten, Ein-/Auschecken per Scan, Raumzuordnung,
-Kooperationspartner, Teilnahmebescheinigungen. **Ausdrücklich nicht:** Klassenbucheintrag, Notenbezug, Gesundheits- oder
-Allergiedaten, Fotos, Kostenabrechnung, Zugang externer Anbieter ohne Konto.
+Kooperationspartner, Teilnahmebescheinigungen. (Mittagessen, Abholung/Heimweg und externe Anbieter sind seit 2026-11-03 freigegeben, siehe „Folge (Runde 14)“ unten.) **Ausdrücklich nicht:** Klassenbucheintrag, Notenbezug, Gesundheits- oder
+Allergiedaten, Fotos, Kostenabrechnung, Zugang externer Anbieter ohne Konto (bleibt ausgeschlossen).
 
 ## Datenmodell (grob)
 
@@ -59,7 +59,7 @@ Datenschutz-Checkliste zugeordnet.
 6. Löschklasse `LK-SJ`.
 7. Eigene Terminserien je Gruppe.
 8. Mittagessen, Abholung und Heimweg später, einzeln.
-9. Externe Anbieter zunächst nicht als Leitung; die Schule erfasst nach Papierliste.
+9. Externe Anbieter zunächst nicht als Leitung; die Schule erfasst nach Papierliste. **Aufgehoben 2026-11-03 (Runde 14, gt-8):** befristete Konten der Rolle `personal` als Gruppenleitung, siehe „Folge (Runde 14)“.
 
 ## Umgesetzt (GT-01…GT-03)
 
@@ -136,3 +136,22 @@ Stand 2026-10-29, ohne neue Migration (Spalten und Schalter aus 0118 genügen). 
   Manifest, Löschtabelle unverändert (`LK-SJ`, Markierungen folgen), DATENSCHUTZ.md §3.4, DSB-FRAGEN §21 neu erzeugt (Vorgaben je
   Angebot, Fragen zu Namen im Hinweis und kleinen Gruppen). Kontolöschung: Zeilen gehen mit dem Konto der Schüler:in, der Hinweis mit dem
   Konto der Klassenleitung. Tests `src/modules/ganztag/rest.test.ts`, E2E `e2e/ganztag-rest.spec.ts`.
+
+## Folge (Runde 14) – Abholung/Heimweg, Mittagessen, externe Anbieter
+
+Freigegeben von der Projektleitung am 2026-11-03 (Runde 14, Fragebogen gt-1…gt-8, alle wie vorgeschlagen). Aufgaben: BACKLOG, Block
+„Ganztag“, Folge GT-09…GT-14. Reihenfolge: A (Abholung) → B (Mittagessen) → C (externe Anbieter); die Runde-14-Reihenfolge insgesamt
+steht im BACKLOG (zuletzt, nach den Veranstaltungs-Folgen).
+
+- **A Abholung/Heimweg (GT-09, GT-10):** je Teilnehmende nur die *Art* der Regel (geht allein / wird abgeholt / Bus), **keine Namen
+  oder Kontaktdaten Dritter** (keine Informationspflicht nach Art. 14, keine fremden Daten zu löschen). Eltern ändern den Heimweg
+  tagesaktuell bis 12:00 desselben Tages (Moduleinstellung) mit Gong an die Leitung; die Leitung klickt „gegangen“, die Uhrzeit wird am
+  Eintrag gespeichert und folgt dem Termin (Löschung zum Schuljahresende). Kein Ein-/Auschecken per Scan.
+- **B Mittagessen (GT-11, GT-12):** Speiseplan je Woche von Hand (Menü-Nr. + Kurzbeschreibung, „Ganztag verwalten“), Anmeldung und
+  Abmeldung je Tag mit Menüwahl und Frist, Zählung/Ausgabeliste für die Küche, **keine Abrechnung** (keine Zahlungsdaten). Allergien,
+  Unverträglichkeiten und Kostformen werden **nicht** erfasst (Art. 9); Hinweis „Allergien direkt mit Ganztagsleitung/Küche klären“.
+  CSV-Import vom Anbieter bleibt eine spätere Option.
+- **C Externe Anbieter (GT-13):** befristete Konten der Rolle `personal` als Gruppenleitung (2FA, nur die eigene Gruppe, Ablauf zum
+  Angebotsende, Verpflichtung zur Vertraulichkeit bei der Schule). Zugang ohne Konto bleibt ausgeschlossen, die Papierliste bleibt
+  Fallback. Entscheidung 9 oben ist damit aufgehoben.
+- **Datenschutz:** Fragen an die DSB stehen in DSB-FRAGEN §21 (Erweiterung Runde 14); Tabelle/Vorgaben und VVT zieht GT-14 nach.

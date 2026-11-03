@@ -304,5 +304,17 @@ Stand 2026-10-29, Migration 0122 (`buildings`, `building_floors`, `rooms.buildin
 
 Mit RS-10…12 ist der Raumsteckbrief vollständig: Stufe 1–2 (Steckbrief, Infofelder, Fotos, Ausstattungskatalog,
 Verantwortliche, Historie), Stufe 3 (Raumlayout, Sitzplan-Kopie, Prüfungsplätze) und Stufe 4 (Gebäude/Etagen, Raumfinder,
-Tür-QR). Bewusst offen: Grundriss je Etage (RS-13, optional) und der Mengenfilter in der Raumsuche (optional, RS-05). Die
+Tür-QR). Bewusst offen: Grundriss je Etage (RS-13, seit 2026-11-03 freigegeben, M, nicht mehr optional) und der Mengenfilter in der Raumsuche (optional, RS-05). Die
 Inventar-Idee dockt am Etiketten-Unterbau an. Die rechtliche Einordnung bleibt Aufgabe der Schule (DSB-FRAGEN §22).
+
+## Grundriss je Etage (RS-13, freigegeben von der Projektleitung 2026-11-03, Runde 14)
+
+Fragebogen rs-1…rs-6, alle wie vorgeschlagen. Aufgaben RS-13a…d im BACKLOG (Größe M gesamt, Reihenfolge: nach Inventar Folge, vor den
+Veranstaltungs-Folgen VA-05…07).
+
+- **rs-1** Raum als **Punkt** auf dem Plan (keine Rechteckfläche; per Tastatur einfach bedienbar).
+- **rs-2** Sichtbar für alle Angemeldeten; Moduleinstellung „nur Personal“ als Schalter.
+- **rs-3** Punkte setzt nur `verwaltung.school` (nicht die Raumverantwortlichen).
+- **rs-4** JPEG/PNG/WebP, **kein PDF** (Handbuch-Hinweis „als PNG exportieren“); SVG bleibt ausgeschlossen.
+- **rs-5** Ein Plan je Etage (ein Anbau ist in den Stammdaten ein eigenes Gebäude).
+- **rs-6** Feste Zeile am Plan: „Nicht als Flucht- und Rettungsplan verwenden“.
