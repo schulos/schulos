@@ -8,6 +8,7 @@ import { moduleActions } from "@/core/modules/guard";
 import type { FormState } from "@/modules/verwaltung/actions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { MAX_MENUS, setDayMenus, setMealOrder } from "./essen";
+import { createExternalLeader, endExternal, extendExternal } from "./extern";
 import { isWay, setDayWay, setLeft, setWayRule } from "./heimweg";
 import { GANZTAG_MARK_STATUS, type GanztagMarkStatus } from "./schema";
 import { createSeries, createSession, deleteSeries, deleteSession, setAllPresent, setListFeature, setMark, setOfferSettings, setSessionCancelled } from "./service";
@@ -212,4 +213,50 @@ export async function setMealOrderAction(studentId: string, date: string, menu: 
   }
   revalidatePath("/ganztag", "layout");
   return { message: menu === null ? "Abgemeldet." : `Angemeldet: Menü ${menu}.` };
+}
+
+export type ExternalState = FormState;
+
+/** GT-13: Konto für eine externe Leitung anlegen (Startdaten einmal anzeigen). */
+export async function createExternalAction(_prev: ExternalState, form: FormData): Promise<ExternalState> {
+  const { perms } = await requireUser();
+  try {
+    const r = await createExternalLeader(await getDb(), perms, {
+      firstName: String(form.get("firstName") ?? ""),
+      lastName: String(form.get("lastName") ?? ""),
+      email: String(form.get("email") ?? "") || null,
+      provider: String(form.get("provider") ?? ""),
+      groupId: String(form.get("groupId") ?? ""),
+      expiresOn: String(form.get("expiresOn") ?? ""),
+      confidentiality: form.get("confidentiality") === "on",
+    });
+    revalidatePath("/ganztag", "layout");
+    return { ok: true, message: "Konto angelegt.", credentials: { username: r.username, password: r.password } };
+  } catch (err) {
+    return fail(err, form);
+  }
+}
+
+/** GT-13: Befristung verlängern (auch nach Ablauf). */
+export async function extendExternalAction(userId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const { perms } = await requireUser();
+  try {
+    await extendExternal(await getDb(), perms, userId, String(form.get("expiresOn") ?? ""));
+  } catch (err) {
+    return fail(err, form);
+  }
+  revalidatePath("/ganztag/extern");
+  return { ok: true, message: "Befristung gespeichert." };
+}
+
+/** GT-13: Zugang sofort beenden. */
+export async function endExternalAction(userId: string): Promise<ActionResult> {
+  const { perms } = await requireUser();
+  try {
+    await endExternal(await getDb(), perms, userId);
+  } catch (err) {
+    return failText(err);
+  }
+  revalidatePath("/ganztag/extern");
+  return { message: "Zugang beendet – das Konto ist gesperrt." };
 }

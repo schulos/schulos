@@ -261,8 +261,8 @@ describe("HB-05/06/07: Handbuch (Demo-Schule)", () => {
   it("Starter-Seiten: Adressen stimmen mit den Titeln, idempotent angelegt, sichtbar für die Zielgruppen, Eigenseiten bleiben Personal", async () => {
     for (const s of STARTER_PAGES) expect(s.slug).toBe(slugify(s.title));
     // wenige Vorlagen: acht „Erste Schritte“ (HB-07, CA-04), Gebäude & Technik (INV-07), Fachraum-Prüfungen (GS-03), Losverfahren (LO-03),
-    // Klassenbildung (KB-04), Veranstaltungsanmeldung (VA-03) und Grundriss je Etage (RS-13)
-    expect(STARTER_PAGES.length).toBeLessThanOrEqual(14);
+    // Klassenbildung (KB-04), Veranstaltungsanmeldung (VA-03), Grundriss je Etage (RS-13) und Ganztag (GT-14)
+    expect(STARTER_PAGES.length).toBeLessThanOrEqual(15);
     // jede Starter-Seite, auf die die kontextbezogene Hilfe zeigt, gibt es
     const slugs = new Set(STARTER_PAGES.map((s) => s.slug));
     for (const slug of [...Object.values(CONTEXT_PAGES), ...Object.values(FIRST_STEPS)]) expect(slugs.has(slug!)).toBe(true);
@@ -289,13 +289,13 @@ describe("HB-05/06/07: Handbuch (Demo-Schule)", () => {
 
     const visible = async (id: string) => [...(await visibleSlugs(h.db, await p(id), [...slugs]))].sort();
     expect(await visible(mutter)).toEqual(
-      ["erste-schritte-fuer-eltern", "krankmeldung", "kurswahl", "passwort-vergessen", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort(),
+      ["erste-schritte-fuer-eltern", "ganztag-heimweg-mittagessen-und-externe-leitungen", "krankmeldung", "kurswahl", "passwort-vergessen", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort(),
     );
     expect(await visible("u-lea.schaefer")).toEqual(
-      ["erste-schritte-fuer-schuelerinnen-und-schueler", "krankmeldung", "kurswahl", "passwort-vergessen", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort(),
+      ["erste-schritte-fuer-schuelerinnen-und-schueler", "ganztag-heimweg-mittagessen-und-externe-leitungen", "krankmeldung", "kurswahl", "passwort-vergessen", "schul-zertifikat-installieren", "zwei-faktor-anmeldung-einrichten"].sort(),
     );
     expect(await visible("u-jana.brandt")).toEqual(
-      ["erste-schritte-fuer-lehrkraefte-und-personal", "fachraum-pruefungen", "gebaeude-und-technik-inventar", "passwort-vergessen", "raeume-grundriss-je-etage", "schulanmeldung-klassenbildung-fuer-die-neuaufnahmen", "schulanmeldung-losverfahren-bei-anmeldeueberhang", "schul-zertifikat-installieren", "veranstaltung-bei-der-hausmeisterei-anmelden", "zwei-faktor-anmeldung-einrichten"].sort(),
+      ["erste-schritte-fuer-lehrkraefte-und-personal", "fachraum-pruefungen", "ganztag-heimweg-mittagessen-und-externe-leitungen", "gebaeude-und-technik-inventar", "passwort-vergessen", "raeume-grundriss-je-etage", "schulanmeldung-klassenbildung-fuer-die-neuaufnahmen", "schulanmeldung-losverfahren-bei-anmeldeueberhang", "schul-zertifikat-installieren", "veranstaltung-bei-der-hausmeisterei-anmelden", "zwei-faktor-anmeldung-einrichten"].sort(),
     );
     // eigene Seiten: Vorgabe Personal – im Formular, hier die Konstante
     expect(STAFF_TARGET_ROLES).not.toContain("eltern");

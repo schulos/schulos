@@ -59,7 +59,7 @@ Datenschutz-Checkliste zugeordnet.
 6. Löschklasse `LK-SJ`.
 7. Eigene Terminserien je Gruppe.
 8. Mittagessen, Abholung und Heimweg später, einzeln.
-9. Externe Anbieter zunächst nicht als Leitung; die Schule erfasst nach Papierliste. **Aufgehoben 2026-11-03 (Runde 14, gt-8):** befristete Konten der Rolle `personal` als Gruppenleitung, siehe „Folge (Runde 14)“.
+9. ~~Externe Anbieter zunächst nicht als Leitung; die Schule erfasst nach Papierliste.~~ **Aufgehoben 2026-11-03 (Runde 14, gt-8):** befristete Konten der Rolle `personal` als Gruppenleitung, gebaut mit GT-13 (siehe „Umgesetzt (GT-13/GT-14)“); die Papierliste bleibt Fallback.
 
 ## Umgesetzt (GT-01…GT-03)
 
@@ -200,3 +200,26 @@ Stand 2026-11-03, Migration 0136 (`ganztag_menus`, `ganztag_meal_orders`).
   (`lesen.ganztag_essen`).
 - **Datenschutz:** Anmeldungen `LK-SJ` ab dem Tag, gehen mit dem Konto der Schüler:in; „angemeldet von“ wird bei der Kontolöschung
   geleert; Auskunft der handelnden Person nur mit dem Tag. Tests `essen.test.ts`, `essen.migration.test.ts`, E2E `e2e/ganztag-essen.spec.ts`.
+
+## Umgesetzt (GT-13/GT-14) – externe Leitungen, Doku
+
+Stand 2026-11-03, Migration 0137 (`users.expires_on`, `ganztag_external_leaders`).
+
+- **Befristetes Konto** (`/ganztag/extern`, „Ganztag verwalten“ **und** „Benutzer verwalten“; Knopf „Externe Leitungen“ auf `/ganztag`):
+  Vorname, Nachname, E-Mail (freiwillig), Anbieter (Verein, Musikschule …), Angebot mit Liste, „befristet bis“ (Vorgabe: Ende der letzten
+  Terminserie des Angebots, sonst Schuljahresende; höchstens ein Jahr) und das Pflicht-Häkchen „Die Person ist von der Schule
+  schriftlich auf Vertraulichkeit verpflichtet“. Angelegt wird ein normales Konto der Rolle `personal` (Startpasswort, einmal angezeigt)
+  als **Gruppenleitung genau dieses Angebots** – sie sieht damit nur Liste, Termine und Heimweg der eigenen Gruppe (Leitungsprüfung im
+  Service). Zugang ohne Konto bleibt ausgeschlossen, die Papierliste bleibt Fallback.
+- **Befristung im Kern** (`users.expires_on`, `core/permissions`): ab dem Tag nach dem Ablauf ohne Rechte (`locked`), unabhängig vom
+  Tageslauf; die **2FA ist sofort Pflicht** (`twoFactorDuty(…, { temporary })`, nicht erst ab dem Stichtag der Schule). Ersteinrichtung
+  wie bei allen Beschäftigten im Schulnetz oder mit Freigabe der Verwaltung.
+- **Job `ganztag-extern`** (täglich, auch bei ausgeschaltetem Modul): 14 Tage vor Ablauf einmal ein Gong an die Person und an
+  „Ganztag verwalten“; am Tag nach dem Ablauf Abgang = Ablaufdatum, Sitzungen beendet – gelöscht wird nach der Karenz wie jeder Abgang
+  (LK-KONTO). **Verlängern** setzt ein neues Datum und nimmt einen vom Ablauf gesetzten Abgang zurück, **Zugang beenden** sperrt sofort.
+- **Datenschutz:** `ganztag_external_leaders` (Anbieter, Angebot, Vertraulichkeit bestätigt am, Hinweis verschickt, angelegt von/am)
+  geht mit dem Konto. Audit: angelegt, verlängert, beendet, abgelaufen. DSB-FRAGEN §21 (Tabelle aus `checkliste.ts`) beschreibt jetzt
+  den gebauten Stand von Heimweg, Mittagessen und externen Leitungen; offen bleibt u. a., ob externe Konten aus allgemeinen
+  Beschäftigtenbereichen (Adressbuch, Nachrichten) ausgeschlossen werden sollen.
+- **Handbuch:** Starter-Seite „Ganztag: Heimweg, Mittagessen und externe Leitungen“ (Bereich „Ganztag“, für alle; Kontexthilfe „?“ auf
+  `/ganztag`). Tests `extern.test.ts`, `extern.migration.test.ts`, E2E `e2e/ganztag-extern.spec.ts`.

@@ -123,7 +123,7 @@ export const CORE_RETENTION: RetentionDecl[] = [
   {
     table: "users",
     purpose: "Zugang zur Plattform, Zuordnung zu Klassen und Gruppen",
-    categories: ["Name", "Benutzername", "E-Mail", "Rolle", "Kürzel", "Status", "Kennzeichen eigenständig + Einwilligung Eltern informieren"],
+    categories: ["Name", "Benutzername", "E-Mail", "Rolle", "Kürzel", "Status", "Kennzeichen eigenständig + Einwilligung Eltern informieren", "Befristung (externe Leitung im Ganztag, GT-13)"],
     class: "LK-KONTO",
     start: "id",
     period: "verwaltung.account_grace",

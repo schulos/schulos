@@ -10,6 +10,8 @@ export const CONTEXT_PAGES: Readonly<Record<string, string>> = {
   konto: "zwei-faktor-anmeldung-einrichten",
   // INV-07: Gebäude & Technik (Mängel, Inventar, Etiketten, Inventur, Ausleihe) – nur für das Personal sichtbar
   gebaeude: "gebaeude-und-technik-inventar",
+  // GT-14: Heimweg, Mittagessen, externe Leitungen
+  ganztag: "ganztag-heimweg-mittagessen-und-externe-leitungen",
 };
 
 /** „Erste Schritte“ je Rolle – Ziel auf der Startseite und in den Alltagsmodulen. */

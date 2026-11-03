@@ -26,6 +26,9 @@ export const FACHRAUM_HELP_SLUG = "fachraum-pruefungen";
 export const VERANSTALTUNG_HELP_SLUG = "veranstaltung-bei-der-hausmeisterei-anmelden";
 /** RS-13: Seite zum Grundriss je Etage (Bereich Gebäude & Technik) */
 export const GRUNDRISS_HELP_SLUG = "raeume-grundriss-je-etage";
+/** GT-14: Bereich und Seite zum Ganztag (Heimweg, Mittagessen, externe Leitungen) – für alle */
+export const GANZTAG_SECTION = "Ganztag";
+export const GANZTAG_HELP_SLUG = "ganztag-heimweg-mittagessen-und-externe-leitungen";
 /** CA-04: Starter-Seite zum Schul-Zertifikat (Verwaltung → System verlinkt sie, wenn es sie gibt) */
 export const ROOT_CA_HELP_SLUG = "schul-zertifikat-installieren";
 
@@ -525,6 +528,47 @@ und **Punkt speichern**. Auf die Etage kommt ein Raum über die Stammdaten (**Ge
 | Schüler:innen und Eltern | ansehen – außer die Einstellung **Grundriss je Etage: wer sieht ihn** steht auf **nur Personal** (**Verwaltung → Rechte & Module**) |
 
 Raumverantwortliche pflegen Fotos und Ausstattung ihres Raums, den Grundriss aber nicht. Ohne Anmeldung ist der Plan nicht abrufbar.`,
+  },
+  {
+    // GT-14 (docs/GANZTAG.md „Folge (Runde 14)“): Heimweg, Mittagessen, externe Leitungen – für alle
+    slug: GANZTAG_HELP_SLUG,
+    title: "Ganztag: Heimweg, Mittagessen und externe Leitungen",
+    roles: [],
+    section: GANZTAG_SECTION,
+    body: `Im Menü **Ganztag** stehen die AGs und Angebote mit Anwesenheitsliste – und seit Runde 14 auch **Heimweg** und **Mittagessen**.
+
+## Heimweg (Eltern)
+
+1. **Ganztag** öffnen. Bei jedem Angebot steht **Heimweg** mit einer Auswahl: **geht allein**, **wird abgeholt** oder **fährt mit dem Bus**.
+2. Für einen einzelnen Termin darunter eine andere Art wählen oder **wie immer** lassen. Am Tag selbst geht das bis zur Frist der Schule (Vorgabe **12:00 Uhr**), für spätere Tage jederzeit. Die Leitung bekommt eine Benachrichtigung.
+3. **Wer** abholt, wird in SchulOS **nicht** eingetragen – keine Namen, keine Telefonnummern. Abholberechtigungen klären Sie bitte direkt mit der Schule bzw. der Leitung.
+
+Volljährige, eigenständige Schüler:innen stellen ihren Heimweg selbst ein; jüngere sehen ihn nur.
+
+## Mittagessen (Eltern)
+
+1. Unter **Mittagessen** steht der Speiseplan der nächsten zwei Wochen. Je Tag **Menü 1**, **Menü 2** … wählen oder **nicht angemeldet** lassen.
+2. Anmelden, ändern und abmelden geht bis zum **Anmeldeschluss** (Vorgabe: am Werktag davor bis 12:00 Uhr – er steht an jedem Tag dabei).
+3. **Allergien und Unverträglichkeiten** werden in SchulOS **nicht** erfasst – bitte direkt mit der Küche bzw. der Ganztagsleitung klären. Abgerechnet wird nicht über SchulOS.
+
+## Für die Leitung eines Angebots
+
+- In der **Anwesenheitsliste** steht bei jedem Kind der **Heimweg** (eine Tagesänderung ist markiert). Geht ein Kind, **gegangen** antippen – die Uhrzeit wird gespeichert, ein zweites Antippen nimmt es zurück.
+- Auf der Angebotsseite unter **Heimweg** lässt sich die Regel nach dem Anmeldebogen eintragen.
+
+## Für die Verwaltung des Ganztags
+
+- **Ganztag → Mittagessen:** je Tag bis zu vier Menüs mit Kurzbeschreibung eintragen (nach dem Gericht benennen, nicht nach einer Kostform), Zahlen je Menü sehen, **CSV für die Küche** und **Ausgabeliste** (Name, Klasse, Menü) öffnen.
+- **Ganztag → Externe Leitungen:** für Mitarbeitende eines Vereins oder einer Musikschule ein **befristetes Konto** anlegen – nur als Leitung des eigenen Angebots, mit Zwei-Faktor-Anmeldung ab dem ersten Mal. Vorher die **Verpflichtung auf Vertraulichkeit** unterschreiben lassen. 14 Tage vor Ablauf kommt ein Hinweis, danach ist das Konto gesperrt; **Verlängern** gibt es wieder frei. Ohne Konto bleibt die Papierliste.
+
+## Wer darf was?
+
+| Wer | Ganztag |
+|---|---|
+| Eltern (minderjährige Kinder), eigenständige Schüler:innen | Heimweg einstellen und für einen Tag ändern, zum Mittagessen an- und abmelden |
+| Leitung eines Angebots (auch extern) | Liste mit Heimweg und „gegangen“, Heimweg nach Anmeldebogen eintragen – nur die eigene Gruppe |
+| „Ganztag verwalten“ | Speiseplan, Ausgabeliste, nachträglich an- oder abmelden; mit „Benutzer verwalten“ auch externe Leitungen |
+| „Ganztag auswerten“ | Zahlen je Tag und Menü (ohne Namen) |`,
   },
 ];
 

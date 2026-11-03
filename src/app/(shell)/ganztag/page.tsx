@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BarChart3, Settings2, Users, Utensils } from "lucide-react";
+import { BarChart3, Settings2, UserPlus, Users, Utensils } from "lucide-react";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
 import { GROUP_KIND_LABELS } from "@/core/labels";
@@ -9,6 +9,7 @@ import { familyView } from "@/modules/ganztag/familie";
 import { leadsClass } from "@/modules/ganztag/klassenleitung";
 import { canManage, dateLabel, listOffers } from "@/modules/ganztag/service";
 import { canSeeCounts, familyMeals } from "@/modules/ganztag/essen";
+import { canManageExternal } from "@/modules/ganztag/extern";
 import { wayDeadline } from "@/modules/ganztag/heimweg";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -51,13 +52,14 @@ export default async function GanztagPage() {
   const [offers, classLead] = await Promise.all([listOffers(db, perms), leadsClass(db, perms)]);
   const evaluate = canEvaluate(perms);
   const meals = canSeeCounts(perms);
+  const external = canManageExternal(perms);
 
   return (
     <main className="flex max-w-4xl flex-col gap-6">
       <PageHeader
         title="Ganztag"
         actions={
-          (manager || evaluate || classLead || meals) && (
+          (manager || evaluate || classLead || meals || external) && (
             <>
               {classLead && (
                 <Button asChild variant="secondary">
@@ -70,6 +72,13 @@ export default async function GanztagPage() {
                 <Button asChild variant="secondary">
                   <Link href="/ganztag/essen">
                     <Utensils aria-hidden /> Mittagessen
+                  </Link>
+                </Button>
+              )}
+              {external && (
+                <Button asChild variant="secondary">
+                  <Link href="/ganztag/extern">
+                    <UserPlus aria-hidden /> Externe Leitungen
                   </Link>
                 </Button>
               )}
