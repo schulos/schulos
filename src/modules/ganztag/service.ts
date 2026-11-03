@@ -115,7 +115,7 @@ async function leaderNames(db: Db, groupIds: string[]): Promise<Map<string, stri
 }
 
 /** Ist die Gruppe ein Angebot mit Anwesenheitsliste? (passende Art, nicht archiviert, Merkmal an) */
-async function loadOffer(db: Db, groupId: string) {
+export async function loadOffer(db: Db, groupId: string) {
   const [g] = await db
     .select({ id: groups.id, name: groups.name, kind: groups.kind, archivedAt: groups.archivedAt, listOn: hasListFeature })
     .from(groups)

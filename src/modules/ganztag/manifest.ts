@@ -63,12 +63,18 @@ export default defineModule({
       start: "date",
       note: "zum Ende des Schuljahres des Tages; geht mit dem Konto der Schüler:in",
     },
+    {
+      table: "ganztag_external_leaders",
+      purpose: "Externe Leitung eines Angebots (befristetes Konto): Anbieter, Angebot, Verpflichtung auf Vertraulichkeit",
+      categories: ["Person (Konto)", "Anbieter", "Angebot", "Vertraulichkeit bestätigt am", "Hinweis vor Ablauf", "angelegt von und am"],
+      follows: "users",
+    },
   ],
   processing: {
     title: "Anwesenheit in Ganztags- und AG-Angeboten",
     purpose: "Aufsicht und Organisation im Ganztag: wer an einem Termin da sein müsste und wer da war, wie die Kinder nach Hause kommen und wann sie gegangen sind; Mittagessen bestellen und ausgeben; Ausfall an Teilnehmende und Eltern melden",
     // GANZTAG.md „Datenschutz“: Rechtsgrundlage und Einordnung als Schulversäumnis sind schulform- und länderabhängig
-    subjects: ["Schüler:innen (Teilnehmende)", "Leitung der Angebote"],
+    subjects: ["Schüler:innen (Teilnehmende)", "Leitung der Angebote (auch Mitarbeitende externer Anbieter mit befristetem Konto)", "Eltern (Heimweg, Mittagessen)"],
     recipients: [
       "Leitung des Angebots (nur die eigenen Gruppen)",
       "Personen mit „Ganztag verwalten“ (alle Listen)",
@@ -77,6 +83,6 @@ export default defineModule({
       "Personen mit „Ganztag auswerten“ (nur Zahlen je Angebot und Monat, ohne Namen; Mittagessen: Zahlen je Tag und Menü)",
       "Küche bzw. Ausgabe über Personen mit „Ganztag verwalten“ (Ausgabeliste Mittagessen: Name, Klasse, Menünummer; Zählung als CSV ohne Namen)",
     ],
-    note: "Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, kein Gesundheitsbezug. Aus den Abwesenheiten wird nur gelesen, ob eine Krankmeldung, Beurlaubung oder Entscheidung vorliegt (Vorbelegung „fehlt (entschuldigt)“, abschaltbar je Angebot) – nie der Grund. Keine Schreibverbindung ins Klassenbuch: bei verpflichtenden Angeboten nur ein Hinweis an die Klassenleitung. Heimweg (GT-09/GT-10): nur die Art der Regel (geht allein / wird abgeholt / Bus) und die Uhrzeit „gegangen“ – keine Namen oder Kontaktdaten Abholberechtigter; Eltern ändern den Heimweg für den Tag bis zur Frist, die Leitung bekommt dazu einen Gong. Mittagessen (GT-11/GT-12): Speiseplan mit nummerierten Menüs, Anmeldung je Tag nur mit der Menünummer – keine Allergien, Unverträglichkeiten oder Kostformen (Hinweis: direkt mit der Küche klären), keine Abrechnung; die Küche bekommt Zahlen je Tag und Menü (CSV) und eine Ausgabeliste mit Name, Klasse und Menünummer. Listen starten leer. Rechtsgrundlage und die Frage, ob Fehlen im Ganztag als Schulversäumnis zählt: schulform- und länderabhängig, zu prüfen.",
+    note: "Erfasst wird nur anwesend/fehlt/verspätet (Minuten) – keine Gründe, kein Freitext, kein Gesundheitsbezug. Aus den Abwesenheiten wird nur gelesen, ob eine Krankmeldung, Beurlaubung oder Entscheidung vorliegt (Vorbelegung „fehlt (entschuldigt)“, abschaltbar je Angebot) – nie der Grund. Keine Schreibverbindung ins Klassenbuch: bei verpflichtenden Angeboten nur ein Hinweis an die Klassenleitung. Heimweg (GT-09/GT-10): nur die Art der Regel (geht allein / wird abgeholt / Bus) und die Uhrzeit „gegangen“ – keine Namen oder Kontaktdaten Abholberechtigter; Eltern ändern den Heimweg für den Tag bis zur Frist, die Leitung bekommt dazu einen Gong. Mittagessen (GT-11/GT-12): Speiseplan mit nummerierten Menüs, Anmeldung je Tag nur mit der Menünummer – keine Allergien, Unverträglichkeiten oder Kostformen (Hinweis: direkt mit der Küche klären), keine Abrechnung; die Küche bekommt Zahlen je Tag und Menü (CSV) und eine Ausgabeliste mit Name, Klasse und Menünummer. Externe Leitungen (GT-13): befristetes Konto der Rolle Personal nur als Leitung des eigenen Angebots, Anbieter und Bestätigung der Verpflichtung auf Vertraulichkeit, 2FA ab der ersten Anmeldung, Hinweis vor Ablauf, danach gesperrt; die Schule prüft, ob mit dem Anbieter eine Vereinbarung (Auftragsverarbeitung bzw. gemeinsame Verantwortung) nötig ist. Listen starten leer. Rechtsgrundlage und die Frage, ob Fehlen im Ganztag als Schulversäumnis zählt: schulform- und länderabhängig, zu prüfen.",
   },
 });

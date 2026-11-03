@@ -22,6 +22,7 @@ import { runSprechtagReminders } from "@/modules/sprechtag/erinnerung";
 import { runKurswahlReminders } from "@/modules/kurswahl/erinnerung";
 import { runReviewReminders } from "@/modules/hilfe/service";
 import { runClassLeadHints } from "@/modules/ganztag/klassenleitung";
+import { runExternalExpiry } from "@/modules/ganztag/extern";
 import { purgeExpiredOfflineDevices } from "@/modules/notenbuch/offline";
 import { runReservations } from "@/modules/buecherei/reservations";
 import { runSchoolbookDunning } from "@/modules/buecherei/ausgabe";
@@ -138,6 +139,15 @@ export const SCHEDULED_JOBS: readonly ScheduledJob[] = [
       if (!m || !isEnabled(m, await loadModuleStates(db))) return;
       return runReviewReminders(db, now);
     },
+  },
+  {
+    // GT-13: befristete Konten externer Leitungen – Hinweis 14 Tage vor Ablauf, danach Abgang eintragen (Sperre wirkt schon ab dem
+    // Folgetag in den Rechten). Läuft auch bei ausgeschaltetem Modul: abgelaufene Zugänge sollen in jedem Fall enden.
+    name: "ganztag-extern",
+    at: "00:15",
+    until: "23:00",
+    ttlMs: 10 * 60_000,
+    run: async (db, now) => runExternalExpiry(db, now),
   },
   {
     // GT-04: abends ein gebündelter Hinweis je Klassenleitung zu unentschuldigtem Fehlen in verpflichtenden Ganztagsangeboten

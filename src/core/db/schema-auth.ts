@@ -41,6 +41,11 @@ export const users = pgTable(
     status: userStatusEnum("status").notNull().default("active"),
     /** Abgang/Ausscheiden (Konto-Lebenszyklus, LK-KONTO): Konto gesperrt, Löschung nach der Karenz */
     leftOn: date("left_on"),
+    /**
+     * GT-13: befristetes Konto (externe Leitung im Ganztag) – nach diesem Tag ohne Rechte (gesperrt), 2FA sofort Pflicht; der Tageslauf
+     * trägt danach den Abgang ein (Löschung nach der Karenz). null = unbefristet.
+     */
+    expiresOn: date("expires_on"),
     /** Löschung auf Antrag (Art. 17): ohne Karenz, sobald keine Aktenpflicht mehr entgegensteht */
     erasureRequestedOn: date("erasure_requested_on"),
     // twoFactor-Plugin: erst nach bestätigtem Code true

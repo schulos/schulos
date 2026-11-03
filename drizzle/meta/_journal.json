@@ -960,6 +960,13 @@
       "when": 1793740320711,
       "tag": "0136_gt_11_mittagessen",
       "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1793740832807,
+      "tag": "0137_gt_13_externe_leitung",
+      "breakpoints": true
     }
   ]
 }

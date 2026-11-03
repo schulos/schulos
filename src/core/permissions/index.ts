@@ -116,8 +116,9 @@ export interface TwoFactorDuty {
  * SEC-01: 2FA-Pflicht eines Kontos (ohne Demo – das prüft der Aufrufer). Verwaltungsrechte/Admin/Beratung sofort; Lehrkräfte,
  * Personal und Eltern ab dem Stichtag (`from`, YYYY-MM-DD; ohne Stichtag keine Pflicht); Schüler:innen nur von außen.
  */
-export function twoFactorDuty(role: Role, granted: Iterable<string>, from: string | null, today: string): TwoFactorDuty {
-  if (requiresTwoFactor(role, granted)) return { required: true, dueOn: null, outsideOnly: false };
+export function twoFactorDuty(role: Role, granted: Iterable<string>, from: string | null, today: string, opts: { temporary?: boolean } = {}): TwoFactorDuty {
+  // GT-13: befristete Konten (externe Leitungen) brauchen die 2FA sofort, unabhängig vom Stichtag
+  if (opts.temporary || requiresTwoFactor(role, granted)) return { required: true, dueOn: null, outsideOnly: false };
   if (TWO_FACTOR_DEADLINE_ROLES.includes(role)) {
     if (from && today >= from) return { required: true, dueOn: null, outsideOnly: false };
     return { required: false, dueOn: from, outsideOnly: false };
@@ -137,7 +138,14 @@ export function hasPermission(set: PermissionSet, permission: string, ctx: Permi
 /** Lädt alles, was für Rechteprüfungen eines Benutzers nötig ist (2 Queries). */
 export async function loadPermissions(db: Db, userId: string, now = new Date()): Promise<PermissionSet> {
   const [user] = await db
-    .select({ id: users.id, role: users.role, status: users.status, twoFactorEnabled: users.twoFactorEnabled, mustChangePassword: users.mustChangePassword })
+    .select({
+      id: users.id,
+      role: users.role,
+      status: users.status,
+      twoFactorEnabled: users.twoFactorEnabled,
+      mustChangePassword: users.mustChangePassword,
+      expiresOn: users.expiresOn,
+    })
     .from(users)
     .where(eq(users.id, userId));
   if (!user) throw new Error(`Benutzer ${userId} nicht gefunden`);
@@ -159,13 +167,15 @@ export async function loadPermissions(db: Db, userId: string, now = new Date()):
   const granted = new Set(rows.map((r) => r.permission));
   // Demo-Instanzen (öffentliche Demo-Passwörter) erzwingen 2FA nicht; einrichten lässt sie sich trotzdem
   const demo = await isDemoDb(db);
-  const duty = twoFactorDuty(user.role, granted, (await cachedSecuritySettings(db)).twoFactorFrom, toBerlinDate(now));
+  const today = toBerlinDate(now);
+  const duty = twoFactorDuty(user.role, granted, (await cachedSecuritySettings(db)).twoFactorFrom, today, { temporary: user.expiresOn !== null });
   const twoFactorPending = !user.twoFactorEnabled && duty.required && !demo;
 
   return {
     userId: user.id,
     role: user.role,
-    locked: user.status === "locked",
+    // GT-13: befristetes Konto nach dem Ablauftag sofort ohne Rechte (der Tageslauf sperrt es danach auch formal)
+    locked: user.status === "locked" || (user.expiresOn !== null && user.expiresOn < today),
     twoFactorPending,
     ...(!user.twoFactorEnabled && !demo && duty.dueOn ? { twoFactorDueOn: duty.dueOn } : {}),
     passwordChangePending: user.mustChangePassword,

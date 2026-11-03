@@ -213,5 +213,27 @@ export const ganztagMealOrders = pgTable(
   ],
 );
 
+/**
+ * GT-13 (Projektleitung 2026-11-03): externe Leitung – befristetes Konto der Rolle `personal` als Gruppenleitung genau eines
+ * Angebots. Ablauf steht am Konto (`users.expires_on`), hier nur Anbieter, Angebot und die Bestätigung der Verpflichtung auf
+ * Vertraulichkeit. Geht mit dem Konto.
+ */
+export const ganztagExternalLeaders = pgTable("ganztag_external_leaders", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  groupId: text("group_id")
+    .notNull()
+    .references(() => groups.id, { onDelete: "cascade" }),
+  /** Verein, Musikschule, Träger … */
+  provider: text("provider").notNull(),
+  /** Verpflichtung auf Vertraulichkeit liegt der Schule vor (bestätigt beim Anlegen) */
+  confidentialityAt: timestamp("confidentiality_at", { withTimezone: true }).notNull(),
+  /** Hinweis vor Ablauf verschickt (einmal je Befristung) */
+  warnedAt: timestamp("warned_at", { withTimezone: true }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type GanztagSession = typeof ganztagSessions.$inferSelect;
 export type GanztagSeries = typeof ganztagSeries.$inferSelect;
