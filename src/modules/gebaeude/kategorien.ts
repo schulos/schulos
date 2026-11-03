@@ -11,38 +11,46 @@ export interface AssetCategoryTemplate {
   /** Anlagen dieser Kategorie müssen erfasst werden (wiederkehrende Prüfungen) */
   inspectionRequired: boolean;
   sort: number;
+  /** INV-10: Nutzungsdauer in Jahren als Richtwert für den Ersatzbedarf; null = kein Richtwert (Verbrauchsmaterial, Sammelbegriff) */
+  lifetimeYears: number | null;
 }
+
+/** INV-10: zulässige Nutzungsdauer (Jahre) im Kategorienformular. */
+export const LIFETIME_MIN = 1;
+export const LIFETIME_MAX = 50;
 
 /** Präfix: 1–6 Großbuchstaben/Ziffern. */
 export const PREFIX_RE = /^[A-Z0-9]{1,6}$/;
 
 export const ASSET_CATEGORY_TEMPLATE: readonly AssetCategoryTemplate[] = [
   // frühere Arten (P4-15) – Schlüssel bleiben
-  { key: "elektro_ortsveraenderlich", name: "Elektrogerät (ortsveränderlich)", prefix: "EL", inspectionRequired: true, sort: 10 },
-  { key: "feuerloescher", name: "Feuerlöscher", prefix: "FL", inspectionRequired: true, sort: 20 },
-  { key: "spielgeraet", name: "Spielgerät (außen)", prefix: "SP", inspectionRequired: true, sort: 30 },
-  { key: "sportgeraet", name: "Sport (Großgeräte, Zeitmessanlage)", prefix: "SG", inspectionRequired: true, sort: 40 },
-  { key: "aufzug", name: "Aufzug", prefix: "AZ", inspectionRequired: true, sort: 50 },
-  { key: "tor_tuer", name: "Kraftbetätigtes Tor/Tür", prefix: "TT", inspectionRequired: true, sort: 60 },
-  { key: "leiter", name: "Leiter/Tritt", prefix: "LE", inspectionRequired: true, sort: 70 },
-  { key: "erste_hilfe", name: "Erste-Hilfe-Material", prefix: "EH", inspectionRequired: true, sort: 80 },
-  { key: "lueftung", name: "Lüftung", prefix: "LU", inspectionRequired: false, sort: 90 },
-  { key: "sonstiges", name: "Sonstiges", prefix: "SO", inspectionRequired: false, sort: 900 },
+  // INV-10: `lifetimeYears` = grober Erfahrungswert für Schulen (an amtliche Nutzungsdauern angelehnt, keine Abschreibung) – die
+  // Schule passt ihn im Kategorienformular an; null bei Verbrauchsmaterial und Sammelbegriffen
+  { key: "elektro_ortsveraenderlich", name: "Elektrogerät (ortsveränderlich)", prefix: "EL", inspectionRequired: true, sort: 10, lifetimeYears: 8 },
+  { key: "feuerloescher", name: "Feuerlöscher", prefix: "FL", inspectionRequired: true, sort: 20, lifetimeYears: 20 },
+  { key: "spielgeraet", name: "Spielgerät (außen)", prefix: "SP", inspectionRequired: true, sort: 30, lifetimeYears: 15 },
+  { key: "sportgeraet", name: "Sport (Großgeräte, Zeitmessanlage)", prefix: "SG", inspectionRequired: true, sort: 40, lifetimeYears: 15 },
+  { key: "aufzug", name: "Aufzug", prefix: "AZ", inspectionRequired: true, sort: 50, lifetimeYears: 25 },
+  { key: "tor_tuer", name: "Kraftbetätigtes Tor/Tür", prefix: "TT", inspectionRequired: true, sort: 60, lifetimeYears: 20 },
+  { key: "leiter", name: "Leiter/Tritt", prefix: "LE", inspectionRequired: true, sort: 70, lifetimeYears: 10 },
+  { key: "erste_hilfe", name: "Erste-Hilfe-Material", prefix: "EH", inspectionRequired: true, sort: 80, lifetimeYears: null },
+  { key: "lueftung", name: "Lüftung", prefix: "LU", inspectionRequired: false, sort: 90, lifetimeYears: 20 },
+  { key: "sonstiges", name: "Sonstiges", prefix: "SO", inspectionRequired: false, sort: 900, lifetimeYears: null },
   // neu mit dem Inventar (INV-01, Fragebogen Runde 12)
-  { key: "it", name: "IT (Laptops, Tablets, PCs, Drucker, Server, Netzwerk, USV)", prefix: "IT", inspectionRequired: false, sort: 100 },
-  { key: "praesentation", name: "Präsentation/AV (Beamer, Displays, Dokumentenkameras, Ton)", prefix: "AV", inspectionRequired: false, sort: 110 },
-  { key: "sammlung", name: "Fachsammlungen (Mikroskope, Physik/Chemie/Bio, Messgeräte)", prefix: "FS", inspectionRequired: false, sort: 120 },
-  { key: "werken", name: "Werken/Technik/Kunst (Maschinen, Brennofen)", prefix: "WK", inspectionRequired: true, sort: 130 },
-  { key: "musik", name: "Musik (Instrumente, Verstärker)", prefix: "MU", inspectionRequired: false, sort: 140 },
-  { key: "hauswirtschaft", name: "Hauswirtschaft/Mensa", prefix: "HW", inspectionRequired: false, sort: 150 },
-  { key: "sicherheit", name: "Sicherheit (AED, Notbeleuchtung, Rauchmelder)", prefix: "SI", inspectionRequired: true, sort: 160 },
-  { key: "hausmeisterei", name: "Hausmeisterei/Außen", prefix: "HM", inspectionRequired: false, sort: 170 },
-  { key: "chemikalienschrank", name: "Chemikalienschrank (Verweis, kein Gefahrstoffkataster)", prefix: "CS", inspectionRequired: false, sort: 180 },
-  { key: "moebel", name: "Möbel (Tafeln, Schränke; Tische/Stühle als Sammelposten)", prefix: "MO", inspectionRequired: false, sort: 190 },
+  { key: "it", name: "IT (Laptops, Tablets, PCs, Drucker, Server, Netzwerk, USV)", prefix: "IT", inspectionRequired: false, sort: 100, lifetimeYears: 5 },
+  { key: "praesentation", name: "Präsentation/AV (Beamer, Displays, Dokumentenkameras, Ton)", prefix: "AV", inspectionRequired: false, sort: 110, lifetimeYears: 8 },
+  { key: "sammlung", name: "Fachsammlungen (Mikroskope, Physik/Chemie/Bio, Messgeräte)", prefix: "FS", inspectionRequired: false, sort: 120, lifetimeYears: 15 },
+  { key: "werken", name: "Werken/Technik/Kunst (Maschinen, Brennofen)", prefix: "WK", inspectionRequired: true, sort: 130, lifetimeYears: 15 },
+  { key: "musik", name: "Musik (Instrumente, Verstärker)", prefix: "MU", inspectionRequired: false, sort: 140, lifetimeYears: 15 },
+  { key: "hauswirtschaft", name: "Hauswirtschaft/Mensa", prefix: "HW", inspectionRequired: false, sort: 150, lifetimeYears: 10 },
+  { key: "sicherheit", name: "Sicherheit (AED, Notbeleuchtung, Rauchmelder)", prefix: "SI", inspectionRequired: true, sort: 160, lifetimeYears: 10 },
+  { key: "hausmeisterei", name: "Hausmeisterei/Außen", prefix: "HM", inspectionRequired: false, sort: 170, lifetimeYears: 10 },
+  { key: "chemikalienschrank", name: "Chemikalienschrank (Verweis, kein Gefahrstoffkataster)", prefix: "CS", inspectionRequired: false, sort: 180, lifetimeYears: 20 },
+  { key: "moebel", name: "Möbel (Tafeln, Schränke; Tische/Stühle als Sammelposten)", prefix: "MO", inspectionRequired: false, sort: 190, lifetimeYears: 15 },
   // GS-01: Fachraum-Anlagen (Chemie/Naturwissenschaften) – Prüfarten der Vorlage hängen daran (pruefarten.ts)
-  { key: "abzug", name: "Laborabzug", prefix: "AB", inspectionRequired: true, sort: 182 },
-  { key: "notdusche", name: "Augen-/Körpernotdusche", prefix: "ND", inspectionRequired: true, sort: 184 },
-  { key: "sicherheitsschrank", name: "Sicherheitsschrank für Gefahrstoffe", prefix: "SSG", inspectionRequired: true, sort: 186 },
+  { key: "abzug", name: "Laborabzug", prefix: "AB", inspectionRequired: true, sort: 182, lifetimeYears: 20 },
+  { key: "notdusche", name: "Augen-/Körpernotdusche", prefix: "ND", inspectionRequired: true, sort: 184, lifetimeYears: 15 },
+  { key: "sicherheitsschrank", name: "Sicherheitsschrank für Gefahrstoffe", prefix: "SSG", inspectionRequired: true, sort: 186, lifetimeYears: 20 },
 ];
 
 /** Kurzformen aus Inventarlisten des Schulträgers → Schlüssel (CSV-Import; die Namen der Kategorien gelten zusätzlich). */

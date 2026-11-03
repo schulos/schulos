@@ -77,8 +77,8 @@ export const LOAN_MAIL = defineSetting({
 /** INV-06: Vorlauf für den Hinweis „Garantie läuft ab“/„Zweckbindung endet“ in „Offen für dich“ (an die Pflegenden). */
 export const DEADLINE_DAYS = defineSetting({
   key: "gebaeude.deadline_days",
-  label: "Inventar: Hinweis vor Garantie-/Zweckbindungsende",
-  help: "So viele Tage vor dem Ende von Garantie bzw. Zweckbindung erscheint ein Hinweis unter „Offen für dich“ – für alle, die die Kategorie pflegen. Keine Benachrichtigung, keine Mail.",
+  label: "Inventar: Hinweis vor Garantie-, Zweckbindungs- und Vertragsfristen",
+  help: "So viele Tage vor dem Ende von Garantie bzw. Zweckbindung und vor dem letzten Kündigungstag bzw. Ende eines Wartungsvertrags erscheint ein Hinweis unter „Offen für dich“ – für alle, die die Kategorie pflegen. Keine Benachrichtigung, keine Mail.",
   options: [
     { value: "0", label: "aus" },
     { value: "30", label: "30 Tage vorher" },

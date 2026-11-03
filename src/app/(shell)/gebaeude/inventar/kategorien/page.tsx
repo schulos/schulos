@@ -7,7 +7,7 @@ import { getDb } from "@/core/db/client";
 import { groups } from "@/core/db/schema";
 import { deleteCategoryAction, saveCategoryAction } from "@/modules/gebaeude/actions";
 import { canConfigure, categoriesWithoutInspectionType, listCategories, type AssetCategoryRow } from "@/modules/gebaeude/inventar";
-import { ASSET_CATEGORY_TEMPLATE } from "@/modules/gebaeude/kategorien";
+import { ASSET_CATEGORY_TEMPLATE, LIFETIME_MAX, LIFETIME_MIN } from "@/modules/gebaeude/kategorien";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
 import { PageHeader } from "@schulos/ui/misc";
@@ -23,6 +23,15 @@ function categoryFields(groupOptions: Option[], c?: AssetCategoryRow): FieldSpec
     { name: "name", label: "Name", type: "text", required: true, maxLength: 80, wide: true, defaultValue: c?.name },
     { name: "prefix", label: "Präfix der Inventarnummer", type: "text", required: true, maxLength: 6, defaultValue: c?.prefix, hint: "1 bis 6 Großbuchstaben/Ziffern, z. B. IT" },
     { name: "sortOrder", label: "Reihenfolge", type: "number", min: 0, max: 100000, defaultValue: String(c?.sortOrder ?? 500) },
+    {
+      name: "lifetimeYears",
+      label: "Nutzungsdauer (Jahre)",
+      type: "number",
+      min: LIFETIME_MIN,
+      max: LIFETIME_MAX,
+      defaultValue: c?.lifetimeYears ? String(c.lifetimeYears) : "",
+      hint: "Richtwert für den Ersatzbedarf; leer = kein Richtwert",
+    },
     { name: "responsibleGroupId", label: "verantwortliche Gruppe", type: "select", defaultValue: c?.responsibleGroupId ?? "", options: groupOptions, hint: "pflegt das Inventar dieser Kategorie" },
     { name: "inspectionRequired", label: "prüfpflichtig (wiederkehrende Prüfungen)", type: "checkbox", checked: c ? c.inspectionRequired : false },
     { name: "active", label: "eingeschaltet", type: "checkbox", checked: c ? c.active : true },
@@ -59,8 +68,12 @@ export default async function KategorienPage() {
         <Link href="/gebaeude/pruefarten" className="font-medium text-accent-ink hover:underline">
           Prüfart
         </Link>{" "}
-        dazu) und optional eine verantwortliche Gruppe, die das Inventar dieser Kategorie pflegt (z. B. IT, Fachschaft Musik). Das Recht „Inventar pflegen“ gilt
-        für alle Kategorien.{" "}
+        dazu), optional eine verantwortliche Gruppe, die das Inventar dieser Kategorie pflegt (z. B. IT, Fachschaft Musik), und eine Nutzungsdauer als Richtwert
+        für den{" "}
+        <Link href="/gebaeude/inventar/ersatzbedarf" className="font-medium text-accent-ink hover:underline">
+          Ersatzbedarf
+        </Link>{" "}
+        (keine Abschreibung). Das Recht „Inventar pflegen“ gilt für alle Kategorien.{" "}
         <Link href="/gebaeude/inventar" className="font-medium text-accent-ink hover:underline">
           Zurück zum Inventar
         </Link>
@@ -75,6 +88,7 @@ export default async function KategorienPage() {
                 <Badge tone="neutral">{c.prefix}</Badge>
                 {!c.active && <Badge tone="neutral">aus</Badge>}
                 {c.inspectionRequired && <Badge tone="warn">prüfpflichtig</Badge>}
+                {c.lifetimeYears && <Badge tone="neutral">{c.lifetimeYears} Jahre</Badge>}
                 <span className="text-xs text-muted">
                   {c.assetCount === 1 ? "1 Eintrag" : `${c.assetCount} Einträge`}
                   {c.responsibleGroupName && ` · ${c.responsibleGroupName}`}

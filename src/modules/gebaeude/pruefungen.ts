@@ -297,7 +297,15 @@ export interface AssetInput {
   warrantyUntil?: string | null;
   acquiredOn?: string | null;
   note?: string | null;
+  /** INV-08: Wartungs-/Servicevertrag – Partner (Firma), Ende, Kündigungsfrist in Monaten, Notiz (Sachangaben) */
+  servicePartner?: string | null;
+  serviceEnd?: string | null;
+  serviceNoticeMonths?: string | number | null;
+  serviceNote?: string | null;
 }
+
+/** INV-08: höchstens so viele Monate Kündigungsfrist. */
+export const MAX_NOTICE_MONTHS = 36;
 
 async function validateAsset(db: Db, input: AssetInput, selfId?: string) {
   const fe: Record<string, string> = {};
@@ -310,6 +318,8 @@ async function validateAsset(db: Db, input: AssetInput, selfId?: string) {
   const condition = t(input.condition);
   const quantity = input.quantity === null || input.quantity === undefined || String(input.quantity).trim() === "" ? 1 : Number(String(input.quantity).trim());
   const priceCents = parsePriceCents(input.price);
+  const rawNotice = input.serviceNoticeMonths === null || input.serviceNoticeMonths === undefined ? "" : String(input.serviceNoticeMonths).trim();
+  const serviceNoticeMonths = rawNotice === "" ? null : Number(rawNotice);
   if (name.length < 2 || name.length > 120) fe.name = "Bezeichnung mit 2 bis 120 Zeichen";
   const category = await categoryById(db, input.categoryId);
   if (!category) fe.categoryId = "Kategorie wählen";
@@ -321,6 +331,8 @@ async function validateAsset(db: Db, input: AssetInput, selfId?: string) {
     ["supplier", t(input.supplier), 120],
     ["financing", t(input.financing), 120],
     ["note", t(input.note), 500],
+    ["servicePartner", t(input.servicePartner), 120],
+    ["serviceNote", t(input.serviceNote), 300],
   ] as const)
     if (v && v.length > n) fe[k] = `höchstens ${n} Zeichen`;
   if (condition && !(ASSET_CONDITIONS as readonly string[]).includes(condition)) fe.condition = "Zustand wählen";
@@ -331,8 +343,12 @@ async function validateAsset(db: Db, input: AssetInput, selfId?: string) {
     ["acquiredOn", t(input.acquiredOn)],
     ["boundUntil", t(input.boundUntil)],
     ["warrantyUntil", t(input.warrantyUntil)],
+    ["serviceEnd", t(input.serviceEnd)],
   ] as const)
     if (v && !YMD.test(v)) fe[k] = "Datum angeben";
+  if (serviceNoticeMonths !== null && (!Number.isInteger(serviceNoticeMonths) || serviceNoticeMonths < 0 || serviceNoticeMonths > MAX_NOTICE_MONTHS))
+    fe.serviceNoticeMonths = `Kündigungsfrist 0 bis ${MAX_NOTICE_MONTHS} Monate`;
+  else if (serviceNoticeMonths && !t(input.serviceEnd)) fe.serviceEnd = "Für die Kündigungsfrist das Vertragsende angeben";
   if (roomId) {
     const [r] = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, roomId));
     if (!r) fe.roomId = "Raum gibt es nicht";
@@ -369,6 +385,10 @@ async function validateAsset(db: Db, input: AssetInput, selfId?: string) {
     warrantyUntil: t(input.warrantyUntil),
     acquiredOn: t(input.acquiredOn),
     note: t(input.note),
+    servicePartner: t(input.servicePartner),
+    serviceEnd: t(input.serviceEnd),
+    serviceNoticeMonths: serviceNoticeMonths || null,
+    serviceNote: t(input.serviceNote),
     category: category!,
   };
 }
@@ -465,8 +485,18 @@ export interface AssetFilter {
   withoutLabel?: boolean;
   /** Suche in Bezeichnung, Inventarnummer, Seriennummer, Hersteller, Modell */
   q?: string;
-  /** INV-06: Garantie bzw. Zweckbindung endet im Zeitraum [from, until] (Hinweis in „Offen für dich“) */
-  deadline?: { kind: "garantie" | "zweckbindung"; from: string; until: string };
+  /**
+   * INV-06: Garantie bzw. Zweckbindung endet im Zeitraum [from, until] (Hinweis in „Offen für dich“); INV-09 „vertrag“: Kündigungsfrist
+   * (Vertragsende minus Kündigungsfrist) oder Vertragsende des Wartungs-/Servicevertrags liegt im Zeitraum
+   */
+  deadline?: { kind: "garantie" | "zweckbindung" | "vertrag"; from: string; until: string };
+  /** INV-08: nur Geräte mit Wartungs-/Servicevertrag (Partner oder Vertragsende eingetragen) */
+  withContract?: boolean;
+}
+
+/** INV-09: Frist eines Wartungs-/Servicevertrags im Zeitraum – letzter Kündigungstag (Ende minus Frist) oder Vertragsende. */
+function contractDeadlineIn(from: string, until: string): SQL {
+  return sql`(${gebaeudeAssets.serviceEnd} between ${from}::date and ${until}::date or (${gebaeudeAssets.serviceEnd} - make_interval(months => coalesce(${gebaeudeAssets.serviceNoticeMonths}, 0)))::date between ${from}::date and ${until}::date)`;
 }
 
 const assetColumns = {
@@ -493,6 +523,11 @@ const assetColumns = {
   boundUntil: gebaeudeAssets.boundUntil,
   warrantyUntil: gebaeudeAssets.warrantyUntil,
   acquiredOn: gebaeudeAssets.acquiredOn,
+  servicePartner: gebaeudeAssets.servicePartner,
+  serviceEnd: gebaeudeAssets.serviceEnd,
+  serviceNoticeMonths: gebaeudeAssets.serviceNoticeMonths,
+  serviceNote: gebaeudeAssets.serviceNote,
+  categoryLifetimeYears: gebaeudeAssetCategories.lifetimeYears,
   active: gebaeudeAssets.active,
   retiredOn: gebaeudeAssets.retiredOn,
   retiredReason: gebaeudeAssets.retiredReason,
@@ -513,6 +548,15 @@ function assetQuery(db: Db) {
 }
 
 export type AssetRow = Awaited<ReturnType<typeof listAssets>>[number];
+
+/**
+ * INV-08/09 rein: letzter Tag, an dem sich ein Wartungs-/Servicevertrag noch kündigen lässt (Vertragsende minus Kündigungsfrist,
+ * Monatsende wie in PostgreSQL begrenzt); ohne Frist das Vertragsende, ohne Ende null.
+ */
+export function serviceNoticeDate(end: string | null, noticeMonths: number | null): string | null {
+  if (!end) return null;
+  return noticeMonths ? addMonths(end, -noticeMonths) : end;
+}
 
 /** Rein: Standort als Text („Raum 112 · Hauptgebäude · 1. OG“). */
 export function assetPlace(a: { roomId: string | null; building: string | null; floor: string | null }): string {
@@ -537,9 +581,14 @@ export async function listAssets(db: Db, viewer: PermissionSet, f: AssetFilter =
         f.buildingId ? sql`${assetBuildingId} = ${f.buildingId}` : undefined,
         f.condition && (ASSET_CONDITIONS as readonly string[]).includes(f.condition) ? eq(gebaeudeAssets.condition, f.condition as AssetCondition) : undefined,
         f.withoutLabel ? isNull(labelCodes.code) : undefined,
-        f.deadline ? between(f.deadline.kind === "garantie" ? gebaeudeAssets.warrantyUntil : gebaeudeAssets.boundUntil, f.deadline.from, f.deadline.until) : undefined,
+        f.deadline
+          ? f.deadline.kind === "vertrag"
+            ? contractDeadlineIn(f.deadline.from, f.deadline.until)
+            : between(f.deadline.kind === "garantie" ? gebaeudeAssets.warrantyUntil : gebaeudeAssets.boundUntil, f.deadline.from, f.deadline.until)
+          : undefined,
+        f.withContract ? sql`(${gebaeudeAssets.servicePartner} is not null or ${gebaeudeAssets.serviceEnd} is not null)` : undefined,
         q
-          ? sql`(lower(${gebaeudeAssets.name}) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.inventoryNo}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.serial}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.manufacturer}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.model}, '')) like ${`%${q}%`})`
+          ? sql`(lower(${gebaeudeAssets.name}) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.inventoryNo}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.serial}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.manufacturer}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.model}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.servicePartner}, '')) like ${`%${q}%`})`
           : undefined,
       ),
     )

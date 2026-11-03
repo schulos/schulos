@@ -56,11 +56,22 @@ async function seedInspections(db: Db, today: string) {
   }
   await planDue(db, today);
   await db.insert(gebaeudeInspections).values({ typeId: types.get("brandschutz-technik")!, building: "Hauptgebäude", dueOn: addDays(today, 75) });
-  // Inventar ohne aktive Prüfart (Lüftung, IT, Möbel als Sammelposten) bleibt ohne Prüfung
+  // Inventar ohne aktive Prüfart (Lüftung, IT, Möbel als Sammelposten) bleibt ohne Prüfung. INV-08/11: Lüftung mit Wartungsvertrag
+  // (Frist weit weg, kein Hinweis), Schülertische über der Nutzungsdauer (Ersatzbedarf fällig)
   await db.insert(gebaeudeAssets).values([
-    { name: "Lüftungsanlage Pavillon", categoryId: cat("lueftung"), buildingId: houses.get("Pavillon") ?? null, inventoryNo: "LU-001" },
+    {
+      name: "Lüftungsanlage Pavillon",
+      categoryId: cat("lueftung"),
+      buildingId: houses.get("Pavillon") ?? null,
+      inventoryNo: "LU-001",
+      acquiredOn: addMonths(today, -12 * 12),
+      servicePartner: "Klima-Service Musterstadt GmbH",
+      serviceEnd: addMonths(today, 14),
+      serviceNoticeMonths: 3,
+      serviceNote: "Wartung zweimal jährlich inkl. Filterwechsel",
+    },
     { name: "Tablet-Koffer 7. Jahrgang (16 Geräte)", categoryId: cat("it"), roomId: "IF1", inventoryNo: "IT-0001", quantity: 16, condition: "gut", manufacturer: "Musterwerk", model: "Tab 11", acquiredOn: addMonths(today, -14), warrantyUntil: addMonths(today, 10), financing: "DigitalPakt", boundUntil: addMonths(today, 46), priceCents: 689000 },
     { name: "Dokumentenkamera Physik", categoryId: cat("praesentation"), roomId: "NW3", inventoryNo: "AV-0001", condition: "gebraucht", acquiredOn: addMonths(today, -50) },
-    { name: "Schülertische 7b", categoryId: cat("moebel"), roomId: "205", inventoryNo: "MO-0001", quantity: 15, condition: "gut" },
+    { name: "Schülertische 7b", categoryId: cat("moebel"), roomId: "205", inventoryNo: "MO-0001", quantity: 15, condition: "gut", acquiredOn: addMonths(today, -12 * 17) },
   ]);
 }

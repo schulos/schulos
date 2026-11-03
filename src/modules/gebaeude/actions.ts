@@ -230,6 +230,10 @@ function assetInput(form: FormData): AssetInput {
     warrantyUntil: str("warrantyUntil") || null,
     acquiredOn: str("acquiredOn") || null,
     note: str("note") || null,
+    servicePartner: str("servicePartner") || null,
+    serviceEnd: str("serviceEnd") || null,
+    serviceNoticeMonths: str("serviceNoticeMonths") || null,
+    serviceNote: str("serviceNote") || null,
   };
 }
 
@@ -337,6 +341,7 @@ function categoryInput(form: FormData): CategoryInput {
     responsibleGroupId: str("responsibleGroupId") || null,
     sortOrder: Number(str("sortOrder") || "0"),
     active: form.get("active") === "on",
+    lifetimeYears: form.has("lifetimeYears") ? str("lifetimeYears") : undefined,
   };
 }
 

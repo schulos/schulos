@@ -366,3 +366,50 @@ vor RS-13).
 - **inf-5 Sicht:** Auswertung mit Preisen/Werten nur `gebaeude.configure` und `view_all`; verantwortliche Gruppen sehen nur ihre
   Kategorien.
 - **inf-6 Etikettenstreifen 12/24 mm:** (inv-7 „später“) bleiben zurückgestellt bis zu einem konkreten Gerätewunsch.
+
+## Umgesetzt (INV-08…INV-12, 2026-11-03) – Folge „Vertragsfelder und Ersatzbedarf“
+
+- **Wartungs-/Servicevertrag am Gerät (INV-08, inf-2):** Felder `service_partner` (Firma, 120 Zeichen), `service_end` (Vertragsende),
+  `service_notice_months` (Kündigungsfrist 0–36 Monate, nur mit Vertragsende; 0 = keine) und `service_note` (Sachangaben wie Leistung,
+  Vertragsnummer, 300 Zeichen) in `gebaeude_assets` – bewusst **kein** Feld für Ansprechpersonen und keine eigene Vertragstabelle.
+  Formular (Anlegen/Ändern), Stammdaten der Geräteseite (mit „Kündigungsfrist n Monate (bis …)“), Listenfilter „mit Wartungsvertrag“
+  (`?vertrag=1`, auch im Export), Suche findet den Partner. Die eingeschränkte Geräteseite (inv-5) zeigt keine Vertragsangaben.
+- **CSV-Format (Ergänzung zur Tabelle unter INV-06):** drei Spalten nach „Garantie bis“:
+
+  | Spalte | Inhalt | Import |
+  |---|---|---|
+  | Wartungspartner | Firma (120); auch „Servicepartner“, „Wartungsfirma“, „Wartungsvertrag“ | ja |
+  | Vertragsende | TT.MM.JJJJ (auch JJJJ-MM-TT); auch „Vertrag bis“, „Laufzeit bis“ | ja |
+  | Kündigungsfrist (Monate) | ganze Zahl 0–36; ohne Vertragsende (in Zeile oder Bestand) Zeilenfehler | ja |
+
+  Die **Vertragsnotiz** ist Freitext und geht – wie Notiz und Ausmusterungsgrund – nicht in den Export und kommt nicht aus dem Import.
+- **Frist-Hinweis (INV-09):** dritter Punkt „Wartungsvertrag: Frist“ (warn) in „Offen für dich“ (`open.ts`), gleiche Empfänger (Pflegende
+  der Kategorie) und gleicher Vorlauf `gebaeude.deadline_days` wie Garantie/Zweckbindung; kein Gong, keine Mail. Maßgeblich ist der
+  **letzte Kündigungstag** (Vertragsende minus Kündigungsfrist, Monatsende begrenzt – `serviceNoticeDate`), solange er noch kommt,
+  danach das Vertragsende; der Listenfilter „Frist: Wartungsvertrag“ (`?frist=vertrag`) nimmt Geräte, bei denen eines der beiden Daten
+  im Vorlauf liegt.
+- **Nutzungsdauer je Kategorie (INV-10, inf-3):** `gebaeude_asset_categories.lifetime_years` (1–50 Jahre, leer = kein Richtwert), Vorlage
+  in `kategorien.ts` (grobe Erfahrungswerte, z. B. IT 5, Präsentation/AV 8, Möbel 15, Aufzug 25; Erste-Hilfe-Material und „Sonstiges“
+  ohne). Die Migration setzt die Werte für schon angelegte Vorlagen-Kategorien (nur wo noch leer), eigene Kategorien bleiben ohne;
+  `ensureCategories` legt neue Vorlagen mit Wert an. Pflege im Kategorienformular (nur `configure`, im Audit), Anzeige als Plakette
+  „n Jahre“ und auf der Geräteseite („Ersatz ab <Jahr>“). Keine Abschreibung, kein Restwert.
+- **Auswertung Ersatzbedarf (INV-11, inf-4/inf-5):** `/gebaeude/inventar/ersatzbedarf` (Link in der Inventarliste und bei den
+  Kategorien), Logik in `src/modules/gebaeude/ersatzbedarf.ts`. Ersatzjahr = Anschaffungsjahr + Nutzungsdauer; Stand „Ersatz fällig“
+  (Ersatzjahr erreicht oder vorbei), „in der Vorausschau“ (3/5/10 Jahre, Vorgabe 5), „später“, „ohne Anschaffungsdatum“, „ohne
+  Richtwert“. Überblick, **je Kategorie** (Nutzungsdauer, Bestand, fällig, Vorausschau, ohne Datum), **je Jahr** (erstes Jahr
+  einschließlich Überfälligem), **je Raum** (Link filtert auf den Raum) und die einzelnen Einträge; Filter Kategorie/Gebäude/Raum.
+  Zählt Stück (Sammelposten mit Menge), Einträge in Klammern. CSV `/api/gebaeude/export/ersatzbedarf` (eine Zeile je fälligem bzw.
+  vorausgeschautem Eintrag, `?kodierung=cp1252`) und Druck `/druck/ersatzbedarf`, beide mit den Filtern der Seite.
+- **Entscheidungen bei offenen Punkten (konservativ, INV-08…11):**
+  - **Preis = Preis des Eintrags** (bei Sammelposten der Gesamtpreis, wie im Demo-Tablet-Koffer); der Anschaffungswert summiert die
+    Preise der Einträge, ohne Hochrechnung und ohne Preissteigerung. Einträge ohne Preis zählen mit 0.
+  - **Werte nur `configure` oder das Recht `view_all` selbst** (`canSeeValues`) – enger als `canViewAll`, das `manage` einschließt: die
+    Hausmeisterei (`manage` + `inventory`) und verantwortliche Gruppen sehen nur Stückzahlen. Die Werte werden serverseitig aus dem
+    Bericht entfernt (auch aus CSV und Druck), nicht nur ausgeblendet. Die Preise auf Geräteseite und Inventarliste bleiben wie bisher.
+  - Nur Inventar **in Betrieb** zählt (Ausgemustertes nicht). Ohne Anschaffungsdatum kein Ersatzjahr – diese Einträge erscheinen gezählt,
+    aber nicht in der Liste („ohne Anschaffungsdatum“), damit die Schule Daten nachtragen kann.
+  - Export-Audit `gebaeude.replacement.export` nur mit Anzahl und Vorausschau; die Druckansicht wird nicht protokolliert (wie das
+    Inventurprotokoll).
+- **Doku/E2E (INV-12):** Handbuch-Seite „Gebäude und Technik: Inventar“ (Abschnitt Ersatzbedarf, Wartungsvertrag, Rechte-Tabelle),
+  DATENSCHUTZ §3.4, SICHERHEIT S106; Unit-Tests `ersatzbedarf.test.ts` (auch die Migration), E2E `e2e/inventar-folge.spec.ts`
+  (360 px, dunkel, axe; Hausmeisterei ohne Werte, Lehrkraft/Schülerin 404 auf Seite, Druck und CSV).

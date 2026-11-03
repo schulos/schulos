@@ -250,7 +250,8 @@ Fragen beantwortet das Sekretariat.`,
 Nach einer **Neuinstallation** des Servers gibt es ein neues Schul-Zertifikat: Es muss neu verteilt und das alte von den Geräten entfernt werden, sonst sperren Browser die Seite ganz. Nach einer **Wiederherstellung aus dem Backup** bleibt es gleich. Wechselt es, bekommt die IT eine Alarm-Mail, bis sie den neuen Fingerabdruck in Verwaltung → System bestätigt.`,
   },
   {
-    // INV-07 (docs/INVENTAR.md): Mängel, Inventar, Etiketten, Geräteseite, Inventur, Ausleihe, Schulträger-Liste – für das Personal
+    // INV-07 (docs/INVENTAR.md): Mängel, Inventar, Etiketten, Geräteseite, Inventur, Ausleihe, Schulträger-Liste – für das Personal;
+    // INV-12: Wartungsverträge, Nutzungsdauer, Ersatzbedarf
     slug: GEBAEUDE_HELP_SLUG,
     title: "Gebäude und Technik: Inventar",
     roles: STAFF_TARGET_ROLES,
@@ -263,10 +264,15 @@ Nach einer **Neuinstallation** des Servers gibt es ein neues Schul-Zertifikat: E
 
 ## Inventar pflegen
 
-- **Gebäude & Technik → Inventar** zeigt die Liste mit Filtern (Kategorie, Gebäude, Raum, Zustand, Frist, Suche). Ausgemustertes ist ausgeblendet („auch ausgemusterte“).
+- **Gebäude & Technik → Inventar** zeigt die Liste mit Filtern (Kategorie, Gebäude, Raum, Zustand, Frist, mit Wartungsvertrag, Suche). Ausgemustertes ist ausgeblendet („auch ausgemusterte“).
 - **Anlegen:** Bezeichnung, Kategorie und Standort genügen; die Inventarnummer vergibt SchulOS aus dem Präfix der Kategorie (z. B. IT-0007). Tische und Stühle eines Raums sind ein **Sammelposten** mit Menge.
 - Preis, Lieferant, Finanzierung, Zweckbindung und Garantie sind optional. Endet eine Garantie oder Zweckbindung bald, erscheint unter **Offen für dich** auf der Startseite ein Hinweis (Vorlauf in den Moduleinstellungen).
+- **Wartungs- oder Servicevertrag** (z. B. Aufzug, Lüftung, Kopierer): Wartungspartner (Firma), Vertragsende, Kündigungsfrist in Monaten und eine kurze Vertragsnotiz (Leistung, Vertragsnummer – keine Namen oder Telefonnummern von Personen). Vor dem letzten Kündigungstag und vor dem Vertragsende erscheint **Wartungsvertrag: Frist** unter **Offen für dich** – mit demselben Vorlauf wie bei der Garantie.
 - **Ausmustern** statt löschen: der Eintrag bleibt als Nachweis für den Schulträger.
+
+## Ersatzbedarf
+
+**Inventar → Ersatzbedarf** zeigt, was die übliche Nutzungsdauer erreicht hat oder in den nächsten Jahren erreicht: je Kategorie, je Jahr und je Raum, darunter die einzelnen Einträge – als CSV oder zum Drucken für das Gespräch mit dem Schulträger. Gerechnet wird „Anschaffungsjahr + Nutzungsdauer der Kategorie“; Einträge ohne Anschaffungsdatum oder in Kategorien ohne Richtwert werden extra gezählt. Die Nutzungsdauer ist ein Richtwert, den die Verwaltung unter **Inventar → Kategorien** anpasst – keine Abschreibung und kein Restwert. Preise und Anschaffungswerte sehen nur die Verwaltung und wer alles lesen darf; die verantwortlichen Gruppen sehen nur ihre Kategorien.
 
 ## Etiketten drucken
 
@@ -297,10 +303,10 @@ Auf der Geräteseite (Karte **Ausleihe**) eine Person suchen, Rückgabedatum und
 | Wer | Inventar |
 |---|---|
 | Alle Beschäftigten | Mangel melden; Geräteseite mit Bezeichnung, Kategorie, Standort |
-| Recht „alles lesen“ | Liste, Geräteseiten vollständig, Export |
-| Verantwortliche Gruppe einer Kategorie | diese Kategorie pflegen, Etiketten, Ausleihe, Import/Export |
-| Recht „Inventar pflegen“ (z. B. Hausmeisterei) | alle Kategorien, Inventur |
-| Recht „einrichten“ (Verwaltung) | zusätzlich Kategorien, Prüfarten, endgültig löschen |
+| Recht „alles lesen“ | Liste, Geräteseiten vollständig, Export, Ersatzbedarf mit Werten |
+| Verantwortliche Gruppe einer Kategorie | diese Kategorie pflegen, Etiketten, Ausleihe, Import/Export, Ersatzbedarf ohne Werte |
+| Recht „Inventar pflegen“ (z. B. Hausmeisterei) | alle Kategorien, Inventur, Ersatzbedarf ohne Werte |
+| Recht „einrichten“ (Verwaltung) | zusätzlich Kategorien (mit Nutzungsdauer), Prüfarten, endgültig löschen, Ersatzbedarf mit Werten |
 
 Welche Gruppe welche Rechte hat, legt die Verwaltung unter **Verwaltung → Rechte & Module** fest.`,
   },

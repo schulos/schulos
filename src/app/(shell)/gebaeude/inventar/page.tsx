@@ -25,12 +25,13 @@ import { AssetImportForm } from "./import-form";
 
 export const metadata: Metadata = { title: "Inventar" };
 
-type Search = { kategorie?: string; gebaeude?: string; raum?: string; zustand?: string; alle?: string; ohne?: string; q?: string; frist?: string; geloescht?: string };
+type Search = { kategorie?: string; gebaeude?: string; raum?: string; zustand?: string; alle?: string; ohne?: string; vertrag?: string; q?: string; frist?: string; geloescht?: string };
 
 /**
  * INV-01 Inventar: Liste mit Filtern (Kategorie, Gebäude, Zustand, Suche, ohne Etikett, auch ausgemusterte), Anlegen und
  * CSV-Import/-Export im Schulträgerformat (INV-06, mit Vorschau und Spaltenzuordnung), Filter „Raum“ (Karte im Raumsteckbrief) und
- * „Frist“ (Hinweis in „Offen für dich“). Lesen mit `view_all`/`inventory`/`configure`, verantwortliche Gruppen sehen ihre Kategorien; Pflege nach
+ * „Frist“ (Hinweis in „Offen für dich“, INV-09 auch Wartungsverträge), „mit Wartungsvertrag“ (INV-08) und Link auf die Auswertung
+ * Ersatzbedarf (INV-11). Lesen mit `view_all`/`inventory`/`configure`, verantwortliche Gruppen sehen ihre Kategorien; Pflege nach
  * Kategorie (`requireMaintain` im Service).
  */
 export default async function InventarPage({ searchParams }: { searchParams: Promise<Search> }) {
@@ -55,13 +56,14 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
     condition,
     inactive: sp.alle === "1",
     withoutLabel: sp.ohne === "1",
+    withContract: sp.vertrag === "1",
     q: sp.q,
     // „Frist“ ohne eingestellten Vorlauf: die nächsten 90 Tage
     deadline: frist ? { kind: frist, from: today, until: window?.until ?? addDays(today, 90) } : undefined,
   };
   const assets = await listAssets(db, perms, filter);
   const exportQuery = new URLSearchParams(
-    Object.entries({ kategorie: category?.id, gebaeude: building?.value, raum: room?.value, zustand: condition, alle: sp.alle === "1" ? "1" : undefined, ohne: sp.ohne === "1" ? "1" : undefined, q: sp.q, frist }).filter(
+    Object.entries({ kategorie: category?.id, gebaeude: building?.value, raum: room?.value, zustand: condition, alle: sp.alle === "1" ? "1" : undefined, ohne: sp.ohne === "1" ? "1" : undefined, vertrag: sp.vertrag === "1" ? "1" : undefined, q: sp.q, frist }).filter(
       (e): e is [string, string] => !!e[1],
     ),
   ).toString();
@@ -92,6 +94,9 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
           <a href={`/api/gebaeude/export/inventar${exportQuery ? `?${exportQuery}` : ""}`} download>
             Als CSV exportieren
           </a>
+        </Button>
+        <Button asChild variant="secondary" size="sm">
+          <Link href="/gebaeude/inventar/ersatzbedarf">Ersatzbedarf</Link>
         </Button>
         {configure && (
           <Button asChild variant="ghost" size="sm">
@@ -167,6 +172,10 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
         <label className="flex min-h-11 items-center gap-2 text-sm">
           <input type="checkbox" name="ohne" value="1" defaultChecked={sp.ohne === "1"} className="size-6 accent-[var(--accent)]" />
           ohne Etikett
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm">
+          <input type="checkbox" name="vertrag" value="1" defaultChecked={sp.vertrag === "1"} className="size-6 accent-[var(--accent)]" />
+          mit Wartungsvertrag
         </label>
         <label className="flex min-h-11 items-center gap-2 text-sm">
           <input type="checkbox" name="alle" value="1" defaultChecked={sp.alle === "1"} className="size-6 accent-[var(--accent)]" />

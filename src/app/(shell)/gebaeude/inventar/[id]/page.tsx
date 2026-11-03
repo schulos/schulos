@@ -40,7 +40,7 @@ import {
   formatPrice,
   type InspectionState,
 } from "@/modules/gebaeude/labels";
-import { assetPlace, buildingOptions, floorOptions, formatDay, getAsset, listInspections, roomOptions } from "@/modules/gebaeude/pruefungen";
+import { assetPlace, buildingOptions, floorOptions, formatDay, getAsset, listInspections, roomOptions, serviceNoticeDate } from "@/modules/gebaeude/pruefungen";
 import { canManage, canReport, canViewAll, listTickets, openTicketCountForAsset } from "@/modules/gebaeude/service";
 import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
@@ -294,6 +294,18 @@ export default async function InventarDetailPage({ params, searchParams }: { par
             {row("Finanzierung", a.financing)}
             {row("Zweckbindung bis", a.boundUntil ? <span className={a.boundUntil < today ? "text-muted" : undefined}>{formatDay(a.boundUntil)}</span> : null)}
             {row("Garantie bis", a.warrantyUntil ? <span className={a.warrantyUntil < today ? "text-muted" : undefined}>{formatDay(a.warrantyUntil)}</span> : null)}
+            {row("Wartungspartner", a.servicePartner)}
+            {row(
+              "Vertragsende",
+              a.serviceEnd ? (
+                <span className={a.serviceEnd < today ? "text-muted" : undefined}>
+                  {formatDay(a.serviceEnd)}
+                  {a.serviceNoticeMonths ? ` · Kündigungsfrist ${a.serviceNoticeMonths} ${a.serviceNoticeMonths === 1 ? "Monat" : "Monate"} (bis ${formatDay(serviceNoticeDate(a.serviceEnd, a.serviceNoticeMonths)!)})` : ""}
+                </span>
+              ) : null,
+            )}
+            {row("Vertragsnotiz", a.serviceNote)}
+            {row("Nutzungsdauer (Richtwert)", a.categoryLifetimeYears ? `${a.categoryLifetimeYears} Jahre${a.acquiredOn ? ` · Ersatz ab ${Number(a.acquiredOn.slice(0, 4)) + a.categoryLifetimeYears}` : ""}` : null)}
             {row("Nächste Prüfung", a.nextDue ? <span className={a.nextDue < today ? "font-semibold text-danger" : undefined}>{formatDay(a.nextDue)}</span> : null)}
             {row("Ausmusterung", a.retiredOn ? `${formatDay(a.retiredOn)}${a.retiredReason ? ` – ${a.retiredReason}` : ""}` : null)}
             {row("Notiz", a.note)}

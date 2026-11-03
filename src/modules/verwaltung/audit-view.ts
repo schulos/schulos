@@ -420,6 +420,7 @@ export const ACTION_LABELS: Record<string, string> = {
   "gebaeude.asset.delete": "Inventar gelöscht",
   "gebaeude.asset.import": "Inventarliste importiert",
   "gebaeude.asset.export": "Inventarliste exportiert",
+  "gebaeude.replacement.export": "Ersatzbedarf exportiert",
   "gebaeude.asset.condition": "Inventar-Zustand geändert",
   "gebaeude.asset.move": "Inventar-Standort geändert",
   "gebaeude.asset.photo.add": "Inventar-Foto hinzugefügt",

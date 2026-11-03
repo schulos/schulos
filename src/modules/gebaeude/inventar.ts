@@ -11,7 +11,7 @@ import { readModuleSetting } from "@/core/modules/settings";
 import { ForbiddenError, accessBlocked, hasPermission, type PermissionSet } from "@/core/permissions";
 import { isStaffRole } from "@/core/roles";
 import { ValidationError } from "@/modules/verwaltung/users";
-import { ASSET_CATEGORY_TEMPLATE, PREFIX_RE, categoryKeyFromName } from "./kategorien";
+import { ASSET_CATEGORY_TEMPLATE, LIFETIME_MAX, LIFETIME_MIN, PREFIX_RE, categoryKeyFromName } from "./kategorien";
 import { INVENTORY_NO_FORMATS, formatInventoryNo, inventoryCounterKey, type InventoryNoFormat } from "./labels";
 import { canViewAll } from "./service";
 import { INVENTORY_NO_FORMAT } from "./settings";
@@ -62,7 +62,7 @@ function requireConfigure(p: PermissionSet) {
 export async function ensureCategories(db: Db): Promise<void> {
   await db
     .insert(gebaeudeAssetCategories)
-    .values(ASSET_CATEGORY_TEMPLATE.map((t) => ({ key: t.key, name: t.name, prefix: t.prefix, inspectionRequired: t.inspectionRequired, sortOrder: t.sort })))
+    .values(ASSET_CATEGORY_TEMPLATE.map((t) => ({ key: t.key, name: t.name, prefix: t.prefix, inspectionRequired: t.inspectionRequired, sortOrder: t.sort, lifetimeYears: t.lifetimeYears })))
     .onConflictDoNothing({ target: gebaeudeAssetCategories.key });
 }
 
@@ -81,6 +81,7 @@ export async function listCategories(db: Db, opts: { activeOnly?: boolean } = {}
       responsibleGroupId: gebaeudeAssetCategories.responsibleGroupId,
       sortOrder: gebaeudeAssetCategories.sortOrder,
       active: gebaeudeAssetCategories.active,
+      lifetimeYears: gebaeudeAssetCategories.lifetimeYears,
       createdAt: gebaeudeAssetCategories.createdAt,
       responsibleGroupName: groups.name,
       assetCount: sql<number>`(select count(*)::int from gebaeude_assets a where a.category_id = ${gebaeudeAssetCategories.id} and a.retired_on is null)`,
@@ -105,6 +106,8 @@ export interface CategoryInput {
   responsibleGroupId: string | null;
   sortOrder: number;
   active: boolean;
+  /** INV-10: Nutzungsdauer in Jahren (Richtwert für den Ersatzbedarf); leer/null = kein Richtwert. Fehlt das Feld, bleibt der Wert. */
+  lifetimeYears?: string | number | null;
 }
 
 async function validateCategory(db: Db, input: CategoryInput, selfId?: string) {
@@ -115,6 +118,10 @@ async function validateCategory(db: Db, input: CategoryInput, selfId?: string) {
   if (name.length < 2 || name.length > 80) fe.name = "Name mit 2 bis 80 Zeichen";
   if (!PREFIX_RE.test(prefix)) fe.prefix = "Präfix: 1 bis 6 Großbuchstaben oder Ziffern";
   if (!Number.isInteger(input.sortOrder) || input.sortOrder < 0 || input.sortOrder > 100000) fe.sortOrder = "Reihenfolge 0 bis 100000";
+  const rawLifetime = input.lifetimeYears === undefined ? undefined : String(input.lifetimeYears ?? "").trim();
+  const lifetimeYears = rawLifetime === undefined ? undefined : rawLifetime === "" ? null : Number(rawLifetime);
+  if (typeof lifetimeYears === "number" && (!Number.isInteger(lifetimeYears) || lifetimeYears < LIFETIME_MIN || lifetimeYears > LIFETIME_MAX))
+    fe.lifetimeYears = `Nutzungsdauer ${LIFETIME_MIN} bis ${LIFETIME_MAX} Jahre (leer = kein Richtwert)`;
   if (responsibleGroupId) {
     const [g] = await db.select({ id: groups.id }).from(groups).where(eq(groups.id, responsibleGroupId));
     if (!g) fe.responsibleGroupId = "Gruppe gibt es nicht";
@@ -127,7 +134,15 @@ async function validateCategory(db: Db, input: CategoryInput, selfId?: string) {
     if (dup && dup.id !== selfId) fe.name = "Diese Kategorie gibt es schon";
   }
   if (Object.keys(fe).length) throw new ValidationError(fe);
-  return { name, prefix, inspectionRequired: input.inspectionRequired, responsibleGroupId, sortOrder: input.sortOrder, active: input.active };
+  return {
+    name,
+    prefix,
+    inspectionRequired: input.inspectionRequired,
+    responsibleGroupId,
+    sortOrder: input.sortOrder,
+    active: input.active,
+    ...(lifetimeYears === undefined ? {} : { lifetimeYears }),
+  };
 }
 
 /** Eigene Kategorie anlegen (Recht `gebaeude.configure`); Schlüssel aus dem Namen, bei Dopplung mit Zähler. */
@@ -143,13 +158,19 @@ export async function createCategory(db: Db, viewer: PermissionSet, input: Categ
   return r!.id;
 }
 
-/** Kategorie anpassen (Name, Präfix, Prüfpflicht, Gruppe, Reihenfolge, aktiv) – Recht `gebaeude.configure`. */
+/** Kategorie anpassen (Name, Präfix, Prüfpflicht, Gruppe, Reihenfolge, aktiv, Nutzungsdauer – INV-10) – Recht `gebaeude.configure`. */
 export async function updateCategory(db: Db, viewer: PermissionSet, id: string, input: CategoryInput): Promise<void> {
   requireConfigure(viewer);
   const row = await validateCategory(db, input, id);
   const [r] = await db.update(gebaeudeAssetCategories).set(row).where(eq(gebaeudeAssetCategories.id, id)).returning({ id: gebaeudeAssetCategories.id });
   if (!r) throw new ValidationError({ name: "Kategorie gibt es nicht" });
-  await audit(db, viewer.userId, "gebaeude.asset_category.update", id, { name: row.name, prefix: row.prefix, active: row.active, inspectionRequired: row.inspectionRequired });
+  await audit(db, viewer.userId, "gebaeude.asset_category.update", id, {
+    name: row.name,
+    prefix: row.prefix,
+    active: row.active,
+    inspectionRequired: row.inspectionRequired,
+    ...(row.lifetimeYears === undefined ? {} : { lifetimeYears: row.lifetimeYears }),
+  });
 }
 
 /** Kategorie löschen – nur ohne Anlagen und ohne Prüfarten-Bezug (sonst ausschalten); Vorlagen-Schlüssel kämen beim nächsten Aufruf wieder. */
