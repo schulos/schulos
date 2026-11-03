@@ -36,6 +36,8 @@ describe("Stammdaten · Räume", () => {
       capacity: 28,
       accessible: true,
       active: true,
+      planX: null,
+      planY: null,
     });
     try {
       await createRoom(h.db, "u-admin", room("nw2", { name: " ", kind: "keller", capacity: "-3" }));

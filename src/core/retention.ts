@@ -257,7 +257,7 @@ export const NO_PERSONAL_DATA: Record<string, string> = {
   room_photos: "Raumfotos (RS-04): Räume und Sachen, keine Personen (Hinweis am Upload), Metadaten entfernt; wer hochgeladen hat, steht nur im Audit-Log",
   room_layouts: "Raumlayouts (RS-08): Raster mit Plätzen, Tischen und Objekten – Plätze sind leer, keine Personen; wer geändert hat, steht nur im Audit-Log",
   buildings: "Gebäude (RS-10): Name und Reihenfolge – Stammdaten ohne Personen",
-  building_floors: "Etagen je Gebäude (RS-10): Name und Reihenfolge – Stammdaten ohne Personen",
+  building_floors: "Etagen je Gebäude (RS-10): Name und Reihenfolge, seit RS-13 Grundriss-Bild mit Alternativtext (Gebäude, keine Personen; Hinweis am Upload) – Stammdaten ohne Personen",
   label_codes: "Codes der Kurz-URLs auf Etiketten (RS-11 Tür-QR, INV-02 Inventar-Etikett): Zufallscode je Raum bzw. Inventargut – kein Personenbezug, wer erzeugt hat, steht nur im Audit-Log",
   periods: "Zeitraster",
   grade_levels: "Jahrgangsstufen",

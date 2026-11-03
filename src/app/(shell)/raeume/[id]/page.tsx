@@ -12,6 +12,8 @@ import { HISTORY_LIMIT, responsiblesFor, roomHistory } from "@/modules/verwaltun
 import { listRoomLayouts } from "@/modules/verwaltung/raumlayout";
 import { renewRoomCodeAction } from "@/modules/verwaltung/gebaeude-actions";
 import { roomCode } from "@/modules/verwaltung/tuer-qr";
+import { canEditFloorPlans, floorPlansFor } from "@/modules/verwaltung/grundriss";
+import { FloorPlan } from "@/ui/grundriss";
 import { roomInventory } from "@/modules/gebaeude/raum-inventar";
 import { labelUrl } from "@/core/etiketten/qr";
 import { RenewQrButton } from "./tuer-qr-renew";
@@ -35,6 +37,7 @@ const changedAt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-d
  * RS-04: Titelbild im Kopf (alle), Galerie als Karte (Beschäftigte); RS-05: Ausstattung mit Menge im Kopf (alle).
  * RS-06: Karte „Verantwortliche“ (nur Beschäftigte) und „Änderungen“ aus dem Audit (nur Pflegende) im unteren Raster.
  * RS-08: Karte „Raumlayout“ (nur Beschäftigte) mit dem Standard-Layout, Link auf alle Layouts bzw. den Editor.
+ * RS-13: Karte „Lage“ mit dem Grundriss der Etage (Raum hervorgehoben), sofern es einen Plan gibt und die Sicht ihn sehen darf.
  */
 export default async function RaumSteckbriefPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ woche?: string; gespeichert?: string; qr?: string }> }) {
   const { perms } = await requireUser();
@@ -57,7 +60,7 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
   const canEditInfo = await canEditRoomInfo(db, perms, room.id);
   const canManageResponsibles = canMaintainAllRooms(perms);
   // RS-06: Verantwortliche sehen nur Beschäftigte, die Historie nur Pflegende (Recht oder Verantwortung für diesen Raum)
-  const [responsibles, history, adressbuch, layouts, qrCode, inventory] = await Promise.all([
+  const [responsibles, history, adressbuch, layouts, qrCode, inventory, plans] = await Promise.all([
     responsiblesFor(db, perms, room.id),
     canEditInfo ? roomHistory(db, perms, room.id) : Promise.resolve(null),
     moduleOn("adressbuch"),
@@ -67,7 +70,11 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
     canEditInfo ? roomCode(db, perms, room.id) : Promise.resolve(null),
     // INV-06: Inventar je Kategorie nur für alle mit Sicht aufs Inventar (sonst null)
     gebaeude ? roomInventory(db, perms, room.id) : Promise.resolve(null),
+    // RS-13: Grundriss der Etage („Lage“), nur mit Plan und Sicht laut Moduleinstellung
+    room.floorId ? floorPlansFor(db, perms, [room.floorId]) : Promise.resolve(null),
   ]);
+  const plan = room.floorId ? (plans?.get(room.floorId) ?? null) : null;
+  const placed = plan?.rooms.some((r) => r.id === room.id) ?? false;
   const mainLayout = layouts?.[0] ?? null;
   const weekHref = (m: string) => `/raeume/${enc}?woche=${m}#belegung`;
 
@@ -250,6 +257,18 @@ export default async function RaumSteckbriefPage({ params, searchParams }: { par
           <Card aria-labelledby="fotos" className="scroll-mt-20">
             <CardHeader title={<span id="fotos">Fotos</span>} action={canEditInfo ? { href: `/raeume/${enc}/fotos`, label: "Fotos bearbeiten" } : undefined} />
             <PhotoGallery photos={profile.photos} roomId={room.id} />
+          </Card>
+        )}
+        {plan && (
+          <Card aria-labelledby="lage" className="scroll-mt-20">
+            <CardHeader
+              title={<span id="lage">Lage</span>}
+              action={canEditFloorPlans(perms) ? { href: `/verwaltung/stammdaten/raeume/gebaeude/grundriss/${encodeURIComponent(plan.floorId)}`, label: "Grundriss bearbeiten" } : undefined}
+            />
+            <p className="mb-3 text-sm text-muted">
+              {placed ? `Raum ${room.id} ist auf dem Grundriss hervorgehoben; die anderen Punkte führen zu ihrem Steckbrief.` : `Raum ${room.id} ist auf dem Grundriss noch nicht verortet.`}
+            </p>
+            <FloorPlan plan={plan} rooms={plan.rooms} highlight={room.id} />
           </Card>
         )}
         {layouts && (

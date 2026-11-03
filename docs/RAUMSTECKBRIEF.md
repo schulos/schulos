@@ -318,3 +318,43 @@ Veranstaltungs-Folgen VA-05…07).
 - **rs-4** JPEG/PNG/WebP, **kein PDF** (Handbuch-Hinweis „als PNG exportieren“); SVG bleibt ausgeschlossen.
 - **rs-5** Ein Plan je Etage (ein Anbau ist in den Stammdaten ein eigenes Gebäude).
 - **rs-6** Feste Zeile am Plan: „Nicht als Flucht- und Rettungsplan verwenden“.
+
+## Umgesetzt (RS-13)
+
+Stand 2026-11-03, Migration 0133 (`building_floors.plan_key`/`plan_thumb_key`/`plan_mime`/`plan_width`/`plan_height`/`plan_alt`/
+`plan_updated_at`, `rooms.plan_x`/`plan_y`; Prüfungen „alle oder keine“ bzw. „beide oder keiner, 0–1“ in der DB).
+
+- **Plan je Etage (RS-13a):** Upload JPEG/PNG/WebP bis 20 MB (Typ an den Bytes, kein PDF, kein SVG), mit sharp auf 2400 px
+  (Vorschau 800 px) als JPEG ohne Metadaten, Virenscan; **Alternativtext Pflicht** (10–300 Zeichen). Ein neuer Plan ersetzt den
+  alten (alte Dateien sofort gelöscht, Punkte bleiben); Löschen entfernt Plan, Dateien und alle Punkte der Etage. Dienst
+  `src/modules/verwaltung/grundriss.ts`, Rechte nur `verwaltung.school` (`canEditFloorPlans`, rs-3), Audit
+  `verwaltung.room.floor.plan_add/plan_replace/plan_alt/plan_delete` (Ziel Etage, Filter „Räume“).
+- **Punkte:** je Raum `plan_x`/`plan_y` als Anteil der Bildbreite/-höhe (0–1, links oben 0/0), nur für Räume auf einer Etage mit
+  Plan; ein **Etagenwechsel im Raumformular leert den Punkt** (`rooms.ts`). Audit `verwaltung.room.plan_point/plan_point_remove`
+  (Ziel Raum) – erscheint in der Karte „Änderungen“.
+- **Pflegeseite (RS-13b)** `/verwaltung/stammdaten/raeume/gebaeude/grundriss/<etage>` (Link je Etage unter „Gebäude und Etagen“):
+  Hinweis „keine Personen und keine Namensschilder“, feste Zeile, Upload/Ersetzen, „Räume verorten“ (Raum wählen; Klick/Tippen auf
+  den Plan, **Punkt per Tab fokussieren und mit Pfeiltasten verschieben** – 1 %, mit Umschalt 5 % –, oder **Zahlenfelder** „Von
+  links/oben (%)“; Ansage per `aria-live`, gespeichert erst mit „Punkt speichern“), Liste „Räume dieser Etage“ mit Stand,
+  Alternativtext ändern, Plan löschen. Auf 360 px scrollt der Plan im Kasten.
+- **Komponente** `src/ui/grundriss.tsx` (ohne Hooks): Bild mit Alternativtext, Punkte als Liste von Links („Raum 305“, Trefferfläche
+  44 × 44 px, sichtbares Schild mit Kürzel, sichtbarer Fokus, Farben nur über Tokens – auch im dunklen Theme), Hervorhebung des
+  eigenen Raums, darunter immer **„Nicht als Flucht- und Rettungsplan verwenden.“** (rs-6).
+- **Anzeige (RS-13c):** Raumfinder `/raeume` – je Etage mit Plan ein aufklappbarer Grundriss unter der Etagen-Überschrift (offen,
+  wenn nach der Etage gefiltert ist); **die Liste bleibt Hauptansicht**. Steckbrief: Karte **„Lage“** mit dem Plan der Etage, der
+  Raum hervorgehoben, die übrigen Punkte führen zu ihrem Steckbrief („Grundriss bearbeiten“ nur mit `verwaltung.school`).
+- **Auslieferung** nur über `/api/raeume/grundriss/<etage>` (`?klein=1` Vorschau, `?v=` je Plan für den Cache) mit Sitzung –
+  keine öffentliche URL; ohne Sicht, ohne Plan oder bei unbekannter Etage einheitlich 404 (SICHERHEIT.md S107).
+- **Moduleinstellung** `verwaltung.floor_plan_visibility` „Grundriss je Etage: wer sieht ihn“ – „alle Angemeldeten“ (Vorgabe) oder
+  „nur Personal“ (rs-2); DSB-Thema 22. Beschäftigte sehen den Plan immer.
+- **Dateispeicher und Backup:** `plan_key`/`plan_thumb_key` in `STORAGE_KEY_COLUMNS` (Aufräumlauf, Abdeckungstest) und in der
+  Auskunft-Liste ohne Personenbezug; die Dateien liegen in `files/` und gehen mit jedem Backup-Snapshot mit.
+- **Datenschutz:** ohne Personenbezug (`building_floors` bleibt in `NO_PERSONAL_DATA`, DATENSCHUTZ.md §3.4); wer hochgeladen hat,
+  steht nur im Audit-Log.
+- **Handbuch:** Starter-Seite „Räume: Grundriss je Etage“ (Bereich Gebäude & Technik, Personal) mit dem Weg „PDF als PNG
+  exportieren“.
+- **Tests:** `grundriss.test.ts` (Helfer, Rechte inkl. Raumverantwortliche, ohne Plan, Upload/Verkleinern/EXIF/Typen/Alternativtext,
+  Punkte und DB-Prüfung, Sichtbarkeit je Einstellung, Etagenwechsel, Ersetzen, Löschen, Dateispeicher, Historie),
+  `grundriss.migration.test.ts` (Bestand vorher = nachher, Prüfungen); E2E `grundriss.spec.ts` (Upload mit Pflicht-Alternativtext,
+  Punkt per Pfeiltasten, Zahlenfeld und Klick, Raumfinder und Lage als Schülerin 360 px dunkel mit axe, Route ohne Anmeldung,
+  „nur Personal“, aufräumen).

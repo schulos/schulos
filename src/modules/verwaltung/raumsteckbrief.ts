@@ -245,6 +245,8 @@ export interface RoomProfile {
     kind: RoomKind;
     building: string | null;
     floor: string | null;
+    /** RS-13: Etage für „Lage“ (Grundriss) */
+    floorId: string | null;
     capacity: number | null;
     /** RS-05: Ausstattung mit Menge (sehen alle) */
     equipment: RoomEquipmentEntry[];

@@ -55,7 +55,17 @@ export default async function GebaeudePage() {
               <ul className="flex flex-col divide-y divide-border">
                 {b.floors.map((f) => (
                   <li key={f.id} className="flex flex-col gap-2 py-3 first:pt-0">
-                    <p className="text-xs text-muted">{roomsText(f.rooms)}</p>
+                    <p className="flex flex-wrap items-center gap-x-3 text-xs text-muted">
+                      <span>{roomsText(f.rooms)}</span>
+                      {/* RS-13: Grundriss je Etage */}
+                      <Link
+                        href={`/verwaltung/stammdaten/raeume/gebaeude/grundriss/${encodeURIComponent(f.id)}`}
+                        aria-label={`${f.planKey ? "Grundriss bearbeiten" : "Grundriss hochladen"}: ${b.name} · ${f.name}`}
+                        className="font-medium text-accent-ink hover:underline"
+                      >
+                        {f.planKey ? "Grundriss bearbeiten" : "Grundriss hochladen"}
+                      </Link>
+                    </p>
                     <PlaceForm name={`Etage ${f.name} (${b.name})`} nameLabel="Etage" action={updateFloorAction.bind(null, f.id)} initial={f} submitLabel="Speichern" />
                     <div className="self-end">
                       <DeletePlaceButton action={deleteFloorAction.bind(null, f.id)} label={`Etage ${f.name} (${b.name}) löschen`} question={`Etage „${f.name}“ löschen?`} />

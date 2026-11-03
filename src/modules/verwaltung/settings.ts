@@ -28,4 +28,19 @@ export const ROOM_OCCUPANCY_FAMILY = defineSetting({
   default: "frei_belegt",
 });
 
-export const VERWALTUNG_SETTINGS = [ACCOUNT_GRACE, ROOM_OCCUPANCY_FAMILY];
+/**
+ * RS-13 (Projektleitung 2026-11-03): Grundrisse der Etagen sehen alle Angemeldeten; die Schule kann sie auf Beschäftigte
+ * beschränken (z. B. wenn der Plan mehr zeigt, als Schüler:innen und Eltern wissen müssen).
+ */
+export const FLOOR_PLAN_VISIBILITY = defineSetting({
+  key: "verwaltung.floor_plan_visibility",
+  label: "Grundriss je Etage: wer sieht ihn",
+  help: "Der Grundriss zeigt, wo ein Raum liegt (Raumfinder, „Lage“ im Raumsteckbrief). Die Raumliste bleibt für alle sichtbar.",
+  options: [
+    { value: "alle", label: "alle Angemeldeten (Vorgabe)" },
+    { value: "personal", label: "nur Personal" },
+  ],
+  default: "alle",
+});
+
+export const VERWALTUNG_SETTINGS = [ACCOUNT_GRACE, ROOM_OCCUPANCY_FAMILY, FLOOR_PLAN_VISIBILITY];

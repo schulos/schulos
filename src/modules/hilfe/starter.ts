@@ -24,6 +24,8 @@ export const KLASSENBILDUNG_HELP_SLUG = "schulanmeldung-klassenbildung-fuer-die-
 export const FACHRAUM_HELP_SLUG = "fachraum-pruefungen";
 /** VA-03: Seite zur Veranstaltungsanmeldung (Bereich Gebäude & Technik) */
 export const VERANSTALTUNG_HELP_SLUG = "veranstaltung-bei-der-hausmeisterei-anmelden";
+/** RS-13: Seite zum Grundriss je Etage (Bereich Gebäude & Technik) */
+export const GRUNDRISS_HELP_SLUG = "raeume-grundriss-je-etage";
 /** CA-04: Starter-Seite zum Schul-Zertifikat (Verwaltung → System verlinkt sie, wenn es sie gibt) */
 export const ROOT_CA_HELP_SLUG = "schul-zertifikat-installieren";
 
@@ -465,6 +467,46 @@ Im Vorgang eines Antrags (**Verwaltung → Schulanmeldung → Anträge**, Karte 
 | Verwaltung mit Recht „Benutzer verwalten“ | Neuaufnahmen übernehmen (Konten anlegen) |
 
 Die Wünsche folgen dem Antrag und werden mit ihm gelöscht (Löschklasse LK-90). Eine Auskunft nach Art. 15 DSGVO nennt nur „Wunsch (nicht) zusammen mit einem anderen Kind“, nie den Namen des Partnerkindes.`,
+  },
+  {
+    // RS-13 (docs/RAUMSTECKBRIEF.md): Grundriss je Etage – für das Personal (Pflege durch die Verwaltung)
+    slug: GRUNDRISS_HELP_SLUG,
+    title: "Räume: Grundriss je Etage",
+    roles: STAFF_TARGET_ROLES,
+    section: GEBAEUDE_SECTION,
+    body: `Zu jeder Etage kann ein **Grundriss** hinterlegt werden. Die Räume erscheinen darauf als **Punkt mit Raumkürzel** – im **Raumfinder** (**Räume**, nach Etage filtern, „Grundriss … “ aufklappen) und im Raumsteckbrief in der Karte **Lage**. Die Raumliste bleibt die Hauptansicht; der Plan ist eine Ergänzung.
+
+**Wichtig:** Der Grundriss ist **kein Flucht- und Rettungsplan**. Diese Zeile steht fest an jedem Plan.
+
+## Plan hochladen (Verwaltung)
+
+1. **Verwaltung → Stammdaten → Räume → Gebäude und Etagen**, bei der Etage **Grundriss hochladen**.
+2. Ein Bild im Format **JPEG, PNG oder WebP** wählen (höchstens 20 MB). Ein Plan als **PDF** muss vorher als **PNG exportiert** werden (z. B. „Exportieren als Bild“ im PDF-Programm oder ein Bildschirmfoto in hoher Auflösung). SVG wird nicht angenommen.
+3. Auf dem Bild dürfen **keine Personen und keine Namensschilder** stehen (z. B. Büros mit Namen) – bitte vorher abdecken oder zuschneiden.
+4. Den **Alternativtext** ausfüllen (Pflicht): kurz beschreiben, was der Plan zeigt, z. B. „Langer Flur von West nach Ost, Treppenhaus in der Mitte, Fachräume im Ostflügel“.
+5. **Hochladen**. SchulOS verkleinert das Bild auf 2400 Pixel und entfernt Metadaten.
+
+Ein neuer Plan **ersetzt** den alten; die Punkte bleiben stehen und sollten danach kurz geprüft werden. **Grundriss löschen** entfernt auch alle Punkte der Etage.
+
+## Räume verorten
+
+Unter **Räume verorten** den **Raum** wählen und dann
+
+- auf den Plan **klicken oder tippen**, oder
+- den **Punkt** mit der Tab-Taste ansteuern und mit den **Pfeiltasten** verschieben (mit Umschalt in größeren Schritten), oder
+- **Von links (%)** und **Von oben (%)** eintragen,
+
+und **Punkt speichern**. Auf die Etage kommt ein Raum über die Stammdaten (**Gebäude und Etage** im Raumformular); zieht ein Raum auf eine andere Etage, wird sein Punkt entfernt.
+
+## Wer sieht was?
+
+| Wer | Grundriss |
+|---|---|
+| Verwaltung (Recht „Schuldaten und Stammdaten pflegen“) | hochladen, ersetzen, löschen, Räume verorten |
+| Lehrkräfte und Personal | ansehen (Raumfinder, Lage im Steckbrief) |
+| Schüler:innen und Eltern | ansehen – außer die Einstellung **Grundriss je Etage: wer sieht ihn** steht auf **nur Personal** (**Verwaltung → Rechte & Module**) |
+
+Raumverantwortliche pflegen Fotos und Ausstattung ihres Raums, den Grundriss aber nicht. Ohne Anmeldung ist der Plan nicht abrufbar.`,
   },
 ];
 

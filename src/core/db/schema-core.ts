@@ -5,6 +5,7 @@ import {
   boolean,
   check,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -85,36 +86,65 @@ export const buildingFloors = pgTable(
       .references(() => buildings.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     sortOrder: integer("sort_order").notNull().default(0),
+    /**
+     * RS-13: Grundriss der Etage (ein Plan je Etage) – JPEG ohne Metadaten im Dateispeicher (STORAGE_KEY_COLUMNS), dazu ein
+     * Vorschaubild, Maße und ein Pflicht-Alternativtext. Alle Spalten gesetzt oder alle leer (Prüfung in der DB).
+     */
+    planKey: text("plan_key"),
+    planThumbKey: text("plan_thumb_key"),
+    planMime: text("plan_mime"),
+    planWidth: integer("plan_width"),
+    planHeight: integer("plan_height"),
+    planAlt: text("plan_alt"),
+    planUpdatedAt: timestamp("plan_updated_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("building_floors_name_uq").on(t.buildingId, sql`lower(${t.name})`)],
+  (t) => [
+    uniqueIndex("building_floors_name_uq").on(t.buildingId, sql`lower(${t.name})`),
+    check(
+      "building_floors_plan_all_or_none",
+      sql`(${t.planKey} is null and ${t.planThumbKey} is null and ${t.planMime} is null and ${t.planWidth} is null and ${t.planHeight} is null and ${t.planAlt} is null and ${t.planUpdatedAt} is null) or (${t.planKey} is not null and ${t.planThumbKey} is not null and ${t.planMime} is not null and ${t.planWidth} is not null and ${t.planHeight} is not null and ${t.planAlt} is not null and ${t.planUpdatedAt} is not null)`,
+    ),
+  ],
 );
 
 export type Building = typeof buildings.$inferSelect;
 export type BuildingFloor = typeof buildingFloors.$inferSelect;
 
-export const rooms = pgTable("rooms", {
-  /** Raumkürzel, z. B. „112", „TH1" */
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  kind: roomKindEnum("kind").notNull().default("klassenraum"),
-  /**
-   * Anzeigekopie des Gebäudenamens (seit RS-10 aus `building_id`, geschrieben nur von `rooms.ts`/`gebaeude-etagen.ts`) –
-   * bleibt, damit Mängel, Prüfungen, Raumsuche und Exporte unverändert lesen können.
-   */
-  building: text("building"),
-  /** Anzeigekopie des Etagennamens (seit RS-10 aus `floor_id`), z. B. „EG“, „1. OG“ */
-  floor: text("floor"),
-  /** RS-10: Gebäude (Stammdaten); leer = keine Angabe */
-  buildingId: text("building_id").references(() => buildings.id),
-  /** RS-10: Etage – gehört immer zum Gebäude in `building_id` (prüft der Dienst) */
-  floorId: text("floor_id").references(() => buildingFloors.id),
-  capacity: integer("capacity"),
-  // Ausstattung: seit RS-05 im Katalog `room_equipment_types` mit Menge je Raum (`room_equipment_items`)
-  accessible: boolean("accessible").notNull().default(false),
-  /** inaktive Räume tauchen in Auswahllisten nicht mehr auf, bestehende Einträge bleiben */
-  active: boolean("active").notNull().default(true),
-});
+export const rooms = pgTable(
+  "rooms",
+  {
+    /** Raumkürzel, z. B. „112", „TH1" */
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    kind: roomKindEnum("kind").notNull().default("klassenraum"),
+    /**
+     * Anzeigekopie des Gebäudenamens (seit RS-10 aus `building_id`, geschrieben nur von `rooms.ts`/`gebaeude-etagen.ts`) –
+     * bleibt, damit Mängel, Prüfungen, Raumsuche und Exporte unverändert lesen können.
+     */
+    building: text("building"),
+    /** Anzeigekopie des Etagennamens (seit RS-10 aus `floor_id`), z. B. „EG“, „1. OG“ */
+    floor: text("floor"),
+    /** RS-10: Gebäude (Stammdaten); leer = keine Angabe */
+    buildingId: text("building_id").references(() => buildings.id),
+    /** RS-10: Etage – gehört immer zum Gebäude in `building_id` (prüft der Dienst) */
+    floorId: text("floor_id").references(() => buildingFloors.id),
+    capacity: integer("capacity"),
+    // Ausstattung: seit RS-05 im Katalog `room_equipment_types` mit Menge je Raum (`room_equipment_items`)
+    accessible: boolean("accessible").notNull().default(false),
+    /** inaktive Räume tauchen in Auswahllisten nicht mehr auf, bestehende Einträge bleiben */
+    active: boolean("active").notNull().default(true),
+    /**
+     * RS-13: Punkt auf dem Grundriss der Etage, relativ zur Bildbreite/-höhe (0–1, links oben = 0/0); beide oder keiner.
+     * Ein Etagenwechsel leert ihn (rooms.ts), Löschen des Grundrisses ebenso (grundriss.ts).
+     */
+    planX: doublePrecision("plan_x"),
+    planY: doublePrecision("plan_y"),
+  },
+  (t) => [
+    check("rooms_plan_point", sql`(${t.planX} is null and ${t.planY} is null) or (${t.planX} is not null and ${t.planY} is not null and ${t.planX} between 0 and 1 and ${t.planY} between 0 and 1)`),
+  ],
+);
 
 // RS-03 (Raumsteckbrief): Infofelder. Neue Werte nur hinten anfügen: Postgres sortiert Enums nach Deklaration.
 /** Wer ein Infofeld im Steckbrief sieht: alle Angemeldeten oder nur Beschäftigte (`STAFF_ROLES`). */
