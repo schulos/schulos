@@ -332,6 +332,11 @@ export const gebaeudeInspectionTypes = pgTable("gebaeude_inspection_types", {
   source: text("source").notNull().default(""),
   responsible: gebaeudeResponsibleEnum("responsible").notNull().default("schultraeger"),
   note: text("note"),
+  /**
+   * GS-02: zuständige Gruppe (z. B. Fachschaft Chemie) – bekommt Erinnerungen und Alarm-Gong, ihre Mitglieder erfassen und planen
+   * Prüfungen dieser Art. Leer = wie bisher alle mit `gebaeude.manage`. Organisationsdatum, kein Personenbezug.
+   */
+  responsibleGroupId: text("responsible_group_id").references(() => groups.id, { onDelete: "set null" }),
   active: boolean("active").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

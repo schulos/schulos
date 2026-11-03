@@ -172,6 +172,8 @@ function typeInput(form: FormData): InspectionTypeInput {
     responsible: str("responsible"),
     note: str("note") || null,
     active: form.get("active") === "on",
+    // GS-02: Feld fehlt im Formular → Gruppe bleibt, leer → keine zuständige Gruppe
+    responsibleGroupId: form.has("responsibleGroupId") ? str("responsibleGroupId") || null : undefined,
   };
 }
 

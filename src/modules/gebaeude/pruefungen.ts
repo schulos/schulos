@@ -9,11 +9,12 @@ import { audit } from "@/core/audit";
 import { toCsv } from "@/core/csv";
 import type { Db } from "@/core/db/client";
 import { rowsOf } from "@/core/db/rows";
-import { buildingFloors, buildings, gebaeudeAssetCategories, gebaeudeAssetPhotos, gebaeudeAssets, gebaeudeInspectionTypes, gebaeudeInspections, gebaeudeTickets, labelCodes, rooms } from "@/core/db/schema";
+import { buildingFloors, buildings, gebaeudeAssetCategories, gebaeudeAssetPhotos, gebaeudeAssets, gebaeudeInspectionTypes, gebaeudeInspections, gebaeudeTickets, groupMembers, groups, labelCodes, rooms, users } from "@/core/db/schema";
 import { alias } from "drizzle-orm/pg-core";
 import { newStorageKey, type FileStorage } from "@/core/files/storage";
 import { notify } from "@/core/notifications";
-import { ForbiddenError, hasPermission, usersWithPermission, type PermissionSet } from "@/core/permissions";
+import { ForbiddenError, accessBlocked, hasPermission, usersWithPermission, type PermissionSet } from "@/core/permissions";
+import { isStaffRole } from "@/core/roles";
 import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { canMaintainInventory, categoryById, ensureCategories, inventoryNoFormat, maintainableCategories, nextInventoryNo, requireMaintain } from "./inventar";
@@ -41,7 +42,7 @@ import {
   type TicketCategory,
 } from "./labels";
 import { INSPECTION_TEMPLATE } from "./pruefarten";
-import { canManage, canViewAll, createTicket, placeLabel } from "./service";
+import { canManage, canReport, canViewAll, createTicket, placeLabel } from "./service";
 
 const MODULE = "gebaeude";
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -53,11 +54,42 @@ function requireViewAll(p: PermissionSet) {
 }
 /** Inventar lesen: wer alles lesen oder das Inventar pflegen darf (Code-Review Gate 4a N5; verantwortliche Gruppen prüft `listAssets`). */
 export const canSeeAssets = (p: PermissionSet) => canViewAll(p) || canMaintainInventory(p);
-function requireManage(p: PermissionSet) {
-  if (!canManage(p)) throw new ForbiddenError("gebaeude.manage");
-}
 function requireConfigure(p: PermissionSet) {
   if (!canConfigure(p)) throw new ForbiddenError("gebaeude.configure");
+}
+
+/**
+ * GS-02: Prüfarten (IDs), für die die Person über die zuständige Gruppe der Prüfart zuständig ist – nur Beschäftigte, nie
+ * gesperrte Konten (wie die verantwortliche Gruppe einer Inventar-Kategorie, inv-4). Unabhängig von `gebaeude.manage`.
+ */
+export async function responsibleInspectionTypes(db: Db, viewer: PermissionSet): Promise<Set<string>> {
+  if (accessBlocked(viewer) || !isStaffRole(viewer.role) || viewer.memberOf.size === 0) return new Set();
+  const rows = await db
+    .select({ id: gebaeudeInspectionTypes.id })
+    .from(gebaeudeInspectionTypes)
+    .where(inArray(gebaeudeInspectionTypes.responsibleGroupId, [...viewer.memberOf]));
+  return new Set(rows.map((r) => r.id));
+}
+
+/** Darf die Person die Prüfungsseite sehen (alles lesen oder mindestens eine Prüfart über ihre Gruppe)? */
+export async function canSeeInspections(db: Db, viewer: PermissionSet): Promise<boolean> {
+  return canViewAll(viewer) || (await responsibleInspectionTypes(db, viewer)).size > 0;
+}
+
+/** Erfassen, Planen, Streichen: `gebaeude.manage` oder Mitglied der zuständigen Gruppe – dann nur für diese Prüfart (Service-Grenze). */
+async function requireInspectionWork(db: Db, viewer: PermissionSet, typeId: string | null): Promise<void> {
+  if (canManage(viewer)) return;
+  if (!typeId || !(await responsibleInspectionTypes(db, viewer)).has(typeId)) throw new ForbiddenError("gebaeude.manage");
+}
+
+/** GS-02: aktive Beschäftigte einer Gruppe – Empfänger der Erinnerungen einer Prüfart mit zuständiger Gruppe. */
+async function staffMembersOf(db: Db, groupId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: users.id, role: users.role })
+    .from(groupMembers)
+    .innerJoin(users, eq(users.id, groupMembers.userId))
+    .where(and(eq(groupMembers.groupId, groupId), eq(users.status, "active")));
+  return rows.filter((r) => isStaffRole(r.role)).map((r) => r.id);
 }
 
 // ---------------------------------------------------------------- Fristen (rein)
@@ -144,15 +176,21 @@ export async function listInspectionTypes(db: Db, opts: { activeOnly?: boolean }
       source: gebaeudeInspectionTypes.source,
       responsible: gebaeudeInspectionTypes.responsible,
       note: gebaeudeInspectionTypes.note,
+      responsibleGroupId: gebaeudeInspectionTypes.responsibleGroupId,
+      responsibleGroupName: groups.name,
       active: gebaeudeInspectionTypes.active,
       createdAt: gebaeudeInspectionTypes.createdAt,
     })
     .from(gebaeudeInspectionTypes)
     .leftJoin(gebaeudeAssetCategories, eq(gebaeudeAssetCategories.id, gebaeudeInspectionTypes.categoryId))
+    .leftJoin(groups, eq(groups.id, gebaeudeInspectionTypes.responsibleGroupId))
     .where(opts.activeOnly ? eq(gebaeudeInspectionTypes.active, true) : undefined)
     .orderBy(desc(gebaeudeInspectionTypes.active), asc(gebaeudeInspectionTypes.createdAt), asc(gebaeudeInspectionTypes.name));
   return rows;
 }
+
+/** GS-02: Gruppenarten, die für eine Prüfart zuständig sein können (wie bei den Zuständigkeiten je Meldungskategorie). */
+export const RESPONSIBLE_GROUP_KINDS = ["frei", "gremium", "fachschaft", "ag"] as const;
 
 export interface InspectionTypeInput {
   name: string;
@@ -165,6 +203,8 @@ export interface InspectionTypeInput {
   responsible: string;
   note: string | null;
   active: boolean;
+  /** GS-02: zuständige Gruppe (leer = Hausmeisterei/`gebaeude.manage`); fehlt das Feld, bleibt die bisherige Gruppe */
+  responsibleGroupId?: string | null;
 }
 
 async function validateType(db: Db, input: InspectionTypeInput) {
@@ -180,8 +220,16 @@ async function validateType(db: Db, input: InspectionTypeInput) {
   if (!(INSPECTION_RESPONSIBLES as readonly string[]).includes(input.responsible)) fe.responsible = "Zuständigkeit wählen";
   const note = input.note?.trim() || null;
   if (note && note.length > 500) fe.note = "höchstens 500 Zeichen";
+  const responsibleGroupId = input.responsibleGroupId === undefined ? undefined : input.responsibleGroupId?.trim() || null;
+  if (responsibleGroupId) {
+    const [g] = await db.select({ kind: groups.kind }).from(groups).where(eq(groups.id, responsibleGroupId));
+    if (!g) fe.responsibleGroupId = "Gruppe gibt es nicht";
+    // nur Funktionsgruppen (Fachschaft, Gremium, AG, frei) – Klassen und Kurse bekämen sonst Schüler:innen als Zuständige
+    else if (!(RESPONSIBLE_GROUP_KINDS as readonly string[]).includes(g.kind)) fe.responsibleGroupId = "Nur Fachschaften, Gremien, AGs oder freie Gruppen";
+  }
   if (Object.keys(fe).length) throw new ValidationError(fe);
   return {
+    ...(responsibleGroupId === undefined ? {} : { responsibleGroupId }),
     name,
     appliesTo: input.appliesTo as InspectionTarget,
     categoryId,
@@ -207,6 +255,10 @@ export async function updateInspectionType(db: Db, viewer: PermissionSet, id: st
   }
   await db.update(gebaeudeInspectionTypes).set(row).where(eq(gebaeudeInspectionTypes.id, id));
   await audit(db, viewer.userId, "gebaeude.inspection_type.update", id, { name: row.name, active: row.active, intervalMonths: row.intervalMonths });
+  // GS-02: Wechsel der zuständigen Gruppe eigens protokollieren (sie bekommt Erfass- und Planrechte für diese Prüfart)
+  if (row.responsibleGroupId !== undefined && row.responsibleGroupId !== old.responsibleGroupId) {
+    await audit(db, viewer.userId, "gebaeude.inspection_type.group", id, { name: row.name, from: old.responsibleGroupId, to: row.responsibleGroupId });
+  }
   await planDue(db, today);
 }
 
@@ -215,7 +267,7 @@ export async function createInspectionType(db: Db, viewer: PermissionSet, input:
   requireConfigure(viewer);
   const row = await validateType(db, input);
   const [r] = await db.insert(gebaeudeInspectionTypes).values(row).returning({ id: gebaeudeInspectionTypes.id });
-  await audit(db, viewer.userId, "gebaeude.inspection_type.create", r!.id, { name: row.name });
+  await audit(db, viewer.userId, "gebaeude.inspection_type.create", r!.id, { name: row.name, group: row.responsibleGroupId ?? null });
   await planDue(db, today);
   return r!.id;
 }
@@ -615,9 +667,32 @@ export interface PlanInput {
   dueOn: string;
 }
 
-/** Prüfung von Hand planen (Recht `gebaeude.manage`) – für Raum- und Gebäudeprüfungen oder einen abweichenden Termin. */
+/**
+ * Auswahl „Anlage“ beim Planen: mit `gebaeude.manage` alle aktiven Anlagen, für zuständige Gruppen (GS-02) nur Anlagen der
+ * Kategorien ihrer Prüfarten – ohne Preis, Seriennummer usw. (nur Name und Inventarnummer).
+ */
+export async function inspectionAssetOptions(db: Db, viewer: PermissionSet): Promise<{ id: string; name: string; inventoryNo: string | null }[]> {
+  let categoryIds: string[] | null = null;
+  if (!canManage(viewer)) {
+    const own = await responsibleInspectionTypes(db, viewer);
+    if (!own.size) return [];
+    const types = await db.select({ categoryId: gebaeudeInspectionTypes.categoryId }).from(gebaeudeInspectionTypes).where(inArray(gebaeudeInspectionTypes.id, [...own]));
+    categoryIds = [...new Set(types.flatMap((t) => (t.categoryId ? [t.categoryId] : [])))];
+    if (!categoryIds.length) return [];
+  }
+  const rows = await db
+    .select({ id: gebaeudeAssets.id, name: gebaeudeAssets.name, inventoryNo: gebaeudeAssets.inventoryNo })
+    .from(gebaeudeAssets)
+    .where(and(eq(gebaeudeAssets.active, true), categoryIds ? inArray(gebaeudeAssets.categoryId, categoryIds) : undefined));
+  return rows.sort((a, b) => a.name.localeCompare(b.name, "de", { numeric: true }));
+}
+
+/**
+ * Prüfung von Hand planen (Recht `gebaeude.manage`, GS-02 auch die zuständige Gruppe der Prüfart) – für Raum- und
+ * Gebäudeprüfungen oder einen abweichenden Termin.
+ */
 export async function planInspection(db: Db, viewer: PermissionSet, input: PlanInput): Promise<string> {
-  requireManage(viewer);
+  await requireInspectionWork(db, viewer, input.typeId || null);
   const fe: Record<string, string> = {};
   const [type] = await db.select().from(gebaeudeInspectionTypes).where(eq(gebaeudeInspectionTypes.id, input.typeId));
   if (!type) fe.typeId = "Prüfart wählen";
@@ -661,12 +736,19 @@ export async function planInspection(db: Db, viewer: PermissionSet, input: PlanI
     .insert(gebaeudeInspections)
     .values({ typeId: input.typeId, ...target, dueOn: input.dueOn })
     .returning({ id: gebaeudeInspections.id });
+  await audit(db, viewer.userId, "gebaeude.inspection.plan", r!.id, { type: type!.name, dueOn: input.dueOn });
   return r!.id;
 }
 
-/** Offene Prüfung streichen (Recht `gebaeude.manage`), z. B. falsch geplant. Erledigte bleiben als Nachweis. */
+/**
+ * Offene Prüfung streichen (Recht `gebaeude.manage`, GS-02 auch die zuständige Gruppe der Prüfart), z. B. falsch geplant.
+ * Erledigte bleiben als Nachweis.
+ */
 export async function cancelInspection(db: Db, viewer: PermissionSet, id: string): Promise<void> {
-  requireManage(viewer);
+  if (!canManage(viewer)) {
+    const [i] = await db.select({ typeId: gebaeudeInspections.typeId }).from(gebaeudeInspections).where(eq(gebaeudeInspections.id, id));
+    await requireInspectionWork(db, viewer, i?.typeId ?? null);
+  }
   const [r] = await db
     .delete(gebaeudeInspections)
     .where(and(eq(gebaeudeInspections.id, id), isNull(gebaeudeInspections.doneOn)))
@@ -691,6 +773,8 @@ const inspectionColumns = {
   warnDays: gebaeudeInspectionTypes.warnDays,
   intervalMonths: gebaeudeInspectionTypes.intervalMonths,
   responsible: gebaeudeInspectionTypes.responsible,
+  responsibleGroupId: gebaeudeInspectionTypes.responsibleGroupId,
+  responsibleGroupName: groups.name,
   assetId: gebaeudeInspections.assetId,
   assetName: gebaeudeAssets.name,
   categoryKey: gebaeudeAssetCategories.key,
@@ -715,8 +799,22 @@ function inspectionQuery(db: Db) {
     .leftJoin(gebaeudeAssets, eq(gebaeudeAssets.id, gebaeudeInspections.assetId))
     .leftJoin(gebaeudeAssetCategories, eq(gebaeudeAssetCategories.id, gebaeudeAssets.categoryId))
     .leftJoin(assetBuildings, eq(assetBuildings.id, gebaeudeAssets.buildingId))
-    .leftJoin(rooms, sql`${rooms.id} = ${roomOfInspection}`);
+    .leftJoin(rooms, sql`${rooms.id} = ${roomOfInspection}`)
+    .leftJoin(groups, eq(groups.id, gebaeudeInspectionTypes.responsibleGroupId));
 }
+
+/**
+ * GS-02: Sicht auf Prüfungen – `null` = alle (Recht alles lesen, ohne Filter „meine Zuständigkeit“), sonst die Prüfarten der
+ * eigenen Gruppen. Wer weder alles lesen darf noch zuständig ist, bekommt `ForbiddenError`.
+ */
+async function inspectionScope(db: Db, viewer: PermissionSet, mine: boolean | undefined): Promise<Set<string> | null> {
+  if (canViewAll(viewer) && !mine) return null;
+  const own = await responsibleInspectionTypes(db, viewer);
+  if (!canViewAll(viewer) && own.size === 0) throw new ForbiddenError("gebaeude.view_all");
+  return own;
+}
+
+const inScope = (scope: Set<string> | null) => (scope === null ? undefined : scope.size ? inArray(gebaeudeInspections.typeId, [...scope]) : sql`false`);
 
 /** Rein: Gegenstand einer Prüfung – Anlage (mit Inventarnummer), Raum oder Gebäude. */
 export function targetLabel(i: { assetName: string | null; inventoryNo: string | null; roomId: string | null; building: string | null; appliesTo: InspectionTarget }): string {
@@ -734,14 +832,20 @@ export interface InspectionFilter {
   building?: string;
   /** INV-03: nur Prüfungen dieses Inventarguts (Asset-Seite) */
   assetId?: string;
+  /** GS-02: nur Prüfarten der eigenen zuständigen Gruppen („meine Zuständigkeit“) */
+  mine?: boolean;
   limit?: number;
 }
 
-/** Prüfungen mit Stand (Recht `gebaeude.manage` oder `gebaeude.view_all`). Offene nach Fälligkeit, erledigte neueste zuerst. */
+/**
+ * Prüfungen mit Stand (Recht `gebaeude.manage` oder `gebaeude.view_all`; GS-02 Mitglieder einer zuständigen Gruppe nur die
+ * Prüfarten ihrer Gruppen). Offene nach Fälligkeit, erledigte neueste zuerst.
+ */
 export async function listInspections(db: Db, viewer: PermissionSet, f: InspectionFilter, today: string) {
-  requireViewAll(viewer);
+  const scope = await inspectionScope(db, viewer, f.mine);
   const state = f.state ?? "offen";
   const parts: (SQL | undefined)[] = [
+    inScope(scope),
     state === "erledigt" ? isNotNull(gebaeudeInspections.doneOn) : state === "alle" ? undefined : isNull(gebaeudeInspections.doneOn),
     // offene Prüfungen ausgeschalteter Prüfarten bzw. außer Betrieb genommener Anlagen ruhen
     state === "erledigt" ? undefined : sql`(${gebaeudeInspections.doneOn} is not null or ${RESTING_EXCLUDED})`,
@@ -765,8 +869,8 @@ const OVERDUE = (today: string) => lt(gebaeudeInspections.dueOn, today);
 const DUE_SOON = (today: string) => and(gte(gebaeudeInspections.dueOn, today), sql`${gebaeudeInspections.dueOn} <= ${today}::date + ${gebaeudeInspectionTypes.warnDays}`);
 
 /** Überblick für Widget und Kopf der Prüfungsseite – per SQL gezählt, ohne Obergrenze. */
-export async function inspectionSummary(db: Db, viewer: PermissionSet, today: string) {
-  requireViewAll(viewer);
+export async function inspectionSummary(db: Db, viewer: PermissionSet, today: string, opts: { mine?: boolean } = {}) {
+  const scope = await inspectionScope(db, viewer, opts.mine);
   const [r] = await db
     .select({
       open: count(),
@@ -776,7 +880,7 @@ export async function inspectionSummary(db: Db, viewer: PermissionSet, today: st
     .from(gebaeudeInspections)
     .innerJoin(gebaeudeInspectionTypes, eq(gebaeudeInspectionTypes.id, gebaeudeInspections.typeId))
     .leftJoin(gebaeudeAssets, eq(gebaeudeAssets.id, gebaeudeInspections.assetId))
-    .where(and(isNull(gebaeudeInspections.doneOn), RESTING_EXCLUDED));
+    .where(and(isNull(gebaeudeInspections.doneOn), RESTING_EXCLUDED, inScope(scope)));
   return { overdue: r?.overdue ?? 0, due: r?.due ?? 0, open: r?.open ?? 0 };
 }
 
@@ -821,11 +925,15 @@ export async function recordInspection(
   input: RecordInput,
   opts: { today: string; now?: Date },
 ): Promise<{ ticketId: string | null; nextId: string | null }> {
-  requireManage(viewer);
+  // GS-02: `gebaeude.manage` oder Mitglied der zuständigen Gruppe – vor dem Lesen, damit Fremde nichts über die Prüfung erfahren
+  if (!canManage(viewer) && (await responsibleInspectionTypes(db, viewer)).size === 0) throw new ForbiddenError("gebaeude.manage");
   const [row] = await inspectionQuery(db).where(eq(gebaeudeInspections.id, id));
   if (!row) throw new ValidationError({ inspection: "Prüfung gibt es nicht" });
+  await requireInspectionWork(db, viewer, row.typeId);
   if (row.doneOn) throw new ValidationError({ inspection: "Prüfung ist schon erfasst" });
   const fe: Record<string, string> = {};
+  // aus einem Mangel entsteht eine Meldung – dafür braucht es das Melderecht (Lehrkräfte und Personal haben es per Vorgabe)
+  if (input.result !== "ok" && !canReport(viewer) && !canManage(viewer)) fe.result = "Mangel erfassen braucht das Recht, Mängel zu melden – bitte die Hausmeisterei informieren";
   const company = input.company?.trim() || null;
   const note = input.note?.trim() || null;
   if (!YMD.test(input.doneOn)) fe.doneOn = "Prüfdatum angeben";
@@ -890,13 +998,15 @@ export async function recordInspection(
   return { ticketId, nextId };
 }
 
-/** Protokoll-PDF für die Auslieferung – nur mit `gebaeude.manage`/`gebaeude.view_all`. */
+/** Protokoll-PDF für die Auslieferung – nur mit `gebaeude.manage`/`gebaeude.view_all` oder (GS-02) für die zuständige Gruppe der Prüfart. */
 export async function reportFor(db: Db, viewer: PermissionSet, id: string) {
-  if (!canViewAll(viewer)) return null;
+  const own = canViewAll(viewer) ? null : await responsibleInspectionTypes(db, viewer);
+  if (own && own.size === 0) return null;
   const [r] = await db
-    .select({ key: gebaeudeInspections.reportKey, size: gebaeudeInspections.reportSize, doneOn: gebaeudeInspections.doneOn })
+    .select({ key: gebaeudeInspections.reportKey, size: gebaeudeInspections.reportSize, doneOn: gebaeudeInspections.doneOn, typeId: gebaeudeInspections.typeId })
     .from(gebaeudeInspections)
     .where(eq(gebaeudeInspections.id, id));
+  if (own && r && !own.has(r.typeId)) return null;
   return r?.key ? { key: r.key, size: r.size, doneOn: r.doneOn } : null;
 }
 
@@ -944,13 +1054,35 @@ export async function runInspectionReminders(db: Db, opts: { now?: Date; mail?: 
   const overdue = items.filter((i) => i.state === "ueberfaellig");
   const due = items.filter((i) => i.state === "faellig");
   if (!items.length) return { overdue: 0, due: 0, notified: 0, mailed: false, mailError: null as string | null };
-  const recipients = await usersWithPermission(db, "gebaeude.manage");
-  const parts = [overdue.length ? `${overdue.length} überfällig` : null, due.length ? `${due.length} bald fällig` : null].filter(Boolean).join(", ");
-  const sample = [...overdue, ...due]
-    .slice(0, 3)
-    .map((i) => `${i.typeName}: ${i.target} (${formatDay(i.dueOn)})`)
-    .join(" · ");
-  const notified = await notify(db, recipients, { moduleId: MODULE, title: `Prüfungen: ${parts}`, body: sample, href: overdue.length ? "/gebaeude/pruefungen?stand=ueberfaellig" : "/gebaeude/pruefungen?stand=faellig" });
+  // GS-02: Prüfarten mit zuständiger Gruppe erinnern deren Mitglieder (Beschäftigte), alle anderen wie bisher `gebaeude.manage`.
+  // Hat die Gruppe niemanden (mehr), fällt die Erinnerung an `gebaeude.manage` zurück – eine Frist geht nie unter.
+  const membersOf = new Map<string, string[]>();
+  for (const g of new Set(items.flatMap((i) => (i.responsibleGroupId ? [i.responsibleGroupId] : [])))) membersOf.set(g, await staffMembersOf(db, g));
+  const batches = new Map<string | null, typeof items>();
+  for (const i of items) {
+    const key = i.responsibleGroupId && membersOf.get(i.responsibleGroupId)?.length ? i.responsibleGroupId : null;
+    batches.set(key, [...(batches.get(key) ?? []), i]);
+  }
+  let notified = 0;
+  for (const [groupId, list] of batches) {
+    const members = groupId ? membersOf.get(groupId)! : [];
+    const recipients = groupId ? members : await usersWithPermission(db, "gebaeude.manage");
+    const o = list.filter((i) => i.state === "ueberfaellig").length;
+    const d = list.length - o;
+    const parts = [o ? `${o} überfällig` : null, d ? `${d} bald fällig` : null].filter(Boolean).join(", ");
+    const sample = [...list.filter((i) => i.state === "ueberfaellig"), ...list.filter((i) => i.state !== "ueberfaellig")]
+      .slice(0, 3)
+      .map((i) => `${i.typeName}: ${i.target} (${formatDay(i.dueOn)})`)
+      .join(" · ");
+    const mine = members.length ? "&zustaendig=meine" : "";
+    const who = members.length ? ` (${list[0]!.responsibleGroupName ?? "Gruppe"})` : "";
+    notified += await notify(db, recipients, {
+      moduleId: MODULE,
+      title: `Prüfungen${who}: ${parts}`,
+      body: sample,
+      href: `/gebaeude/pruefungen?stand=${o ? "ueberfaellig" : "faellig"}${mine}`,
+    });
+  }
   await db.update(gebaeudeInspections).set({ remindedAt: now }).where(inArray(gebaeudeInspections.id, items.map((i) => i.id)));
   let mailed = false;
   let mailError: string | null = null;
@@ -1022,6 +1154,7 @@ export async function checklist(db: Db, viewer: PermissionSet, f: { building?: s
 
 /** CSV der Prüfungen – ohne Personennamen und ohne Freitext (Bemerkungen können Namen enthalten). */
 export async function inspectionsCsv(db: Db, viewer: PermissionSet, today: string): Promise<string> {
+  requireViewAll(viewer); // Nachweis für den Schulträger: nur wer alles lesen darf (GS-02: Gruppen sehen ihre Prüfungen in der Liste)
   const rows = await listInspections(db, viewer, { state: "alle", limit: 50_000 }, today);
   rows.sort((a, b) => a.typeName.localeCompare(b.typeName, "de") || a.target.localeCompare(b.target, "de") || a.dueOn.localeCompare(b.dueOn));
   const tickets = new Map(

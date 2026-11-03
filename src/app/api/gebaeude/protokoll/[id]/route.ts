@@ -7,7 +7,7 @@ import { reportFor } from "@/modules/gebaeude/pruefungen";
 export const dynamic = "force-dynamic";
 
 /**
- * Prüfprotokoll (PDF) – nur für Bearbeitung und Leitung. Beim Hochladen per Magic Bytes geprüft; ausgeliefert immer als
+ * Prüfprotokoll (PDF) – nur für Bearbeitung und Leitung sowie (GS-02) die zuständige Gruppe der Prüfart. Beim Hochladen per Magic Bytes geprüft; ausgeliefert immer als
  * Download (`attachment`), Typ fest, nie ausführbar (S8-Header: nosniff, CSP sandbox).
  */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {

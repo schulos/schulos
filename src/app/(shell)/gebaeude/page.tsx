@@ -9,7 +9,7 @@ import { Badge } from "@schulos/ui/badge";
 import { Button } from "@schulos/ui/button";
 import { Field, Select } from "@schulos/ui/field";
 import { EmptyState, PageHeader } from "@schulos/ui/misc";
-import { canConfigure } from "@/modules/gebaeude/pruefungen";
+import { canConfigure, responsibleInspectionTypes } from "@/modules/gebaeude/pruefungen";
 import { GebaeudeNav, TicketItem } from "./ui";
 
 export const metadata: Metadata = { title: "Gebäude & Technik" };
@@ -42,7 +42,12 @@ export default async function GebaeudePage({ searchParams }: { searchParams: Pro
   ) : null;
 
   if (!canViewAll(perms) || sp.ansicht === "meine") {
-    const [open, closed] = await Promise.all([listTickets(db, perms, { mine: true }), listTickets(db, perms, { mine: true, state: "closed", limit: 20 })]);
+    const [open, closed, own] = await Promise.all([
+      listTickets(db, perms, { mine: true }),
+      listTickets(db, perms, { mine: true, state: "closed", limit: 20 }),
+      canViewAll(perms) ? Promise.resolve(new Set<string>()) : responsibleInspectionTypes(db, perms),
+    ]);
+    const ownChecks = own.size > 0;
     return (
       <main className="flex flex-col gap-6">
         <PageHeader eyebrow="Gebäude & Technik" title="Meine Meldungen" actions={meldenButton} />
@@ -50,6 +55,14 @@ export default async function GebaeudePage({ searchParams }: { searchParams: Pro
           <Link href="/gebaeude" className="text-sm font-medium text-accent-ink hover:underline">
             Zur Übersicht aller Meldungen
           </Link>
+        )}
+        {/* GS-02: zuständige Gruppe einer Prüfart (z. B. Fachschaft Chemie) ohne „alles lesen“ */}
+        {ownChecks && (
+          <p className="text-sm">
+            <Link href="/gebaeude/pruefungen" className="flex min-h-6 items-center font-medium text-accent-ink hover:underline">
+              Prüfungen meiner Zuständigkeit
+            </Link>
+          </p>
         )}
         {!canViewAll(perms) && canConfigure(perms) && (
           <p className="flex flex-wrap gap-4 text-sm">

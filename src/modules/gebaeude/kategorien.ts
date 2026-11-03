@@ -39,6 +39,10 @@ export const ASSET_CATEGORY_TEMPLATE: readonly AssetCategoryTemplate[] = [
   { key: "hausmeisterei", name: "Hausmeisterei/Außen", prefix: "HM", inspectionRequired: false, sort: 170 },
   { key: "chemikalienschrank", name: "Chemikalienschrank (Verweis, kein Gefahrstoffkataster)", prefix: "CS", inspectionRequired: false, sort: 180 },
   { key: "moebel", name: "Möbel (Tafeln, Schränke; Tische/Stühle als Sammelposten)", prefix: "MO", inspectionRequired: false, sort: 190 },
+  // GS-01: Fachraum-Anlagen (Chemie/Naturwissenschaften) – Prüfarten der Vorlage hängen daran (pruefarten.ts)
+  { key: "abzug", name: "Laborabzug", prefix: "AB", inspectionRequired: true, sort: 182 },
+  { key: "notdusche", name: "Augen-/Körpernotdusche", prefix: "ND", inspectionRequired: true, sort: 184 },
+  { key: "sicherheitsschrank", name: "Sicherheitsschrank für Gefahrstoffe", prefix: "SSG", inspectionRequired: true, sort: 186 },
 ];
 
 /** Kurzformen aus Inventarlisten des Schulträgers → Schlüssel (CSV-Import; die Namen der Kategorien gelten zusätzlich). */
@@ -71,6 +75,13 @@ export const CATEGORY_ALIASES: Record<string, string> = {
   küche: "hauswirtschaft",
   möbel: "moebel",
   mobiliar: "moebel",
+  laborabzug: "abzug",
+  digestorium: "abzug",
+  augendusche: "notdusche",
+  körperdusche: "notdusche",
+  notdusche: "notdusche",
+  gefahrstoffschrank: "sicherheitsschrank",
+  sicherheitsschrank: "sicherheitsschrank",
 };
 
 /**
