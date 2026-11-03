@@ -24,10 +24,20 @@ const TOPICS: Record<string, string[]> = {
 export async function seedKlassenbuch(db: Db, now = new Date()) {
   const today = toBerlinDate(now);
   // Letzte Woche mit Unterricht (Ferien: bis zu acht Wochen zurück), sonst fehlt das Demo-Klassenbuch nach den Ferien
+  // Direkt nach den Ferien (z. B. Montag nach den Herbstferien) gäbe es nur die Stunden von heute: dann weiter zurück, bis ein
+  // paar Schultage zusammenkommen (vorher hing die Zahl der Einträge am Wochentag, seed.test um Mitternacht rot)
   let slots: Awaited<ReturnType<typeof listSlots>> = [];
-  for (let back = 1; back <= 8 && slots.length === 0; back++) {
+  const seen = new Set<string>();
+  for (let back = 1; back <= 8 && slots.length < 20; back++) {
     const from = addDays(mondayOf(today), -7 * back);
-    slots = (await listSlots(db, { kind: "group", id: "g-7b" }, from, back === 1 ? today : addDays(from, 7))).filter((s) => s.change?.kind !== "cancel");
+    const more = (await listSlots(db, { kind: "group", id: "g-7b" }, from, back === 1 ? today : addDays(from, 7))).filter((s) => s.change?.kind !== "cancel");
+    const fresh = more.filter((s) => {
+      const k = `${s.date}|${s.periodNr}|${s.subjectId}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    slots = [...fresh, ...slots];
   }
   if (slots.length === 0) return;
   const students = await db

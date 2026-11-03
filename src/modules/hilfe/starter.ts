@@ -12,6 +12,9 @@ import { toBerlinDate } from "@/core/time";
 import { canEditAll, createPage, createSection, EDIT, slugify, STAFF_TARGET_ROLES } from "./service";
 
 export const STARTER_SECTION = "Erste Schritte";
+/** INV-07: Bereich für die Seite zu Gebäude & Technik/Inventar */
+export const GEBAEUDE_SECTION = "Gebäude & Technik";
+export const GEBAEUDE_HELP_SLUG = "gebaeude-und-technik-inventar";
 /** CA-04: Starter-Seite zum Schul-Zertifikat (Verwaltung → System verlinkt sie, wenn es sie gibt) */
 export const ROOT_CA_HELP_SLUG = "schul-zertifikat-installieren";
 
@@ -22,6 +25,8 @@ export interface StarterPage {
   /** leer = alle */
   roles: Role[];
   body: string;
+  /** Bereich im Handbuch (Vorgabe „Erste Schritte“) */
+  section?: string;
 }
 
 export const STARTER_PAGES: readonly StarterPage[] = [
@@ -235,6 +240,61 @@ Fragen beantwortet das Sekretariat.`,
 
 Nach einer **Neuinstallation** des Servers gibt es ein neues Schul-Zertifikat: Es muss neu verteilt und das alte von den Geräten entfernt werden, sonst sperren Browser die Seite ganz. Nach einer **Wiederherstellung aus dem Backup** bleibt es gleich. Wechselt es, bekommt die IT eine Alarm-Mail, bis sie den neuen Fingerabdruck in Verwaltung → System bestätigt.`,
   },
+  {
+    // INV-07 (docs/INVENTAR.md): Mängel, Inventar, Etiketten, Geräteseite, Inventur, Ausleihe, Schulträger-Liste – für das Personal
+    slug: GEBAEUDE_HELP_SLUG,
+    title: "Gebäude und Technik: Inventar",
+    roles: STAFF_TARGET_ROLES,
+    section: GEBAEUDE_SECTION,
+    body: `Unter **Gebäude & Technik** melden alle Beschäftigten Mängel; Hausmeisterei, IT und die verantwortlichen Gruppen einzelner Kategorien pflegen dort außerdem das **Inventar** – Geräte, Möbel und Sammlungen mit QR-Etiketten.
+
+## Mangel melden
+
+**Gebäude & Technik → Mangel melden**: Raum, Art und eine kurze Beschreibung. Hängt am Gerät ein Etikett, geht es schneller: QR-Code mit der Kamera des Handys scannen, anmelden, auf der Geräteseite **Mangel melden** tippen – Raum, Kategorie und Gerät sind schon eingetragen. Bitte keine Namen oder Gesundheitsangaben in die Beschreibung schreiben.
+
+## Inventar pflegen
+
+- **Gebäude & Technik → Inventar** zeigt die Liste mit Filtern (Kategorie, Gebäude, Raum, Zustand, Frist, Suche). Ausgemustertes ist ausgeblendet („auch ausgemusterte“).
+- **Anlegen:** Bezeichnung, Kategorie und Standort genügen; die Inventarnummer vergibt SchulOS aus dem Präfix der Kategorie (z. B. IT-0007). Tische und Stühle eines Raums sind ein **Sammelposten** mit Menge.
+- Preis, Lieferant, Finanzierung, Zweckbindung und Garantie sind optional. Endet eine Garantie oder Zweckbindung bald, erscheint unter **Offen für dich** auf der Startseite ein Hinweis (Vorlauf in den Moduleinstellungen).
+- **Ausmustern** statt löschen: der Eintrag bleibt als Nachweis für den Schulträger.
+
+## Etiketten drucken
+
+Auf der Geräteseite **Etikett drucken** oder für viele Geräte **Etiketten drucken** in der Liste (Auswahl nach Kategorie, Raum oder „nur ohne Etikett“). Formate: A4-Bogen 3 × 8, A4-Bogen 4 × 13 und Endlosrolle 62 mm. Bei einem angefangenen Bogen **ab Etikett Nr.** wählen. Im Druckdialog des Browsers „Tatsächliche Größe“ (100 %) und keine Ränder einstellen. Ein neu erzeugter Code macht das alte Etikett ungültig.
+
+## Geräteseite (Scan mit dem Handy)
+
+Die Kamera-App öffnet den Link des Etiketts. Ohne Anmeldung erscheint nur die Anmeldeseite, danach die Geräteseite:
+
+- **Alle Angemeldeten** sehen Bezeichnung, Kategorie, Standort und können einen Mangel melden.
+- **Wer das Inventar pflegt** oder alles lesen darf, sieht zusätzlich Seriennummer, Preis, Fotos, Prüfungen und die Historie und setzt vor Ort Zustand und Raum per Knopf.
+
+## Inventur
+
+**Inventar → Inventur**: Raum wählen und starten. Etiketten mit der Kamera-App scannen und auf der Geräteseite **Gefunden in …** tippen, oder auf der Inventurseite die Inventarnummer eintippen (auch per Handscanner). Geräte aus einem anderen Raum lassen sich **hierher umziehen**. Beim Abschluss wird alles Offene „fehlt“; das Protokoll gibt es als CSV und Druckansicht.
+
+## Ausleihe
+
+Auf der Geräteseite (Karte **Ausleihe**) eine Person suchen, Rückgabedatum und Zubehör eintragen, **Verleihen**, den Leihvertrag drucken und unterschreiben lassen. **Inventar → Leihgeräte** zeigt alle offenen Ausleihen, überfällige zuerst; Erinnerungen verschickt SchulOS selbst. Entleihende finden ihre Geräte unter **Meine Leihgeräte**.
+
+## Liste für den Schulträger (CSV)
+
+- **Als CSV exportieren** in der Inventarliste liefert die gefilterte Liste im Schulträgerformat (Semikolon, Datum TT.MM.JJJJ, Preis in Euro).
+- **Importieren:** Datei wählen, **Prüfen (Vorschau)** – noch wird nichts gespeichert. Andere Spaltennamen unter **Spaltenzuordnung** zuordnen und neu prüfen. Gleiche Inventarnummer aktualisiert den Eintrag, leere Zellen lassen den bisherigen Wert stehen. Erst wenn die Vorschau ohne Fehler ist, **übernehmen** – ganz oder gar nicht.
+
+## Wer darf was?
+
+| Wer | Inventar |
+|---|---|
+| Alle Beschäftigten | Mangel melden; Geräteseite mit Bezeichnung, Kategorie, Standort |
+| Recht „alles lesen“ | Liste, Geräteseiten vollständig, Export |
+| Verantwortliche Gruppe einer Kategorie | diese Kategorie pflegen, Etiketten, Ausleihe, Import/Export |
+| Recht „Inventar pflegen“ (z. B. Hausmeisterei) | alle Kategorien, Inventur |
+| Recht „einrichten“ (Verwaltung) | zusätzlich Kategorien, Prüfarten, endgültig löschen |
+
+Welche Gruppe welche Rechte hat, legt die Verwaltung unter **Verwaltung → Rechte & Module** fest.`,
+  },
 ];
 
 const STARTER_SLUGS = STARTER_PAGES.map((p) => p.slug);
@@ -260,10 +320,12 @@ export async function installStarterPages(db: Db, actor: PermissionSet, today = 
   if (!canEditAll(actor)) throw new ForbiddenError(EDIT);
   const { missing } = await starterStatus(db);
   if (missing.length === 0) return [];
-  const sections = await db.select({ id: hilfeSections.id, title: hilfeSections.title }).from(hilfeSections);
-  const sectionId = sections.find((s) => s.title === STARTER_SECTION)?.id ?? (await createSection(db, actor, STARTER_SECTION));
+  const sections = new Map((await db.select({ id: hilfeSections.id, title: hilfeSections.title }).from(hilfeSections)).map((s) => [s.title, s.id]));
   const created: string[] = [];
   for (const p of missing) {
+    const title = p.section ?? STARTER_SECTION;
+    const sectionId = sections.get(title) ?? (await createSection(db, actor, title));
+    sections.set(title, sectionId);
     // Die Adresse folgt dem Titel (slugify); eine fremde Seite mit gleicher Adresse gibt es hier nicht, sonst wäre sie „vorhanden“
     const slug = await createPage(
       db,

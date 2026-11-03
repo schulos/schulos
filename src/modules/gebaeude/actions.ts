@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { safeMailConfig } from "@schulos/server/mail";
 import { getDb } from "@/core/db/client";
 import { getStorage } from "@/core/files/storage";
+import { decodeCsvBytes } from "@/core/csv";
 import { formValues } from "@/core/form-values";
 import { moduleActions, moduleOn } from "@/core/modules/guard";
 import { ForbiddenError } from "@/core/permissions";
@@ -18,14 +19,13 @@ import { addAssetPhoto, deleteAssetPhoto, moveAsset, setAssetCondition } from ".
 import { renewAssetCode } from "./etiketten";
 import { cancelLoan, extendLoan, lendAsset, returnLoan } from "./leihe";
 import { createCategory, deleteCategory, updateCategory, type CategoryInput } from "./inventar";
+import { CSV_FIELDS, MAX_ASSET_CSV_BYTES, executeAssetImport, planAssetImport, type CsvField, type CsvLayout, type ImportPreview } from "./inventar-csv";
 import {
-  MAX_ASSET_CSV_BYTES,
   canConfigure,
   cancelInspection,
   createAsset,
   createInspectionType,
   deleteAsset,
-  importAssets,
   planInspection,
   recordInspection,
   runInspectionReminders,
@@ -360,17 +360,60 @@ export async function deleteCategoryAction(id: string, _prev: FormState, form: F
   return { ok: true };
 }
 
-export async function importAssetsAction(_prev: FormState, form: FormData): Promise<FormState> {
+export interface AssetImportState {
+  preview?: ImportPreview;
+  text?: string;
+  error?: string;
+  done?: { created: number; updated: number; skipped: number };
+}
+
+/** Spaltenzuordnung aus dem Vorschau-Formular (`kopfzeile`, `spalte<i>`); ohne Felder → automatisch erkennen. */
+function layoutOf(form: FormData): CsvLayout | undefined {
+  if (form.get("zuordnung") !== "1") return undefined;
+  const columns: (CsvField | null)[] = [];
+  for (let i = 0; i < 100 && form.has(`spalte${i}`); i++) {
+    const v = String(form.get(`spalte${i}`));
+    columns.push((CSV_FIELDS as readonly string[]).includes(v) ? (v as CsvField) : null);
+  }
+  return { header: form.get("kopfzeile") === "1", columns };
+}
+
+/** INV-06 Schritt 1: Datei lesen und prüfen (Trockenlauf) – nichts wird gespeichert. Erneut mit geänderter Zuordnung: `text`. */
+export async function previewAssetImportAction(_prev: AssetImportState, form: FormData): Promise<AssetImportState> {
   const { perms } = await requireUser();
+  let text = String(form.get("text") ?? "");
   const file = form.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "Bitte eine CSV-Datei wählen", fieldErrors: { file: "Bitte eine CSV-Datei wählen" } };
-  if (file.size > MAX_ASSET_CSV_BYTES) return { error: "Datei zu groß (höchstens 512 KB)", fieldErrors: { file: "Datei zu groß (höchstens 512 KB)" } };
+  if (file instanceof File && file.size > 0) {
+    if (file.size > MAX_ASSET_CSV_BYTES) return { error: "Datei zu groß (höchstens 512 KB)" };
+    text = decodeCsvBytes(new Uint8Array(await file.arrayBuffer())).text;
+  }
+  if (!text) return { error: "Bitte eine CSV-Datei wählen" };
+  if (text.length > MAX_ASSET_CSV_BYTES) return { error: "Datei zu groß (höchstens 512 KB)" };
   try {
-    const r = await importAssets(await getDb(), perms, await file.text(), today());
-    revalidatePath("/", "layout");
-    return { ok: true, values: { result: `${r.created} angelegt, ${r.updated} aktualisiert` } };
+    const plan = await planAssetImport(await getDb(), perms, text, layoutOf(form));
+    return { preview: plan.preview, text };
   } catch (err) {
-    return fail(err, form);
+    if (err instanceof ForbiddenError) return { error: "Keine Berechtigung, Inventar zu importieren" };
+    throw err;
+  }
+}
+
+/** Schritt 2: serverseitig neu prüfen und nur ohne Fehler übernehmen – ganz oder gar nicht. */
+export async function runAssetImportAction(_prev: AssetImportState, form: FormData): Promise<AssetImportState> {
+  const { perms } = await requireUser();
+  const text = String(form.get("text") ?? "");
+  if (!text || text.length > MAX_ASSET_CSV_BYTES) return { error: "Datei fehlt oder ist zu groß – bitte neu wählen" };
+  const db = await getDb();
+  try {
+    const plan = await planAssetImport(db, perms, text, layoutOf(form));
+    if (!plan.preview.ok) return { preview: plan.preview, text, error: "Die Datei hat Fehler bzw. nichts zu übernehmen – nichts übernommen" };
+    const done = await executeAssetImport(db, perms, plan, today());
+    revalidatePath("/", "layout");
+    return { done };
+  } catch (err) {
+    if (err instanceof ForbiddenError) return { error: "Keine Berechtigung, Inventar zu importieren" };
+    if (err instanceof ValidationError) return { error: Object.values(err.fieldErrors)[0] ?? "Eingaben prüfen", text };
+    throw err;
   }
 }
 

@@ -2,11 +2,11 @@
 // Fälligkeiten, Fristen-Job „gebaeude-fristen“, Prüfliste/CSV/Statistik. Kein Personenbezug: Prüfungen nennen eine Firma,
 // wer erfasst hat, steht nur im Audit-Log; Auswertungen nur je Kategorie/Monat (DATENSCHUTZ §5).
 import { scanUpload } from "@/modules/upload-scan";
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from "drizzle-orm";
+import { and, asc, between, count, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from "drizzle-orm";
 import type { MailConfig, MailMessage, Sender } from "@schulos/server/mail";
 import { smtpSender } from "@schulos/server/mail";
 import { audit } from "@/core/audit";
-import { toCsv, detectSeparator, splitCsvLine } from "@/core/csv";
+import { toCsv } from "@/core/csv";
 import type { Db } from "@/core/db/client";
 import { rowsOf } from "@/core/db/rows";
 import { buildingFloors, buildings, gebaeudeAssetCategories, gebaeudeAssetPhotos, gebaeudeAssets, gebaeudeInspectionTypes, gebaeudeInspections, gebaeudeTickets, labelCodes, rooms } from "@/core/db/schema";
@@ -18,7 +18,6 @@ import { TZ, addDays, fromBerlinLocal, toBerlinDate } from "@/core/time";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { canMaintainInventory, categoryById, ensureCategories, inventoryNoFormat, maintainableCategories, nextInventoryNo, requireMaintain } from "./inventar";
 import { hasOpenLoan } from "./leihe";
-import { matchCategory } from "./kategorien";
 import {
   ASSET_CONDITIONS,
   CATEGORY_LABELS,
@@ -414,6 +413,8 @@ export interface AssetFilter {
   withoutLabel?: boolean;
   /** Suche in Bezeichnung, Inventarnummer, Seriennummer, Hersteller, Modell */
   q?: string;
+  /** INV-06: Garantie bzw. Zweckbindung endet im Zeitraum [from, until] (Hinweis in „Offen für dich“) */
+  deadline?: { kind: "garantie" | "zweckbindung"; from: string; until: string };
 }
 
 const assetColumns = {
@@ -484,6 +485,7 @@ export async function listAssets(db: Db, viewer: PermissionSet, f: AssetFilter =
         f.buildingId ? sql`${assetBuildingId} = ${f.buildingId}` : undefined,
         f.condition && (ASSET_CONDITIONS as readonly string[]).includes(f.condition) ? eq(gebaeudeAssets.condition, f.condition as AssetCondition) : undefined,
         f.withoutLabel ? isNull(labelCodes.code) : undefined,
+        f.deadline ? between(f.deadline.kind === "garantie" ? gebaeudeAssets.warrantyUntil : gebaeudeAssets.boundUntil, f.deadline.from, f.deadline.until) : undefined,
         q
           ? sql`(lower(${gebaeudeAssets.name}) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.inventoryNo}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.serial}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.manufacturer}, '')) like ${`%${q}%`} or lower(coalesce(${gebaeudeAssets.model}, '')) like ${`%${q}%`})`
           : undefined,
@@ -529,20 +531,7 @@ export async function floorOptions(db: Db) {
     .map((f) => ({ value: f.id, label: `${f.building} · ${f.name}`, buildingId: f.buildingId }));
 }
 
-// ---------------------------------------------------------------- CSV-Import (Name;Kategorie;Raum;Inventarnummer[;letzte Prüfung;Menge;Hersteller;Modell;Seriennummer])
-
-export interface AssetCsvRow {
-  line: number;
-  name: string;
-  categoryId: string;
-  roomId: string | null;
-  inventoryNo: string | null;
-  lastInspected: string | null;
-  quantity: number | null;
-  manufacturer: string | null;
-  model: string | null;
-  serial: string | null;
-}
+// ---------------------------------------------------------------- Inventarliste (CSV-Import/-Export: inventar-csv.ts, INV-06)
 
 /** Rein: „2025-03-01“ oder „01.03.2025“ → „2025-03-01“; sonst null. */
 export function parseDay(raw: string): string | null {
@@ -556,157 +545,12 @@ export function parseDay(raw: string): string | null {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo! - 1 && dt.getUTCDate() === d ? ymd : null;
 }
 
-type CsvField = "name" | "category" | "roomId" | "inventoryNo" | "lastInspected" | "quantity" | "manufacturer" | "model" | "serial";
-
-const CSV_HEADERS: Record<string, CsvField> = {
-  name: "name",
-  bezeichnung: "name",
-  art: "category",
-  kategorie: "category",
-  raum: "roomId",
-  inventarnummer: "inventoryNo",
-  "inventar-nr": "inventoryNo",
-  "inventar-nr.": "inventoryNo",
-  "letzte prüfung": "lastInspected",
-  "letzte pruefung": "lastInspected",
-  menge: "quantity",
-  anzahl: "quantity",
-  hersteller: "manufacturer",
-  modell: "model",
-  seriennummer: "serial",
-  "serien-nr.": "serial",
-};
-
-export const MAX_ASSET_CSV_BYTES = 512 * 1024;
-export const MAX_ASSET_CSV_ROWS = 2000;
-
-/**
- * Rein: Inventarliste des Schulträgers lesen – mit oder ohne Kopfzeile, „;“ oder „,“, UTF-8 mit/ohne BOM. Die Kategorie wird
- * gegen die übergebene Liste aufgelöst (Schlüssel, Name, Präfix, Kurzform – `matchCategory`).
- */
-export function parseAssetCsv(text: string, categories: readonly { id: string; key: string; name: string; prefix: string }[]): { rows: AssetCsvRow[]; errors: { line: number; message: string }[] } {
-  const clean = text.replace(/^﻿/, "");
-  const sep = detectSeparator(clean);
-  let columns: (CsvField | null)[] = ["name", "category", "roomId", "inventoryNo", "lastInspected", "quantity", "manufacturer", "model", "serial"];
-  const rows: AssetCsvRow[] = [];
-  const errors: { line: number; message: string }[] = [];
-  let first = true;
-  const cut = (s: string | undefined, n: number) => s?.trim().slice(0, n) || null;
-  clean.split(/\r?\n/).forEach((raw, idx) => {
-    const line = idx + 1;
-    if (!raw.trim()) return;
-    const cells = splitCsvLine(raw, sep);
-    if (first) {
-      first = false;
-      const mapped = cells.map((c) => CSV_HEADERS[c.trim().toLowerCase()] ?? null);
-      if (mapped.filter(Boolean).length >= 2) {
-        columns = mapped;
-        return;
-      }
-    }
-    const rec: Partial<Record<CsvField, string>> = {};
-    columns.forEach((c, i) => {
-      if (c) rec[c] = cells[i] ?? "";
-    });
-    const category = matchCategory(rec.category ?? "", categories);
-    const lastInspected = rec.lastInspected?.trim() ? parseDay(rec.lastInspected) : null;
-    const quantity = rec.quantity?.trim() ? Number(rec.quantity.trim()) : null;
-    const name = rec.name?.trim() ?? "";
-    if (name.length < 2) errors.push({ line, message: "Name fehlt" });
-    else if (name.length > 120) errors.push({ line, message: "Name zu lang (höchstens 120 Zeichen)" });
-    else if (!category) errors.push({ line, message: `Kategorie „${rec.category ?? ""}“ unbekannt` });
-    else if (rec.lastInspected?.trim() && !lastInspected) errors.push({ line, message: `Datum „${rec.lastInspected}“ nicht lesbar (TT.MM.JJJJ)` });
-    else if ((rec.inventoryNo?.trim() ?? "").length > 40) errors.push({ line, message: "Inventarnummer zu lang (höchstens 40 Zeichen)" });
-    else if (quantity !== null && (!Number.isInteger(quantity) || quantity < 1 || quantity > 9999)) errors.push({ line, message: `Menge „${rec.quantity}“ nicht lesbar (1 bis 9999)` });
-    else
-      rows.push({
-        line,
-        name,
-        categoryId: category.id,
-        roomId: rec.roomId?.trim() || null,
-        inventoryNo: rec.inventoryNo?.trim() || null,
-        lastInspected,
-        quantity,
-        manufacturer: cut(rec.manufacturer, 80),
-        model: cut(rec.model, 80),
-        serial: cut(rec.serial, 80),
-      });
-  });
-  if (rows.length > MAX_ASSET_CSV_ROWS) errors.push({ line: 0, message: `Höchstens ${MAX_ASSET_CSV_ROWS} Zeilen je Import` });
-  return { rows, errors };
-}
-
-/**
- * Inventarliste importieren (Rechte wie beim Anlegen, für jede vorkommende Kategorie): alles oder nichts. Gleiche
- * Inventarnummer → Anlage wird aktualisiert; ohne Nummer vergibt der Zähler eine. „letzte Prüfung“ wird als übernommener
- * Nachweis (ohne Ergebnis) eingetragen; die nächste Prüfung rechnet SchulOS daraus – ohne Angabe ist sie sofort fällig.
- */
-export async function importAssets(db: Db, viewer: PermissionSet, text: string, today: string): Promise<{ created: number; updated: number }> {
-  if (text.length > MAX_ASSET_CSV_BYTES) throw new ValidationError({ file: "Datei zu groß (höchstens 512 KB)" });
-  await ensureCategories(db);
-  const categories = await db.select().from(gebaeudeAssetCategories).where(eq(gebaeudeAssetCategories.active, true));
-  const { rows, errors } = parseAssetCsv(text, categories);
-  const own = await maintainableCategories(db, viewer);
-  if (own && own.size === 0) throw new ForbiddenError("gebaeude.inventory");
-  for (const c of new Set(rows.map((r) => r.categoryId))) if (own && !own.has(c)) throw new ForbiddenError("gebaeude.inventory");
-  const known = new Set((await db.select({ id: rooms.id }).from(rooms)).map((r) => r.id));
-  for (const r of rows) if (r.roomId && !known.has(r.roomId)) errors.push({ line: r.line, message: `Raum „${r.roomId}“ gibt es nicht` });
-  const seen = new Set<string>();
-  for (const r of rows) {
-    if (!r.inventoryNo) continue;
-    if (seen.has(r.inventoryNo)) errors.push({ line: r.line, message: `Inventarnummer „${r.inventoryNo}“ doppelt` });
-    seen.add(r.inventoryNo);
-  }
-  if (errors.length) {
-    errors.sort((a, b) => a.line - b.line);
-    throw new ValidationError({ file: errors.slice(0, 5).map((e) => (e.line ? `Zeile ${e.line}: ${e.message}` : e.message)).join(" · ") + (errors.length > 5 ? ` (und ${errors.length - 5} weitere)` : "") });
-  }
-  if (!rows.length) throw new ValidationError({ file: "Keine Anlagen in der Datei" });
-  const types = await listInspectionTypes(db, { activeOnly: true });
-  const format = await inventoryNoFormat(db);
-  const prefixOf = new Map(categories.map((c) => [c.id, c.prefix]));
-  // alles oder nichts – auch beim Schreiben (Code-Review Gate 4a M1)
-  return db.transaction(async (raw) => {
-    const tx = raw as unknown as Db;
-    const numbers = rows.map((r) => r.inventoryNo).filter((n): n is string => !!n);
-    const byNumber = new Map(
-      numbers.length
-        ? (await tx.select({ id: gebaeudeAssets.id, inventoryNo: gebaeudeAssets.inventoryNo }).from(gebaeudeAssets).where(inArray(gebaeudeAssets.inventoryNo, numbers))).map((a) => [a.inventoryNo!, a.id])
-        : [],
-    );
-    let created = 0;
-    let updated = 0;
-    for (const r of rows) {
-      let id = r.inventoryNo ? byNumber.get(r.inventoryNo) : undefined;
-      const extra = {
-        ...(r.quantity !== null ? { quantity: r.quantity } : {}),
-        ...(r.manufacturer ? { manufacturer: r.manufacturer } : {}),
-        ...(r.model ? { model: r.model } : {}),
-        ...(r.serial ? { serial: r.serial } : {}),
-      };
-      if (id) {
-        await tx.update(gebaeudeAssets).set({ name: r.name, categoryId: r.categoryId, roomId: r.roomId, ...extra }).where(eq(gebaeudeAssets.id, id));
-        updated++;
-      } else {
-        const inventoryNo = r.inventoryNo ?? (await nextInventoryNo(tx, prefixOf.get(r.categoryId) ?? "INV", format, today));
-        const [ins] = await tx.insert(gebaeudeAssets).values({ name: r.name, categoryId: r.categoryId, roomId: r.roomId, inventoryNo, ...extra }).returning({ id: gebaeudeAssets.id });
-        id = ins!.id;
-        created++;
-      }
-      if (r.lastInspected) for (const t of types.filter((x) => x.categoryId === r.categoryId)) await takeOverInspection(tx, t, id, r.lastInspected);
-    }
-    await audit(tx, viewer.userId, "gebaeude.asset.import", null, { created, updated });
-    await planDue(tx, today);
-    return { created, updated };
-  });
-}
-
 /**
  * „letzte Prüfung“ aus der Inventarliste übernehmen: Nachweis nur einmal (gleiches Datum → nichts Neues), und eine schon
  * geplante offene Prüfung rückt auf „letzte Prüfung + Intervall“, wenn sie früher lag – sonst bliebe sie nach einem ersten
  * Import ohne Datum dauerhaft überfällig (täglicher Alarm).
  */
-async function takeOverInspection(db: Db, t: { id: string; intervalMonths: number }, assetId: string, lastInspected: string) {
+export async function takeOverInspection(db: Db, t: { id: string; intervalMonths: number }, assetId: string, lastInspected: string) {
   const pair = and(eq(gebaeudeInspections.typeId, t.id), eq(gebaeudeInspections.assetId, assetId));
   const [same] = await db.select({ id: gebaeudeInspections.id }).from(gebaeudeInspections).where(and(pair, eq(gebaeudeInspections.doneOn, lastInspected)));
   if (!same) await db.insert(gebaeudeInspections).values({ typeId: t.id, assetId, dueOn: lastInspected, doneOn: lastInspected, note: "aus Inventarliste übernommen" });

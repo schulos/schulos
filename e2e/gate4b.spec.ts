@@ -139,13 +139,15 @@ test.describe("Gate 4b – Gebäude & Technik", () => {
     await expect(page.getByRole("navigation", { name: "Gebäude & Technik" }).getByRole("link", { name: "Prüfarten" })).toHaveAttribute("aria-current", "page");
 
     await page.goto("/gebaeude/inventar");
-    const imp = page.getByRole("form", { name: "Inventarliste importieren" });
+    // INV-06: erst Vorschau, dann übernehmen (alte Kopfzeile „Name;Art;…“ gilt weiter)
+    const imp = page.getByRole("article", { name: "Inventarliste importieren (CSV, Schulträgerformat)" });
     await imp.getByLabel("CSV-Datei").setInputFiles({
       name: "inventar.csv",
       mimeType: "text/csv",
       buffer: Buffer.from("Name;Art;Raum;Inventarnummer\nAufzug Pavillon;Aufzug;;AZ-7\nFeuerlöscher Musik;Feuerlöscher;MU1;FL-7\n", "utf8"),
     });
-    await imp.getByRole("button", { name: "Importieren" }).click();
+    await imp.getByRole("button", { name: "Prüfen (Vorschau)" }).click();
+    await imp.getByRole("button", { name: "2 Einträge übernehmen" }).click();
     await expect(imp.getByRole("status")).toContainText("2 angelegt, 0 aktualisiert");
     await expect(page.getByRole("table", { name: "Inventar" })).toContainText("Aufzug Pavillon");
 

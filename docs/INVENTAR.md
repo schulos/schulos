@@ -264,3 +264,87 @@ Asset-Seite führen).
   - Leihvertrag mit allgemeinen Bedingungen und Freifeld; Haftung/Ersatz regelt die Schule bzw. der Schulträger (kein eigener Text in
     den Einstellungen, keine Ersatzforderung wie in der Bücherei).
   - Kein Gong beim Verleihen selbst (die Person bekommt den unterschriebenen Vertrag); kein Selbstverlängern durch die Person.
+
+## Umgesetzt (INV-06, 2026-11-03)
+
+- **„Schulträgerformat“ war nicht näher bestimmt** (kein vorgegebenes Format eines Schulträgers im Konzept) – konservativ ein
+  **dokumentiertes CSV-Format** mit Spaltenzuordnung beim Import. Export und Import nutzen dieselbe Kopfzeile, ein Export lässt sich
+  unverändert wieder importieren (alles „unverändert“). Code: `src/modules/gebaeude/inventar-csv.ts` (löst den CSV-Import aus INV-01 ab).
+
+  | Spalte | Inhalt | Import |
+  |---|---|---|
+  | Inventarnummer | Schlüssel für „ändern“; leer = neu, Nummer vom Zähler | ja |
+  | Bezeichnung | 2–120 Zeichen | Pflicht |
+  | Kategorie | Name, Kurzname, Schlüssel oder Präfix (`matchCategory`) | Pflicht |
+  | Hersteller, Modell, Seriennummer | Text (je 80) | ja |
+  | Menge | 1–9999 (Sammelposten) | ja |
+  | Zustand | neu, gut, gebraucht, defekt | ja |
+  | Gebäude, Etage | Namen aus den Stammdaten | nur für Zeilen **ohne** Raum |
+  | Raum | Raumkürzel | ja |
+  | Anschaffungsdatum, Zweckbindung bis, Garantie bis | TT.MM.JJJJ (auch JJJJ-MM-TT) | ja |
+  | Preis (EUR) | „1234,56“ (auch „1.234,56“) | ja |
+  | Lieferant, Finanzierung | Text (je 120) | ja |
+  | Letzte Prüfung | Datum; wird als übernommener Nachweis eingetragen (wie INV-01) | ja |
+  | Nächste Prüfung | rechnet SchulOS | nur Export |
+  | Ausgemustert am | Datum | nur zum Überspringen (s. u.) |
+
+  Datei: Semikolon (Import auch Komma), UTF-8 mit BOM; Export mit `?kodierung=cp1252` für ältere Tabellenprogramme, Import erkennt
+  Windows-1252 selbst. Weitere Schreibweisen der Köpfe (z. B. „Inv.-Nr.“, „Gegenstand“, „Gruppe“, „Gewährleistung bis“) werden
+  erkannt; ohne Kopfzeile gilt die alte Spaltenfolge aus INV-01.
+- **Export** „Als CSV exportieren“ in der Inventarliste (`/api/gebaeude/export/inventar`, Filter der Liste in der Adresse): lesen wie die
+  Liste (`view_all`, `inventory`/`configure`, verantwortliche Gruppen nur ihre Kategorien), sonst 404. Zellen gegen Formeln entschärft
+  (`toCsv`); das Hochkomma vor `=`/`+`/`-`/`@` fällt beim Import wieder weg. Audit `gebaeude.asset.export` nur mit der Anzahl.
+- **Import in zwei Schritten:** (1) „Prüfen (Vorschau)“ – Trockenlauf, nichts wird gespeichert: je Zeile „neu“, „ändern“ (mit den
+  geänderten Feldern), „unverändert“, „übersprungen“ oder „Fehler“; darunter die **Spaltenzuordnung** (Kopfzeile ja/nein, Feld je
+  Spalte), „Mit dieser Zuordnung neu prüfen“. (2) „n Einträge übernehmen“ – der Server prüft Datei, Zuordnung und Rechte erneut und
+  schreibt nur ohne Fehler, ganz oder gar nicht (Transaktion). Höchstens 512 KB und 2000 Zeilen. Audit `gebaeude.asset.import` mit
+  Zahlen (angelegt, aktualisiert, übersprungen).
+- **Frist-Hinweise in „Offen für dich“** (`src/modules/gebaeude/open.ts`): „Garantie läuft ab“ (warn) und „Zweckbindung endet“ (info)
+  mit Anzahl, den ersten zwei Geräten und dem frühesten Datum, Link auf die Liste mit Filter „Frist“. Vorlauf als Moduleinstellung
+  `gebaeude.deadline_days` (aus/30/60/90 Tage, Vorgabe 60); abgelaufene Fristen zählen nicht mehr.
+- **Karte „Inventar“ im Raumsteckbrief** (`roomInventory`): Einträge und Stück je Kategorie, Link auf die nach Raum und Kategorie gefilterte
+  Liste (neuer Filter „Raum“), „Inventar des Raums“. Nur bei eingeschaltetem Modul und Sicht aufs Inventar; verantwortliche Gruppen sehen
+  nur ihre Kategorien. Die Ausstattung des Raums (RS-05) bleibt unberührt (inv-3).
+- **Entscheidungen bei offenen Punkten (konservativ, INV-06):**
+  - **Leere Zellen lassen den bisherigen Wert stehen** (auch „Raum“) – ein Import löscht nie Angaben; Leeren geht nur im Formular.
+    (Der INV-01-Import setzte bei leerem Raum den Raum zurück.)
+  - **Ausgemustertes ändert der Import nicht** („übersprungen“); Zeilen mit „Ausgemustert am“ ohne bekannte Nummer werden **nicht**
+    angelegt; aus- und wieder in Betrieb nehmen nur auf der Geräteseite.
+  - **Notiz und Ausmusterungsgrund** gehen nicht in den Export und kommen nicht aus dem Import (Freitext kann Namen enthalten – wie bei
+    den übrigen Gebäude-Exporten). Ausleihen (Personen) sind nie Teil der Liste.
+  - Gebäude/Etage gelten nur für Zeilen ohne Raum (sonst ergibt sich der Ort aus dem Raum; der Export schreibt sie zur Information mit).
+  - Inventar **ohne Nummer** (Altbestand): eine Zeile ohne Nummer mit gleicher Bezeichnung, Kategorie und gleichem Raum gilt als derselbe
+    Eintrag (nur wenn eindeutig) – sonst würde ein Re-Import doppeln.
+  - Kategorien werden auch erkannt, wenn sie ausgeschaltet sind (der Export passt wieder); neu anlegen oder in eine ausgeschaltete Kategorie
+    verschieben ist ein Zeilenfehler.
+  - Eine Zeile mit fremder Kategorie (verantwortliche Gruppe) ist ein **Zeilenfehler** in der Vorschau, keine Sperre der ganzen Seite.
+  - Frist-Hinweise nur für die **Pflegenden** der Kategorie (nicht für `view_all` allein), **kein Gong und keine Mail** – nur der Hinweis im
+    Widget (inv-9). Der im Konzept genannte Fristen-Job der Prüfungen bleibt unverändert.
+  - Den Frist-Filter gibt es auch ohne eingestellten Vorlauf (dann die nächsten 90 Tage).
+
+## Umgesetzt (INV-07, 2026-11-03) – Block „Inventar“ abgeschlossen
+
+- **Handbuch:** Starter-Seite „Gebäude und Technik: Inventar“ im neuen Bereich „Gebäude & Technik“ (`src/modules/hilfe/starter.ts`,
+  sichtbar für das Personal): Mangel melden, Inventar pflegen, Etiketten drucken (Formate, „ab Etikett Nr.“, 100 % drucken), Geräteseite
+  per Scan, Inventur, Ausleihe, Liste für den Schulträger, „Wer darf was?“. Das „?“ auf allen Seiten unter `/gebaeude` führt dorthin
+  (`CONTEXT_PAGES`); Schüler:innen/Eltern sehen die Seite nicht und landen im Handbuch.
+- **BETRIEBSHANDBUCH:** Verweis im Inhalt, Sofortmaßnahmen „Etikett abfotografiert/verloren“ und „Leihgerät mit Schuldaten verloren“.
+- **DATENSCHUTZ §3.4** mit dem Stand INV-01…06 abgeglichen (Export/Import ohne Freitext und Personen, Frist-Hinweis, Etiketten-Zeile).
+- **E2E** `e2e/inventar-abschluss.spec.ts`: INV-06 am Handy (Export-Kopfzeile, Import mit fremden Spaltennamen → Zuordnung → Übernahme,
+  „Offen für dich“ → Frist-Filter, Karte im Raumsteckbrief → gefilterte Liste; 360 px, dunkel, axe) und INV-07 Rechte-Matrix mit
+  Scan-Weg (Etikett abgemeldet → Anmeldung → direkt die Geräteseite). Etikettendruck (Bogen, Rolle, Sammeldruck, „ab Etikett Nr.“,
+  Neuerzeugen) prüft weiter `e2e/inventar.spec.ts` „INV-01/02“.
+- **Rechte-Matrix (Stand nach INV-06):**
+
+  | Wer | Liste/Export | Geräteseite | Pflegen, Etiketten, Import, Ausleihe | Inventur | Kategorien, endgültig löschen | Karte im Steckbrief | Frist-Hinweis |
+  |---|---|---|---|---|---|---|---|
+  | `gebaeude.configure` (Verwaltung) | alle | voll | alle Kategorien | ja | ja | alle Kategorien | ja |
+  | `gebaeude.inventory` (Vorgabe Gruppe Hausmeisterei) | alle | voll | alle Kategorien | ja | – | alle Kategorien | ja |
+  | verantwortliche Gruppe einer Kategorie | nur eigene Kategorien | voll (eigene), sonst eingeschränkt | eigene Kategorien | – | – | eigene Kategorien | eigene |
+  | `gebaeude.view_all` allein | alle (lesen) | voll (lesen) | – | lesen | – | alle Kategorien | – |
+  | Beschäftigte mit `gebaeude.report` | – (404) | eingeschränkt + „Mangel melden“ | – | – | – | – | – |
+  | Schüler:innen/Eltern (angemeldet) | – (404) | eingeschränkt, ohne „Mangel melden“ | – | – | – | – | – |
+  | ohne Anmeldung | – | nur Anmeldeseite (gültig = ungültig) | – | – | – | – | – |
+
+  „Eingeschränkt“ = Bezeichnung, Kategorie, Standort (inv-5); „voll“ = zusätzlich Seriennummer, Preis, Finanzierung, Fotos, Prüfungen,
+  Historie, Etikett. Leihgeräte sehen Entleihende zusätzlich unter „Meine Leihgeräte“ (INV-05).

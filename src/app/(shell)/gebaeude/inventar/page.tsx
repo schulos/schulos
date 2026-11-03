@@ -3,9 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/core/auth/session";
 import { getDb } from "@/core/db/client";
-import { toBerlinDate } from "@/core/time";
-import { createAssetAction, importAssetsAction } from "@/modules/gebaeude/actions";
+import { addDays, toBerlinDate } from "@/core/time";
+import { createAssetAction, previewAssetImportAction, runAssetImportAction } from "@/modules/gebaeude/actions";
 import { canPrintLabels } from "@/modules/gebaeude/etiketten";
+import { CSV_COLUMNS, IMPORT_FIELDS } from "@/modules/gebaeude/inventar-csv";
+import { DEADLINE_KINDS, DEADLINE_LABELS, deadlineWindow } from "@/modules/gebaeude/open";
 import { canConfigure, canSeeInventory, categoriesWithoutInspectionType, listCategories, maintainableCategories } from "@/modules/gebaeude/inventar";
 import { canReadInventories } from "@/modules/gebaeude/inventur";
 import { ASSET_CONDITIONS, CONDITION_LABELS } from "@/modules/gebaeude/labels";
@@ -19,14 +21,16 @@ import { Table } from "@schulos/ui/table";
 import { SpecForm } from "@/ui/spec-form";
 import { GebaeudeNav } from "../ui";
 import { assetFields } from "./asset-form";
+import { AssetImportForm } from "./import-form";
 
 export const metadata: Metadata = { title: "Inventar" };
 
-type Search = { kategorie?: string; gebaeude?: string; zustand?: string; alle?: string; ohne?: string; q?: string; geloescht?: string };
+type Search = { kategorie?: string; gebaeude?: string; raum?: string; zustand?: string; alle?: string; ohne?: string; q?: string; frist?: string; geloescht?: string };
 
 /**
  * INV-01 Inventar: Liste mit Filtern (Kategorie, Gebäude, Zustand, Suche, ohne Etikett, auch ausgemusterte), Anlegen und
- * CSV-Import. Lesen mit `view_all`/`inventory`/`configure`, verantwortliche Gruppen sehen ihre Kategorien; Pflege nach
+ * CSV-Import/-Export im Schulträgerformat (INV-06, mit Vorschau und Spaltenzuordnung), Filter „Raum“ (Karte im Raumsteckbrief) und
+ * „Frist“ (Hinweis in „Offen für dich“). Lesen mit `view_all`/`inventory`/`configure`, verantwortliche Gruppen sehen ihre Kategorien; Pflege nach
  * Kategorie (`requireMaintain` im Service).
  */
 export default async function InventarPage({ searchParams }: { searchParams: Promise<Search> }) {
@@ -40,9 +44,27 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
   const category = categories.find((c) => c.id === sp.kategorie);
   const building = buildings.find((b) => b.value === sp.gebaeude);
   const condition = ASSET_CONDITIONS.find((c) => c === sp.zustand);
-  const assets = await listAssets(db, perms, { categoryId: category?.id, buildingId: building?.value, condition, inactive: sp.alle === "1", withoutLabel: sp.ohne === "1", q: sp.q });
-  const [rooms, floors, missing] = await Promise.all([maintain ? roomOptions(db) : [], maintain ? floorOptions(db) : [], configure ? categoriesWithoutInspectionType(db) : []]);
   const today = toBerlinDate(new Date());
+  const [rooms, floors, missing, window] = await Promise.all([roomOptions(db), maintain ? floorOptions(db) : [], configure ? categoriesWithoutInspectionType(db) : [], deadlineWindow(db, today)]);
+  const room = rooms.find((r) => r.value === sp.raum);
+  const frist = DEADLINE_KINDS.find((k) => k === sp.frist);
+  const filter = {
+    categoryId: category?.id,
+    buildingId: building?.value,
+    roomId: room?.value,
+    condition,
+    inactive: sp.alle === "1",
+    withoutLabel: sp.ohne === "1",
+    q: sp.q,
+    // „Frist“ ohne eingestellten Vorlauf: die nächsten 90 Tage
+    deadline: frist ? { kind: frist, from: today, until: window?.until ?? addDays(today, 90) } : undefined,
+  };
+  const assets = await listAssets(db, perms, filter);
+  const exportQuery = new URLSearchParams(
+    Object.entries({ kategorie: category?.id, gebaeude: building?.value, raum: room?.value, zustand: condition, alle: sp.alle === "1" ? "1" : undefined, ohne: sp.ohne === "1" ? "1" : undefined, q: sp.q, frist }).filter(
+      (e): e is [string, string] => !!e[1],
+    ),
+  ).toString();
   const formCategories = categories.filter((c) => c.active && (own === null || own.has(c.id))).map((c) => ({ value: c.id, label: c.name }));
   const total = assets.reduce((s, a) => s + a.quantity, 0);
 
@@ -66,6 +88,11 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
             <Link href="/gebaeude/leihen">Leihgeräte</Link>
           </Button>
         )}
+        <Button asChild variant="secondary" size="sm">
+          <a href={`/api/gebaeude/export/inventar${exportQuery ? `?${exportQuery}` : ""}`} download>
+            Als CSV exportieren
+          </a>
+        </Button>
         {configure && (
           <Button asChild variant="ghost" size="sm">
             <Link href="/gebaeude/inventar/kategorien">Kategorien</Link>
@@ -107,6 +134,26 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
             </Select>
           </Field>
         )}
+        <Field label="Raum">
+          <Select name="raum" defaultValue={room?.value ?? ""} className="w-48">
+            <option value="">alle</option>
+            {rooms.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Frist">
+          <Select name="frist" defaultValue={frist ?? ""} className="w-56">
+            <option value="">alle</option>
+            {DEADLINE_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {DEADLINE_LABELS[k]}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label="Zustand">
           <Select name="zustand" defaultValue={condition ?? ""} className="w-36">
             <option value="">alle</option>
@@ -176,24 +223,18 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
 
       {maintain && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card aria-labelledby="anlegen">
+          <Card aria-labelledby="anlegen" className="min-w-0 [&_select]:max-w-full">
             <CardHeader title={<span id="anlegen">Inventar anlegen</span>} />
             <SpecForm action={createAssetAction} label="Inventar anlegen" submit="Anlegen" fields={assetFields({ categories: formCategories, rooms, buildings, floors })} />
           </Card>
-          <Card aria-labelledby="import">
-            <CardHeader title={<span id="import">Inventarliste importieren (CSV)</span>} />
+          <Card aria-labelledby="import" className="min-w-0 [&_select]:max-w-full">
+            <CardHeader title={<span id="import">Inventarliste importieren (CSV, Schulträgerformat)</span>} />
             <p className="text-sm text-muted">
-              Spalten <code>Name;Kategorie;Raum;Inventarnummer</code>, optional <code>;letzte Prüfung;Menge;Hersteller;Modell;Seriennummer</code> – mit oder ohne Kopfzeile,
-              Trennzeichen „;“ oder „,“. Gleiche Inventarnummer aktualisiert den Eintrag, ohne Nummer vergibt SchulOS eine. Kategorie als Name, Schlüssel oder Präfix (z. B.
-              „Feuerlöscher“, „IT“, „Leiter“). Fehler in einer Zeile → nichts wird übernommen.
+              Am einfachsten: oben „Als CSV exportieren“, in der Tabelle ergänzen, wieder importieren. Spalten wie im Export (<code className="break-all">Inventarnummer;Bezeichnung;Kategorie;…</code>
+              ), andere Spaltennamen ordnest du in der Vorschau zu. Gleiche Inventarnummer aktualisiert den Eintrag (leere Zellen lassen den Wert stehen), ohne Nummer vergibt
+              SchulOS eine. Erst die Vorschau, dann übernehmen – bei einem Fehler wird nichts übernommen.
             </p>
-            <SpecForm
-              action={importAssetsAction}
-              label="Inventarliste importieren"
-              submit="Importieren"
-              columns={1}
-              fields={[{ name: "file", label: "CSV-Datei", type: "file", accept: ".csv,text/csv", hint: "höchstens 512 KB, 2000 Zeilen" }]}
-            />
+            <AssetImportForm preview={previewAssetImportAction} run={runAssetImportAction} fields={IMPORT_FIELDS.map((f) => ({ value: f, label: CSV_COLUMNS[f].header }))} />
           </Card>
         </div>
       )}

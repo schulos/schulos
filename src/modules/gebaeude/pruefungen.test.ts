@@ -27,7 +27,6 @@ import {
   createAsset,
   defectTicket,
   ensureTemplate,
-  importAssets,
   inspectionState,
   inspectionSummary,
   inspectionsCsv,
@@ -37,7 +36,6 @@ import {
   listInspections,
   listInspectionTypes,
   overdueMessage,
-  parseAssetCsv,
   parseDay,
   planInspection,
   recordInspection,
@@ -48,6 +46,7 @@ import {
   ticketStats,
   updateInspectionType,
 } from "./pruefungen";
+import { importAssets, parseAssetCsv } from "./inventar-csv";
 import { createTicket } from "./service";
 import { createMaintenance, deleteMaintenance, listMaintenance, maintenanceSpan } from "./wartung";
 
@@ -110,7 +109,7 @@ describe("Prüffristen (rein)", () => {
     const cats = ASSET_CATEGORY_TEMPLATE.map((t) => ({ id: t.key, key: t.key, name: t.name, prefix: t.prefix }));
     const a = parseAssetCsv("﻿Name;Art;Raum;Inventarnummer;letzte Prüfung;Menge;Hersteller\nFeuerlöscher A;Feuerlöscher;106;FL-9;01.03.2025;;\nLeiter;leiter;;LE-9;;2;Musterwerk\n", cats);
     expect(a.errors).toEqual([]);
-    expect(a.rows).toEqual([
+    expect(a.rows).toMatchObject([
       { line: 2, name: "Feuerlöscher A", categoryId: "feuerloescher", roomId: "106", inventoryNo: "FL-9", lastInspected: "2025-03-01", quantity: null, manufacturer: null, model: null, serial: null },
       { line: 3, name: "Leiter", categoryId: "leiter", roomId: null, inventoryNo: "LE-9", lastInspected: null, quantity: 2, manufacturer: "Musterwerk", model: null, serial: null },
     ]);
