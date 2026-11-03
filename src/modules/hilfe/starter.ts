@@ -18,6 +18,8 @@ export const GEBAEUDE_HELP_SLUG = "gebaeude-und-technik-inventar";
 /** LO-03: Bereich und Seite zum Losverfahren der Schulanmeldung */
 export const ANMELDUNG_SECTION = "Schulanmeldung";
 export const LOS_HELP_SLUG = "schulanmeldung-losverfahren-bei-anmeldeueberhang";
+/** KB-04: Seite zur Klassenbildung im Schuljahreswechsel (Bereich Schulanmeldung) */
+export const KLASSENBILDUNG_HELP_SLUG = "schulanmeldung-klassenbildung-fuer-die-neuaufnahmen";
 /** GS-03: Seite zu den Fachraum-Prüfungen (Bereich Gebäude & Technik) */
 export const FACHRAUM_HELP_SLUG = "fachraum-pruefungen";
 /** VA-03: Seite zur Veranstaltungsanmeldung (Bereich Gebäude & Technik) */
@@ -419,6 +421,44 @@ Unter **Verwaltung → Rechte & Module → Gebäude & Technik** lässt sich **Ve
 | Schulleitung (Recht „Veranstaltungen freigeben“) | alle sehen; freigeben oder ablehnen, wenn die Freigabe eingeschaltet ist |
 
 Anmeldungen werden ein Jahr nach dem geplanten Ende gelöscht.`,
+  },
+  {
+    // KB-04 (docs/KLASSENBILDUNG.md): Klassenbildung im Schuljahreswechsel – für das Personal (Verwaltung/Schulleitung)
+    slug: KLASSENBILDUNG_HELP_SLUG,
+    title: "Schulanmeldung: Klassenbildung für die Neuaufnahmen",
+    roles: STAFF_TARGET_ROLES,
+    section: ANMELDUNG_SECTION,
+    body: `Im Schritt **Neuaufnahmen** des Schuljahreswechsels (**Verwaltung → Schuljahreswechsel**) schlägt SchulOS vor, in welche Klasse die aufgenommenen Kinder kommen. Der Vorschlag ist eine Hilfe: **Verteilung und Feinschliff bleiben bei Menschen**, nichts wird automatisch übernommen.
+
+## Was der Vorschlag berücksichtigt
+
+- **Klassengrößen:** höchstens ein Kind Unterschied zwischen den Klassen. Wie viele Klassen es gibt, bestimmen die Kurznamen, die Sie unter „Neue Klassen“ eintragen (z. B. 5a, 5b, 5c). Der Richtwert je Klasse (Einstellung „Klassenbildung: Richtwert Klassengröße“ unter **Verwaltung → Rechte & Module**) dient der Anzeige.
+- **Familien zusammen:** Kinder mit derselben E-Mail-Adresse des ersten Elternteils (z. B. Zwillinge) kommen in dieselbe Klasse – es sei denn, das Sekretariat hat „getrennt“ gesetzt.
+- **Grundschulen mischen:** große Gruppen verteilen sich gleichmäßig, Gruppen von zwei bis drei Kindern bleiben zusammen, möglichst kein Kind ganz allein aus seiner Grundschule.
+- **Klassenwünsche** aus dem Vorgang (siehe unten).
+- Nicht berücksichtigt werden Geschlecht, Förderbedarf, Religion, Sprachenfolge oder sonstige Merkmale; Profil- und Sprachenklassen bleiben Handarbeit.
+
+## Wünsche und „getrennt“ erfassen (Sekretariat)
+
+Im Vorgang eines Antrags (**Verwaltung → Schulanmeldung → Anträge**, Karte **Klassenwünsche**) tragen Sie aus Aufnahmegespräch oder Grundschulbogen ein, mit welchem anderen Kind das Kind **zusammen** oder **nicht zusammen** in eine Klasse soll – höchstens zwei Wünsche je Kind, **ohne Begründung** (bitte keine Gründe eintragen). Bei Familien mit mehreren Anträgen gibt es das Häkchen **Getrennt: auf verschiedene Klassen verteilen** (gilt für die ganze Familie). Eltern sehen die Wünsche nicht.
+
+## Im Schritt „Neuaufnahmen“ arbeiten
+
+1. Neue Klassen eintragen und **Neu vorschlagen** wählen.
+2. Unter jedem Kind steht die **Begründung** (Familie, Grundschule, Wunsch erfüllt oder nicht); die Tabelle **Kennzahlen je Klasse** zeigt Größe, Grundschulen und erfüllte Wünsche; rote Hinweise nennen Regelverstöße.
+3. Eine Klasse von Hand wählen oder **Festpinnen** ankreuzen: Das Kind bleibt bei **Neu vorschlagen** stehen. Jede von Hand gewählte Klasse wird automatisch festgepinnt.
+4. **Neuaufnahmen übernehmen** legt Klassen und Konten an. Der Entwurf wird **nicht gespeichert**, er lebt nur im Browser bis zur Übernahme.
+
+## Wer darf was?
+
+| Wer | Klassenbildung |
+|---|---|
+| Sekretariat (Recht „Anträge bearbeiten“) | Wünsche und „getrennt“ erfassen und entfernen |
+| Sekretariat/Schulleitung (Recht „Anträge lesen“) | Wünsche ansehen |
+| Verwaltung mit Datenschutz-Recht | Schritt „Neuaufnahmen“ mit Vorschlag ansehen |
+| Verwaltung mit Recht „Benutzer verwalten“ | Neuaufnahmen übernehmen (Konten anlegen) |
+
+Die Wünsche folgen dem Antrag und werden mit ihm gelöscht (Löschklasse LK-90). Eine Auskunft nach Art. 15 DSGVO nennt nur „Wunsch (nicht) zusammen mit einem anderen Kind“, nie den Namen des Partnerkindes.`,
   },
 ];
 
