@@ -84,9 +84,12 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
     id: "web-push",
     nr: 5,
     title: "Web-Push",
-    schulos: "Kein Push über Dienste der Browserhersteller; Benachrichtigungen nur im Gong bzw. per Mail über den eigenen SMTP-Weg.",
-    vorgabe: "Kein Push.",
-    schule: "Entscheidet nur, falls Push später kommt: opt-in je Gerät, Nachricht ohne Namen und Inhalt.",
+    schulos:
+      "Heute kein Push über Dienste der Browserhersteller; Benachrichtigungen nur im Gong bzw. per Mail über den eigenen SMTP-Weg. Geplant (WP-01, Konzept docs/WEBPUSH.md, Bau erst nach schriftlichem Votum): Opt-in je Gerät mit Hinweistext, Zustellung vom Server an die Push-Dienste der Browserhersteller (Google, Apple, Mozilla) mit eigenen VAPID-Schlüsseln je Installation; die Nutzlast ist verschlüsselt und trägt nur das feste Muster „Neue Benachrichtigung in SchulOS“ ohne Absender, Betreff, Namen oder Inhalt, Inhalte werden erst nach Anmeldung geladen. Gespeichert werden je Gerät Endpunkt-URL, Schlüssel und grobe Gerätebezeichnung (an das Konto gebunden, nur für die Person selbst sichtbar, Admin sieht nur Anzahlen je Rolle); Löschung beim Abmelden, bei Konto-Deaktivierung und nach 90 Tagen ohne erfolgreiche Zustellung. Kein Push für Notenbuch, Krankmeldung und Datenschutzfälle, Push ist nie der einzige Zustellweg; Ruhezeiten fest 20–6 Uhr und am Wochenende; nur mit öffentlich vertrauenswürdigem Zertifikat.",
+    vorgabe:
+      "Kein Push (schulweiter Hauptschalter bleibt aus, bis das schriftliche Votum vorliegt). Danach: Personal und Eltern ab Start, Schüler:innen schulweit einschaltbar (Standard aus), Einwilligung je Gerät im Hinweistext mit Zeitpunkt im Audit-Protokoll.",
+    schule:
+      "Fragen an die DSB (Details und Vorschlag in DSB-FRAGEN §5): (1) Reicht die Einwilligung je Gerät (Art. 6 Abs. 1 lit. a DSGVO, freiwillig, widerrufbar) als Rechtsgrundlage für Personal, Eltern und Schüler:innen, und ab welchem Alter dürfen Schüler:innen selbst einwilligen? (2) Wie sind die Push-Dienste von Google, Apple und Mozilla als Empfänger der Metadaten (Zeitpunkt, Endpunkt als pseudonyme Gerätekennung, Größe) und die Übermittlung in die USA (Art. 44 ff.) zu bewerten – genügt die Einwilligung (Art. 49 Abs. 1 lit. a), oder braucht es mehr? (3) Genügt das feste Muster ohne Namen und Inhalt, damit die Nachricht selbst keine personenbezogenen Daten trägt? (4) Ist die Speicherung von Endpunkt, Schlüsseln und Gerätebezeichnung mit Löschung bei Abmelden/Deaktivierung und nach 90 Tagen ohne Zustellung angemessen? (5) Ist der Hinweistext (Browserhersteller, USA-Übermittlung, Datenfluss, Widerruf) samt Elterninformation bei Minderjährigen ausreichend, und was gehört in das VVT („Push-Benachrichtigung“)? (6) Soll Push für Schüler:innen überhaupt einschaltbar sein? Entscheidet nach dem Votum über Hauptschalter und Rollenfreigabe.",
   },
   {
     id: "anonymitaet",
@@ -322,6 +325,20 @@ export const DSB_TOPICS: readonly DsbTopic[] = [
       "Bestätigt die Grundlage (Ausstattung mit Lernmitteln bzw. Arbeitsmitteln – zu prüfen), legt fest, wer verleiht (Recht Inventar bzw. verantwortliche Gruppe der Kategorie), passt die allgemeinen Bedingungen des Leihvertrags (Haftung, Ersatz) mit dem Schulträger an und verwahrt die unterschriebenen Verträge auf Papier; stellt Leihfrist, Erinnerung und Mail ein.",
     settings: ["gebaeude.loan_days", "gebaeude.loan_remind_days", "gebaeude.loan_mail"],
     where: { label: "Inventar → Leihgeräte und Verwaltung → Rechte & Module → Gebäude & Technik", href: "/gebaeude/leihen" },
+  },
+  {
+    id: "beobachtungsnotizen",
+    nr: 24,
+    title: "Beobachtungsnotizen im Notenbuch",
+    schulos:
+      "Noch nicht umgesetzt (BN-01, Konzept docs/BEOBACHTUNGSNOTIZEN.md, Bau erst nach schriftlichem Votum). Geplant: je Schüler:in im Notenbuch eines Lehrauftrags eine Notiz mit Datum, Kategorie (Arbeitsverhalten, Sozialverhalten, Mitarbeit, Sonstiges) und Freitext bis 300 Zeichen. Lesen und schreiben dürfen nur die Fachlehrkräfte des Lehrauftrags (Mitlehrkräfte eingeschlossen; Klassenleitung, Schulleitung, Verwaltung und Admin-Konten nicht), Schüler:innen und Eltern sehen die Notizen nicht im Alltag, aber in Auskunft und Einsicht (Art. 15 DSGVO, § 120 Abs. 9 SchulG NRW; Recht „Notenbuch: Auskunft erteilen“). Notizen werden mit dem Buch gelöscht (LK-SJ-1J), bei Übertragung eines Notenbuchs nicht mit übertragen (sie bleiben für die bisherigen Lehrkräfte des Buchs lesbar), nicht offline und nicht im Zwischenspeicher des Browsers abgelegt, ohne Anhänge, ohne Einfluss auf die Note, ohne Zeugnisbezug. Schutz vor sensiblen Inhalten: feste Kategorien, Zeichenlimit, Hinweis am Eingabefeld („sachlich, so dass das Kind es lesen kann; keine Gesundheits-, Diagnose- oder Familienangaben“), Warnung (keine Sperre) bei Diagnosewörtern, Hinweis beim ersten Öffnen. Das Audit-Protokoll enthält keine Notiztexte.",
+    vorgabe:
+      "Keine Beobachtungsnotizen (Moduleinstellung „aus“, bis das schriftliche Votum vorliegt und das Feature gebaut ist). Danach Vorgabe weiterhin aus; die Schule schaltet ein.",
+    schule:
+      "Fragen an die DSB (Details und Vorschlag in DSB-FRAGEN §24): (1) Deckt Anlage 2 II Nr. 4 VO-DV I („Aufzeichnungen zum Arbeits- und Sozialverhalten“) kurze digitale Beobachtungsnotizen im Notenbuch als Rechtsgrundlage und zugelassene Datensammlung ab? (2) Reichen die Maßnahmen gegen Art.-9-Inhalte (Kategorien, 300 Zeichen, Hinweis, Warnung ohne Sperre, Nutzungsordnung), oder soll es eine harte Sperre geben bzw. das Feature unterbleiben? (3) Ist die Löschfrist wie das Buch (Schuljahresende + 1 Jahr, LK-SJ-1J) angemessen oder soll sie kürzer sein? (4) Ist der Kreis (nur Fachlehrkräfte des Lehrauftrags, nicht die Klassenleitung) richtig, und ist die Regelung bei Übertragung (Notizen bleiben bei den bisherigen Lehrkräften) zulässig? (5) Wie werden Auskunft, Einsicht, Berichtigung und Löschung auf Antrag geregelt und wer erteilt den Auskunftsteil? (6) Welche Transparenz ist nötig (Hinweis beim ersten Öffnen, ergänzter Datenschutzhinweis, Baustein Nutzungsordnung, VVT-Ergänzung) und ist eine Datenschutz-Folgenabschätzung (Art. 35) nötig?",
+    baustein:
+      "Beobachtungsnotizen (nur nach Freigabe durch die Schule): Notizen im Notenbuch sind sachlich und kurz formuliert, so dass das Kind sie lesen könnte. Sie enthalten keine Angaben zu Gesundheit, Diagnosen, Förderbedarf oder Familie und keine Vermutungen über Ursachen. Sie dienen nur der Vorbereitung von Gesprächen und der Bewertung des Arbeits- und Sozialverhaltens im eigenen Lehrauftrag, werden nicht weitergegeben und nicht außerhalb von SchulOS abgelegt. Schüler:innen und Eltern haben ein Recht auf Auskunft und Einsicht.",
+    where: { label: "Verwaltung → Rechte & Module → Notenbuch (Einstellung folgt mit dem Bau)", href: "/verwaltung/rechte" },
   },
 ];
 

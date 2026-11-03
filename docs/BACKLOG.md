@@ -743,7 +743,7 @@ Konzept und Entscheidungen: [`INVENTAR.md`](INVENTAR.md). Reihenfolge: INV-01/02
 
 ## Web-Push – Weckruf bei geschlossener App (freigegeben von der Projektleitung 2026-11-01 unter Vorbehalt DSB-Votum, Fragebogen Runde 12)
 Konzept und Entscheidungen: [`WEBPUSH.md`](WEBPUSH.md). Bis zum positiven schriftlichen Votum gilt „Kein Push“; jetzt nur WP-01, alles andere **erst nach DSB-Votum**. Kurz: Opt-in je Gerät, Standard aus, festes Muster „Neue Benachrichtigung in SchulOS“ ohne Namen/Inhalt, Personal und Eltern ab Start, Schüler:innen schulweit einschaltbar, Abos löschen bei Abmelden oder nach 90 Tagen ohne Zustellung, nur mit vertrauenswürdigem Zertifikat, Ruhezeiten fest 20–6 Uhr und Wochenende. Migrationsnummer erst direkt vor dem PR.
-- [ ] **WP-01** (S) DSB-Fragen ergänzen: neues Thema „Web-Push“ in der DSB-Checkliste (`checkliste.ts`), `docs/DSB-FRAGEN.md` neu erzeugen, Test grün (Projektleitung 2026-11-01)
+- [x] **WP-01** (S) DSB-Fragen ergänzen: neues Thema „Web-Push“ in der DSB-Checkliste (`checkliste.ts`), `docs/DSB-FRAGEN.md` neu erzeugen, Test grün (Projektleitung 2026-11-01)
 - [ ] **WP-02** (M) Tabellen `push_*`, Migration, `retention`, VAPID-Schlüsselablage, Service mit Tests – erst nach DSB-Votum (Projektleitung 2026-11-01)
 - [ ] **WP-03** (S–M) Service-Worker-Handler (`push`, `notificationclick`), `service-worker.test.ts`, SICHERHEIT S63 – erst nach DSB-Votum (Projektleitung 2026-11-01)
 - [ ] **WP-04** (M) Zustellung: Einhängen in den Gong, Bündelung, Ruhezeiten, Fehlerbehandlung 404/410, Job – erst nach DSB-Votum (Projektleitung 2026-11-01)
@@ -753,7 +753,7 @@ Konzept und Entscheidungen: [`WEBPUSH.md`](WEBPUSH.md). Bis zum positiven schrif
 
 ## Beobachtungsnotizen – Notenbuch (freigegeben von der Projektleitung 2026-11-01 unter Vorbehalt DSB-Votum, Fragebogen Runde 12)
 Konzept und Entscheidungen: [`BEOBACHTUNGSNOTIZEN.md`](BEOBACHTUNGSNOTIZEN.md). Jetzt nur BN-01, alles andere **erst nach DSB-Votum**. Kurz: Kategorie + Datum + Freitext bis 300 Zeichen, nur Fachlehrkräfte des Lehrauftrags, Schüler:innen/Eltern nur über Auskunft/Einsicht, Löschklasse LK-SJ-1J, nicht mit dem Buch übertragen, nicht offline, Hinweis + Warnung bei Diagnosewörtern; Moduleinstellung Vorgabe aus. Migrationsnummer erst direkt vor dem PR.
-- [ ] **BN-01** (S) DSB-Fragen ergänzen: neues Thema „Beobachtungsnotizen“ in der DSB-Checkliste (`checkliste.ts`), `docs/DSB-FRAGEN.md` neu erzeugen, Test grün (Projektleitung 2026-11-01)
+- [x] **BN-01** (S) DSB-Fragen ergänzen: neues Thema „Beobachtungsnotizen“ in der DSB-Checkliste (`checkliste.ts`), `docs/DSB-FRAGEN.md` neu erzeugen, Test grün (Projektleitung 2026-11-01)
 - [ ] **BN-02** (M) `notenbuch_notes`, Migration, Service, Rechteprüfung, Moduleinstellung `notenbuch.notes`, Manifest (`retention`), Auskunft, Tests – erst nach DSB-Votum (Projektleitung 2026-11-01)
 - [ ] **BN-03** (M) Oberfläche im Notenbuch, Hinweis- und Wortwarnung, `NOTICE_VERSION` anheben – erst nach DSB-Votum (Projektleitung 2026-11-01)
 - [ ] **BN-04** (S) Handbuch, Nutzungsordnungs-Baustein, Datenschutzdoku, E2E – erst nach DSB-Votum (Projektleitung 2026-11-01)
