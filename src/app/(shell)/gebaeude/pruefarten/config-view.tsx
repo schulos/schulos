@@ -11,7 +11,8 @@ import {
   TICKET_CATEGORIES,
 } from "@/modules/gebaeude/labels";
 import { listCategories } from "@/modules/gebaeude/inventar";
-import { listInspectionTypes } from "@/modules/gebaeude/pruefungen";
+import { FACHRAUM_TEMPLATE_KEYS } from "@/modules/gebaeude/pruefarten";
+import { listInspectionTypes, RESPONSIBLE_GROUP_KINDS } from "@/modules/gebaeude/pruefungen";
 import { listResponsibilities } from "@/modules/gebaeude/service";
 import { Badge } from "@schulos/ui/badge";
 import { Card, CardHeader } from "@schulos/ui/card";
@@ -20,7 +21,7 @@ import { SpecForm, type FieldSpec } from "@/ui/spec-form";
 type TypeRow = Awaited<ReturnType<typeof listInspectionTypes>>[number];
 type CategoryOption = { value: string; label: string };
 
-function typeFields(categories: CategoryOption[], t?: TypeRow): FieldSpec[] {
+function typeFields(categories: CategoryOption[], groupOptions: CategoryOption[], t?: TypeRow): FieldSpec[] {
   return [
     { name: "name", label: "Name", type: "text", required: true, maxLength: 120, wide: true, defaultValue: t?.name },
     { name: "appliesTo", label: "gilt für", type: "select", defaultValue: t?.appliesTo ?? "anlage", options: INSPECTION_TARGETS.map((x) => ({ value: x, label: INSPECTION_TARGET_LABELS[x] })) },
@@ -50,6 +51,15 @@ function typeFields(categories: CategoryOption[], t?: TypeRow): FieldSpec[] {
       defaultValue: t?.responsible ?? "schultraeger",
       options: INSPECTION_RESPONSIBLES.map((r) => ({ value: r, label: RESPONSIBLE_LABELS[r] })),
     },
+    // GS-02: zuständige Gruppe (z. B. Fachschaft Chemie) bekommt die Erinnerungen und erfasst/plant Prüfungen dieser Art
+    {
+      name: "responsibleGroupId",
+      label: "zuständige Gruppe",
+      type: "select",
+      defaultValue: t?.responsibleGroupId ?? "",
+      options: groupOptions,
+      hint: "erinnert und erfasst – ohne Gruppe die Hausmeisterei",
+    },
     { name: "source", label: "Quelle", type: "text", maxLength: 300, wide: true, defaultValue: t?.source, hint: "Hinweis zum Nachlesen, z. B. „DGUV Vorschrift 3 – zu prüfen“" },
     { name: "note", label: "Bemerkung", type: "text", maxLength: 500, wide: true, defaultValue: t?.note ?? "" },
     { name: "active", label: "eingeschaltet", type: "checkbox", checked: t ? t.active : true },
@@ -64,17 +74,43 @@ export async function GebaeudeConfig() {
   const db = await getDb();
   const [types, resp, cats] = await Promise.all([listInspectionTypes(db), listResponsibilities(db), listCategories(db)]);
   const categories = cats.filter((c) => c.active).map((c) => ({ value: c.id, label: c.name }));
-  const assigned = resp.map((r) => r.groupId);
+  const assigned = [...resp.map((r) => r.groupId), ...types.flatMap((t) => (t.responsibleGroupId ? [t.responsibleGroupId] : []))];
   const groupRows = await db
     .select({ id: groups.id, name: groups.name, archivedAt: groups.archivedAt })
     .from(groups)
     // auswählbar: Gruppen ohne Klassen-/Kursbezug; die aktuell eingetragene bleibt immer in der Liste (Code-Review Gate 4a N6)
-    .where(or(and(inArray(groups.kind, ["frei", "gremium", "fachschaft", "ag"]), isNull(groups.archivedAt)), assigned.length ? inArray(groups.id, assigned) : undefined));
-  const groupOptions = [
-    { value: "", label: "Vorgabe (Gruppe der Kategorie „Gebäude“)" },
-    ...groupRows.sort((a, b) => a.name.localeCompare(b.name, "de")).map((g) => ({ value: g.id, label: g.archivedAt ? `${g.name} (archiviert)` : g.name })),
-  ];
+    .where(or(and(inArray(groups.kind, [...RESPONSIBLE_GROUP_KINDS]), isNull(groups.archivedAt)), assigned.length ? inArray(groups.id, assigned) : undefined));
+  const namedGroups = groupRows.sort((a, b) => a.name.localeCompare(b.name, "de")).map((g) => ({ value: g.id, label: g.archivedAt ? `${g.name} (archiviert)` : g.name }));
+  const groupOptions = [{ value: "", label: "Vorgabe (Gruppe der Kategorie „Gebäude“)" }, ...namedGroups];
+  const typeGroupOptions = [{ value: "", label: "keine (Hausmeisterei)" }, ...namedGroups];
   const respOf = new Map(resp.map((r) => [r.category, r.groupId]));
+  // GS-01: Fachraum-Prüfarten der Vorlage als eigene Liste (Chemie/Naturwissenschaften, Strahlenschutz Physik)
+  const isFachraum = (t: TypeRow) => t.templateKey !== null && FACHRAUM_TEMPLATE_KEYS.includes(t.templateKey);
+  const typeItem = (t: TypeRow) => (
+    <li key={t.id}>
+      <details className="rounded-xl border border-border bg-surface px-4 py-3">
+        <summary className="flex min-h-6 cursor-pointer flex-wrap items-center gap-2">
+          <span className="font-medium">{t.name}</span>
+          <Badge tone={t.active ? "success" : "neutral"}>{t.active ? "an" : "aus"}</Badge>
+          <span className="text-xs text-muted">
+            alle {t.intervalMonths} {t.intervalMonths === 1 ? "Monat" : "Monate"} · {INSPECTION_TARGET_LABELS[t.appliesTo]}
+            {t.categoryName ? ` (${t.categoryName})` : ""} · {RESPONSIBLE_LABELS[t.responsible]}
+            {t.responsibleGroupName ? ` · ${t.responsibleGroupName}` : ""}
+          </span>
+        </summary>
+        <div className="mt-3">
+          <SpecForm
+            action={saveInspectionTypeAction.bind(null, t.id)}
+            label={`Prüfart ${t.name}`}
+            submit="Speichern"
+            okText="Gespeichert."
+            columns={3}
+            fields={typeFields(categories, typeGroupOptions, t)}
+          />
+        </div>
+      </details>
+    </li>
+  );
   return (
     <>
       <section aria-labelledby="pruefarten" className="flex flex-col gap-3">
@@ -87,29 +123,34 @@ export async function GebaeudeConfig() {
           Anlagen automatisch geplant; die Kategorien pflegen Sie unter Inventar → Kategorien.
         </p>
         <ul aria-label="Prüfarten" className="flex flex-col gap-2">
-          {types.map((t) => (
-            <li key={t.id}>
-              <details className="rounded-xl border border-border bg-surface px-4 py-3">
-                <summary className="flex cursor-pointer flex-wrap items-center gap-2">
-                  <span className="font-medium">{t.name}</span>
-                  <Badge tone={t.active ? "success" : "neutral"}>{t.active ? "an" : "aus"}</Badge>
-                  <span className="text-xs text-muted">
-                    alle {t.intervalMonths} Monate · {INSPECTION_TARGET_LABELS[t.appliesTo]}
-                    {t.categoryName ? ` (${t.categoryName})` : ""} · {RESPONSIBLE_LABELS[t.responsible]}
-                  </span>
-                </summary>
-                <div className="mt-3">
-                  <SpecForm action={saveInspectionTypeAction.bind(null, t.id)} label={`Prüfart ${t.name}`} submit="Speichern" okText="Gespeichert." columns={3} fields={typeFields(categories, t)} />
-                </div>
-              </details>
-            </li>
-          ))}
+          {types.filter((t) => !isFachraum(t)).map(typeItem)}
         </ul>
-        <Card aria-labelledby="eigene">
-          <CardHeader title={<span id="eigene">Eigene Prüfart anlegen</span>} />
-          <SpecForm action={saveInspectionTypeAction.bind(null, null)} label="Eigene Prüfart anlegen" submit="Anlegen" okText="Angelegt." columns={3} fields={typeFields(categories)} />
-        </Card>
       </section>
+      <section aria-labelledby="fachraum" className="flex flex-col gap-3">
+        <h2 id="fachraum" className="font-display text-xl font-bold">
+          Fachraum-Prüfungen
+        </h2>
+        <p className="text-sm text-muted">
+          Chemie/Naturwissenschaften und Strahlenschutz Physik – ebenfalls nur eine Vorlage zum Prüfen (Fristen mit der Fachkraft für Arbeitssicherheit und dem Schulträger
+          abstimmen, keine Rechtsberatung). Tragen Sie eine <strong>zuständige Gruppe</strong> ein, z. B. die Fachschaft Chemie: Sie bekommt die Erinnerungen und erfasst
+          und plant Prüfungen dieser Art selbst, die Hausmeisterei sieht weiter alles. Ein Chemikalienkataster führt SchulOS nicht – das Gefahrstoffverzeichnis hängt als PDF
+          an der Prüfung.
+        </p>
+        <ul aria-label="Fachraum-Prüfungen" className="flex flex-col gap-2">
+          {types.filter(isFachraum).map(typeItem)}
+        </ul>
+      </section>
+      <Card aria-labelledby="eigene">
+        <CardHeader title={<span id="eigene">Eigene Prüfart anlegen</span>} />
+        <SpecForm
+          action={saveInspectionTypeAction.bind(null, null)}
+          label="Eigene Prüfart anlegen"
+          submit="Anlegen"
+          okText="Angelegt."
+          columns={3}
+          fields={typeFields(categories, typeGroupOptions)}
+        />
+      </Card>
 
       <Card aria-labelledby="zustaendig">
         <CardHeader title={<span id="zustaendig">Zuständigkeiten je Kategorie</span>} />

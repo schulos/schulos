@@ -107,7 +107,8 @@ Stand 2026-10-29, Migration 0119 (`hilfe_attachments`, `hilfe_revisions`). Damit
   überschrieben oder doppelt angelegt). Sichtbarkeit laut Entscheidung 6: die Starter-Seiten sind für ihre Gruppen freigegeben (Eltern,
   Schüler:innen, Personal bzw. alle), eigene Seiten bleiben Vorgabe „nur Personal“. Danach gehören sie der Schule, keine automatische
   Aktualisierung. Die Demo-Schule enthält sie bereits. Titel: Erste Schritte für Eltern · Erste Schritte für Schülerinnen und Schüler ·
-  Erste Schritte für Lehrkräfte und Personal · Zwei-Faktor-Anmeldung einrichten · Passwort vergessen · Krankmeldung · Kurswahl. Die Texte
+  Erste Schritte für Lehrkräfte und Personal · Zwei-Faktor-Anmeldung einrichten · Passwort vergessen · Krankmeldung · Kurswahl; im Bereich „Gebäude & Technik“ zusätzlich
+  „Gebäude und Technik: Inventar“ (INV-07) und „Fachraum-Prüfungen“ (GS-03, Hinweis „zu prüfen – keine Rechtsberatung“). Die Texte
   folgen den Menüpunkten und Schaltflächen der Oberfläche (Menü oben rechts, Abwesenheiten, Kurswahl …); schulspezifische Angaben fehlen
   bewusst.
 - **Kontexthilfe:** `CONTEXT_PAGES` in `context.ts`: `/abwesenheiten` → Krankmeldung, `/kurswahl` → Kurswahl, `/konto/…` →

@@ -1,6 +1,6 @@
 {
-  "id": "1af4e1b3-c8ab-47f8-9309-64b5c32121df",
-  "prevId": "182a0a25-09f0-4d8e-abef-02acf3b61686",
+  "id": "4febceda-3535-42c6-b153-c2fbb8450a0b",
+  "prevId": "0cb2a122-4d1f-4e29-92a7-f442ab88b57d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -13441,6 +13441,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "responsible_group_id": {
+          "name": "responsible_group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "active": {
           "name": "active",
           "type": "boolean",
@@ -13464,6 +13470,19 @@
           "tableTo": "gebaeude_asset_categories",
           "columnsFrom": [
             "category_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "gebaeude_inspection_types_responsible_group_id_groups_id_fk": {
+          "name": "gebaeude_inspection_types_responsible_group_id_groups_id_fk",
+          "tableFrom": "gebaeude_inspection_types",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "responsible_group_id"
           ],
           "columnsTo": [
             "id"

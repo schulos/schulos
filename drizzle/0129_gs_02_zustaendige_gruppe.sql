@@ -1,0 +1,2 @@
+ALTER TABLE "gebaeude_inspection_types" ADD COLUMN "responsible_group_id" text;--> statement-breakpoint
+ALTER TABLE "gebaeude_inspection_types" ADD CONSTRAINT "gebaeude_inspection_types_responsible_group_id_groups_id_fk" FOREIGN KEY ("responsible_group_id") REFERENCES "public"."groups"("id") ON DELETE set null ON UPDATE no action;

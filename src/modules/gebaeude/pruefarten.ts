@@ -1,4 +1,4 @@
-// Vorlage der Prüfarten (P4-15, Q-23): zwölf typische wiederkehrende Prüfungen an Schulen – als Daten, nicht als Code.
+// Vorlage der Prüfarten (P4-15, Q-23): zwölf typische wiederkehrende Prüfungen an Schulen, seit GS-01 dazu sieben Fachraum-Prüfungen – als Daten, nicht als Code.
 // Intervalle sind Annahmen, Quellen Hinweise. Alles ist „zu prüfen“: SchulOS behauptet keine Rechtsverbindlichkeit,
 // die Schule bzw. der Schulträger legt die Fristen fest (Fachkraft für Arbeitssicherheit, Gefährdungsbeurteilung).
 import type { InspectionResponsible, InspectionTarget } from "./labels";
@@ -154,4 +154,95 @@ export const INSPECTION_TEMPLATE: readonly InspectionTemplate[] = [
     responsible: "schule",
     note: "Schulleitung",
   },
+  // GS-01 (Runde 13, Projektleitung 2026-11-02): Fachraum-Prüfungen Chemie/Naturwissenschaften und Strahlenschutz Physik;
+  // Biologie (Biostoffe) später. Wie oben alles „zu prüfen“ und ausgeschaltet; die zuständige Gruppe (z. B. Fachschaft Chemie)
+  // trägt die Schule unter Prüfarten ein (GS-02). Kein Chemikalienkataster – nur die Frist „Verzeichnis aktualisiert“ mit PDF.
+  {
+    key: "laborabzuege",
+    name: "Laborabzüge (Fachraum)",
+    appliesTo: "anlage",
+    categoryKey: "abzug",
+    intervalMonths: 12,
+    warnDays: 30,
+    source: src("DIN EN 14175, DGUV Regel 113-018, RISU-NRW"),
+    responsible: "extern",
+    note: "Funktion und Luftführung durch eine Fachfirma; arbeitstäglich Sichtkontrolle der Strömungsanzeige (Annahme)",
+  },
+  {
+    key: "notduschen",
+    name: "Augen- und Körpernotduschen (Funktionsprobe)",
+    appliesTo: "anlage",
+    categoryKey: "notdusche",
+    intervalMonths: 1,
+    warnDays: 7,
+    source: src("DIN EN 15154, DGUV Regel 113-018, RISU-NRW"),
+    responsible: "schule",
+    note: "monatlich auslösen und durchspülen (Annahme); jährliche Prüfung je nach Gefährdungsbeurteilung",
+  },
+  {
+    key: "sicherheitsschraenke",
+    name: "Sicherheitsschränke für Gefahrstoffe",
+    appliesTo: "anlage",
+    categoryKey: "sicherheitsschrank",
+    intervalMonths: 12,
+    warnDays: 30,
+    source: src("DIN EN 14470-1, TRGS 510, DGUV Regel 113-018"),
+    responsible: "extern",
+    note: "Selbstschließung, Türfeststeller und Abluft durch eine Fachfirma (Annahme)",
+  },
+  {
+    key: "gasversorgung-not-aus",
+    name: "Gasversorgung und Not-Aus im Fachraum",
+    appliesTo: "raum",
+    categoryKey: null,
+    intervalMonths: 12,
+    warnDays: 30,
+    source: src("DGUV Regel 113-018, RISU-NRW, DGUV Vorschrift 3"),
+    responsible: "schule",
+    note: "Funktionsprobe Not-Aus und Gasabsperrung je Fachraum; Leitungsprüfung durch den Schulträger (Annahme)",
+  },
+  {
+    key: "gefahrstoffverzeichnis",
+    name: "Gefahrstoffverzeichnis aktualisieren und Bestand aussondern",
+    appliesTo: "gebaeude",
+    categoryKey: null,
+    intervalMonths: 12,
+    warnDays: 30,
+    source: src("GefStoffV § 6 Abs. 12, RISU-NRW"),
+    responsible: "schule",
+    note: "Verzeichnis als PDF-Protokoll anhängen; SchulOS führt kein Chemikalienkataster",
+  },
+  {
+    key: "gefaehrdungsbeurteilung-fachraum",
+    name: "Gefährdungsbeurteilungen Fachraum überprüfen",
+    appliesTo: "raum",
+    categoryKey: null,
+    intervalMonths: 12,
+    warnDays: 30,
+    source: src("GefStoffV § 6, ArbSchG § 5, RISU-NRW"),
+    responsible: "schule",
+    note: "Tätigkeiten und Versuche mit Gefahrstoffen; Betriebsanweisungen auf Stand (Annahme)",
+  },
+  {
+    key: "strahlenschutz-dichtheit",
+    name: "Strahlenschutz: Dichtheitsprüfung radioaktiver Präparate",
+    appliesTo: "raum",
+    categoryKey: null,
+    intervalMonths: 12,
+    warnDays: 60,
+    source: src("StrlSchV, RISU-NRW"),
+    responsible: "extern",
+    note: "nur wenn die Schule umschlossene radioaktive Stoffe besitzt; Raum der Physiksammlung, Strahlenschutzbeauftragte:r (Annahme)",
+  },
+];
+
+/** GS-01: Schlüssel der Fachraum-Prüfarten (Chemie/NW, Strahlenschutz Physik) – Gruppierung in der Oberfläche und im Handbuch. */
+export const FACHRAUM_TEMPLATE_KEYS: readonly string[] = [
+  "laborabzuege",
+  "notduschen",
+  "sicherheitsschraenke",
+  "gasversorgung-not-aus",
+  "gefahrstoffverzeichnis",
+  "gefaehrdungsbeurteilung-fachraum",
+  "strahlenschutz-dichtheit",
 ];

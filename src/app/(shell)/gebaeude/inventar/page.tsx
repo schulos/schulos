@@ -124,7 +124,7 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
         </Field>
         {buildings.length > 0 && (
           <Field label="Gebäude">
-            <Select name="gebaeude" defaultValue={building?.value ?? ""} className="w-48">
+            <Select name="gebaeude" defaultValue={building?.value ?? ""} className="w-48" aria-label="Gebäude">
               <option value="">alle</option>
               {buildings.map((b) => (
                 <option key={b.value} value={b.value}>

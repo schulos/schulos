@@ -136,7 +136,7 @@ test("INV-01/02: Inventar anlegen, Etikett drucken, /i/<code> Rechte, Neuerzeuge
   await logoutForSwitch(page);
   await login(page, "sabine.kowalski");
   await page.goto("/gebaeude/inventar/kategorien");
-  await expect(page.getByRole("list", { name: "Kategorien" }).getByRole("listitem")).toHaveCount(20);
+  await expect(page.getByRole("list", { name: "Kategorien" }).getByRole("listitem")).toHaveCount(23); // 20 Vorlagen (INV-01) + 3 Fachraum-Anlagen (GS-01)
   const kat = page.getByRole("form", { name: "Eigene Kategorie anlegen" });
   await kat.getByLabel("Name").fill("E2E Robotik");
   await kat.getByLabel("Präfix der Inventarnummer").fill("rb");

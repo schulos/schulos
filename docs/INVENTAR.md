@@ -133,7 +133,8 @@ Asset-Seite führen).
 
 - **Kategorien statt Enum:** `gebaeude_asset_categories` (Schlüssel, Name, Präfix, Prüfpflicht, verantwortliche Gruppe, Reihenfolge, aktiv) mit
   20 Vorlagen in `src/modules/gebaeude/kategorien.ts` – die zehn früheren Enum-Werte behalten ihren Schlüssel, dazu IT, Präsentation/AV,
-  Fachsammlungen, Werken, Musik, Hauswirtschaft, Sicherheit, Hausmeisterei, Chemikalienschrank (nur Verweis, inv-10), Möbel. Eigene
+  Fachsammlungen, Werken, Musik, Hauswirtschaft, Sicherheit, Hausmeisterei, Chemikalienschrank (nur Verweis, inv-10), Möbel; seit GS-01
+  zusätzlich Laborabzug, Augen-/Körpernotdusche und Sicherheitsschrank für Gefahrstoffe (Prüfpflicht, `docs/FACHRAUM-PRUEFUNGEN.md`). Eigene
   Kategorien unter `/gebaeude/inventar/kategorien` (`gebaeude.configure`); Vorlagen lassen sich nur ausschalten. Die Prüfarten hängen über
   `gebaeude_inspection_types.category_id` an den Kategorien (`INSPECTION_TEMPLATE.categoryKey`).
 - **Migration zweistufig:** `0124_inv_01_inventar.sql` legt Tabellen und Spalten an, macht aus jedem Enum-Wert eine Kategorie gleichen
@@ -348,3 +349,5 @@ Asset-Seite führen).
 
   „Eingeschränkt“ = Bezeichnung, Kategorie, Standort (inv-5); „voll“ = zusätzlich Seriennummer, Preis, Finanzierung, Fotos, Prüfungen,
   Historie, Etikett. Leihgeräte sehen Entleihende zusätzlich unter „Meine Leihgeräte“ (INV-05).
+  Prüfungen: seit GS-02 kann jede Prüfart eine **zuständige Gruppe** haben (z. B. Fachschaft Chemie); deren Beschäftigte sehen, planen
+  und erfassen nur Prüfungen dieser Art – unabhängig von der verantwortlichen Gruppe der Inventar-Kategorie (`docs/FACHRAUM-PRUEFUNGEN.md`).
