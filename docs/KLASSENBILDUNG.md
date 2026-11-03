@@ -84,6 +84,12 @@ Freigegeben von der Projektleitung am 2026-11-01 (Fragebogen Runde 12). Aufgaben
 - Auskunft (`auskunft.ts`): `antrag.klassenbildung` mit eigenen Wünschen (nur „Wunsch (nicht) zusammen mit einem anderen Kind“ und
   Zeitpunkt) und `familieGetrennt`; Wünsche anderer Anträge, die das Kind nennen, gehören zu deren Antrag.
 
+## Stand der Umsetzung (KB-04)
+
+- Handbuch-Starter-Seite „Schulanmeldung: Klassenbildung für die Neuaufnahmen“ (Bereich Schulanmeldung, für das Personal), `src/modules/hilfe/starter.ts`.
+- E2E `e2e/zz-klassenbildung.spec.ts`: Wünsche und „getrennt“ im Vorgang erfassen, Schritt „Neuaufnahmen“ mit Vorschlag, Begründung, Kennzahlen, Festpinnen, „Neu vorschlagen“, Mehrlinge zusammen bzw. getrennt. Läuft wie `zz-gate4c` durch einen Schuljahreswechsel, leitet Zieljahr und Klassennamen aus dem Stand der DB ab und ist auf derselben DB wiederholbar.
+- Datenschutz: Zweck, Löschklasse LK-90, Auskunft ohne Partnername und „Entwurf nur im Browser“ in DATENSCHUTZ §3.
+
 ## Datenschutz
 
 - Stufe 1 nutzt nur vorhandene Daten (Name, Grundschule, E-Mail für Familienerkennung) – kein neues Datum, keine neue Rechtsgrundlage.
