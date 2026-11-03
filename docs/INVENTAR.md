@@ -351,3 +351,18 @@ Asset-Seite führen).
   Historie, Etikett. Leihgeräte sehen Entleihende zusätzlich unter „Meine Leihgeräte“ (INV-05).
   Prüfungen: seit GS-02 kann jede Prüfart eine **zuständige Gruppe** haben (z. B. Fachschaft Chemie); deren Beschäftigte sehen, planen
   und erfassen nur Prüfungen dieser Art – unabhängig von der verantwortlichen Gruppe der Inventar-Kategorie (`docs/FACHRAUM-PRUEFUNGEN.md`).
+
+## Folgeideen (Runde 14, freigegeben von der Projektleitung 2026-11-03)
+
+Fragebogen inf-1…inf-6, alle wie vorgeschlagen. Aufgaben: BACKLOG, Block „Inventar“, Folge INV-08…INV-12 (Reihenfolge: nach VA-04,
+vor RS-13).
+
+- **inf-1 Zuschnitt:** Vertragsfelder + Ersatzbedarf-Auswertung; keine Beschaffung.
+- **inf-2 Verträge:** Felder am Gerät (Partner, Ende, Kündigungsfrist, Notiz) mit Frist-Hinweis in „Offen für dich“; keine eigene
+  Vertragstabelle (Sammelverträge bei Bedarf später). Kein Feld für Ansprechpersonen (Personenbezug vermeiden).
+- **inf-3 Abschreibung:** nicht bauen, kein Restwert; Nutzungsdauer je Kategorie nur als Richtwert für den Ersatzbedarf.
+- **inf-4 Beschaffung:** kein Bestellwesen, keine Wunschliste; die Ersatzbedarf-Auswertung dient als Grundlage fürs Gespräch mit dem
+  Schulträger.
+- **inf-5 Sicht:** Auswertung mit Preisen/Werten nur `gebaeude.configure` und `view_all`; verantwortliche Gruppen sehen nur ihre
+  Kategorien.
+- **inf-6 Etikettenstreifen 12/24 mm:** (inv-7 „später“) bleiben zurückgestellt bis zu einem konkreten Gerätewunsch.
