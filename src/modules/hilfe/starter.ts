@@ -15,6 +15,8 @@ export const STARTER_SECTION = "Erste Schritte";
 /** INV-07: Bereich für die Seite zu Gebäude & Technik/Inventar */
 export const GEBAEUDE_SECTION = "Gebäude & Technik";
 export const GEBAEUDE_HELP_SLUG = "gebaeude-und-technik-inventar";
+/** GS-03: Seite zu den Fachraum-Prüfungen (Bereich Gebäude & Technik) */
+export const FACHRAUM_HELP_SLUG = "fachraum-pruefungen";
 /** CA-04: Starter-Seite zum Schul-Zertifikat (Verwaltung → System verlinkt sie, wenn es sie gibt) */
 export const ROOT_CA_HELP_SLUG = "schul-zertifikat-installieren";
 
@@ -294,6 +296,45 @@ Auf der Geräteseite (Karte **Ausleihe**) eine Person suchen, Rückgabedatum und
 | Recht „einrichten“ (Verwaltung) | zusätzlich Kategorien, Prüfarten, endgültig löschen |
 
 Welche Gruppe welche Rechte hat, legt die Verwaltung unter **Verwaltung → Rechte & Module** fest.`,
+  },
+  {
+    // GS-03 (docs/FACHRAUM-PRUEFUNGEN.md): Fachraum-Prüfungen Chemie/NW und Strahlenschutz Physik, zuständige Gruppe je Prüfart
+    slug: FACHRAUM_HELP_SLUG,
+    title: "Fachraum-Prüfungen",
+    roles: STAFF_TARGET_ROLES,
+    section: GEBAEUDE_SECTION,
+    body: `Unter **Gebäude & Technik → Prüfungen** führt SchulOS auch die wiederkehrenden Prüfungen in Chemie- und naturwissenschaftlichen Fachräumen und den Strahlenschutz in der Physik. Erinnerungen bekommt die Gruppe, die dafür zuständig ist – zum Beispiel die Fachschaft Chemie.
+
+> **Zu prüfen – keine Rechtsberatung.** Prüfarten, Intervalle und Quellen sind eine Vorlage. Welche Prüfungen in welchem Abstand nötig sind, legt die Schule mit dem Schulträger und der Fachkraft für Arbeitssicherheit fest. SchulOS behauptet keine Rechtsverbindlichkeit.
+
+## Welche Prüfarten gibt es?
+
+| Prüfart | Vorlage | Quelle (zum Nachlesen) |
+|---|---|---|
+| Laborabzüge | jährlich, Fachfirma | DIN EN 14175, DGUV Regel 113-018, RISU-NRW |
+| Augen- und Körpernotduschen | monatliche Funktionsprobe | DIN EN 15154, DGUV Regel 113-018, RISU-NRW |
+| Sicherheitsschränke für Gefahrstoffe | jährlich, Fachfirma | DIN EN 14470-1, TRGS 510 |
+| Gasversorgung und Not-Aus im Fachraum | jährlich je Raum | DGUV Regel 113-018, RISU-NRW |
+| Gefahrstoffverzeichnis aktualisieren und Bestand aussondern | jährlich | GefStoffV § 6, RISU-NRW |
+| Gefährdungsbeurteilungen Fachraum überprüfen | jährlich je Raum | GefStoffV § 6, ArbSchG § 5 |
+| Strahlenschutz: Dichtheitsprüfung radioaktiver Präparate | jährlich, nur wenn vorhanden | StrlSchV, RISU-NRW |
+
+Biologie (Biostoffe) folgt später. Ein **Chemikalienkataster** führt SchulOS nicht: Für das Gefahrstoffverzeichnis gibt es nur die Frist – das aktuelle Verzeichnis hängt als PDF an der erfassten Prüfung.
+
+## Einrichten (Verwaltung)
+
+1. **Gebäude & Technik → Prüfarten**, Liste **Fachraum-Prüfungen**: Prüfart aufklappen, Intervall und Quelle mit der Fachkraft für Arbeitssicherheit abgleichen.
+2. **zuständige Gruppe** wählen (z. B. Fachschaft Chemie) und **eingeschaltet** setzen, speichern.
+3. Abzüge, Notduschen und Sicherheitsschränke als Inventar anlegen (Kategorien Laborabzug, Augen-/Körpernotdusche, Sicherheitsschrank für Gefahrstoffe) – ihre Prüfungen plant SchulOS dann selbst.
+
+## Für die zuständige Gruppe
+
+- **Gebäude & Technik → Prüfungen meiner Zuständigkeit** zeigt nur die Prüfarten Ihrer Gruppe: überfällig, bald fällig, geplant, erledigt.
+- **Prüfung planen**: Prüfart, Termin und je nach Art Raum oder Gebäude (z. B. Gefahrstoffverzeichnis für das Hauptgebäude).
+- **Ergebnis erfassen**: Datum, Ergebnis, Firma bzw. Stelle (kein Personenname), Protokoll oder Verzeichnis als PDF. Bei einem Mangel entsteht automatisch eine Meldung an die Hausmeisterei; danach plant SchulOS die nächste Prüfung.
+- Erinnerungen kommen als Benachrichtigung: bald fällige einmal je Woche, überfällige täglich. Ist niemand (mehr) in der Gruppe, gehen sie an die Hausmeisterei.
+
+Die Hausmeisterei und die Schulleitung sehen weiterhin alle Prüfungen; Prüfliste und CSV für den Schulträger gibt es dort.`,
   },
 ];
 

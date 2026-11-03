@@ -95,6 +95,10 @@ export function ticketCategoryForAsset(categoryKey: string | null): TicketCatego
     case "feuerloescher":
     case "erste_hilfe":
     case "sicherheit":
+    // GS-01: Fachraum-Sicherheitseinrichtungen (Mangel aus einer Prüfung → Kategorie „Sicherheit“)
+    case "abzug":
+    case "notdusche":
+    case "sicherheitsschrank":
       return "sicherheit";
     default:
       return "gebaeude";

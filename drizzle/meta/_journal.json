@@ -904,6 +904,13 @@
       "when": 1793655397567,
       "tag": "0128_inv_05_ausleihe",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1793665760544,
+      "tag": "0129_gs_02_zustaendige_gruppe",
+      "breakpoints": true
     }
   ]
 }

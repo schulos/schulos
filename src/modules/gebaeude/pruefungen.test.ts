@@ -136,9 +136,9 @@ describe("Prüffristen (rein)", () => {
     expect(defectTicket({ typeName: "Sichtprüfung", target: "Tablet", categoryKey: "it" }, "mangel").category).toBe("it");
   });
 
-  it("Vorlage: zwölf Prüfarten, jede Quelle „zu prüfen“; Alarm-Mail ohne Personen; Monate für die Statistik", () => {
-    expect(INSPECTION_TEMPLATE).toHaveLength(12);
-    expect(new Set(INSPECTION_TEMPLATE.map((t) => t.key)).size).toBe(12);
+  it("Vorlage: zwölf Prüfarten + sieben Fachraum-Prüfarten (GS-01), jede Quelle „zu prüfen“; Alarm-Mail ohne Personen; Monate für die Statistik", () => {
+    expect(INSPECTION_TEMPLATE).toHaveLength(19);
+    expect(new Set(INSPECTION_TEMPLATE.map((t) => t.key)).size).toBe(19);
     for (const t of INSPECTION_TEMPLATE) {
       expect(t.source).toMatch(/zu prüfen$/);
       expect(t.intervalMonths).toBeGreaterThan(0);
@@ -194,7 +194,7 @@ describe("Anlagen, Prüfungen, Wartung – Service", () => {
   it("Vorlage idempotent; Demo: Leiter überfällig, Feuerlöscher in 14 Tagen fällig, Lüftung ohne Prüfart ohne Prüfung", async () => {
     await ensureTemplate(h.db);
     const types = await listInspectionTypes(h.db);
-    expect(types.filter((t) => t.templateKey)).toHaveLength(12);
+    expect(types.filter((t) => t.templateKey)).toHaveLength(INSPECTION_TEMPLATE.length);
     const sabine = await p(SABINE);
     const open = await listInspections(h.db, sabine, { state: "offen" }, today);
     const ladder = open.find((r) => r.assetName === "Stehleiter 6 Stufen")!;
