@@ -230,7 +230,7 @@ export default async function InventarPage({ searchParams }: { searchParams: Pro
           <Card aria-labelledby="import" className="min-w-0 [&_select]:max-w-full">
             <CardHeader title={<span id="import">Inventarliste importieren (CSV, Schulträgerformat)</span>} />
             <p className="text-sm text-muted">
-              Am einfachsten: oben „Als CSV exportieren“, in der Tabelle ergänzen, wieder importieren. Spalten wie im Export (<code>Inventarnummer;Bezeichnung;Kategorie;…</code>
+              Am einfachsten: oben „Als CSV exportieren“, in der Tabelle ergänzen, wieder importieren. Spalten wie im Export (<code className="break-all">Inventarnummer;Bezeichnung;Kategorie;…</code>
               ), andere Spaltennamen ordnest du in der Vorschau zu. Gleiche Inventarnummer aktualisiert den Eintrag (leere Zellen lassen den Wert stehen), ohne Nummer vergibt
               SchulOS eine. Erst die Vorschau, dann übernehmen – bei einem Fehler wird nichts übernommen.
             </p>
