@@ -2,12 +2,12 @@
   "minVersion": "0.5.0",
   "betaDays": 14,
   "changes": [
-    { "kind": "neu", "text": "Veranstaltungen bearbeiten und als Serie anlegen: Wer eine Veranstaltung angemeldet hat, kann sie ändern – bei neuer Zeit oder neuem Raum bestätigt die Hausmeisterei erneut. Serien wöchentlich oder alle zwei Wochen überspringen Ferien und freie Tage, Änderungen gelten für einen oder alle folgenden Termine" },
+    { "kind": "neu", "text": "Veranstaltungen bearbeiten und als Serie anlegen: Bei neuer Zeit oder neuem Raum bestätigt die Hausmeisterei erneut. Serien wöchentlich oder alle zwei Wochen überspringen Ferien, Änderungen gelten für einen oder alle folgenden Termine" },
     { "kind": "neu", "text": "Vertretungsplan: Räume, die für eine Veranstaltung gesperrt sind, erscheinen im Plan, auf dem Monitor und im Druck mit dem Grund „Veranstaltung“; die Stundenplanung bekommt einen Hinweis" },
     { "kind": "neu", "text": "Grundriss je Etage: Ein Plan lässt sich hochladen, Räume werden per Klick, Tippen oder Tastatur als Punkt gesetzt. Der Raumfinder und der Raumsteckbrief zeigen die Lage; die Liste bleibt die Hauptansicht" },
     { "kind": "neu", "text": "Inventar: Wartungs- und Serviceverträge am Gerät mit Hinweis vor Vertragsende bzw. Kündigungsfrist, Nutzungsdauer je Kategorie und eine Auswertung zum Ersatzbedarf mit Export und Druck" },
     { "kind": "neu", "text": "Ganztag: Heimwegregel je Kind (allein, abgeholt, Bus) mit Tagesänderung durch die Eltern und Spalte in der Leitungsliste; Speiseplan mit Anmeldung bis zur Frist, nummerierten Menüs und Liste für die Küche; befristete Konten für externe Gruppenleitungen" },
-    { "kind": "sicherheit", "text": "Datenschutz: Beim Essen werden keine Allergien oder Kostformen erfasst, beim Heimweg keine Namen von Abholberechtigten. Externe Konten brauchen sofort die Zwei-Faktor-Anmeldung und sind nach Ablauf gesperrt. Neue Daten sind in Auskunft, Löschfristen und Verzeichnis der Verarbeitungstätigkeiten berücksichtigt, Fragen an die Datenschutzbeauftragte ergänzt" },
+    { "kind": "sicherheit", "text": "Datenschutz: Beim Essen keine Allergien oder Kostformen, beim Heimweg keine Namen von Abholberechtigten. Externe Konten brauchen sofort die Zwei-Faktor-Anmeldung und sind nach Ablauf gesperrt. Auskunft, Löschfristen, Verzeichnis und Fragen an die Datenschutzbeauftragte ergänzt" },
     { "kind": "verbessert", "text": "Neue und aktualisierte Handbuch-Startseiten für Grundriss, Inventar, Veranstaltungen und Ganztag" }
   ]
 }
