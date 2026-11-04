@@ -1,6 +1,6 @@
 import AxeBuilder from "./axe";
 import { expect, test, type Page } from "@playwright/test";
-import { collectErrors, login, logoutForSwitch } from "./helpers";
+import { collectErrors, login, loginWithStartPassword, logoutForSwitch } from "./helpers";
 
 // GT-13/GT-14: Verwaltung legt eine externe Leitung für die Schülerzeitung an (Vertraulichkeit Pflicht, Startdaten einmal sichtbar),
 // verlängert und beendet den Zugang – 360 px dunkel, axe ohne Befund. Die Handbuchseite zum Ganztag ist für Eltern da. Lehrkräfte
@@ -78,4 +78,45 @@ test("GT-14: Lehrkraft ohne Recht sieht die Seite nicht; Eltern finden die Handb
   await expect(page.getByText(/Allergien und Unverträglichkeiten/).first()).toBeVisible();
   await axeClean(page);
   expect(errors).toEqual([]);
+});
+
+// GT-15 (Projektleitung 04.11.2026): Die externe Leitung sieht nur den Ganztag – ihr Angebot und die Anwesenheitsliste. Adressbuch,
+// Messenger, Raumfinder und API-Routen anderer Module sind serverseitig zu (404/403), nicht nur aus der Navigation verschwunden.
+// Die E2E-DB ist eine Demo-Instanz: 2FA ist dort freiwillig, das Startpasswort wird beim ersten Anmelden ersetzt.
+test("GT-15: externe Leitung sieht nur den Ganztag; Adressbuch und Messenger gesperrt", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const admin = await browser.newContext();
+  const office = await admin.newPage();
+  await login(office, "sabine.kowalski");
+  await office.goto("/ganztag/extern");
+  const form = office.getByRole("form", { name: "Externe Leitung anlegen" });
+  await form.getByLabel("Vorname").fill("Extern");
+  await form.getByLabel("Nachname").fill("Rechtetest");
+  await form.getByLabel("Anbieter").fill("E2E Rechteverein");
+  await form.getByLabel("Angebot").selectOption({ label: "AG Schülerzeitung" });
+  await form.getByLabel("Befristet bis").fill(berlinDate(30));
+  await form.getByRole("checkbox", { name: /auf Vertraulichkeit verpflichtet/ }).check();
+  await form.getByRole("button", { name: "Konto anlegen" }).click();
+  const creds = office.getByRole("status", { name: "Startdaten" });
+  await expect(creds).toContainText("Benutzername: extern.rechtetest");
+  const password = (await creds.locator(".font-mono").nth(1).innerText()).trim();
+  await admin.close();
+
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  const errors = collectErrors(page);
+  await loginWithStartPassword(page, "extern.rechtetest", password);
+  const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+  await expect(nav.getByRole("link", { name: "Ganztag" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Adressbuch" })).toHaveCount(0);
+  await expect(nav.getByRole("link", { name: "Messenger" })).toHaveCount(0);
+  await page.goto("/ganztag");
+  await expect(page.getByText("AG Schülerzeitung").first()).toBeVisible();
+  for (const path of ["/adressbuch", "/messenger", "/raeume", "/news", "/hilfe"]) expect((await page.goto(path))?.status(), path).toBe(404);
+  expect((await page.request.get("/api/dateien/unbekannt")).status()).toBe(403);
+  errors.length = 0; // die 404 sind gewollt
+  await page.goto("/konto/sitzungen");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  expect(errors).toEqual([]);
+  await ctx.close();
 });

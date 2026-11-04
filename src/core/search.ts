@@ -2,6 +2,7 @@ import type { CurrentUser } from "@/core/auth/session";
 import type { Db } from "@/core/db/client";
 import { isEnabled, type ModuleStateMap } from "@/core/modules/registry";
 import type { ModuleManifest } from "@/core/modules/types";
+import { moduleAllowed } from "@/core/permissions";
 
 export interface SearchHit {
   /** Überschrift der Gruppe in der Palette, z. B. „Personen" */
@@ -33,7 +34,8 @@ export async function globalSearch(
   if (term.length < 2) return [];
   const active = providers.filter((p) => {
     const m = manifests.find((x) => x.id === p.moduleId);
-    return m !== undefined && isEnabled(m, states);
+    // GT-15: externe Konten suchen nur in ihren Modulen
+    return m !== undefined && isEnabled(m, states) && moduleAllowed(current.perms, m.id);
   });
   const results = await Promise.allSettled(active.map((p) => p.search(db, current, term)));
   return results.flatMap((r) => {

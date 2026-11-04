@@ -559,7 +559,7 @@ Volljährige, eigenständige Schüler:innen stellen ihren Heimweg selbst ein; j�
 ## Für die Verwaltung des Ganztags
 
 - **Ganztag → Mittagessen:** je Tag bis zu vier Menüs mit Kurzbeschreibung eintragen (nach dem Gericht benennen, nicht nach einer Kostform), Zahlen je Menü sehen, **CSV für die Küche** und **Ausgabeliste** (Name, Klasse, Menü) öffnen.
-- **Ganztag → Externe Leitungen:** für Mitarbeitende eines Vereins oder einer Musikschule ein **befristetes Konto** anlegen – nur als Leitung des eigenen Angebots, mit Zwei-Faktor-Anmeldung ab dem ersten Mal. Vorher die **Verpflichtung auf Vertraulichkeit** unterschreiben lassen. 14 Tage vor Ablauf kommt ein Hinweis, danach ist das Konto gesperrt; **Verlängern** gibt es wieder frei. Ohne Konto bleibt die Papierliste.
+- **Ganztag → Externe Leitungen:** für Mitarbeitende eines Vereins oder einer Musikschule ein **befristetes Konto** anlegen – nur als Leitung des eigenen Angebots, mit Zwei-Faktor-Anmeldung ab dem ersten Mal. Die Person sieht in SchulOS **nur den Ganztag** (ihr Angebot und die Anwesenheitsliste, dazu ihr Konto) – Adressbuch, Messenger, News, Handbuch und alle anderen Bereiche sind für sie gesperrt. Vorher die **Verpflichtung auf Vertraulichkeit** unterschreiben lassen. 14 Tage vor Ablauf kommt ein Hinweis, danach ist das Konto gesperrt; **Verlängern** gibt es wieder frei. Ohne Konto bleibt die Papierliste.
 
 ## Wer darf was?
 
@@ -567,6 +567,7 @@ Volljährige, eigenständige Schüler:innen stellen ihren Heimweg selbst ein; j�
 |---|---|
 | Eltern (minderjährige Kinder), eigenständige Schüler:innen | Heimweg einstellen und für einen Tag ändern, zum Mittagessen an- und abmelden |
 | Leitung eines Angebots (auch extern) | Liste mit Heimweg und „gegangen“, Heimweg nach Anmeldebogen eintragen – nur die eigene Gruppe |
+| Externe Leitung | nur das: keine anderen Bereiche von SchulOS |
 | „Ganztag verwalten“ | Speiseplan, Ausgabeliste, nachträglich an- oder abmelden; mit „Benutzer verwalten“ auch externe Leitungen |
 | „Ganztag auswerten“ | Zahlen je Tag und Menü (ohne Namen) |`,
   },

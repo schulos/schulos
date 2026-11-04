@@ -10,14 +10,19 @@ export interface LiveStreamOptions {
   pingMs?: number;
   /** Höchstdauer eines Stroms – danach verbindet der Browser neu und wird dabei neu geprüft */
   maxMs?: number;
+  /** GT-15: nur diese Ereignisse weitergeben (externe Konten: nur der Gong, keine Chat-, Tafel- oder Textinhalte) */
+  only?: (e: LiveEvent) => boolean;
 }
+
+/** GT-15: Live-Ereignisse für externe Konten – nur Gong (neu/gelesen). */
+export const externalLiveEvent = (e: LiveEvent) => e.type === "notification" || e.type === "read";
 
 /**
  * SSE-Strom für einen Benutzer (Gong, Chat, Umfragen, Pinnwände). SEC-04: Die Sitzung wird nicht nur beim Aufbau geprüft,
  * sondern bei jedem Ping erneut – nach Sperre, Passwort- oder 2FA-Reset und Abmeldung endet der Strom spätestens nach
  * einem Ping-Abstand; Sperre/Reset/Abmeldung beenden ihn über `endLiveStreams` sofort. Zusätzlich eine Höchstdauer.
  */
-export function liveStream({ userId, unread, stillValid, signal, pingMs = 25_000, maxMs = 15 * 60_000 }: LiveStreamOptions): ReadableStream<Uint8Array> {
+export function liveStream({ userId, unread, stillValid, signal, pingMs = 25_000, maxMs = 15 * 60_000, only }: LiveStreamOptions): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   let cleanup = () => {};
   return new ReadableStream<Uint8Array>({
@@ -33,7 +38,9 @@ export function liveStream({ userId, unread, stillValid, signal, pingMs = 25_000
       };
       const send = (event: string, data: unknown) => enqueue(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       send("hello", { unread });
-      const off = subscribe(userId, (e: LiveEvent) => send(e.type, e));
+      const off = subscribe(userId, (e: LiveEvent) => {
+        if (!only || only(e)) send(e.type, e);
+      });
       const offEnd = onEndLiveStreams(userId, () => cleanup());
       // Proxies schließen stille Verbindungen – regelmäßig ein Kommentar; dabei die Sitzung neu prüfen.
       const ping = setInterval(() => {

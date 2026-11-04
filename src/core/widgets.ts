@@ -1,7 +1,7 @@
 import type { CurrentUser } from "@/core/auth/session";
 import { isEnabled, type ModuleStateMap } from "@/core/modules/registry";
 import type { ModuleManifest } from "@/core/modules/types";
-import { hasPermission, type PermissionSet } from "@/core/permissions";
+import { hasPermission, moduleAllowed, type PermissionSet } from "@/core/permissions";
 import type { Role } from "@/core/roles";
 
 /** Ein Widget für die Startseite „Heute". Die Komponente ist eine async Server Component. */
@@ -28,7 +28,7 @@ export function widgetsFor(
   return defs
     .filter((w) => {
       const m = byId.get(w.moduleId);
-      return m !== undefined && isEnabled(m, states);
+      return m !== undefined && isEnabled(m, states) && moduleAllowed(perms, m.id);
     })
     .filter((w) => !w.roles || w.roles.includes(perms.role))
     .filter((w) => !w.requires || hasPermission(perms, w.requires))

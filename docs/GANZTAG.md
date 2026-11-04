@@ -219,7 +219,12 @@ Stand 2026-11-03, Migration 0137 (`users.expires_on`, `ganztag_external_leaders`
   (LK-KONTO). **Verlängern** setzt ein neues Datum und nimmt einen vom Ablauf gesetzten Abgang zurück, **Zugang beenden** sperrt sofort.
 - **Datenschutz:** `ganztag_external_leaders` (Anbieter, Angebot, Vertraulichkeit bestätigt am, Hinweis verschickt, angelegt von/am)
   geht mit dem Konto. Audit: angelegt, verlängert, beendet, abgelaufen. DSB-FRAGEN §21 (Tabelle aus `checkliste.ts`) beschreibt jetzt
-  den gebauten Stand von Heimweg, Mittagessen und externen Leitungen; offen bleibt u. a., ob externe Konten aus allgemeinen
-  Beschäftigtenbereichen (Adressbuch, Nachrichten) ausgeschlossen werden sollen.
+  den gebauten Stand von Heimweg, Mittagessen und externen Leitungen.
+- **Nur Ganztag (GT-15, Projektleitung 04.11.2026):** befristete Konten gelten als extern (`PermissionSet.external`, aus
+  `users.expires_on`). Sie bekommen keine Grants (weder die der Rolle `personal` noch über Gruppen) und keine „group.*“-Rechte der
+  Leitung; Module nur aus `EXTERNAL_MODULES` (`ganztag`). Serverseitig: `requireModulePage`/`moduleActions` (404 bzw. Forbidden),
+  `apiUser` (nur `/api/ganztag/`, `/api/gong/`, `/api/profilbild/`, `/api/eigenexport`, sonst 403), Raumfinder und Druckansichten
+  (`requireInternalPage`), Navigation, Startseite, Suche, Handbuch-„?“, Gong (nur `ganztag`/`verwaltung`) und Live-Strom (nur Gong).
+  Konto, Passwort und 2FA bleiben offen. Ohne Migration. Tests `extern-rechte.test.ts`, E2E `e2e/ganztag-extern.spec.ts`.
 - **Handbuch:** Starter-Seite „Ganztag: Heimweg, Mittagessen und externe Leitungen“ (Bereich „Ganztag“, für alle; Kontexthilfe „?“ auf
   `/ganztag`). Tests `extern.test.ts`, `extern.migration.test.ts`, E2E `e2e/ganztag-extern.spec.ts`.

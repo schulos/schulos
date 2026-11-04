@@ -1,4 +1,4 @@
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { grants, groupMembers, users, type Role } from "@/core/db/schema";
 import { cachedSecuritySettings, isDemoDb } from "@/core/settings";
@@ -32,6 +32,11 @@ export interface PermissionSet {
   twoFactorDueOn?: string;
   /** Startpasswort noch nicht geändert (B-11) – bis dahin keine Rechte */
   passwordChangePending?: boolean;
+  /**
+   * GT-15: befristetes Konto einer externen Ganztags-Leitung (`users.expires_on` gesetzt). Ohne Rollen-/Gruppen-Grants und ohne
+   * „group.*“-Rechte der Leitung; Module nur aus {@link EXTERNAL_MODULES} (siehe {@link moduleAllowed}).
+   */
+  external?: boolean;
   /** Effektive Grants aus Rolle + Gruppen (inkl. Wildcards) */
   granted: ReadonlySet<string>;
   memberOf: ReadonlySet<string>;
@@ -126,12 +131,35 @@ export function twoFactorDuty(role: Role, granted: Iterable<string>, from: strin
   return { required: false, dueOn: null, outsideOnly: role === "schueler" };
 }
 
+/**
+ * GT-15 (Projektleitung 04.11.2026): Module, die befristete Konten externer Ganztags-Leitungen nutzen dürfen – nur der Ganztag
+ * (eigene Angebote, Anwesenheitslisten). Alles andere (Adressbuch, Messenger, News, Dateien, Raumfinder …) ist für sie zu:
+ * Seiten (404), Server Actions, API-Routen, Navigation, Startseite, Suche, Gong und Live-Ereignisse. Konto, Passwort, 2FA und
+ * Profilbild gehören zum Kern und bleiben offen. Benachrichtigungen kommen außerdem aus `verwaltung` (Kontohinweise, z. B. 2FA).
+ */
+export const EXTERNAL_MODULES: readonly string[] = ["ganztag"];
+/** Absender von Benachrichtigungen, die auch externe Konten bekommen (Kontohinweise kommen von „verwaltung“). */
+export const EXTERNAL_NOTIFY_MODULES: readonly string[] = [...EXTERNAL_MODULES, "verwaltung"];
+/** API-Routen für externe Konten (alles andere unter /api antwortet 403): Ganztag, Gong-Strom, Profilbilder, eigener Export. */
+export const EXTERNAL_API_PREFIXES: readonly string[] = ["/api/ganztag/", "/api/gong/", "/api/profilbild/", "/api/eigenexport"];
+
+/** Darf dieses Konto das Modul nutzen? Für alle außer externen Konten ja (Rechte prüft das Modul selbst). */
+export function moduleAllowed(set: Pick<PermissionSet, "external">, moduleId: string): boolean {
+  return !set.external || EXTERNAL_MODULES.includes(moduleId);
+}
+
+/** GT-15: API-Pfad für externe Konten erlaubt? */
+export function externalApiAllowed(pathname: string): boolean {
+  return EXTERNAL_API_PREFIXES.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`)));
+}
+
 /** Reine Auswertung – ohne DB, damit sie vollständig unit-testbar ist. */
 export function hasPermission(set: PermissionSet, permission: string, ctx: PermissionContext = {}): boolean {
   if (set.locked || set.twoFactorPending || set.passwordChangePending) return false;
   if (set.role === "admin") return true;
   for (const g of set.granted) if (grantCovers(g, permission)) return true;
-  if (permission.startsWith("group.") && ctx.groupId && set.leaderOf.has(ctx.groupId)) return true;
+  // GT-15: externe Leitungen bekommen keine „group.*“-Rechte (Mitglieder, Bereiche) – der Ganztag prüft die Leitung selbst
+  if (permission.startsWith("group.") && ctx.groupId && !set.external && set.leaderOf.has(ctx.groupId)) return true;
   return false;
 }
 
@@ -164,11 +192,14 @@ export async function loadPermissions(db: Db, userId: string, now = new Date()):
     .from(grants)
     .where(or(...targets));
 
-  const granted = new Set(rows.map((r) => r.permission));
+  // GT-15: befristete Konten (nur externe Ganztags-Leitungen) bekommen keine Grants – weder die der Rolle `personal` noch über
+  // Gruppen; der Ganztag prüft die Leitung des eigenen Angebots über `leaderOf`
+  const external = user.expiresOn !== null;
+  const granted = external ? new Set<string>() : new Set(rows.map((r) => r.permission));
   // Demo-Instanzen (öffentliche Demo-Passwörter) erzwingen 2FA nicht; einrichten lässt sie sich trotzdem
   const demo = await isDemoDb(db);
   const today = toBerlinDate(now);
-  const duty = twoFactorDuty(user.role, granted, (await cachedSecuritySettings(db)).twoFactorFrom, today, { temporary: user.expiresOn !== null });
+  const duty = twoFactorDuty(user.role, granted, (await cachedSecuritySettings(db)).twoFactorFrom, today, { temporary: external });
   const twoFactorPending = !user.twoFactorEnabled && duty.required && !demo;
 
   return {
@@ -179,6 +210,7 @@ export async function loadPermissions(db: Db, userId: string, now = new Date()):
     twoFactorPending,
     ...(!user.twoFactorEnabled && !demo && duty.dueOn ? { twoFactorDueOn: duty.dueOn } : {}),
     passwordChangePending: user.mustChangePassword,
+    ...(external ? { external: true } : {}),
     granted,
     memberOf,
     leaderOf,
@@ -203,7 +235,8 @@ export async function usersWithPermission(db: Db, permission: string): Promise<s
   const roles = [...new Set(rows.flatMap((r) => (r.role ? [r.role] : [])))] as Role[];
   const groupIds = [...new Set(rows.flatMap((r) => (r.groupId ? [r.groupId] : [])))];
   const ids = new Set<string>();
-  const active = eq(users.status, "active");
+  // GT-15: externe Konten (befristet) haben keine Grants – auch nicht über einen Grant an `personal` oder eine Gruppe
+  const active = and(eq(users.status, "active"), isNull(users.expiresOn));
   (await db.select({ id: users.id }).from(users).where(and(inArray(users.role, ["admin", ...roles]), active))).forEach((u) => ids.add(u.id));
   if (groupIds.length) {
     const members = await db
