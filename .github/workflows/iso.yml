@@ -114,7 +114,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.rel.outputs.commit || github.sha }}
+      # ISO-Bau + QEMU-Tests + zwei qcow2-Abbilder belegen im Lauf ~30 GB (2026-11-04 bei 38 GB Start abgebrochen)
       - uses: ./.github/actions/platz
+        with:
+          aufraeumen_gb: "50"
+          mindest_gb: "40"
       # Node + Abhängigkeiten auch ohne Neubau: der QEMU-Test braucht Playwright (§7 Schritt 4)
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
