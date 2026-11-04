@@ -10,7 +10,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { audit } from "@/core/audit";
 import type { Db } from "@/core/db/client";
 import { auditLog, groups, roomResponsibles, rooms, users, type GroupKind } from "@/core/db/schema";
-import { ForbiddenError, type PermissionSet } from "@/core/permissions";
+import { ForbiddenError, internalAccount, type PermissionSet } from "@/core/permissions";
 import { isPseudonym } from "@/core/privacy/protokoll";
 import { STAFF_ROLES, isStaffRole } from "@/core/roles";
 import { ACTION_LABELS } from "./audit-view";
@@ -69,13 +69,13 @@ export async function responsiblesFor(db: Db, viewer: PermissionSet, roomId: str
   return (await listResponsibles(db, roomId)).filter((r) => r.active);
 }
 
-/** Auswahl für das Eintragen: aktive Beschäftigte und Gruppen der zulässigen Arten (nicht archiviert). */
+/** Auswahl für das Eintragen: aktive Beschäftigte (ohne externe Leitungen, GT-16) und Gruppen der zulässigen Arten (nicht archiviert). */
 export async function responsibleCandidates(db: Db) {
   const [people, teams] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, shortCode: users.shortCode })
       .from(users)
-      .where(and(eq(users.status, "active"), inArray(users.role, [...STAFF_ROLES]))),
+      .where(and(eq(users.status, "active"), inArray(users.role, [...STAFF_ROLES]), internalAccount())),
     db
       .select({ id: groups.id, name: groups.name })
       .from(groups)
@@ -105,9 +105,10 @@ export async function addResponsible(db: Db, viewer: PermissionSet, roomId: stri
   const [, kind, refId] = m as unknown as [string, "u" | "g", string];
   let values: typeof roomResponsibles.$inferInsert;
   if (kind === "u") {
-    const [u] = await db.select({ id: users.id, role: users.role, status: users.status }).from(users).where(eq(users.id, refId));
+    const [u] = await db.select({ id: users.id, role: users.role, status: users.status, expiresOn: users.expiresOn }).from(users).where(eq(users.id, refId));
     if (!u || u.status !== "active") throw new ValidationError({ target: "Person gibt es nicht" });
     if (!isStaffRole(u.role)) throw new ValidationError({ target: "Raumverantwortliche können nur Beschäftigte sein" });
+    if (u.expiresOn !== null) throw new ValidationError({ target: "Externe Ganztags-Leitungen können keine Raumverantwortlichen sein" });
     values = { roomId, userId: u.id, note };
   } else {
     const [g] = await db.select({ id: groups.id, kind: groups.kind, archivedAt: groups.archivedAt }).from(groups).where(eq(groups.id, refId));

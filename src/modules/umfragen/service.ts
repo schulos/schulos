@@ -18,7 +18,7 @@ import {
 import { ROLE_LABELS } from "@/core/labels";
 import { childIdsQuery, guardianRecipients, isSelfResponsible } from "@/core/school/majority";
 import { notify } from "@/core/notifications";
-import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
+import { ForbiddenError, hasPermission, withoutExternalAccounts, type PermissionSet } from "@/core/permissions";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { de } from "@/core/db/sort";
 
@@ -153,7 +153,10 @@ async function targetedSurveyIds(db: Db, viewer: PermissionSet, ids?: string[]):
   return new Set(rows.map((r) => r.id));
 }
 
-/** Alle Personen, an die sich eine Umfrage richtet (aktive Konten) – für Erinnerungen und „x von y“. */
+/**
+ * Alle Personen, an die sich eine Umfrage richtet (aktive Konten) – für Erinnerungen und „x von y“. Ohne externe Ganztags-Leitungen
+ * (GT-16): sie können Umfragen nicht öffnen und würden „x von y“ nur verfälschen.
+ */
 export async function resolveAudience(db: Db, surveyId: string): Promise<string[]> {
   const targets = await db.select().from(surveyTargets).where(eq(surveyTargets.surveyId, surveyId));
   const ids = new Set<string>();
@@ -179,7 +182,7 @@ export async function resolveAudience(db: Db, surveyId: string): Promise<string[
     const parents = await guardianRecipients(db, students.map((r) => r.id), { withInformed: false });
     if (parents.length) (await db.select({ id: users.id }).from(users).where(and(inArray(users.id, parents), eq(users.status, "active")))).forEach((r) => ids.add(r.id));
   }
-  return [...ids];
+  return withoutExternalAccounts(db, [...ids]);
 }
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];

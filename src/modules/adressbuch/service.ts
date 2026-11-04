@@ -4,7 +4,7 @@ import { and, asc, eq, ilike, inArray, isNull, ne, or, type SQL } from "drizzle-
 import type { Db } from "@/core/db/client";
 import { chatMembers, groupMembers, groups, profilePhotos, subjects, users } from "@/core/db/schema";
 import { childIdsQuery } from "@/core/school/majority";
-import type { PermissionSet } from "@/core/permissions";
+import { internalAccount, type PermissionSet } from "@/core/permissions";
 import { de } from "@/core/db/sort";
 
 const STAFF = ["lehrkraft", "verwaltung", "admin"] as const;
@@ -23,8 +23,14 @@ const ADULTS = ["lehrkraft", "verwaltung", "personal", "beratung"] as const;
  *  - Schüler:innen sehen zusätzlich Mitglieder ihrer Gruppen
  *  - Eltern sehen zusätzlich ihre Kinder
  * Gesperrte Konten erscheinen nur für Lehrkräfte, Verwaltung und Admin.
+ * Externe Ganztags-Leitungen (befristete Konten, GT-16, Projektleitung 04.11.2026) sieht niemand – sie lesen weder Adressbuch
+ * noch Messenger; nur sich selbst. Im Ganztag (Angebote, Leitung) stehen sie weiter, der fragt die Leitung selbst ab.
  */
 export async function visiblePeople(db: Db, viewer: PermissionSet): Promise<SQL | undefined> {
+  return and(await visibleByRole(db, viewer), or(internalAccount(), eq(users.id, viewer.userId)));
+}
+
+async function visibleByRole(db: Db, viewer: PermissionSet): Promise<SQL | undefined> {
   if (isStaff(viewer)) return undefined;
   if (viewer.role === "personal") return and(or(inArray(users.role, ADULTS), eq(users.id, viewer.userId)), eq(users.status, "active"));
   if (viewer.role === "beratung") {
@@ -103,7 +109,7 @@ export async function listTeachers(db: Db) {
       .select({ id: users.id, name: users.name, firstName: users.firstName, lastName: users.lastName, shortCode: users.shortCode, photoAt: profilePhotos.createdAt })
       .from(users)
       .leftJoin(profilePhotos, eq(profilePhotos.userId, users.id))
-      .where(and(eq(users.role, "lehrkraft"), eq(users.status, "active")))
+      .where(and(eq(users.role, "lehrkraft"), eq(users.status, "active"), internalAccount()))
       .orderBy(de(users.lastName), de(users.firstName)),
     db
       .select({ userId: groupMembers.userId, subject: subjects.name, color: subjects.color })
@@ -122,7 +128,7 @@ export async function listCounselors(db: Db) {
     .select({ id: users.id, name: users.name, firstName: users.firstName, lastName: users.lastName, officeHours: users.officeHours, photoAt: profilePhotos.createdAt })
     .from(users)
     .leftJoin(profilePhotos, eq(profilePhotos.userId, users.id))
-    .where(and(eq(users.role, "beratung"), eq(users.status, "active")))
+    .where(and(eq(users.role, "beratung"), eq(users.status, "active"), internalAccount()))
     .orderBy(de(users.lastName), de(users.firstName));
 }
 
@@ -163,7 +169,7 @@ export async function getPersonProfile(db: Db, viewer: PermissionSet, id: string
   };
 }
 
-/** Gruppenprofil mit Mitgliedern – nur für Mitglieder und Personal. */
+/** Gruppenprofil mit Mitgliedern – nur für Mitglieder und Personal; externe Leitungen (GT-16) stehen nur im Ganztag. */
 export async function getGroupProfile(db: Db, viewer: PermissionSet, id: string) {
   const [group] = await db.select().from(groups).where(and(eq(groups.id, id), visibleGroups(viewer)));
   if (!group) return null;
@@ -172,7 +178,7 @@ export async function getGroupProfile(db: Db, viewer: PermissionSet, id: string)
     .from(groupMembers)
     .innerJoin(users, eq(users.id, groupMembers.userId))
     .leftJoin(profilePhotos, eq(profilePhotos.userId, users.id))
-    .where(and(eq(groupMembers.groupId, id), ne(users.status, "locked")))
+    .where(and(eq(groupMembers.groupId, id), ne(users.status, "locked"), internalAccount()))
     .orderBy(de(users.lastName), de(users.firstName));
   return { group, members };
 }

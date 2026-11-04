@@ -1,8 +1,8 @@
 // „Gong": Benachrichtigungen speichern, lesen, als gelesen markieren – und live verteilen.
-import { and, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { notifications, users } from "@/core/db/schema";
-import { EXTERNAL_NOTIFY_MODULES } from "@/core/permissions";
+import { notifications } from "@/core/db/schema";
+import { EXTERNAL_NOTIFY_MODULES, withoutExternalAccounts } from "@/core/permissions";
 import { publish, type GongItem } from "./bus";
 
 export type { GongItem } from "./bus";
@@ -40,13 +40,7 @@ export async function unreadCount(db: Db, userId: string): Promise<number> {
  */
 async function withoutExternal(db: Db, userIds: string[], moduleId: string): Promise<string[]> {
   if (userIds.length === 0 || EXTERNAL_NOTIFY_MODULES.includes(moduleId)) return userIds;
-  const external = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(and(inArray(users.id, userIds), isNotNull(users.expiresOn)));
-  if (external.length === 0) return userIds;
-  const skip = new Set(external.map((u) => u.id));
-  return userIds.filter((id) => !skip.has(id));
+  return withoutExternalAccounts(db, userIds);
 }
 
 /** Benachrichtigt mehrere Personen (doppelte IDs werden ignoriert) und pusht live. */
