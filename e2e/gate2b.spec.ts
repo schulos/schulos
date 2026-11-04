@@ -65,13 +65,17 @@ test("Gate 2b – Lehrkraft krank → offene Stunden → Vorschlag übernehmen �
   await page.goto("/planung/vertretungen");
   // TD-09: auch die beiden Änderungen vom Tag wieder aufheben (Vertretung der BRA, Raumänderung aus der Sperrung), sonst bliebe die
   // Vertretung nach dem Aufheben der Abwesenheit als „Abwesenheit beendet – prüfen“ für die Folge-Specs stehen
+  // Liegt die vertretene Stunde selbst in R 106 (je nach Wochentag, z. B. mittwochs 7b 1. Std), ist es EINE Zeile: die Vertretung
+  // behält ihre Lehrkraft und bekommt den Ausweichraum („OKA · R 106 → 015“) – keine Raumänderung, die die Vertretung überschreibt.
   const changes = page.getByRole("region", { name: /^Alle Änderungen am/ });
-  for (const hint of [/Vertretung.*\(BRA\)|\(BRA\).*Vertretung/, /Raumänderung.*R 106/]) {
-    const mine = changes.getByRole("row").filter({ hasText: hint });
-    const c = await mine.count();
-    expect(c).toBeGreaterThan(0);
+  const substitution = /Vertretung.*\(BRA\)|\(BRA\).*Vertretung/;
+  const roomShift = /R 106 →/;
+  await expect(changes.getByRole("row").filter({ hasText: substitution }).filter({ hasText: code }).first()).toBeVisible();
+  await expect(changes.getByRole("row").filter({ hasText: roomShift }).first()).toBeVisible();
+  const mine = changes.getByRole("row").filter({ hasText: new RegExp(`${substitution.source}|${roomShift.source}`) });
+  for (let c = await mine.count(); c > 0; c--) {
     await mine.first().getByRole("button", { name: /^Aufheben/ }).click();
-    await expect(changes.getByRole("row").filter({ hasText: hint })).toHaveCount(c - 1);
+    await expect(mine).toHaveCount(c - 1);
   }
   await page.getByRole("button", { name: "Abwesenheit BRA aufheben" }).click();
   await expect(page.getByText("Für diesen Tag ist keine Abwesenheit eingetragen.")).toBeVisible();

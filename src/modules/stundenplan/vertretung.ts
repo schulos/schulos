@@ -573,6 +573,44 @@ export async function saveSubstitution(db: Db, actorId: string, input: Substitut
   return ids[0]!;
 }
 
+async function currentChange(db: Db, lessonId: string, date: string) {
+  const [c] = await db
+    .select()
+    .from(timetableSubstitutions)
+    .where(and(eq(timetableSubstitutions.lessonId, lessonId), eq(timetableSubstitutions.date, date)));
+  return c;
+}
+
+/**
+ * TD (Gate 2b): Ausweichraum aus der Raumsperrung übernehmen. Hat die Stunde an dem Tag schon eine Vertretung, bekommt die
+ * Vertretung den neuen Raum (Lehrkraft, Fach und Hinweis bleiben) – sonst eine reine Raumänderung. Vorher überschrieb die
+ * Raumänderung die Vertretung still, die Stunde war wieder offen.
+ */
+export async function applyAlternativeRoom(db: Db, actorId: string, input: { lessonId: string; date: string; roomId: string; note: string }): Promise<string> {
+  const c = await currentChange(db, input.lessonId, input.date);
+  if (c?.kind === "substitute")
+    return saveSubstitution(db, actorId, { lessonId: input.lessonId, date: input.date, kind: "substitute", substituteId: c.substituteId, subjectId: c.subjectId, roomId: input.roomId, note: c.note ?? input.note });
+  return saveSubstitution(db, actorId, { lessonId: input.lessonId, date: input.date, kind: "room", substituteId: null, roomId: input.roomId, note: input.note });
+}
+
+/**
+ * Vertretungsvorschlag übernehmen (P2b-19). TD (Gate 2b): ein schon eingetragener Ausweichraum (Raumänderung bzw. Raum der
+ * bisherigen Vertretung) und der Hinweis bleiben – sonst läge die Vertretung wieder im gesperrten Raum.
+ */
+export async function applySuggestion(db: Db, actorId: string, input: { lessonId: string; date: string; teacherId: string; subjectId: string | null }): Promise<string> {
+  const c = await currentChange(db, input.lessonId, input.date);
+  const keep = c?.kind === "room" || c?.kind === "substitute";
+  return saveSubstitution(db, actorId, {
+    lessonId: input.lessonId,
+    date: input.date,
+    kind: "substitute",
+    substituteId: input.teacherId,
+    roomId: keep ? c.roomId : null,
+    note: keep ? c.note : null,
+    subjectId: input.subjectId,
+  });
+}
+
 /**
  * VT-01 (F-10-10): Kenntnisnahme – die Vertretungslehrkraft bestätigt „ihre“ Vertretung (bei Kopplungen alle Teile desselben Tags).
  * Optional (Moduleinstellung, Vorgabe an), nur an veröffentlichten Tagen; ändert weder `updated_*` noch die Historie.

@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { DbHandle } from "@/core/db/client";
-import { auditLog, timetableLessons, timetableSubstitutions } from "@/core/db/schema";
+import { auditLog, timetableLessons, timetableSubstitutions, users } from "@/core/db/schema";
 import { createSeededTestDb } from "@/core/db/testing";
 import { ValidationError } from "@/modules/verwaltung/users";
 import { occupancyOn, type RoomHit } from "./raeume";
 import { affectedLessons, blockCovers, createRoomBlock, deleteRoomBlock, listRoomBlocks, rankAlternatives, roomBlockAt } from "./raumsperren";
-import { saveSubstitution } from "./vertretung";
+import { applyAlternativeRoom, applySuggestion, saveSubstitution } from "./vertretung";
 
 describe("blockCovers / rankAlternatives", () => {
   it("ganztägig oder nur einzelne Stunden, Zeitraum einschließlich", () => {
@@ -82,5 +82,45 @@ describe("Raumsperrungen (Demo-Schule)", () => {
     expect(await affectedLessons(h.db, MO, 7)).toEqual([]);
     const log = await h.db.select({ action: auditLog.action }).from(auditLog).where(eq(auditLog.actorId, "u-admin"));
     expect(log.map((l) => l.action)).toEqual(expect.arrayContaining(["stundenplan.roomblock.create", "stundenplan.roomblock.delete"]));
+  });
+
+  it("Ausweichraum für eine Stunde mit Vertretung: die Vertretung bleibt und bekommt den Raum; Vorschlag danach behält den Raum", async () => {
+    await h.db.delete(timetableSubstitutions);
+    const all = await h.db.select().from(timetableLessons);
+    const lesson = all.find((l) => l.roomId === "106" && l.weekday === 0 && l.teacherId)!;
+    const busy = new Set(all.filter((l) => l.weekday === 0 && l.periodNr === lesson.periodNr).map((l) => l.teacherId));
+    const teachers = (await h.db.select({ id: users.id }).from(users).where(eq(users.role, "lehrkraft"))).map((u) => u.id).filter((id) => !busy.has(id));
+    const save = async (fn: (t: string) => Promise<string>) => {
+      for (const t of teachers) {
+        try {
+          await fn(t);
+          return t;
+        } catch (e) {
+          if (!(e instanceof ValidationError)) throw e;
+        }
+      }
+      throw new Error("keine freie Lehrkraft");
+    };
+    const change = async () => (await h.db.select().from(timetableSubstitutions).where(eq(timetableSubstitutions.lessonId, lesson.id)))[0]!;
+
+    const first = await save((t) => applySuggestion(h.db, "u-admin", { lessonId: lesson.id, date: MO, teacherId: t, subjectId: null }));
+    const id = await createRoomBlock(h.db, "u-admin", { roomId: "106", startsOn: MO, endsOn: MO, fromPeriod: null, toPeriod: null, reason: "renovierung", note: null });
+    const hit = (await affectedLessons(h.db, MO, 1)).find((a) => a.lessonId === lesson.id)!;
+    expect(hit.resolved).toBe(false);
+    const room = hit.suggestions[0]!.id;
+    await applyAlternativeRoom(h.db, "u-admin", { lessonId: lesson.id, date: MO, roomId: room, note: "Raumsperrung: Renovierung" });
+    expect(await change()).toMatchObject({ kind: "substitute", substituteId: first, roomId: room, note: "Raumsperrung: Renovierung" });
+    expect((await affectedLessons(h.db, MO, 1)).find((a) => a.lessonId === lesson.id)!.resolved).toBe(true);
+
+    // andere Vertretung per Vorschlag → der Ausweichraum bleibt (sonst läge die Stunde wieder im gesperrten Raum)
+    teachers.splice(teachers.indexOf(first), 1);
+    const second = await save((t) => applySuggestion(h.db, "u-admin", { lessonId: lesson.id, date: MO, teacherId: t, subjectId: null }));
+    expect(await change()).toMatchObject({ kind: "substitute", substituteId: second, roomId: room });
+
+    // ohne Vertretung bleibt es eine reine Raumänderung
+    await h.db.delete(timetableSubstitutions);
+    await applyAlternativeRoom(h.db, "u-admin", { lessonId: lesson.id, date: MO, roomId: room, note: "Raumsperrung: Renovierung" });
+    expect(await change()).toMatchObject({ kind: "room", substituteId: null, roomId: room });
+    await deleteRoomBlock(h.db, "u-admin", id);
   });
 });

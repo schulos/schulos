@@ -24,7 +24,7 @@ import { parsePref, savePrefs, type PrefGrid } from "./zeitwuensche";
 import { closePrefWindow, saveOwnPrefs, setPrefWindow } from "./zeitwunsch-fenster";
 import { createRoomBlock, deleteRoomBlock } from "./raumsperren";
 import { moveLesson, openAssignments, placeAssignment } from "./setzhilfe";
-import { acknowledgeSubstitution, deleteSubstitution, keepReviewedSubstitution, publishDay, removeReviewedSubstitutions, saveSubstitution, type SubstitutionInput } from "./vertretung";
+import { acknowledgeSubstitution, applyAlternativeRoom, applySuggestion, deleteSubstitution, keepReviewedSubstitution, publishDay, removeReviewedSubstitutions, saveSubstitution, type SubstitutionInput } from "./vertretung";
 import { deleteDayNote, saveDayNote } from "./tagesmitteilungen";
 import { sendNow } from "./benachrichtigung";
 import type { NotifyAudience, PlanCommentTarget, TimetablePlanVersion } from "./schema";
@@ -810,7 +810,7 @@ export async function deleteRoomBlockAction(id: string): Promise<void> {
 export async function applyAlternativeRoomAction(lessonId: string, date: string, roomId: string, reason: string): Promise<void> {
   const { user } = await requirePermission("stundenplan.substitute");
   try {
-    await saveSubstitution(await getDb(), user.id, { lessonId, date, kind: "room", substituteId: null, roomId, note: `Raumsperrung: ${reason}` });
+    await applyAlternativeRoom(await getDb(), user.id, { lessonId, date, roomId, note: `Raumsperrung: ${reason}` });
   } catch (err) {
     if (err instanceof ValidationError) redirect(`${BLOCKS_PAGE}&fehler=${encodeURIComponent(Object.values(err.fieldErrors)[0] ?? "Das ging nicht")}`);
     throw err;
@@ -902,7 +902,7 @@ export async function cancelReleasedAction(date: string): Promise<void> {
 export async function applySuggestionAction(lessonId: string, date: string, teacherId: string, back: string, subjectId: string | null): Promise<void> {
   const { user } = await requirePermission("stundenplan.substitute");
   try {
-    await saveSubstitution(await getDb(), user.id, { lessonId, date, kind: "substitute", substituteId: teacherId, roomId: null, note: null, subjectId });
+    await applySuggestion(await getDb(), user.id, { lessonId, date, teacherId, subjectId });
   } catch (err) {
     if (err instanceof ValidationError) {
       // VT-03b: `back` kann einen Sprung (#…) tragen – die Meldung gehört davor
