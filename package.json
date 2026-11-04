@@ -96,6 +96,9 @@
     "@excalidraw/mermaid-to-excalidraw": {
       "nanoid": "5.1.16"
     },
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.1"
+    },
     "katex": ">=0.18.2",
     "lodash-es": "4.18.1"
   }
