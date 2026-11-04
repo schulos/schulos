@@ -1,0 +1,14 @@
+{
+  "minVersion": "0.5.0",
+  "betaDays": 14,
+  "changes": [
+    {
+      "kind": "sicherheit",
+      "text": "Externe Ganztags-Leitungen sehen nur noch den Ganztag: Adressbuch, Nachrichten, Handbuch, Raumfinder und andere Bereiche sind für sie gesperrt, auch direkt aufgerufen. Konto, Passwort, Zwei-Faktor und eigener Datenexport bleiben"
+    },
+    {
+      "kind": "verbessert",
+      "text": "Externe Ganztags-Leitungen erscheinen nicht mehr im Adressbuch, in der Empfängerauswahl des Messengers, bei Ansprechpersonen, Raumverantwortlichen und in den Zielgruppen von News und Umfragen; im Ganztag bleiben sie sichtbar"
+    }
+  ]
+}
