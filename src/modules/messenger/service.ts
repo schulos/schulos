@@ -137,11 +137,15 @@ export async function listRooms(db: Db, viewer: PermissionSet): Promise<RoomSumm
     .sort((a, b) => sortAt.get(b.id)! - sortAt.get(a.id)!);
 }
 
-/** Direktchat öffnen (anlegen, falls neu). Nur mit Personen, die man sehen darf. */
+/** GT-16: Externe Ganztags-Leitungen lesen den Messenger nicht – auch in einem schon bestehenden Chat geht nichts mehr an sie. */
+export const EXTERNAL_PARTNER_BLOCK = "Externe Ganztags-Leitungen sind im Messenger nicht erreichbar – bitte im Ganztag absprechen";
+
 /** Für Direktchats: gilt die Chat-Regel (Moduleinstellungen) zwischen Betrachter und Gegenüber noch? */
 export async function directPartnerBlock(db: Db, viewer: PermissionSet, roomId: string): Promise<string | null> {
   const other = await directPartner(db, viewer, roomId);
-  return other ? directChatBlock(db, { id: viewer.userId, role: viewer.role }, other) : null;
+  if (!other) return null;
+  if (other.expiresOn !== null) return EXTERNAL_PARTNER_BLOCK;
+  return directChatBlock(db, { id: viewer.userId, role: viewer.role }, other);
 }
 
 /** Gegenüber in einem Direktchat (null bei Gruppenchats). */
@@ -149,13 +153,14 @@ export async function directPartner(db: Db, viewer: PermissionSet, roomId: strin
   const [room] = await db.select({ kind: chatRooms.kind }).from(chatRooms).where(eq(chatRooms.id, roomId));
   if (room?.kind !== "direct") return null;
   const [other] = await db
-    .select({ id: users.id, role: users.role })
+    .select({ id: users.id, role: users.role, expiresOn: users.expiresOn })
     .from(chatMembers)
     .innerJoin(users, eq(users.id, chatMembers.userId))
     .where(and(eq(chatMembers.roomId, roomId), ne(chatMembers.userId, viewer.userId)));
   return other ?? null;
 }
 
+/** Direktchat öffnen (anlegen, falls neu). Nur mit Personen, die man sehen darf – externe Leitungen nie (GT-16, `visiblePeople`). */
 export async function openDirectRoom(db: Db, viewer: PermissionSet, otherId: string): Promise<string> {
   if (otherId === viewer.userId) throw new ValidationError({ user: "Mit dir selbst chatten geht nicht" });
   const [other] = await db.select({ id: users.id, role: users.role }).from(users).where(and(eq(users.id, otherId), await visiblePeople(db, viewer)));

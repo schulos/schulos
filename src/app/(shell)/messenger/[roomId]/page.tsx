@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { chatRooms } from "@/core/db/schema";
 import { isEnabled, loadModuleStates } from "@/core/modules/registry";
 import { COUNSELING_NOTICE, directChatBlock, isCounselingPair } from "@/modules/messenger/policy";
-import { directPartner, getRoom, listMessages } from "@/modules/messenger/service";
+import { directPartner, EXTERNAL_PARTNER_BLOCK, getRoom, listMessages } from "@/modules/messenger/service";
 import umfragen from "@/modules/umfragen/manifest";
 import { activeQuickPolls, canStartQuickPoll } from "@/modules/umfragen/schnell";
 import { QuickPolls } from "../../umfragen/quick-polls";
@@ -23,7 +23,8 @@ export default async function RoomPage({ params }: { params: Promise<{ roomId: s
   const groupId = groupRoom?.groupId && isEnabled(umfragen, await loadModuleStates(db)) ? groupRoom.groupId : null;
   const polls = groupId ? await activeQuickPolls(db, perms, groupId) : [];
   const partner = room.kind === "direct" ? await directPartner(db, perms, id) : null;
-  const blocked = partner ? await directChatBlock(db, { id: user.id, role: perms.role }, partner) : null;
+  // GT-16: an externe Ganztags-Leitungen geht nichts (mehr), auch nicht in einem schon bestehenden Chat
+  const blocked = partner ? (partner.expiresOn !== null ? EXTERNAL_PARTNER_BLOCK : await directChatBlock(db, { id: user.id, role: perms.role }, partner)) : null;
   const notice = partner && isCounselingPair(perms.role, partner.role) ? COUNSELING_NOTICE : null;
   return (
     <Conversation

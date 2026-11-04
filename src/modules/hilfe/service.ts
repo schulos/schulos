@@ -11,7 +11,7 @@ import { de } from "@/core/db/sort";
 import { ROLE_LABELS } from "@/core/labels";
 import { readModuleSetting } from "@/core/modules/settings";
 import { notify } from "@/core/notifications";
-import { ForbiddenError, hasPermission, type PermissionSet } from "@/core/permissions";
+import { ForbiddenError, hasPermission, internalAccount, type PermissionSet } from "@/core/permissions";
 import { ROLES, STAFF_ROLES, type Role } from "@/core/roles";
 import { audienceGroups, targetedTo } from "@/core/school/audience";
 import { toBerlinDate } from "@/core/time";
@@ -207,12 +207,12 @@ export async function listSections(db: Db) {
   return db.select().from(hilfeSections).orderBy(asc(hilfeSections.position), de(hilfeSections.title));
 }
 
-/** Wer Ansprechperson sein kann: aktive Konten des Personals (keine Schüler:innen, keine Eltern). */
+/** Wer Ansprechperson sein kann: aktive Konten des Personals (keine Schüler:innen, keine Eltern, keine externen Leitungen – GT-16). */
 export async function contactCandidates(db: Db) {
   return db
     .select({ id: users.id, name: users.name })
     .from(users)
-    .where(and(inArray(users.role, [...STAFF_ROLES]), eq(users.status, "active")))
+    .where(and(inArray(users.role, [...STAFF_ROLES]), eq(users.status, "active"), internalAccount()))
     .orderBy(de(users.name));
 }
 
@@ -295,7 +295,7 @@ async function validatePage(db: Db, input: PageInput): Promise<void> {
     const [c] = await db
       .select({ id: users.id })
       .from(users)
-      .where(and(eq(users.id, input.contactId), inArray(users.role, [...STAFF_ROLES]), eq(users.status, "active")));
+      .where(and(eq(users.id, input.contactId), inArray(users.role, [...STAFF_ROLES]), eq(users.status, "active"), internalAccount()));
     if (!c) errors.contactId = "Ansprechperson muss ein aktives Konto des Personals sein";
   }
   const gids = [...new Set(input.targetGroupIds)];

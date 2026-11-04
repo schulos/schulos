@@ -226,5 +226,11 @@ Stand 2026-11-03, Migration 0137 (`users.expires_on`, `ganztag_external_leaders`
   `apiUser` (nur `/api/ganztag/`, `/api/gong/`, `/api/profilbild/`, `/api/eigenexport`, sonst 403), Raumfinder und Druckansichten
   (`requireInternalPage`), Navigation, Startseite, Suche, Handbuch-„?“, Gong (nur `ganztag`/`verwaltung`) und Live-Strom (nur Gong).
   Konto, Passwort und 2FA bleiben offen. Ohne Migration. Tests `extern-rechte.test.ts`, E2E `e2e/ganztag-extern.spec.ts`.
+- **Nicht im Adressbuch (GT-16, Projektleitung 04.11.2026):** externe Konten stehen nicht in Personen- und Empfängerauswahlen außerhalb
+  des Ganztags – zentral `internalAccount()` (SQL) und `withoutExternalAccounts()` (ID-Listen) in `src/core/permissions`. Adressbuch
+  (`visiblePeople`: Suche, Profil, Profilbild, globale Suche; Gruppenprofil ohne sie), Messenger (Empfängerwahl; Direktchat anlegen
+  wird abgelehnt, in bestehenden Chats `EXTERNAL_PARTNER_BLOCK`), Ansprechpersonen im Handbuch, Raumverantwortliche, Zielgruppen von
+  News und Umfragen („x von y“). Im Ganztag (Angebote, Leitung, `/ganztag/extern`) und in der Benutzerverwaltung bleiben sie; Ausleihe
+  (Bücherei, Geräte) bewusst unverändert. Personal-Zählungen unverändert. Tests `extern-sichtbar.test.ts`, E2E `e2e/ganztag-extern.spec.ts`.
 - **Handbuch:** Starter-Seite „Ganztag: Heimweg, Mittagessen und externe Leitungen“ (Bereich „Ganztag“, für alle; Kontexthilfe „?“ auf
   `/ganztag`). Tests `extern.test.ts`, `extern.migration.test.ts`, E2E `e2e/ganztag-extern.spec.ts`.

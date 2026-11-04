@@ -6,7 +6,7 @@ import { ROLE_LABELS } from "@/core/labels";
 import { audienceGroups, targetedTo } from "@/core/school/audience";
 import { parentLinks } from "@/core/school/majority";
 import { notify } from "@/core/notifications";
-import { hasPermission, type PermissionSet } from "@/core/permissions";
+import { hasPermission, internalAccount, withoutExternalAccounts, type PermissionSet } from "@/core/permissions";
 import { ValidationError } from "@/modules/verwaltung/users";
 
 export const canWrite = (p: PermissionSet) => hasPermission(p, "news.write");
@@ -130,11 +130,11 @@ async function writeTargets(db: Db, postId: string, input: PostInput) {
   if (rows.length) await db.insert(newsTargets).values(rows);
 }
 
-/** Empfänger eines Beitrags (für den Gong): Rollen, Gruppenmitglieder + Eltern von Schüler:innen darin. */
+/** Empfänger eines Beitrags (für den Gong): Rollen, Gruppenmitglieder + Eltern von Schüler:innen darin – ohne externe Leitungen (GT-16). */
 export async function resolveAudience(db: Db, input: Pick<PostInput, "targetRoles" | "targetGroupIds">): Promise<string[]> {
   const roles = input.targetRoles ?? [];
   const gids = input.targetGroupIds ?? [];
-  const active = eq(users.status, "active");
+  const active = and(eq(users.status, "active"), internalAccount());
   if (roles.length === 0 && gids.length === 0) {
     return (await db.select({ id: users.id }).from(users).where(active)).map((r) => r.id);
   }
@@ -146,7 +146,7 @@ export async function resolveAudience(db: Db, input: Pick<PostInput, "targetRole
     const parents = await parentLinks(db, members.map((m) => m.id), "inform");
     parents.forEach((p) => ids.add(p.parentId));
   }
-  return [...ids];
+  return withoutExternalAccounts(db, [...ids]);
 }
 
 export async function createPost(db: Db, actor: PermissionSet, input: PostInput): Promise<string> {

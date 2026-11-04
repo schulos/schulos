@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, type SQL } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
 import { grants, groupMembers, users, type Role } from "@/core/db/schema";
 import { cachedSecuritySettings, isDemoDb } from "@/core/settings";
@@ -151,6 +151,34 @@ export function moduleAllowed(set: Pick<PermissionSet, "external">, moduleId: st
 /** GT-15: API-Pfad für externe Konten erlaubt? */
 export function externalApiAllowed(pathname: string): boolean {
   return EXTERNAL_API_PREFIXES.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`)));
+}
+
+/**
+ * GT-16 (Projektleitung 04.11.2026): SQL-Bedingung „kein externes Konto“ (`users.expires_on` leer) – die EINE Stelle für
+ * Personen- und Empfängerauswahlen außerhalb des Ganztags (Adressbuch, Messenger, Ansprechpersonen, Raumverantwortliche,
+ * Umfrage- und News-Zielgruppen). Externe Leitungen können dort nichts lesen; im Ganztag selbst bleiben sie sichtbar.
+ * Zählungen und Statistiken des Personals bleiben unverändert.
+ */
+export function internalAccount(): SQL {
+  return isNull(users.expiresOn);
+}
+
+/** GT-16: Externe Konten aus einer Liste von Konto-IDs entfernen (Reihenfolge bleibt). */
+export async function withoutExternalAccounts(db: Db, userIds: readonly string[]): Promise<string[]> {
+  if (userIds.length === 0) return [...userIds];
+  const external = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(inArray(users.id, [...new Set(userIds)]), isNotNull(users.expiresOn)));
+  if (external.length === 0) return [...userIds];
+  const skip = new Set(external.map((u) => u.id));
+  return userIds.filter((id) => !skip.has(id));
+}
+
+/** GT-16: Ist das Konto extern (befristet)? Für Prüfungen beim Anlegen von Chats und Zuordnungen. */
+export async function isExternalAccount(db: Db, userId: string): Promise<boolean> {
+  const [u] = await db.select({ expiresOn: users.expiresOn }).from(users).where(eq(users.id, userId));
+  return !!u && u.expiresOn !== null;
 }
 
 /** Reine Auswertung – ohne DB, damit sie vollständig unit-testbar ist. */

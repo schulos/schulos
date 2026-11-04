@@ -83,7 +83,7 @@ test("GT-14: Lehrkraft ohne Recht sieht die Seite nicht; Eltern finden die Handb
 // GT-15 (Projektleitung 04.11.2026): Die externe Leitung sieht nur den Ganztag – ihr Angebot und die Anwesenheitsliste. Adressbuch,
 // Messenger, Raumfinder und API-Routen anderer Module sind serverseitig zu (404/403), nicht nur aus der Navigation verschwunden.
 // Die E2E-DB ist eine Demo-Instanz: 2FA ist dort freiwillig, das Startpasswort wird beim ersten Anmelden ersetzt.
-test("GT-15: externe Leitung sieht nur den Ganztag; Adressbuch und Messenger gesperrt", async ({ browser }) => {
+test("GT-15/16: externe Leitung sieht nur den Ganztag; Adressbuch und Messenger gesperrt und ohne sie", async ({ browser }) => {
   test.setTimeout(120_000);
   const admin = await browser.newContext();
   const office = await admin.newPage();
@@ -100,6 +100,16 @@ test("GT-15: externe Leitung sieht nur den Ganztag; Adressbuch und Messenger ges
   const creds = office.getByRole("status", { name: "Startdaten" });
   await expect(creds).toContainText("Benutzername: extern.rechtetest");
   const password = (await creds.locator(".font-mono").nth(1).innerText()).trim();
+  // GT-16: für Beschäftigte steht die externe Leitung weder im Adressbuch noch in der Messenger-Empfängerwahl – im Ganztag schon
+  await office.goto("/adressbuch?q=Rechtetest");
+  await expect(office.getByText("Nichts gefunden für „Rechtetest“")).toBeVisible();
+  await office.goto("/messenger");
+  await office.getByRole("button", { name: "Neuer Chat" }).click();
+  await office.getByLabel("Person suchen").fill("Rechtetest");
+  await expect(office.getByText("Niemand gefunden.")).toBeVisible();
+  await office.keyboard.press("Escape");
+  await office.goto("/ganztag/extern");
+  await expect(office.getByRole("list", { name: "Externe Leitungen" }).getByRole("listitem").filter({ hasText: "E2E Rechteverein" })).toContainText("AG Schülerzeitung");
   await admin.close();
 
   const ctx = await browser.newContext();
