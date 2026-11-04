@@ -1,7 +1,7 @@
 import { getDb } from "@/core/db/client";
 import { apiUser, sessionStillValid } from "@/core/auth/session";
 import { unreadCount } from "@/core/notifications";
-import { liveStream } from "@/core/notifications/stream";
+import { externalLiveEvent, liveStream } from "@/core/notifications/stream";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +16,8 @@ export async function GET(req: Request) {
     // SEC-04: Sitzung bei jedem Ping neu prüfen (gesperrt, Passwort/2FA zurückgesetzt, abgemeldet → Strom endet)
     stillValid: () => sessionStillValid(req, userId),
     signal: req.signal,
+    // GT-15: externe Ganztags-Leitungen bekommen nur den Gong, keine Chat-/Tafel-/Text-Ereignisse
+    ...(me.perms.external ? { only: externalLiveEvent } : {}),
   });
 
   return new Response(stream, {

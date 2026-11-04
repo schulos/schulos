@@ -8,6 +8,7 @@ import { ROLE_LABELS } from "@/core/labels";
 import { photoUrl } from "@/core/privacy/profilbild";
 import { isSelfResponsible } from "@/core/school/majority";
 import { buildNav, isEnabled, loadModuleStates, type NavGroup } from "@/core/modules/registry";
+import { moduleAllowed } from "@/core/permissions";
 import { readModuleSettings } from "@/core/modules/settings";
 import { MODULES } from "@/modules";
 import { contextPagesFor } from "@/modules/hilfe/context";
@@ -61,7 +62,8 @@ export const getShellData = cache(async ({ user, perms }: CurrentUser): Promise<
     ...(classLeads.length ? [`Klassenleitung ${classLeads.join(", ")}`] : []),
   ];
   const detail = extras.length ? [roleLabel, ...extras].join(" · ") : undefined;
-  const help = MODULES.some((m) => m.id === "hilfe" && isEnabled(m, states));
+  // GT-15: externe Konten ohne Handbuch (Modul `hilfe` ist für sie zu)
+  const help = MODULES.some((m) => m.id === "hilfe" && isEnabled(m, states) && moduleAllowed(perms, m.id));
   const contextPages = contextPagesFor(user.role);
   const seen = help ? await visibleSlugs(db, perms, Object.values(contextPages)) : new Set<string>();
   const helpPages = Object.fromEntries(Object.entries(contextPages).filter(([, slug]) => seen.has(slug)));

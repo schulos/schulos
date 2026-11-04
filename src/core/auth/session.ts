@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { getDb } from "@/core/db/client";
 import type { User } from "@/core/db/schema";
-import { accessBlocked, assertPermission, loadPermissions, type PermissionContext, type PermissionSet } from "@/core/permissions";
+import { accessBlocked, assertPermission, externalApiAllowed, loadPermissions, type PermissionContext, type PermissionSet } from "@/core/permissions";
 import { externalAccessFor } from "@/core/device-certs/service";
 import { DENY_TEXT } from "@/core/device-certs/policy";
 import { getAuth } from "./auth";
@@ -76,6 +76,8 @@ export async function apiUser(req: Request): Promise<{ userId: string; perms: Pe
   const blocked = accessBlocked(perms);
   if (blocked === "gesperrt") return Response.json({ error: "Konto gesperrt" }, { status: 401 });
   if (blocked) return Response.json({ error: blocked === "passwort" ? "Erst das Passwort ändern" : "Erst die Zwei-Faktor-Anmeldung einrichten" }, { status: 403 });
+  // GT-15: externe Konten nur an die API-Routen ihrer Bereiche (Ganztag, Gong, Profilbild, eigener Export) – alles andere 403
+  if (perms.external && !externalApiAllowed(new URL(req.url).pathname)) return Response.json({ error: "Für externe Konten nicht freigegeben" }, { status: 403 });
   return { userId: session.user.id, perms };
 }
 

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { cache } from "react";
 import type { Db } from "@/core/db/client";
 import { appSettings, grants, moduleStates, type Role } from "@/core/db/schema";
-import { hasExplicitGrant, hasPermission, type PermissionSet } from "@/core/permissions";
+import { hasExplicitGrant, hasPermission, moduleAllowed, type PermissionSet } from "@/core/permissions";
 import { NAV_SECTIONS, NAV_SECTION_LABELS, type ModuleManifest, type NavSection } from "./types";
 
 /** Prüft die Manifeste auf Konsistenz; wirft mit allen Fehlern auf einmal. */
@@ -92,7 +92,7 @@ export function buildNav(
     section,
     label: NAV_SECTION_LABELS[section],
     items: sorted
-      .filter((m) => m.section === section && isEnabled(m, states))
+      .filter((m) => m.section === section && isEnabled(m, states) && moduleAllowed(perms, m.id))
       .flatMap((m) =>
         (m.nav ?? [])
           .filter((n) => {

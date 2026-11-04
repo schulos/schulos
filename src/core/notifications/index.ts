@@ -1,7 +1,8 @@
 // „Gong": Benachrichtigungen speichern, lesen, als gelesen markieren – und live verteilen.
-import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Db } from "@/core/db/client";
-import { notifications } from "@/core/db/schema";
+import { notifications, users } from "@/core/db/schema";
+import { EXTERNAL_NOTIFY_MODULES } from "@/core/permissions";
 import { publish, type GongItem } from "./bus";
 
 export type { GongItem } from "./bus";
@@ -33,9 +34,24 @@ export async function unreadCount(db: Db, userId: string): Promise<number> {
   return r?.n ?? 0;
 }
 
+/**
+ * GT-15: Externe Konten (befristet, `users.expires_on`) bekommen nur Benachrichtigungen aus ihren Modulen (Ganztag) und
+ * Kontohinweise – News, Aufgaben, Termine usw. an „alle Beschäftigten“ erreichen sie nicht.
+ */
+async function withoutExternal(db: Db, userIds: string[], moduleId: string): Promise<string[]> {
+  if (userIds.length === 0 || EXTERNAL_NOTIFY_MODULES.includes(moduleId)) return userIds;
+  const external = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(inArray(users.id, userIds), isNotNull(users.expiresOn)));
+  if (external.length === 0) return userIds;
+  const skip = new Set(external.map((u) => u.id));
+  return userIds.filter((id) => !skip.has(id));
+}
+
 /** Benachrichtigt mehrere Personen (doppelte IDs werden ignoriert) und pusht live. */
 export async function notify(db: Db, userIds: readonly string[], n: NotifyInput): Promise<number> {
-  const unique = [...new Set(userIds)];
+  const unique = await withoutExternal(db, [...new Set(userIds)], n.moduleId);
   if (unique.length === 0) return 0;
   const rows = await db
     .insert(notifications)
@@ -57,6 +73,8 @@ export async function notifyBundled(
   opts: { moduleId: string; bundleKey: string },
 ): Promise<number> {
   const byUser = new Map(items.map((i) => [i.userId, i]));
+  const allowed = new Set(await withoutExternal(db, [...byUser.keys()], opts.moduleId));
+  for (const id of [...byUser.keys()]) if (!allowed.has(id)) byUser.delete(id);
   if (byUser.size === 0) return 0;
   const now = new Date();
   const rows = await db
